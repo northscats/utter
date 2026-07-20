@@ -49,6 +49,9 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 .btn-test{background:#f0f3f5;color:var(--ink);border:1px solid var(--line)}
 .btn-test:hover{background:#e2e8ec}
 .btn-test:disabled{opacity:.55;cursor:default}
+.btn-sync{background:#eef6f0;color:var(--ok);border:1px solid #b8dfc6}
+.btn-sync:hover{background:#ddf0e4}
+.btn-sync:disabled{opacity:.55;cursor:default}
 .btn-danger{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
 .btn-danger:hover{background:#f7d0cb}
 .form-actions{margin-top:18px;display:flex;gap:10px;align-items:center}
@@ -152,12 +155,20 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         <button class="btn btn-test" type="button" id="btn-test" onclick="testImap()">
           Тестировать
         </button>
+        <button class="btn btn-sync" type="button" id="btn-sync" onclick="syncImap()">
+          ↓ Синхронизировать
+        </button>
       </div>
     </form>
 
     <div class="status-row" id="test-result" style="display:none">
       <span class="dot" id="test-dot"></span>
       <span id="test-msg"></span>
+    </div>
+
+    <div class="status-row" id="sync-result" style="display:none">
+      <span class="dot" id="sync-dot"></span>
+      <span id="sync-msg"></span>
     </div>
 
     <div class="status-row" id="status-idle">
@@ -279,6 +290,38 @@ function testImap() {
     .finally(() => {
       btn.disabled = false;
       btn.textContent = 'Тестировать';
+    });
+}
+
+function syncImap() {
+  const btn = document.getElementById('btn-sync');
+  const result = document.getElementById('sync-result');
+  const idle = document.getElementById('status-idle');
+  const dot = document.getElementById('sync-dot');
+  const msg = document.getElementById('sync-msg');
+
+  btn.disabled = true;
+  btn.textContent = 'Синхронизация…';
+  result.style.display = 'none';
+  idle.style.display = 'none';
+
+  fetch('/settings/sync-imap', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      dot.className = 'dot ' + (d.ok ? 'dot-ok' : 'dot-bad');
+      msg.textContent = d.msg;
+      msg.style.color = d.ok ? 'var(--ok)' : 'var(--bad)';
+      result.style.display = 'flex';
+    })
+    .catch(() => {
+      dot.className = 'dot dot-bad';
+      msg.textContent = 'Не удалось выполнить запрос';
+      msg.style.color = 'var(--bad)';
+      result.style.display = 'flex';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '↓ Синхронизировать';
     });
 }
 </script>

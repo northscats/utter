@@ -2,6 +2,7 @@
 """ОСВ Дашборд — веб-приложение с PostgreSQL, авторизацией и мультипредприятием."""
 import json
 import os
+from datetime import datetime
 import re
 import time
 import traceback
@@ -835,6 +836,195 @@ def settings_test_imap():
         return jsonify(ok=False, msg=f'Сетевая ошибка: {e}')
     except Exception as e:
         return jsonify(ok=False, msg=f'Ошибка: {e}')
+
+
+@app.route('/settings/sync-imap', methods=['POST'])
+@login_required
+def settings_sync_imap():
+    """Ручная синхронизация: смотрим НЕПРОЧИТАННЫЕ письма, забираем вложения,
+    распределяем по предприятиям согласно правилам маршрутизации."""
+    import imaplib, email, ssl, fnmatch, tempfile, shutil
+    from email.header import decode_header as _dh
+    from flask import jsonify
+
+    def _decode(val):
+        """Декодирует RFC-2047 строку в unicode."""
+        if val is None:
+            return ''
+        parts = []
+        for chunk, charset in _dh(val):
+            if isinstance(chunk, bytes):
+                parts.append(chunk.decode(charset or 'utf-8', errors='replace'))
+            else:
+                parts.append(chunk)
+        return ''.join(parts)
+
+    host     = Setting.get('imap_host', '').strip()
+    port_str = Setting.get('imap_port', '993').strip()
+    login    = Setting.get('imap_login', '').strip()
+    password = Setting.get('imap_password', '').strip()
+    folder   = Setting.get('imap_folder', 'INBOX').strip() or 'INBOX'
+
+    if not host or not login or not password:
+        return jsonify(ok=False, msg='IMAP не настроен: заполните хост, логин и пароль и сохраните.')
+
+    try:
+        port_int = int(port_str)
+    except ValueError:
+        return jsonify(ok=False, msg=f'Неверный порт: {port_str}')
+
+    rules = EmailRule.query.order_by(EmailRule.id).all()
+
+    def _match_rule(rule, sender, subject):
+        if rule.sender_pattern and not fnmatch.fnmatch(sender.lower(),
+                                                        rule.sender_pattern.lower()):
+            return False
+        if rule.subject_pattern and not fnmatch.fnmatch(subject.lower(),
+                                                         rule.subject_pattern.lower()):
+            return False
+        return True
+
+    stats = dict(emails_checked=0, emails_matched=0,
+                 files_processed=0, files_skipped=0,
+                 companies_updated=set(), errors=[])
+
+    tmp_root = tempfile.mkdtemp(prefix='imap_sync_')
+    try:
+        ctx = ssl.create_default_context()
+        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx) as M:
+            M.login(login, password)
+            status, _ = M.select(folder)
+            if status != 'OK':
+                return jsonify(ok=False, msg=f'Папка «{folder}» не найдена')
+
+            _, uid_list = M.search(None, 'UNSEEN')
+            uids = uid_list[0].split() if uid_list and uid_list[0] else []
+            stats['emails_checked'] = len(uids)
+
+            for uid in uids:
+                _, data = M.fetch(uid, '(RFC822)')
+                raw = data[0][1] if data and data[0] else None
+                if not raw:
+                    continue
+                msg = email.message_from_bytes(raw)
+                sender  = _decode(msg.get('From', ''))
+                subject = _decode(msg.get('Subject', ''))
+
+                # Ищем подходящее правило
+                matched_company_id = None
+                for rule in rules:
+                    if _match_rule(rule, sender, subject):
+                        matched_company_id = rule.company_id
+                        break
+
+                if matched_company_id is None:
+                    # Письмо не соответствует ни одному правилу — пропускаем,
+                    # но помечаем прочитанным чтобы не мешало при следующем запуске
+                    M.store(uid, '+FLAGS', '\\Seen')
+                    continue
+
+                stats['emails_matched'] += 1
+                msg_tmp = os.path.join(tmp_root, uid.decode())
+                os.makedirs(msg_tmp, exist_ok=True)
+
+                # Скачиваем все подходящие вложения
+                attached_paths = []
+                for part in msg.walk():
+                    ct = part.get_content_type()
+                    fname_raw = part.get_filename()
+                    if not fname_raw:
+                        continue
+                    fname = _decode(fname_raw)
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext not in ('.xls', '.xlsx', '.zip'):
+                        continue
+                    payload = part.get_payload(decode=True)
+                    if not payload:
+                        continue
+                    dest = os.path.join(msg_tmp, fname)
+                    with open(dest, 'wb') as fh:
+                        fh.write(payload)
+                    attached_paths.append(dest)
+
+                if not attached_paths:
+                    M.store(uid, '+FLAGS', '\\Seen')
+                    continue
+
+                # Обрабатываем каждое вложение
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                company_id = matched_company_id
+                for path in attached_paths:
+                    ext = os.path.splitext(path)[1].lower()
+                    try:
+                        if ext == '.zip':
+                            successes, errors_zip = parse_zip(path)
+                            for e in errors_zip:
+                                stats['errors'].append(f"{fname}: {e['error']}")
+                            for item in successes:
+                                dt  = item['date']
+                                acc = item['parsed']['acc']
+                                top = item['parsed']['top']
+                                row = DailyRow.query.filter_by(
+                                    company_id=company_id, date=dt, acc=acc).first()
+                                if row is None:
+                                    row = DailyRow(company_id=company_id, date=dt, acc=acc)
+                                    db.session.add(row)
+                                row.snd = top['snd']; row.snk = top['snk']
+                                row.obd = top['obd']; row.obk = top['obk']
+                                row.skd = top['skd']; row.skk = top['skk']
+                            db.session.commit()
+                            if successes:
+                                _rebuild_dashboard_with_daily(company_id)
+                                stats['companies_updated'].add(company_id)
+                            stats['files_processed'] += 1
+                        else:  # XLS / XLSX
+                            save_dir = os.path.join(UPLOADS, str(company_id), ts)
+                            os.makedirs(save_dir, exist_ok=True)
+                            dest = os.path.join(save_dir, os.path.basename(path))
+                            shutil.copy2(path, dest)
+                            _upsert_daily_rows(company_id, [dest])
+                            db.session.commit()
+                            _rebuild_dashboard_with_daily(company_id)
+                            stats['companies_updated'].add(company_id)
+                            stats['files_processed'] += 1
+                    except Exception as exc:
+                        stats['errors'].append(f"{os.path.basename(path)}: {exc}")
+                        stats['files_skipped'] += 1
+
+                M.store(uid, '+FLAGS', '\\Seen')
+
+            M.logout()
+    except imaplib.IMAP4.error as e:
+        return jsonify(ok=False, msg=f'Ошибка IMAP-аутентификации: {e}')
+    except OSError as e:
+        return jsonify(ok=False, msg=f'Сетевая ошибка: {e}')
+    except Exception as e:
+        return jsonify(ok=False, msg=f'Ошибка: {e}')
+    finally:
+        shutil.rmtree(tmp_root, ignore_errors=True)
+
+    # Формируем итоговое сообщение
+    upd = len(stats['companies_updated'])
+    lines = []
+    if stats['emails_checked'] == 0:
+        lines.append('Непрочитанных писем нет')
+    else:
+        lines.append(f"Писем проверено: {stats['emails_checked']}, "
+                     f"совпало с правилами: {stats['emails_matched']}")
+    if stats['files_processed']:
+        lines.append(f"Файлов обработано: {stats['files_processed']}, "
+                     f"предприятий обновлено: {upd}")
+    if stats['files_skipped']:
+        lines.append(f"Пропущено с ошибкой: {stats['files_skipped']}")
+    for err in stats['errors'][:3]:
+        lines.append(f"  ⚠ {err}")
+    if len(stats['errors']) > 3:
+        lines.append(f"  … и ещё {len(stats['errors'])-3} ошибок")
+
+    ok = not stats['errors'] or stats['files_processed'] > 0
+    return jsonify(ok=ok, msg=' | '.join(lines),
+                   processed=stats['files_processed'],
+                   updated=upd)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
