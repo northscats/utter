@@ -121,9 +121,9 @@ tr:last-child td{border-bottom:0}
     </form>
   </div>
 
-  <!-- Загрузка новых файлов -->
+  <!-- Загрузка месячных файлов -->
   <div class="card">
-    <h3>Загрузить новый период</h3>
+    <h3>Загрузить месячный / квартальный период</h3>
     <form method="post" action="/company/{{ company.id }}/upload" enctype="multipart/form-data" id="frm">
       <label class="drop" id="drop">
         <b>Перетащите сюда .xls/.xlsx файлы</b> или нажмите, чтобы выбрать<br>
@@ -136,6 +136,37 @@ tr:last-child td{border-bottom:0}
     </form>
     <div class="hint">Как выгрузить из 1С: Отчеты → ОСВ по счету → группировка «По субсчетам» + аналитики,
       периодичность «По дням» → «Сохранить как…» → «Лист Excel (.xls)».</div>
+  </div>
+
+  <!-- Загрузка суточного ZIP-архива -->
+  <div class="card">
+    <h3>Загрузить суточный архив (ZIP)</h3>
+
+    {% if daily_stats %}
+    <div style="background:#f0f6fb;border:1px solid #c5dff0;border-radius:8px;
+                padding:12px 16px;margin-bottom:18px;font-size:13px;color:#1b2733">
+      <b>Суточные данные в базе:</b>
+      {{ daily_stats.date_from }} – {{ daily_stats.date_to }}
+      · <b>{{ daily_stats.days }}</b> дн.
+      · счета: {{ daily_stats.accs|join(', ') }}
+    </div>
+    {% endif %}
+
+    <form method="post" action="/company/{{ company.id }}/upload-zip"
+          enctype="multipart/form-data" id="frm-zip">
+      <label class="drop" id="drop-zip">
+        <b>Перетащите ZIP-архив</b> или нажмите, чтобы выбрать<br>
+        <span style="font-size:12px">Архив с суточными ОСВ (1С выгружает папку из 14 файлов .xls в .zip).
+        Повторная загрузка того же дня — перезапись, без дублей.</span>
+        <input type="file" name="zipfile" id="zipfile" accept=".zip">
+      </label>
+      <div class="filelist" id="flist-zip">Файл не выбран</div>
+      <button class="btn btn-submit" id="go-zip" type="submit" disabled>
+        Загрузить и обновить дашборд
+      </button>
+    </form>
+    <div class="hint">После загрузки дашборд пересобирается автоматически —
+      историческая база (месячные ОСВ) + новые суточные данные.</div>
   </div>
 
   <!-- История загрузок -->
@@ -191,6 +222,7 @@ tr:last-child td{border-bottom:0}
 
 </main>
 <script>
+// Месячные файлы
 const drop=document.getElementById('drop'),inp=document.getElementById('files'),
       list=document.getElementById('flist'),go=document.getElementById('go');
 function show(){
@@ -203,6 +235,20 @@ inp.addEventListener('change',show);
 ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
 drop.addEventListener('drop',ev=>{inp.files=ev.dataTransfer.files;show();});
 document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
+
+// ZIP-архив
+const dropZ=document.getElementById('drop-zip'),inpZ=document.getElementById('zipfile'),
+      listZ=document.getElementById('flist-zip'),goZ=document.getElementById('go-zip');
+function showZ(){
+  const f=inpZ.files[0];
+  listZ.textContent=f?('Выбран: '+f.name+' ('+Math.round(f.size/1024)+' КБ)'):'Файл не выбран';
+  goZ.disabled=!f;
+}
+inpZ.addEventListener('change',showZ);
+['dragover','dragenter'].forEach(e=>dropZ.addEventListener(e,ev=>{ev.preventDefault();dropZ.classList.add('on')}));
+['dragleave','drop'].forEach(e=>dropZ.addEventListener(e,ev=>{ev.preventDefault();dropZ.classList.remove('on')}));
+dropZ.addEventListener('drop',ev=>{inpZ.files=ev.dataTransfer.files;showZ();});
+document.getElementById('frm-zip').addEventListener('submit',()=>{goZ.disabled=true;goZ.textContent='Загружаю…'});
 </script>
 </body>
 </html>

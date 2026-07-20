@@ -61,3 +61,28 @@ class Upload(db.Model):
             return json.loads(self.accounts_loaded)
         except Exception:
             return []
+
+
+class DailyRow(db.Model):
+    """Суточные данные из ZIP-архивов: один счёт, один день."""
+    __tablename__ = 'daily_rows'
+    __table_args__ = (
+        db.UniqueConstraint('company_id', 'date', 'acc', name='uq_daily_company_date_acc'),
+    )
+
+    id         = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)
+    date       = db.Column(db.Date, nullable=False)          # дата дня
+    acc        = db.Column(db.String(10), nullable=False)    # номер счёта ('51', '62', …)
+
+    # СН Дт / Кт (сальдо начало дня)
+    snd = db.Column(db.Float, default=0.0)
+    snk = db.Column(db.Float, default=0.0)
+    # Обороты Дт / Кт за день
+    obd = db.Column(db.Float, default=0.0)
+    obk = db.Column(db.Float, default=0.0)
+    # СК Дт / Кт (сальдо конец дня)
+    skd = db.Column(db.Float, default=0.0)
+    skk = db.Column(db.Float, default=0.0)
+
+    uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)

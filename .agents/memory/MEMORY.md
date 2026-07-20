@@ -1,0 +1,1 @@
+- [Daily ZIP pipeline](daily-zip-pipeline.md) — суточные ZIP → DailyRow в БД, дашборд пересобирается слиянием месячных XLS + суточных записей

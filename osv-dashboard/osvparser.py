@@ -6,6 +6,7 @@
   - .xls  (легаси BIFF, типовая выгрузка 1С) — через xlrd (formatting_info=True,
            уровни группировки строк берутся из rowinfo_map)
   - .xlsx — через openpyxl (уровни из row_dimensions[].outlineLevel)
+  - .zip  — архив с суточными XLS-файлами (см. parse_zip)
 
 Ядро одно: получает список строк (значения + outline level) и восстанавливает
 иерархию аналитик, отделяя строки "Обороты за ДД.ММ.ГГ" (динамика по датам).
@@ -16,10 +17,24 @@
 """
 import re
 import os
+import zipfile
+import tempfile
+from datetime import date as _date
 
 RE_DATE = re.compile(r'Обороты за (\d\d)\.(\d\d)\.(\d\d)')
 RE_ACC  = re.compile(r'^\d{2}(\.\d{2})?$')
 RE_ORG  = re.compile(r'(?:Организация|Организации|Предприятие)[:\s]+(.+)', re.IGNORECASE)
+
+# Для извлечения даты из шапки суточных файлов: «за 5 июля 2026 г.»
+_MONTHS_RU = {
+    'января': 1, 'февраля': 2, 'марта': 3, 'апреля': 4,
+    'мая': 5, 'июня': 6, 'июля': 7, 'августа': 8,
+    'сентября': 9, 'октября': 10, 'ноября': 11, 'декабря': 12,
+}
+RE_DAILY_HDR = re.compile(
+    r'за\s+(\d{1,2})\s+(' + '|'.join(_MONTHS_RU) + r')\s+(\d{4})',
+    re.IGNORECASE,
+)
 
 
 def _num(v):
@@ -36,7 +51,7 @@ def _num(v):
 
 # ---------------------------------------------------------------- backends
 def _read_xls(path):
-    """-> list[(label, outline_level, [6 чисел])], meta"""
+    """-> list[(label, outline_level, [6 чисел])]"""
     import xlrd
     book = xlrd.open_workbook(path, formatting_info=True)
     sh = book.sheet_by_index(0)
@@ -74,7 +89,7 @@ def read_rows(path):
     raise ValueError(f'Неподдерживаемый формат файла: {ext}')
 
 
-# ---------------------------------------------------------------- извлечение названия организации
+# ---------------------------------------------------------------- название организации из шапки
 def extract_org_name(path):
     """
     Пытается извлечь название организации из шапки ОСВ-файла 1С.
@@ -94,6 +109,69 @@ def extract_org_name(path):
     except Exception:
         pass
     return None
+
+
+# ---------------------------------------------------------------- дата суточного файла из шапки
+def extract_daily_date(path):
+    """
+    Извлекает дату из шапки суточного ОСВ-файла.
+    Строка вида «Оборотно-сальдовая ведомость по счету 51 за 5 июля 2026 г.»
+    Возвращает datetime.date или None.
+    """
+    try:
+        rows = read_rows(path)
+        for label, _, _ in rows[:5]:
+            s = str(label or '').strip()
+            m = RE_DAILY_HDR.search(s)
+            if m:
+                d, mon_name, y = int(m.group(1)), m.group(2).lower(), int(m.group(3))
+                mon = _MONTHS_RU.get(mon_name)
+                if mon:
+                    return _date(y, mon, d)
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------- парсинг ZIP-архива суточных ОСВ
+def parse_zip(zip_path):
+    """
+    Распаковывает ZIP-архив с суточными ОСВ и парсит каждый XLS.
+
+    Возвращает кортеж (successes, errors):
+      successes — list of dict {date: datetime.date, parsed: результат parse_osv()}
+      errors    — list of dict {file: имя файла, error: сообщение}
+    """
+    successes, errors = [], []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(tmp)
+        except zipfile.BadZipFile as e:
+            return [], [{'file': os.path.basename(zip_path),
+                         'error': f'Не удалось открыть ZIP: {e}'}]
+
+        xls_files = []
+        for root, _dirs, files in os.walk(tmp):
+            for fname in sorted(files):
+                if fname.lower().endswith(('.xls', '.xlsx')):
+                    xls_files.append(os.path.join(root, fname))
+
+        for fpath in xls_files:
+            fname = os.path.basename(fpath)
+            dt = extract_daily_date(fpath)
+            if dt is None:
+                errors.append({'file': fname,
+                               'error': 'Не удалось определить дату из шапки'})
+                continue
+            try:
+                parsed = parse_osv(fpath)
+                successes.append({'date': dt, 'parsed': parsed})
+            except Exception as e:
+                errors.append({'file': fname, 'error': str(e)})
+
+    return successes, errors
 
 
 # ---------------------------------------------------------------- ядро
@@ -214,6 +292,6 @@ def parse_many(paths):
                 st += '; ' + '; '.join(res['warnings'])
             audit.append(dict(file=name, acc=res['acc'], status=st,
                               ok=res['check_ok'] is not False))
-        except Exception as e:  # noqa: BLE001 — прототип: показываем причину
+        except Exception as e:  # noqa: BLE001
             audit.append(dict(file=name, acc='?', status=f'ОШИБКА: {e}', ok=False))
     return data, audit

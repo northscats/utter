@@ -14,8 +14,8 @@ from flask_login import (LoginManager, current_user, login_required,
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import Company, Upload, User, db
-from osvparser import extract_org_name, parse_many
+from database import Company, DailyRow, Upload, User, db
+from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 
 # ---------------------------------------------------------------------------
@@ -297,9 +297,9 @@ def company_detail(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
-    audit = request.args.get('audit')  # флаг после редиректа
     return render_template('company.html', company=company, uploads=uploads,
-                           audit=None, error=None)
+                           audit=None, error=None,
+                           daily_stats=_daily_stats(company_id))
 
 
 # ---------------------------------------------------------------------------
@@ -311,29 +311,26 @@ def company_upload(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     files = [f for f in request.files.getlist('files') if f.filename]
 
+    def _err(msg, audit=None):
+        ups = Upload.query.filter_by(company_id=company_id)\
+                          .order_by(Upload.uploaded_at.desc()).all()
+        return render_template('company.html', company=company, uploads=ups,
+                               audit=audit, error=msg,
+                               daily_stats=_daily_stats(company_id))
+
     if not files:
-        uploads = Upload.query.filter_by(company_id=company_id)\
-                              .order_by(Upload.uploaded_at.desc()).all()
-        return render_template('company.html', company=company, uploads=uploads,
-                               audit=None, error='Файлы не выбраны.')
+        return _err('Файлы не выбраны.')
 
     ts = time.strftime('%Y%m%d_%H%M%S')
     saved = _save_files(files, company_id, ts)
     if not saved:
-        uploads = Upload.query.filter_by(company_id=company_id)\
-                              .order_by(Upload.uploaded_at.desc()).all()
-        return render_template('company.html', company=company, uploads=uploads,
-                               audit=None, error='Среди загруженных нет .xls/.xlsx файлов.')
+        return _err('Среди загруженных нет .xls/.xlsx файлов.')
 
     back_url = url_for('company_detail', company_id=company_id)
     try:
         record_kwargs, audit = _process_files(saved, company_id, ts, back_url)
         if record_kwargs is None:
-            uploads = Upload.query.filter_by(company_id=company_id)\
-                                  .order_by(Upload.uploaded_at.desc()).all()
-            return render_template('company.html', company=company, uploads=uploads,
-                                   audit=audit,
-                                   error='Ни один файл не удалось разобрать как ОСВ 1С.')
+            return _err('Ни один файл не удалось разобрать как ОСВ 1С.', audit)
 
         upload = Upload(company_id=company_id, uploaded_by=current_user.id,
                         **record_kwargs)
@@ -342,15 +339,13 @@ def company_upload(company_id):
     except Exception as e:
         db.session.rollback()
         traceback.print_exc()
-        uploads = Upload.query.filter_by(company_id=company_id)\
-                              .order_by(Upload.uploaded_at.desc()).all()
-        return render_template('company.html', company=company, uploads=uploads,
-                               audit=None, error=f'Ошибка обработки: {e}')
+        return _err(f'Ошибка обработки: {e}')
 
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
     return render_template('company.html', company=company, uploads=uploads,
-                           audit=audit, error=None)
+                           audit=audit, error=None,
+                           daily_stats=_daily_stats(company_id))
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +359,198 @@ def dashboard(company_id, name):
         abort(404)
     out_dir = os.path.join(OUTPUT, str(company_id))
     return send_from_directory(out_dir, name)
+
+
+# ---------------------------------------------------------------------------
+# Загрузка суточного ZIP-архива
+# ---------------------------------------------------------------------------
+def _find_monthly_xls(company_id):
+    """Возвращает пути ко всем XLS-файлам из месячных загрузок компании."""
+    company_dir = os.path.join(UPLOADS, str(company_id))
+    if not os.path.isdir(company_dir):
+        return []
+    paths = []
+    for ts_dir in os.listdir(company_dir):
+        if ts_dir.startswith('zip_'):   # папки ZIP-загрузок пропускаем
+            continue
+        full = os.path.join(company_dir, ts_dir)
+        if not os.path.isdir(full):
+            continue
+        for fname in os.listdir(full):
+            if fname.lower().endswith(('.xls', '.xlsx')):
+                paths.append(os.path.join(full, fname))
+    return paths
+
+
+def _rebuild_dashboard_with_daily(company_id):
+    """
+    Перестраивает дашборд, объединяя:
+      - строки аналитики (rows) из месячных XLS-файлов
+      - временно́й ряд (daily) из месячных файлов + DailyRow из БД
+
+    Возвращает (dataset, audit_list) или (None, audit_list) при ошибке.
+    """
+    monthly_paths = _find_monthly_xls(company_id)
+    if not monthly_paths:
+        return None, [{'file': '—', 'acc': '—',
+                       'status': 'Нет месячных ОСВ — сначала загрузите '
+                                 'квартальную/полугодовую выгрузку', 'ok': False}]
+
+    data, audit = parse_many(monthly_paths)
+    if not data:
+        return None, audit
+
+    # Какие месяцы уже покрыты месячными файлами — чтобы не задваивать
+    monthly_months: dict[str, set[str]] = {}   # acc -> {month, …}
+    for acc, d in data.items():
+        monthly_months[acc] = {e['month'] for e in d['daily']}
+
+    # Добавляем суточные записи из БД для периодов вне месячных файлов
+    daily_db = DailyRow.query.filter_by(company_id=company_id)\
+                             .order_by(DailyRow.date).all()
+    for dr in daily_db:
+        acc = dr.acc
+        month = dr.date.strftime('%Y-%m')
+        # Пропускаем месяцы, которые есть в детальных месячных файлах
+        if acc in monthly_months and month in monthly_months[acc]:
+            continue
+        if acc not in data:
+            # Создаём заглушку счёта с нулевыми rows/top если нет месячных данных
+            data[acc] = dict(acc=acc, period='', dims=[], rows=[], daily=[],
+                             warnings=[], check_ok=None,
+                             top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0))
+        data[acc]['daily'].append(dict(
+            date=dr.date.isoformat(),
+            month=month,
+            path1='', path2='', path3='',
+            obd=dr.obd, obk=dr.obk,
+        ))
+
+    try:
+        dataset = build_dataset(data)
+    except ValueError as e:
+        return None, audit + [{'file': '—', 'acc': '—',
+                                'status': f'Ошибка сборки дашборда: {e}', 'ok': False}]
+    return dataset, audit
+
+
+@app.route('/company/<int:company_id>/upload-zip', methods=['POST'])
+@login_required
+def company_upload_zip(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    zfile = request.files.get('zipfile')
+
+    def _back(error=None, audit=None):
+        uploads = Upload.query.filter_by(company_id=company_id)\
+                              .order_by(Upload.uploaded_at.desc()).all()
+        daily_stats = _daily_stats(company_id)
+        return render_template('company.html', company=company, uploads=uploads,
+                               audit=audit, error=error, daily_stats=daily_stats)
+
+    if not zfile or not zfile.filename:
+        return _back(error='Файл не выбран.')
+    if not zfile.filename.lower().endswith('.zip'):
+        return _back(error='Ожидается ZIP-архив (.zip).')
+
+    # Сохраняем ZIP на диск
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    zip_dir = os.path.join(UPLOADS, str(company_id), f'zip_{ts}')
+    os.makedirs(zip_dir, exist_ok=True)
+    zip_path = os.path.join(zip_dir, 'archive.zip')
+    zfile.save(zip_path)
+
+    # Парсим ZIP
+    successes, errors = parse_zip(zip_path)
+
+    if not successes:
+        msgs = '; '.join(e['error'] for e in errors[:3])
+        return _back(error=f'Не удалось разобрать ни одного файла из архива. {msgs}')
+
+    # Upsert в DailyRow
+    upserted = 0
+    for item in successes:
+        dt    = item['date']
+        acc   = item['parsed']['acc']
+        top   = item['parsed']['top']
+        row = DailyRow.query.filter_by(
+            company_id=company_id, date=dt, acc=acc).first()
+        if row is None:
+            row = DailyRow(company_id=company_id, date=dt, acc=acc)
+            db.session.add(row)
+        row.snd = top['snd']; row.snk = top['snk']
+        row.obd = top['obd']; row.obk = top['obk']
+        row.skd = top['skd']; row.skk = top['skk']
+        upserted += 1
+    db.session.commit()
+
+    # Пересобираем дашборд (месячные данные + новые суточные)
+    back_url = url_for('company_detail', company_id=company_id)
+    dataset, audit = _rebuild_dashboard_with_daily(company_id)
+
+    audit_out = [{'file': e['file'], 'acc': '?',
+                  'status': f'ОШИБКА: {e["error"]}', 'ok': False}
+                 for e in errors]
+
+    if dataset is None:
+        db.session.rollback()
+        return _back(error='Дашборд не построен: ' + (audit[-1]['status'] if audit else ''),
+                     audit=audit_out)
+
+    html = render_dashboard(dataset, back_url=back_url)
+    out_dir = os.path.join(OUTPUT, str(company_id))
+    os.makedirs(out_dir, exist_ok=True)
+    out_name = f'dashboard_{ts}.html'
+    with open(os.path.join(out_dir, out_name), 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    # Диапазон дат из ZIP
+    _MRU = {1:'января',2:'февраля',3:'марта',4:'апреля',5:'мая',6:'июня',
+            7:'июля',8:'августа',9:'сентября',10:'октября',11:'ноября',12:'декабря'}
+    dates = sorted({item['date'] for item in successes})
+    d_from, d_to = dates[0], dates[-1]
+    if d_from == d_to:
+        period_lbl = f'{d_from.day} {_MRU[d_from.month]} {d_from.year}'
+    else:
+        period_lbl = f'{d_from.strftime("%d.%m")}–{d_to.strftime("%d.%m.%Y")}'
+
+    upload = Upload(
+        company_id=company_id,
+        uploaded_by=current_user.id,
+        period_label=period_lbl,
+        accounts_loaded=json.dumps(sorted({item['parsed']['acc'] for item in successes})),
+        closure_status=None,
+        profit_sign='neutral',
+        files_count=upserted,
+        dashboard_file=out_name,
+    )
+    db.session.add(upload)
+    db.session.commit()
+
+    audit_out += [{'file': f'{item["date"]} сч.{item["parsed"]["acc"]}',
+                   'acc': item['parsed']['acc'], 'status': 'добавлен', 'ok': True}
+                  for item in successes]
+
+    uploads = Upload.query.filter_by(company_id=company_id)\
+                          .order_by(Upload.uploaded_at.desc()).all()
+    daily_stats = _daily_stats(company_id)
+    return render_template('company.html', company=company, uploads=uploads,
+                           audit=audit_out, error=None, daily_stats=daily_stats)
+
+
+def _daily_stats(company_id):
+    """Статистика суточных данных для отображения на странице компании."""
+    rows = DailyRow.query.filter_by(company_id=company_id).all()
+    if not rows:
+        return None
+    dates = sorted({r.date for r in rows})
+    accs  = sorted({r.acc  for r in rows})
+    return dict(
+        date_from=dates[0].strftime('%d.%m.%Y'),
+        date_to=dates[-1].strftime('%d.%m.%Y'),
+        days=len(dates),
+        accs=accs,
+        records=len(rows),
+    )
 
 
 # ---------------------------------------------------------------------------
