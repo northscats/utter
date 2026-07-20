@@ -148,20 +148,63 @@ tr:last-child td{border-bottom:0}
   <!-- Переименование предприятия -->
   <div class="card" style="padding:16px 24px">
     <form method="post" action="/company/{{ company.id }}/rename"
-          style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <label style="font-size:13px;font-weight:600;color:#31424f;white-space:nowrap">
         Наименование:
       </label>
       <input type="text" name="name" value="{{ company.name }}"
-             style="flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--line);
+             style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--line);
                     border-radius:7px;font:15px 'Segoe UI',sans-serif;color:var(--ink);outline:none">
       <button type="submit"
               style="background:#f0f3f5;color:var(--ink);border:1px solid var(--line);
-                     border-radius:7px;padding:8px 16px;font:600 13px 'Segoe UI',sans-serif;
+                     border-radius:7px;padding:7px 13px;font:600 12px 'Segoe UI',sans-serif;
                      cursor:pointer;white-space:nowrap">
         Переименовать
       </button>
+      <button type="button" onclick="openDeleteModal()"
+              style="background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3;
+                     border-radius:7px;padding:7px 13px;font:600 12px 'Segoe UI',sans-serif;
+                     cursor:pointer;white-space:nowrap">
+        Удалить предприятие
+      </button>
     </form>
+  </div>
+
+  <!-- Модальное окно подтверждения удаления -->
+  <div id="del-overlay" onclick="closeDeleteModal()"
+       style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;
+              align-items:center;justify-content:center">
+    <div onclick="event.stopPropagation()"
+         style="background:#fff;border-radius:14px;padding:32px 28px;max-width:420px;width:90%;
+                box-shadow:0 8px 40px rgba(0,0,0,.22)">
+      <div style="font-size:32px;margin-bottom:12px;text-align:center">⚠️</div>
+      <h3 style="font-size:17px;font-weight:700;margin-bottom:8px;text-align:center">
+        Удалить предприятие?
+      </h3>
+      <p style="font-size:14px;color:var(--mut);text-align:center;margin-bottom:6px">
+        <strong style="color:var(--ink)">{{ company.name }}</strong>
+      </p>
+      <p style="font-size:13px;color:var(--mut);text-align:center;margin-bottom:24px;line-height:1.5">
+        Будут удалены все загруженные файлы, суточные данные,
+        история и дашборд. Действие необратимо.
+      </p>
+      <div style="display:flex;gap:10px;justify-content:center">
+        <button onclick="closeDeleteModal()"
+                style="background:#f0f3f5;color:var(--ink);border:1px solid var(--line);
+                       border-radius:8px;padding:10px 22px;font:600 14px 'Segoe UI',sans-serif;
+                       cursor:pointer">
+          Отмена
+        </button>
+        <form method="post" action="/company/{{ company.id }}/delete" style="margin:0">
+          <button id="del-confirm" type="submit" disabled
+                  style="background:#bf3222;color:#fff;border:0;border-radius:8px;
+                         padding:10px 22px;font:600 14px 'Segoe UI',sans-serif;
+                         cursor:not-allowed;opacity:.45;min-width:150px">
+            Да, уверен (<span id="del-timer">7</span>)
+          </button>
+        </form>
+      </div>
+    </div>
   </div>
 
   <!-- Временна́я линейка суточных данных -->
@@ -290,6 +333,38 @@ inp.addEventListener('change',function(){
 });
 document.getElementById('frm').addEventListener('submit',function(){
   go.disabled=true;go.textContent='Загружаю…';
+});
+
+// --- Модалка удаления ---
+let _delTimer = null;
+function openDeleteModal() {
+  const overlay = document.getElementById('del-overlay');
+  const btn     = document.getElementById('del-confirm');
+  const counter = document.getElementById('del-timer');
+  overlay.style.display = 'flex';
+  btn.disabled  = true;
+  btn.style.opacity  = '.45';
+  btn.style.cursor   = 'not-allowed';
+  let sec = 7;
+  counter.textContent = sec;
+  _delTimer = setInterval(function() {
+    sec--;
+    counter.textContent = sec;
+    if (sec <= 0) {
+      clearInterval(_delTimer);
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor  = 'pointer';
+      btn.innerHTML = 'Да, уверен';
+    }
+  }, 1000);
+}
+function closeDeleteModal() {
+  document.getElementById('del-overlay').style.display = 'none';
+  clearInterval(_delTimer);
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') closeDeleteModal();
 });
 </script>
 </body>

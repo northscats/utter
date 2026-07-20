@@ -681,6 +681,30 @@ def company_rename(company_id):
     return redirect(url_for('company_detail', company_id=company_id))
 
 
+@app.route('/company/<int:company_id>/delete', methods=['POST'])
+@login_required
+def company_delete(company_id):
+    import shutil
+    company = db.session.get(Company, company_id) or abort(404)
+
+    # Удаляем все связанные записи
+    DailyRow.query.filter_by(company_id=company_id).delete()
+    Upload.query.filter_by(company_id=company_id).delete()
+    EmailRule.query.filter_by(company_id=company_id).delete()
+    db.session.delete(company)
+    db.session.commit()
+
+    # Удаляем файлы с диска
+    company_uploads = os.path.join(UPLOADS, str(company_id))
+    if os.path.isdir(company_uploads):
+        shutil.rmtree(company_uploads, ignore_errors=True)
+    dashboard_file = os.path.join(OUTPUT, f'dashboard_{company_id}_current.html')
+    if os.path.isfile(dashboard_file):
+        os.remove(dashboard_file)
+
+    return redirect(url_for('home'))
+
+
 # ---------------------------------------------------------------------------
 # Настройки приложения
 # ---------------------------------------------------------------------------
