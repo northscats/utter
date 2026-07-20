@@ -303,13 +303,13 @@ def company_detail(company_id):
 
 
 # ---------------------------------------------------------------------------
-# Добавление новых файлов к существующему предприятию
+# Единая загрузка файлов (.xls/.xlsx и/или .zip)
 # ---------------------------------------------------------------------------
-@app.route('/company/<int:company_id>/upload', methods=['POST'])
+@app.route('/company/<int:company_id>/upload-all', methods=['POST'])
 @login_required
-def company_upload(company_id):
+def company_upload_all(company_id):
     company = db.session.get(Company, company_id) or abort(404)
-    files = [f for f in request.files.getlist('files') if f.filename]
+    all_files = [f for f in request.files.getlist('files') if f.filename]
 
     def _err(msg, audit=None):
         ups = Upload.query.filter_by(company_id=company_id)\
@@ -318,33 +318,108 @@ def company_upload(company_id):
                                audit=audit, error=msg,
                                daily_stats=_daily_stats(company_id))
 
-    if not files:
+    if not all_files:
         return _err('Файлы не выбраны.')
 
     ts = time.strftime('%Y%m%d_%H%M%S')
-    saved = _save_files(files, company_id, ts)
-    if not saved:
-        return _err('Среди загруженных нет .xls/.xlsx файлов.')
+    audit_out = []
+    zip_dates = []   # datetime.date объекты из ZIP-файлов
+    total_files = 0
 
-    back_url = url_for('company_detail', company_id=company_id)
-    try:
-        record_kwargs, audit = _process_files(saved, company_id, ts, back_url)
-        if record_kwargs is None:
-            return _err('Ни один файл не удалось разобрать как ОСВ 1С.', audit)
+    # — XLS/XLSX: сохраняем в обычную папку (не zip_*)
+    xls_files = [f for f in all_files
+                 if f.filename.lower().endswith(('.xls', '.xlsx'))]
+    if xls_files:
+        saved = _save_files(xls_files, company_id, ts)
+        total_files += len(saved)
 
-        upload = Upload(company_id=company_id, uploaded_by=current_user.id,
-                        **record_kwargs)
-        db.session.add(upload)
+    # — ZIP: сохраняем и парсим суточные данные
+    zip_files = [f for f in all_files if f.filename.lower().endswith('.zip')]
+    for zf in zip_files:
+        zip_dir = os.path.join(UPLOADS, str(company_id), f'zip_{ts}')
+        os.makedirs(zip_dir, exist_ok=True)
+        zip_path = os.path.join(zip_dir, os.path.basename(zf.filename))
+        zf.save(zip_path)
+        total_files += 1
+
+        successes, errors = parse_zip(zip_path)
+        audit_out += [{'file': e['file'], 'acc': '?',
+                       'status': f'ОШИБКА: {e["error"]}', 'ok': False}
+                      for e in errors]
+
+        for item in successes:
+            dt  = item['date']
+            acc = item['parsed']['acc']
+            top = item['parsed']['top']
+            row = DailyRow.query.filter_by(
+                company_id=company_id, date=dt, acc=acc).first()
+            if row is None:
+                row = DailyRow(company_id=company_id, date=dt, acc=acc)
+                db.session.add(row)
+            row.snd = top['snd']; row.snk = top['snk']
+            row.obd = top['obd']; row.obk = top['obk']
+            row.skd = top['skd']; row.skk = top['skk']
+            zip_dates.append(dt)
         db.session.commit()
-    except Exception as e:
+
+    if not xls_files and not zip_files:
+        return _err('Среди загруженных нет файлов .xls, .xlsx или .zip.')
+
+    # Пересобираем дашборд: месячные XLS + суточные из БД
+    back_url = url_for('company_detail', company_id=company_id)
+    dataset, rebuild_audit = _rebuild_dashboard_with_daily(company_id)
+    audit_out = rebuild_audit + audit_out
+
+    if dataset is None:
         db.session.rollback()
-        traceback.print_exc()
-        return _err(f'Ошибка обработки: {e}')
+        msg = rebuild_audit[-1]['status'] if rebuild_audit else 'нет данных'
+        return _err(f'Дашборд не построен: {msg}', audit_out)
+
+    html_content = render_dashboard(dataset, back_url=back_url)
+    out_dir = os.path.join(OUTPUT, str(company_id))
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, 'dashboard_current.html'), 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    # Метаданные для записи в историю
+    period_lbl = dataset.get('period_label', '')
+    if zip_dates:
+        _MRU = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
+                7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
+        zd_sorted = sorted(set(zip_dates))
+        d0, d1 = zd_sorted[0], zd_sorted[-1]
+        zip_lbl = (f'{d0.day} {_MRU[d0.month]}' if d0 == d1
+                   else f'{d0.strftime("%d.%m")}–{d1.strftime("%d.%m")}')
+        period_lbl = f'{period_lbl} + {zip_lbl}'.strip(' +')
+
+    brief = dataset.get('brief', {})
+    lead  = brief.get('lead', '')
+    if 'убыток' in lead.lower():
+        profit_sign = 'loss'
+    elif 'прибыль' in lead.lower():
+        profit_sign = 'profit'
+    else:
+        profit_sign = 'neutral'
+    head = brief.get('head', '')
+    closure_status = ('закрыт' in head.lower()) if head else None
+
+    upload = Upload(
+        company_id=company_id,
+        uploaded_by=current_user.id,
+        period_label=period_lbl,
+        accounts_loaded=json.dumps(sorted(dataset.get('accounts', {}).keys())),
+        closure_status=closure_status,
+        profit_sign=profit_sign,
+        files_count=total_files,
+        dashboard_file='dashboard_current.html',
+    )
+    db.session.add(upload)
+    db.session.commit()
 
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
     return render_template('company.html', company=company, uploads=uploads,
-                           audit=audit, error=None,
+                           audit=audit_out, error=None,
                            daily_stats=_daily_stats(company_id))
 
 

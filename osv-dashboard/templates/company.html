@@ -45,11 +45,6 @@ main{max-width:960px;margin:0 auto;padding:28px 24px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:20px}
 .card h3{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
   color:#31424f;margin-bottom:18px}
-/* upload form */
-.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;
-  color:var(--mut);cursor:pointer;transition:border-color .15s,background .15s}
-.drop.on{border-color:var(--water);background:#f2f8fb;color:var(--ink)}
-.drop b{color:var(--ink)}
 input[type=file]{display:none}
 .filelist{margin-top:10px;font-size:13px;color:var(--mut)}
 .btn-submit{background:var(--ink);color:#fff;margin-top:14px}
@@ -208,42 +203,26 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Загрузка месячных файлов -->
+  <!-- Загрузка файлов -->
   <div class="card">
-    <h3>Загрузить месячный / квартальный период</h3>
-    <form method="post" action="/company/{{ company.id }}/upload" enctype="multipart/form-data" id="frm">
-      <label class="drop" id="drop">
-        <b>Перетащите сюда .xls/.xlsx файлы</b> или нажмите, чтобы выбрать<br>
-        <span style="font-size:12px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
-        с детализацией «по дням» и группировками</span>
-        <input type="file" name="files" id="files" multiple accept=".xls,.xlsx">
-      </label>
-      <div class="filelist" id="flist">Файлы не выбраны</div>
-      <button class="btn btn-submit" id="go" type="submit" disabled>Построить дашборд</button>
+    <h3>Загрузить файлы</h3>
+    <form method="post" action="/company/{{ company.id }}/upload-all"
+          enctype="multipart/form-data" id="frm">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label for="files-input" class="btn btn-primary" style="cursor:pointer;margin:0">
+          Выбрать файлы…
+        </label>
+        <span id="flist" style="font-size:13px;color:var(--mut)">Файлы не выбраны</span>
+        <input type="file" name="files" id="files-input" multiple
+               accept=".xls,.xlsx,.zip" style="display:none">
+        <button class="btn btn-submit" id="go" type="submit" disabled
+                style="margin:0">Загрузить</button>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        Принимаются файлы <b>.xls</b> и <b>.xlsx</b> (ОСВ за период) и <b>.zip</b> (суточные архивы).
+        Можно выбрать несколько файлов любых типов сразу.
+      </div>
     </form>
-    <div class="hint">Как выгрузить из 1С: Отчеты → ОСВ по счету → группировка «По субсчетам» + аналитики,
-      периодичность «По дням» → «Сохранить как…» → «Лист Excel (.xls)».</div>
-  </div>
-
-  <!-- Загрузка суточного ZIP-архива -->
-  <div class="card">
-    <h3>Загрузить суточный архив (ZIP)</h3>
-
-    <form method="post" action="/company/{{ company.id }}/upload-zip"
-          enctype="multipart/form-data" id="frm-zip">
-      <label class="drop" id="drop-zip">
-        <b>Перетащите ZIP-архив</b> или нажмите, чтобы выбрать<br>
-        <span style="font-size:12px">Архив с суточными ОСВ (1С выгружает папку из 14 файлов .xls в .zip).
-        Повторная загрузка того же дня — перезапись, без дублей.</span>
-        <input type="file" name="zipfile" id="zipfile" accept=".zip">
-      </label>
-      <div class="filelist" id="flist-zip">Файл не выбран</div>
-      <button class="btn btn-submit" id="go-zip" type="submit" disabled>
-        Загрузить и обновить дашборд
-      </button>
-    </form>
-    <div class="hint">После загрузки дашборд пересобирается автоматически —
-      историческая база (месячные ОСВ) + новые суточные данные.</div>
   </div>
 
   <!-- История загрузок -->
@@ -291,33 +270,19 @@ tr:last-child td{border-bottom:0}
 
 </main>
 <script>
-// Месячные файлы
-const drop=document.getElementById('drop'),inp=document.getElementById('files'),
-      list=document.getElementById('flist'),go=document.getElementById('go');
-function show(){
+const inp=document.getElementById('files-input'),
+      list=document.getElementById('flist'),
+      go=document.getElementById('go');
+inp.addEventListener('change',function(){
   const fs=[...inp.files];
-  list.textContent=fs.length?('Выбрано: '+fs.length+' — '+fs.map(f=>f.name).join(', ')):'Файлы не выбраны';
-  go.disabled=!fs.length;
-}
-inp.addEventListener('change',show);
-['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on')}));
-['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
-drop.addEventListener('drop',ev=>{inp.files=ev.dataTransfer.files;show();});
-document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
-
-// ZIP-архив
-const dropZ=document.getElementById('drop-zip'),inpZ=document.getElementById('zipfile'),
-      listZ=document.getElementById('flist-zip'),goZ=document.getElementById('go-zip');
-function showZ(){
-  const f=inpZ.files[0];
-  listZ.textContent=f?('Выбран: '+f.name+' ('+Math.round(f.size/1024)+' КБ)'):'Файл не выбран';
-  goZ.disabled=!f;
-}
-inpZ.addEventListener('change',showZ);
-['dragover','dragenter'].forEach(e=>dropZ.addEventListener(e,ev=>{ev.preventDefault();dropZ.classList.add('on')}));
-['dragleave','drop'].forEach(e=>dropZ.addEventListener(e,ev=>{ev.preventDefault();dropZ.classList.remove('on')}));
-dropZ.addEventListener('drop',ev=>{inpZ.files=ev.dataTransfer.files;showZ();});
-document.getElementById('frm-zip').addEventListener('submit',()=>{goZ.disabled=true;goZ.textContent='Загружаю…'});
+  if(!fs.length){list.textContent='Файлы не выбраны';go.disabled=true;return;}
+  const names=fs.map(f=>f.name);
+  list.textContent='Выбрано: '+fs.length+' — '+names.join(', ');
+  go.disabled=false;
+});
+document.getElementById('frm').addEventListener('submit',function(){
+  go.disabled=true;go.textContent='Загружаю…';
+});
 </script>
 </body>
 </html>
