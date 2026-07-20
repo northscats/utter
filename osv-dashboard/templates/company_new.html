@@ -65,14 +65,16 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
       <div class="filelist" id="flist">Файлы не выбраны</div>
 
       {% if ask_name %}
+      <input type="hidden" name="tmp_key" value="{{ tmp_key or '' }}">
       <label class="field-label" for="org_name">Название организации</label>
       <input type="text" id="org_name" name="org_name" placeholder="МУП «Каширское городское хозяйство»"
-             value="{{ org_name or '' }}" required>
+             value="{{ org_name or '' }}" required autofocus>
       {% else %}
       <input type="hidden" name="org_name" value="{{ org_name or '' }}">
       {% endif %}
 
-      <button class="btn btn-primary" id="go" type="submit" {% if not ask_name %}disabled{% endif %}>
+      <button class="btn btn-primary" id="go" type="submit"
+              {% if not ask_name %}disabled{% endif %}>
         Создать предприятие и построить дашборд
       </button>
     </form>

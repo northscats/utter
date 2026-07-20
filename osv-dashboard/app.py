@@ -2,6 +2,7 @@
 """ОСВ Дашборд — веб-приложение с PostgreSQL, авторизацией и мультипредприятием."""
 import json
 import os
+import re
 import time
 import traceback
 
@@ -106,6 +107,20 @@ def _company_summary(company):
         profit_sign=last.profit_sign if last else 'neutral',
         last_upload=(last.uploaded_at.strftime('%d.%m.%Y') if last else None),
     )
+
+
+def _org_name_from_filename(path):
+    """Пробует извлечь название орг. из имени суточного файла.
+
+    Например: «ОСВ по счету 20 за 1 июля 2026 г. МУП КГХ.xls» → «МУП КГХ»
+    """
+    name = os.path.splitext(os.path.basename(path))[0]
+    m = re.search(r'\d{4}\s*г\.?\s+(.+)', name)
+    if m:
+        org = m.group(1).strip()
+        if org:
+            return org
+    return None
 
 
 def _save_files(paths_src, company_id, ts):
@@ -217,38 +232,50 @@ def company_new():
     if request.method == 'GET':
         return render_template('company_new.html')
 
-    files = [f for f in request.files.getlist('files') if f.filename]
-    if not files:
-        return render_template('company_new.html',
-                               error='Выберите хотя бы один файл ОСВ.')
-
-    # Попробуем извлечь название из первого файла — сначала сохраним во временный буфер
     ts = time.strftime('%Y%m%d_%H%M%S')
-    # временная папка до создания компании
-    tmp_dir = os.path.join(UPLOADS, 'tmp', ts)
-    os.makedirs(tmp_dir, exist_ok=True)
-    tmp_paths = []
-    for f in files:
-        name = os.path.basename(f.filename)
-        if not name.lower().endswith(('.xls', '.xlsx')):
-            continue
-        dest = os.path.join(tmp_dir, name)
-        f.save(dest)
-        tmp_paths.append(dest)
+
+    # Если на второй POST пришёл tmp_key — читаем уже сохранённые файлы
+    tmp_key = request.form.get('tmp_key', '').strip()
+    if tmp_key:
+        tmp_dir = os.path.join(UPLOADS, 'tmp', tmp_key)
+        tmp_paths = sorted([
+            os.path.join(tmp_dir, f)
+            for f in os.listdir(tmp_dir)
+            if f.lower().endswith(('.xls', '.xlsx'))
+        ]) if os.path.isdir(tmp_dir) else []
+    else:
+        # Первый POST — получаем файлы из запроса
+        files = [f for f in request.files.getlist('files') if f.filename]
+        if not files:
+            return render_template('company_new.html',
+                                   error='Выберите хотя бы один файл ОСВ.')
+
+        tmp_dir = os.path.join(UPLOADS, 'tmp', ts)
+        os.makedirs(tmp_dir, exist_ok=True)
+        tmp_paths = []
+        for f in files:
+            name = os.path.basename(f.filename)
+            if not name.lower().endswith(('.xls', '.xlsx')):
+                continue
+            dest = os.path.join(tmp_dir, name)
+            f.save(dest)
+            tmp_paths.append(dest)
+        tmp_key = ts
 
     if not tmp_paths:
         return render_template('company_new.html',
                                error='Среди загруженных нет .xls/.xlsx файлов.')
 
-    # Название: из файла или из формы
+    # Название: из формы → из шапки файла → из имени файла
     org_name = (request.form.get('org_name') or '').strip()
     if not org_name:
         org_name = extract_org_name(tmp_paths[0]) or ''
     if not org_name:
-        # возвращаем форму с предложением ввести вручную
+        org_name = _org_name_from_filename(tmp_paths[0]) or ''
+    if not org_name:
         return render_template('company_new.html',
                                ask_name=True,
-                               tmp_key=ts,
+                               tmp_key=tmp_key,
                                error='Не удалось определить название организации из файла. '
                                      'Введите его вручную.')
 
@@ -467,9 +494,31 @@ def _rebuild_dashboard_with_daily(company_id):
     """
     monthly_paths = _find_monthly_xls(company_id)
     if not monthly_paths:
-        return None, [{'file': '—', 'acc': '—',
-                       'status': 'Нет месячных ОСВ — сначала загрузите '
-                                 'квартальную/полугодовую выгрузку', 'ok': False}]
+        # Нет файлов на диске — строим только из суточных записей БД (если есть)
+        daily_db = DailyRow.query.filter_by(company_id=company_id)\
+                                 .order_by(DailyRow.date).all()
+        if not daily_db:
+            return None, [{'file': '—', 'acc': '—',
+                           'status': 'Нет данных: загрузите ОСВ-файлы (.xls/.xlsx) '
+                                     'или суточный ZIP-архив', 'ok': False}]
+        data = {}
+        for dr in daily_db:
+            acc, month = dr.acc, dr.date.strftime('%Y-%m')
+            if acc not in data:
+                data[acc] = dict(acc=acc, period='', dims=[], rows=[], daily=[],
+                                 warnings=[], check_ok=None,
+                                 top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0))
+            data[acc]['daily'].append(dict(
+                date=dr.date.isoformat(), month=month,
+                path1='', path2='', path3='',
+                obd=dr.obd, obk=dr.obk,
+            ))
+        try:
+            dataset = build_dataset(data)
+        except ValueError as e:
+            return None, [{'file': '—', 'acc': '—',
+                           'status': f'Ошибка сборки дашборда: {e}', 'ok': False}]
+        return dataset, []
 
     data, audit = parse_many(monthly_paths)
     if not data:
