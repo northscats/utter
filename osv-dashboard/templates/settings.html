@@ -305,8 +305,18 @@ function syncImap() {
   result.style.display = 'none';
   idle.style.display = 'none';
 
-  fetch('/settings/sync-imap', { method: 'POST' })
-    .then(r => r.json())
+  fetch('/settings/sync-imap', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData()          /* непустое тело — гарантирует передачу cookie */
+    })
+    .then(r => {
+      if (r.redirected || r.url.includes('/login')) {
+        throw new Error('Сессия истекла — обновите страницу (F5)');
+      }
+      return r.json();
+    })
     .then(d => {
       dot.className = 'dot ' + (d.ok ? 'dot-ok' : 'dot-bad');
       msg.textContent = d.msg;
