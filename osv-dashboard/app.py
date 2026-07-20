@@ -694,6 +694,45 @@ IMAP_KEYS = [
 ]
 
 
+@app.route('/settings/test-imap', methods=['POST'])
+@login_required
+def settings_test_imap():
+    import imaplib
+    import ssl
+    from flask import jsonify
+
+    host     = request.form.get('imap_host', '').strip()
+    port     = request.form.get('imap_port', '993').strip()
+    login    = request.form.get('imap_login', '').strip()
+    password = request.form.get('imap_password', '').strip()
+    folder   = request.form.get('imap_folder', 'INBOX').strip() or 'INBOX'
+
+    if not host or not login or not password:
+        return jsonify(ok=False, msg='Заполните хост, логин и пароль')
+
+    try:
+        port_int = int(port)
+    except ValueError:
+        return jsonify(ok=False, msg=f'Неверный порт: {port}')
+
+    try:
+        ctx = ssl.create_default_context()
+        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx) as M:
+            M.login(login, password)
+            status, data = M.select(folder, readonly=True)
+            if status != 'OK':
+                return jsonify(ok=False, msg=f'Папка «{folder}» не найдена')
+            count = int(data[0]) if data and data[0] else 0
+            M.logout()
+        return jsonify(ok=True, msg=f'Подключение успешно. В папке «{folder}»: {count} писем')
+    except imaplib.IMAP4.error as e:
+        return jsonify(ok=False, msg=f'Ошибка аутентификации: {e}')
+    except OSError as e:
+        return jsonify(ok=False, msg=f'Сетевая ошибка: {e}')
+    except Exception as e:
+        return jsonify(ok=False, msg=f'Ошибка: {e}')
+
+
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():

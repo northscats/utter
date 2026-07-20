@@ -46,9 +46,12 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
   cursor:pointer;transition:background .15s;white-space:nowrap}
 .btn-primary{background:var(--water);color:#fff}
 .btn-primary:hover{background:#186a87}
+.btn-test{background:#f0f3f5;color:var(--ink);border:1px solid var(--line)}
+.btn-test:hover{background:#e2e8ec}
+.btn-test:disabled{opacity:.55;cursor:default}
 .btn-danger{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
 .btn-danger:hover{background:#f7d0cb}
-.form-actions{margin-top:18px;display:flex;gap:10px}
+.form-actions{margin-top:18px;display:flex;gap:10px;align-items:center}
 
 /* Таблица правил */
 .rules-table{width:100%;border-collapse:collapse;margin-top:6px}
@@ -145,10 +148,18 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       </div>
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button class="btn btn-test" type="button" id="btn-test" onclick="testImap()">
+          Тестировать
+        </button>
       </div>
     </form>
 
-    <div class="status-row">
+    <div class="status-row" id="test-result" style="display:none">
+      <span class="dot" id="test-dot"></span>
+      <span id="test-msg"></span>
+    </div>
+
+    <div class="status-row" id="status-idle">
       <span class="dot dot-off"></span>
       <span style="color:var(--mut)">Автоматический опрос почты не запущен — будет доступен после настройки подключения</span>
     </div>
@@ -231,5 +242,44 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </form>
   </div>
 </main>
+<script>
+function testImap() {
+  const btn = document.getElementById('btn-test');
+  const result = document.getElementById('test-result');
+  const idle = document.getElementById('status-idle');
+  const dot = document.getElementById('test-dot');
+  const msg = document.getElementById('test-msg');
+
+  const data = new FormData();
+  ['imap_host','imap_port','imap_login','imap_password','imap_folder'].forEach(k => {
+    const el = document.getElementById(k);
+    if (el) data.append(k, el.value);
+  });
+
+  btn.disabled = true;
+  btn.textContent = 'Проверяю…';
+  result.style.display = 'none';
+  idle.style.display = 'none';
+
+  fetch('/settings/test-imap', { method: 'POST', body: data })
+    .then(r => r.json())
+    .then(d => {
+      dot.className = 'dot ' + (d.ok ? 'dot-ok' : 'dot-bad');
+      msg.textContent = d.msg;
+      msg.style.color = d.ok ? 'var(--ok)' : 'var(--bad)';
+      result.style.display = 'flex';
+    })
+    .catch(() => {
+      dot.className = 'dot dot-bad';
+      msg.textContent = 'Не удалось выполнить запрос';
+      msg.style.color = 'var(--bad)';
+      result.style.display = 'flex';
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Тестировать';
+    });
+}
+</script>
 </body>
 </html>
