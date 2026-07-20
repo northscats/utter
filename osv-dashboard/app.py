@@ -822,7 +822,8 @@ def settings_test_imap():
 
     try:
         ctx = ssl.create_default_context()
-        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx) as M:
+        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx,
+                               timeout=15) as M:
             M.login(login, password)
             status, data = M.select(folder, readonly=True)
             if status != 'OK':
@@ -891,7 +892,8 @@ def settings_sync_imap():
     tmp_root = tempfile.mkdtemp(prefix='imap_sync_')
     try:
         ctx = ssl.create_default_context()
-        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx) as M:
+        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx,
+                               timeout=20) as M:
             M.login(login, password)
             status, _ = M.select(folder)
             if status != 'OK':
@@ -1092,4 +1094,5 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
+            debug=False, threaded=True)
