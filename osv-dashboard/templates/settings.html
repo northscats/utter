@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройки — ОСВ Дашборд</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
+  --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c;--warn:#c98a12}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+header{background:var(--ink);color:#e8eef2;padding:0}
+.hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px;flex-wrap:wrap}
+.hd-title h1{font-size:18px;letter-spacing:.03em}
+.hd-title a{text-decoration:none;color:inherit}
+.hd-title .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+.hd-spacer{flex:1}
+.hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:10px}
+.hd-user strong{color:#c8d8e4}
+.hd-btn{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
+  border-radius:6px;padding:4px 10px;transition:background .15s;display:inline-flex;
+  align-items:center;gap:5px;white-space:nowrap}
+.hd-btn:hover{background:#253545}
+.hd-btn.active{background:#253545;border-color:#5a8a9c;color:#c8d8e4}
+
+main{max-width:860px;margin:0 auto;padding:28px 24px}
+.page-title{font-size:20px;font-weight:700;margin-bottom:24px;color:var(--ink)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:24px;margin-bottom:20px}
+.card h3{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--ink)}
+.card .desc{font-size:13px;color:var(--mut);margin-bottom:20px}
+
+/* Поля формы */
+.field-grid{display:grid;grid-template-columns:220px 1fr;gap:10px 16px;align-items:center}
+.field-grid label{font-size:13px;color:var(--mut);text-align:right}
+.field-grid input,.field-grid select{
+  border:1px solid var(--line);border-radius:7px;padding:7px 11px;font:14px 'Segoe UI',sans-serif;
+  color:var(--ink);width:100%;transition:border-color .15s;background:#fff}
+.field-grid input:focus,.field-grid select:focus{outline:0;border-color:var(--water)}
+.field-grid input[type=password]{letter-spacing:.05em}
+
+.hint{font-size:12px;color:var(--mut);margin-top:4px;grid-column:2}
+
+.btn{border:0;border-radius:8px;padding:9px 20px;font:600 13px 'Segoe UI',sans-serif;
+  cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn-primary{background:var(--water);color:#fff}
+.btn-primary:hover{background:#186a87}
+.btn-danger{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
+.btn-danger:hover{background:#f7d0cb}
+.form-actions{margin-top:18px;display:flex;gap:10px}
+
+/* Таблица правил */
+.rules-table{width:100%;border-collapse:collapse;margin-top:6px}
+.rules-table th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#31424f;
+  padding:9px 12px;background:#f0f3f5;border-bottom:1px solid var(--line);text-align:left;
+  font-weight:700}
+.rules-table td{padding:11px 12px;border-bottom:1px solid #edf0f3;font-size:14px;
+  vertical-align:middle}
+.rules-table tr:last-child td{border-bottom:0}
+.rules-table tr:hover td{background:#f7f9fa}
+.rules-table code{font:13px/1 monospace;background:#f0f3f5;padding:2px 6px;border-radius:4px;
+  color:var(--ink)}
+.empty-rules{text-align:center;padding:28px 16px;color:var(--mut);font-size:13px}
+
+/* Добавить правило */
+.add-rule-grid{display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:8px;
+  align-items:end;margin-top:16px}
+.add-rule-grid label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px;
+  text-transform:uppercase;letter-spacing:.06em}
+.add-rule-grid input,.add-rule-grid select{
+  border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+  font:14px 'Segoe UI',sans-serif;color:var(--ink);width:100%;background:#fff}
+.add-rule-grid input:focus,.add-rule-grid select:focus{outline:0;border-color:var(--water)}
+
+/* Статус IMAP */
+.status-row{display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 14px;
+  background:#f7f9fa;border-radius:8px;border:1px solid var(--line);font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.dot-ok{background:var(--ok)}
+.dot-off{background:#bbb}
+
+@media(max-width:640px){
+  .field-grid{grid-template-columns:1fr}
+  .field-grid label{text-align:left}
+  .add-rule-grid{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd-top">
+    <div class="hd-title">
+      <a href="/"><h1>ОСВ Дашборд</h1></a>
+      <div class="sub">Генератор финансовой панели из выгрузок 1С</div>
+    </div>
+    <div class="hd-spacer"></div>
+    <div class="hd-user">
+      <span>Пользователь: <strong>{{ current_user.username }}</strong></span>
+      <a class="hd-btn active" href="/settings">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+          <path fill-rule="evenodd" d="M10 0a1 1 0 0 1 1 1v1.07A8.002 8.002 0 0 1 17.93 9H19a1 1 0 1 1 0 2h-1.07A8.002 8.002 0 0 1 11 17.93V19a1 1 0 1 1-2 0v-1.07A8.002 8.002 0 0 1 2.07 11H1a1 1 0 1 1 0-2h1.07A8.002 8.002 0 0 1 9 2.07V1a1 1 0 0 1 1-1zm-6 10a6 6 0 1 0 12 0 6 6 0 0 0-12 0z" clip-rule="evenodd"/>
+        </svg>
+        Настройки
+      </a>
+      <a class="hd-btn" href="/logout">Выйти</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">Настройки</div>
+
+  <!-- ─── IMAP ─── -->
+  <div class="card">
+    <h3>Почтовый сервер IMAP</h3>
+    <p class="desc">
+      Параметры подключения к ящику, с которого система будет забирать входящие письма
+      с прикреплёнными ОСВ-файлами. Рекомендуется создать отдельный ящик
+      (например, <code>osv@company.ru</code>) и настроить переадресацию из 1С.
+    </p>
+    <form method="post">
+      <input type="hidden" name="action" value="save_imap">
+      <div class="field-grid">
+        {% for key, label, placeholder in imap_keys %}
+        <label for="{{ key }}">{{ label }}</label>
+        <div>
+          <input
+            type="{{ 'password' if key == 'imap_password' else 'text' }}"
+            id="{{ key }}" name="{{ key }}"
+            value="{{ imap_cfg[key] }}"
+            placeholder="{{ placeholder }}"
+            autocomplete="{{ 'current-password' if key == 'imap_password' else 'off' }}"
+          >
+          {% if key == 'imap_host' %}
+            <div class="hint">Для Яндекс 360: <code>imap.yandex.ru</code></div>
+          {% elif key == 'imap_password' %}
+            <div class="hint">Используйте «пароль приложения» — Яндекс: Аккаунт → Безопасность → Пароли приложений</div>
+          {% elif key == 'imap_interval' %}
+            <div class="hint">Минимум 5, рекомендуется 15–60</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+      </div>
+    </form>
+
+    <div class="status-row">
+      <span class="dot dot-off"></span>
+      <span style="color:var(--mut)">Автоматический опрос почты не запущен — будет доступен после настройки подключения</span>
+    </div>
+  </div>
+
+  <!-- ─── Правила маршрутизации ─── -->
+  <div class="card">
+    <h3>Правила маршрутизации писем</h3>
+    <p class="desc">
+      Определяют, к какому предприятию относить входящее письмо.
+      Совпадение проверяется по адресу отправителя и/или теме письма.
+      Символ <code>*</code> заменяет любую последовательность символов.
+    </p>
+
+    {% if rules %}
+    <table class="rules-table">
+      <thead>
+        <tr>
+          <th>Предприятие</th>
+          <th>Отправитель</th>
+          <th>Тема письма</th>
+          <th>Комментарий</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td><strong>{{ r.company.name }}</strong></td>
+          <td>{% if r.sender_pattern %}<code>{{ r.sender_pattern }}</code>{% else %}<span style="color:var(--mut)">—</span>{% endif %}</td>
+          <td>{% if r.subject_pattern %}<code>{{ r.subject_pattern }}</code>{% else %}<span style="color:var(--mut)">—</span>{% endif %}</td>
+          <td style="color:var(--mut);font-size:13px">{{ r.note or '—' }}</td>
+          <td style="text-align:right">
+            <form method="post" style="display:inline" onsubmit="return confirm('Удалить правило?')">
+              <input type="hidden" name="action" value="delete_rule">
+              <input type="hidden" name="rule_id" value="{{ r.id }}">
+              <button class="btn btn-danger" type="submit" style="padding:5px 12px;font-size:12px">Удалить</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-rules">Правила ещё не добавлены</div>
+    {% endif %}
+
+    <!-- Форма добавления правила -->
+    <form method="post">
+      <input type="hidden" name="action" value="add_rule">
+      <div class="add-rule-grid">
+        <div>
+          <label>Предприятие</label>
+          <select name="company_id" required>
+            <option value="">— выбрать —</option>
+            {% for c in companies %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>Отправитель</label>
+          <input type="text" name="sender_pattern" placeholder="*@mup-kgh.ru">
+        </div>
+        <div>
+          <label>Тема письма</label>
+          <input type="text" name="subject_pattern" placeholder="ОСВ КГХ*">
+        </div>
+        <div>
+          <label>Комментарий</label>
+          <input type="text" name="note" placeholder="необязательно">
+        </div>
+        <div style="padding-bottom:1px">
+          <button class="btn btn-primary" type="submit">+ Добавить</button>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--mut);margin-top:10px">
+        Достаточно заполнить хотя бы одно из полей: «Отправитель» или «Тема письма».
+      </p>
+    </form>
+  </div>
+</main>
+</body>
+</html>

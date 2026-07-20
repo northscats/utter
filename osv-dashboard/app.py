@@ -14,7 +14,7 @@ from flask_login import (LoginManager, current_user, login_required,
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import Company, DailyRow, Upload, User, db
+from database import Company, DailyRow, EmailRule, Setting, Upload, User, db
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 
@@ -679,6 +679,65 @@ def company_rename(company_id):
         company.name = new_name
         db.session.commit()
     return redirect(url_for('company_detail', company_id=company_id))
+
+
+# ---------------------------------------------------------------------------
+# Настройки приложения
+# ---------------------------------------------------------------------------
+IMAP_KEYS = [
+    ('imap_host',     'Хост IMAP',              'imap.yandex.ru'),
+    ('imap_port',     'Порт',                   '993'),
+    ('imap_login',    'Логин (e-mail)',          ''),
+    ('imap_password', 'Пароль / пароль приложения', ''),
+    ('imap_folder',   'Папка',                  'INBOX'),
+    ('imap_interval', 'Интервал опроса (мин)',   '30'),
+]
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    companies = Company.query.order_by(Company.name).all()
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+
+        if action == 'save_imap':
+            for key, _, _ in IMAP_KEYS:
+                val = request.form.get(key, '').strip()
+                Setting.set(key, val)
+            db.session.commit()
+
+        elif action == 'add_rule':
+            company_id      = request.form.get('company_id', type=int)
+            sender_pattern  = request.form.get('sender_pattern', '').strip()
+            subject_pattern = request.form.get('subject_pattern', '').strip()
+            note            = request.form.get('note', '').strip()
+            if company_id and (sender_pattern or subject_pattern):
+                db.session.add(EmailRule(
+                    company_id=company_id,
+                    sender_pattern=sender_pattern,
+                    subject_pattern=subject_pattern,
+                    note=note,
+                ))
+                db.session.commit()
+
+        elif action == 'delete_rule':
+            rule_id = request.form.get('rule_id', type=int)
+            rule = db.session.get(EmailRule, rule_id)
+            if rule:
+                db.session.delete(rule)
+                db.session.commit()
+
+        return redirect(url_for('settings'))
+
+    imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
+    rules = EmailRule.query.order_by(EmailRule.id).all()
+    return render_template('settings.html',
+                           imap_keys=IMAP_KEYS,
+                           imap_cfg=imap_cfg,
+                           rules=rules,
+                           companies=companies)
 
 
 # ---------------------------------------------------------------------------

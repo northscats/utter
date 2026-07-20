@@ -33,6 +33,7 @@ header{background:var(--ink);color:#e8eef2;padding:0}
 .hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:14px}
 .hd-user strong{color:#c8d8e4}
 .hd-user a{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
+  display:inline-flex;align-items:center;gap:5px;
   border-radius:6px;padding:4px 10px}
 main{max-width:960px;margin:0 auto;padding:28px 24px}
 .top-bar{display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}
@@ -113,6 +114,13 @@ tr:last-child td{border-bottom:0}
     <div class="hd-spacer"></div>
     <div class="hd-user">
       <span><strong>{{ current_user.username }}</strong></span>
+      <a href="/settings" title="Настройки">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+          <path fill-rule="evenodd" d="M10 0a1 1 0 0 1 1 1v1.07A8.002 8.002 0 0 1 17.93 9H19a1 1 0 1 1 0 2h-1.07A8.002 8.002 0 0 1 11 17.93V19a1 1 0 1 1-2 0v-1.07A8.002 8.002 0 0 1 2.07 11H1a1 1 0 1 1 0-2h1.07A8.002 8.002 0 0 1 9 2.07V1a1 1 0 0 1 1-1zm-6 10a6 6 0 1 0 12 0 6 6 0 0 0-12 0z" clip-rule="evenodd"/>
+        </svg>
+        Настройки
+      </a>
       <a href="/logout">Выйти</a>
     </div>
   </div>

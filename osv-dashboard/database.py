@@ -9,6 +9,42 @@ from flask_login import UserMixin
 db = SQLAlchemy()
 
 
+class Setting(db.Model):
+    """Глобальные настройки приложения (ключ-значение)."""
+    __tablename__ = 'settings'
+
+    key   = db.Column(db.String(80), primary_key=True)
+    value = db.Column(db.Text, default='')
+
+    @staticmethod
+    def get(key, default=''):
+        row = db.session.get(Setting, key)
+        return row.value if row else default
+
+    @staticmethod
+    def set(key, value):
+        row = db.session.get(Setting, key)
+        if row is None:
+            row = Setting(key=key, value=value)
+            db.session.add(row)
+        else:
+            row.value = value
+
+
+class EmailRule(db.Model):
+    """Правило маршрутизации входящих писем → предприятие."""
+    __tablename__ = 'email_rules'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    company_id      = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)
+    sender_pattern  = db.Column(db.String(255), default='')   # например: *@mup-kgh.ru
+    subject_pattern = db.Column(db.String(255), default='')   # например: ОСВ КГХ
+    note            = db.Column(db.String(255), default='')   # комментарий
+    created_at      = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    company = db.relationship('Company', backref='email_rules', lazy=True)
+
+
 def utcnow():
     return datetime.now(timezone.utc)
 
