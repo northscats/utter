@@ -138,6 +138,34 @@ def _save_files(paths_src, company_id, ts):
     return saved
 
 
+def _upsert_daily_rows(company_id, paths):
+    """Если XLS-файл является суточным ОСВ (дата извлекается из шапки),
+    записывает/обновляет строку DailyRow для этого дня и счёта.
+    Возвращает количество обработанных файлов."""
+    from osvparser import extract_daily_date, parse_osv
+    count = 0
+    for path in paths:
+        dt = extract_daily_date(path)
+        if dt is None:
+            continue
+        try:
+            parsed = parse_osv(path)
+        except Exception:
+            continue
+        acc = parsed['acc']
+        top = parsed['top']
+        row = DailyRow.query.filter_by(
+            company_id=company_id, date=dt, acc=acc).first()
+        if row is None:
+            row = DailyRow(company_id=company_id, date=dt, acc=acc)
+            db.session.add(row)
+        row.snd = top['snd']; row.snk = top['snk']
+        row.obd = top['obd']; row.obk = top['obk']
+        row.skd = top['skd']; row.skk = top['skk']
+        count += 1
+    return count
+
+
 def _process_files(paths, company_id, ts, back_url):
     """Парсит файлы, строит дашборд, возвращает (upload_record_kwargs, audit)."""
     data, audit = parse_many(paths)
@@ -301,6 +329,7 @@ def company_new():
                                    error='Ни один файл не удалось разобрать как ОСВ 1С.',
                                    audit=audit)
 
+        _upsert_daily_rows(company.id, final_paths)
         upload = Upload(company_id=company.id, uploaded_by=current_user.id,
                         **record_kwargs)
         db.session.add(upload)
@@ -359,6 +388,8 @@ def company_upload_all(company_id):
     if xls_files:
         saved = _save_files(xls_files, company_id, ts)
         total_files += len(saved)
+        _upsert_daily_rows(company_id, saved)
+        db.session.commit()
 
     # — ZIP: сохраняем и парсим суточные данные
     zip_files = [f for f in all_files if f.filename.lower().endswith('.zip')]
