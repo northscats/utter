@@ -134,7 +134,7 @@ def _process_files(paths, company_id, ts, back_url):
 
     out_dir = os.path.join(OUTPUT, str(company_id))
     os.makedirs(out_dir, exist_ok=True)
-    out_name = f'dashboard_{ts}.html'
+    out_name = 'dashboard_current.html'
     with open(os.path.join(out_dir, out_name), 'w', encoding='utf-8') as f:
         f.write(html)
 
@@ -499,7 +499,7 @@ def company_upload_zip(company_id):
     html = render_dashboard(dataset, back_url=back_url)
     out_dir = os.path.join(OUTPUT, str(company_id))
     os.makedirs(out_dir, exist_ok=True)
-    out_name = f'dashboard_{ts}.html'
+    out_name = 'dashboard_current.html'
     with open(os.path.join(out_dir, out_name), 'w', encoding='utf-8') as f:
         f.write(html)
 
@@ -538,18 +538,57 @@ def company_upload_zip(company_id):
 
 
 def _daily_stats(company_id):
-    """Статистика суточных данных для отображения на странице компании."""
+    """Статистика суточных данных + временна́я линейка для страницы компании."""
+    from datetime import date as _d, timedelta as _td
+    today = _d.today()
+
     rows = DailyRow.query.filter_by(company_id=company_id).all()
-    if not rows:
-        return None
-    dates = sorted({r.date for r in rows})
-    accs  = sorted({r.acc  for r in rows})
+    dates_with_data = {r.date for r in rows}
+    accs = sorted({r.acc for r in rows})
+
+    # Окно линейки: от первой даты с данными (или 1-го числа текущего месяца)
+    # до today+7, но не длиннее 60 дней назад
+    if dates_with_data:
+        start = min(dates_with_data)
+        min_start = today - _td(days=59)
+        if start < min_start:
+            start = min_start
+    else:
+        start = today.replace(day=1)
+    end = today + _td(days=7)
+
+    timeline = []
+    d = start
+    while d <= end:
+        if d > today:
+            status = 'future'
+        elif d in dates_with_data:
+            status = 'ok'
+        else:
+            status = 'missing'
+        timeline.append(dict(
+            date=d.strftime('%d'),
+            label=d.strftime('%d.%m'),
+            status=status,
+            is_today=(d == today),
+            new_month=(d.day == 1),
+            mon_label=d.strftime('%b') if d.day == 1 else '',
+        ))
+        d += _td(days=1)
+
+    if not dates_with_data:
+        return dict(has_data=False, date_from=None, date_to=None,
+                    days=0, accs=[], records=0, timeline=timeline)
+
+    dates_sorted = sorted(dates_with_data)
     return dict(
-        date_from=dates[0].strftime('%d.%m.%Y'),
-        date_to=dates[-1].strftime('%d.%m.%Y'),
-        days=len(dates),
+        has_data=True,
+        date_from=dates_sorted[0].strftime('%d.%m.%Y'),
+        date_to=dates_sorted[-1].strftime('%d.%m.%Y'),
+        days=len(dates_with_data),
         accs=accs,
         records=len(rows),
+        timeline=timeline,
     )
 
 
