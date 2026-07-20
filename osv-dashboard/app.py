@@ -353,6 +353,20 @@ def dashboard(company_id, name):
 
 
 # ---------------------------------------------------------------------------
+# Переименование предприятия
+# ---------------------------------------------------------------------------
+@app.route('/company/<int:company_id>/rename', methods=['POST'])
+@login_required
+def company_rename(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    new_name = request.form.get('name', '').strip()
+    if new_name:
+        company.name = new_name
+        db.session.commit()
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
+# ---------------------------------------------------------------------------
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
 def init_db():

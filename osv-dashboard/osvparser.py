@@ -79,7 +79,7 @@ def extract_org_name(path):
     """
     Пытается извлечь название организации из шапки ОСВ-файла 1С.
     Ищет в первых 15 строках паттерн «Организация: <название>».
-    Возвращает строку или None.
+    Возвращает строку или None (None — пользователь вводит вручную).
     """
     try:
         rows = read_rows(path)
@@ -88,24 +88,9 @@ def extract_org_name(path):
             m = RE_ORG.match(s)
             if m:
                 name = m.group(1).strip().strip('"\'')
-                # убираем кавычки-ёлочки
-                name = name.strip('\u00ab\u00bb')
+                name = name.strip('\u00ab\u00bb')  # кавычки-ёлочки
                 if name:
                     return name
-        # Второй проход: ищем строку похожую на название организации
-        skip_words = {'счет', 'оборотно', 'ведомость', 'период', 'дата', 'за',
-                      'организация', 'отчет', 'итого', 'обороты'}
-        for label, _, _ in rows[1:10]:
-            s = str(label or '').strip()
-            if not s or len(s) < 4 or len(s) > 200:
-                continue
-            first_word = s.lower().split()[0] if s.split() else ''
-            if first_word in skip_words:
-                continue
-            if re.match(r'^[\d.,\s]+$', s):
-                continue
-            if re.search(r'[а-яёА-ЯЁa-zA-Z]{3,}', s):
-                return s
     except Exception:
         pass
     return None
