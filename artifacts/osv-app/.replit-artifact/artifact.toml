@@ -1,0 +1,21 @@
+kind = "web"
+previewPath = "/"
+title = "ОСВ Дашборд"
+version = "1.0.0"
+id = "artifacts/osv-app"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21844
+
+[services.development]
+run = "cd /home/runner/workspace/osv-dashboard && python app.py"
+
+[services.production]
+run = [ "bash", "-c", "cd /home/runner/workspace/osv-dashboard && python app.py" ]
+
+[services.env]
+PORT = "21844"
+BASE_PATH = "/"

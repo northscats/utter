@@ -2,7 +2,7 @@
 
 Flask-приложение: загрузка оборотно-сальдовых ведомостей из 1С (.xls/.xlsx), аудит-проверки и генерация автономного HTML-дашборда. Код прототипа лежит в `osv-dashboard/` (перенесён из архива, сделанного в Claude).
 
-- Запуск: workflow "OSV Dashboard" (`cd osv-dashboard && PORT=8000 python app.py`), Python 3.11, зависимости: flask, xlrd==2.0.1, openpyxl.
+- Запуск: артефакт `artifacts/osv-app` (previewPath `/`) — его artifact.toml запускает `cd /home/runner/workspace/osv-dashboard && python app.py` (Flask читает $PORT). Workflow: `artifacts/osv-app: web`. Python 3.11, зависимости: flask, xlrd==2.0.1, openpyxl. React-scaffold в artifacts/osv-app не используется.
 - Загруженные файлы: `osv-dashboard/uploads/`, готовые дашборды: `osv-dashboard/output/` (в .gitignore).
 
 ## Run & Operate
