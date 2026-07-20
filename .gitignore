@@ -47,3 +47,9 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+osv-dashboard/uploads/*
+!osv-dashboard/uploads/.gitkeep
+osv-dashboard/output/*
+!osv-dashboard/output/.gitkeep
+__pycache__/
+*.pyc

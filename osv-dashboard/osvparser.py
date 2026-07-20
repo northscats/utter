@@ -1,0 +1,196 @@
+# -*- coding: utf-8 -*-
+"""
+Парсер оборотно-сальдовых ведомостей (ОСВ) из 1С.
+
+Поддерживает:
+  - .xls  (легаси BIFF, типовая выгрузка 1С) — через xlrd (formatting_info=True,
+           уровни группировки строк берутся из rowinfo_map)
+  - .xlsx — через openpyxl (уровни из row_dimensions[].outlineLevel)
+
+Ядро одно: получает список строк (значения + outline level) и восстанавливает
+иерархию аналитик, отделяя строки "Обороты за ДД.ММ.ГГ" (динамика по датам).
+
+Ожидаемый макет ОСВ (типовой 1С, БП 3.0):
+  колонка A: Счет / аналитика / "Обороты за ..."
+  колонки B..G: СН Дт | СН Кт | Обороты Дт | Обороты Кт | СК Дт | СК Кт
+"""
+import re
+import os
+
+RE_DATE = re.compile(r'Обороты за (\d\d)\.(\d\d)\.(\d\d)')
+RE_ACC = re.compile(r'^\d{2}(\.\d{2})?$')
+
+
+def _num(v):
+    if v is None or v == '':
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = str(v).replace('\xa0', '').replace(' ', '').replace(',', '.')
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+# ---------------------------------------------------------------- backends
+def _read_xls(path):
+    """-> list[(label, outline_level, [6 чисел])], meta"""
+    import xlrd
+    book = xlrd.open_workbook(path, formatting_info=True)
+    sh = book.sheet_by_index(0)
+    rows = []
+    for r in range(sh.nrows):
+        label = sh.cell_value(r, 0)
+        ri = sh.rowinfo_map.get(r)
+        lvl = ri.outline_level if ri is not None else 0
+        vals = [_num(sh.cell_value(r, c)) if c < sh.ncols else 0.0
+                for c in range(1, 7)]
+        rows.append((label, lvl, vals))
+    return rows
+
+
+def _read_xlsx(path):
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=False, data_only=True)
+    ws = wb.active
+    rows = []
+    for r in range(1, ws.max_row + 1):
+        label = ws.cell(r, 1).value
+        dim = ws.row_dimensions.get(r)
+        lvl = dim.outlineLevel if dim is not None else 0
+        vals = [_num(ws.cell(r, c).value) for c in range(2, 8)]
+        rows.append((label, lvl, vals))
+    return rows
+
+
+def read_rows(path):
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.xls':
+        return _read_xls(path)
+    if ext == '.xlsx':
+        return _read_xlsx(path)
+    raise ValueError(f'Неподдерживаемый формат файла: {ext}')
+
+
+# ---------------------------------------------------------------- ядро
+def parse_osv(path):
+    """
+    Возвращает dict:
+      acc        - номер счета ('20', '90', ...)
+      period     - строка периода из шапки (если найдена)
+      dims       - подписи измерений из шапки
+      rows       - список словарей иерархии:
+                   {lvl,label,p0..p3,snd,snk,obd,obk,skd,skk}
+      daily      - список {date,month,path1,path2,path3,obd,obk}
+      warnings   - список замечаний парсера
+    """
+    raw = read_rows(path)
+    warnings = []
+
+    # период из шапки (обычно 2-я строка: "за 1 полугодие 2026 г." / даты)
+    period = ''
+    for label, _, _ in raw[:6]:
+        s = str(label or '')
+        if 'полугодие' in s or 'квартал' in s or re.search(r'\d{4}', s):
+            period = s.strip()
+            break
+
+    # строка заголовка таблицы: 'Счет'
+    hdr = None
+    for i, (label, _, _) in enumerate(raw[:15]):
+        if str(label or '').strip() == 'Счет':
+            hdr = i
+            break
+    if hdr is None:
+        raise ValueError(f'{os.path.basename(path)}: не найден заголовок "Счет" — '
+                         'это не типовая ОСВ 1С?')
+
+    # номер счета = первая строка данных вида NN / NN.NN
+    acc, data_start, dims = None, None, []
+    for i in range(hdr + 1, min(hdr + 10, len(raw))):
+        s = str(raw[i][0] or '').strip()
+        if RE_ACC.match(s):
+            acc = s.split('.')[0]
+            data_start = i
+            break
+        if s:
+            dims.append(s)
+    if acc is None:
+        raise ValueError(f'{os.path.basename(path)}: не удалось определить номер счета')
+
+    has_outline = any(lvl > 0 for _, lvl, _ in raw[data_start:])
+    if not has_outline:
+        warnings.append(f'сч.{acc}: в файле нет уровней группировки строк — '
+                        'иерархия аналитик восстановлена частично')
+
+    rows, daily = [], []
+    path_by_lvl = {}
+    for label, lvl, vals in raw[data_start:]:
+        if label is None:
+            continue
+        label = str(label).strip()
+        if not label or label.startswith('Итого'):
+            continue
+        snd, snk, obd, obk, skd, skk = vals
+        m = RE_DATE.match(label)
+        if m:
+            d, mo, y = m.groups()
+            daily.append(dict(
+                date=f'20{y}-{mo}-{d}', month=f'20{y}-{mo}',
+                path1=path_by_lvl.get(lvl - 1, ''),
+                path2=path_by_lvl.get(lvl - 2, ''),
+                path3=path_by_lvl.get(lvl - 3, ''),
+                obd=obd, obk=obk))
+        else:
+            path_by_lvl[lvl] = label
+            for k in [k for k in path_by_lvl if k > lvl]:
+                del path_by_lvl[k]
+            rows.append(dict(
+                lvl=lvl, label=label,
+                p0=path_by_lvl.get(0, ''), p1=path_by_lvl.get(1, ''),
+                p2=path_by_lvl.get(2, ''), p3=path_by_lvl.get(3, ''),
+                snd=snd, snk=snk, obd=obd, obk=obk, skd=skd, skk=skk))
+
+    # контрольная проверка: СН + Об = СК по строке счета
+    top = next((r for r in rows if r['label'] == acc), None)
+    check_ok = None
+    if top:
+        diff = (top['snd'] - top['snk']) + (top['obd'] - top['obk']) \
+               - (top['skd'] - top['skk'])
+        check_ok = abs(diff) < 1.0
+        if not check_ok:
+            warnings.append(f'сч.{acc}: контрольное равенство СН+Об=СК '
+                            f'не сходится на {diff:,.2f}')
+
+    return dict(acc=acc, period=period, dims=dims, rows=rows, daily=daily,
+                warnings=warnings, check_ok=check_ok,
+                top=top or dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0))
+
+
+def parse_many(paths):
+    """Парсит набор файлов -> (data по счетам, отчет аудита)."""
+    data, audit = {}, []
+    for p in sorted(paths):
+        name = os.path.basename(p)
+        if 'план' in name.lower() and 'счет' in name.lower():
+            audit.append(dict(file=name, acc='—', status='пропущен (план счетов)',
+                              ok=True))
+            continue
+        try:
+            res = parse_osv(p)
+            if res['acc'] in data:
+                audit.append(dict(file=name, acc=res['acc'],
+                                  status='ДУБЛЬ счета — файл пропущен', ok=False))
+                continue
+            data[res['acc']] = res
+            st = 'разобран'
+            if res['check_ok'] is False:
+                st = 'разобран, но контрольное равенство НЕ сходится'
+            if res['warnings']:
+                st += '; ' + '; '.join(res['warnings'])
+            audit.append(dict(file=name, acc=res['acc'], status=st,
+                              ok=res['check_ok'] is not False))
+        except Exception as e:  # noqa: BLE001 — прототип: показываем причину
+            audit.append(dict(file=name, acc='?', status=f'ОШИБКА: {e}', ok=False))
+    return data, audit

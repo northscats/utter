@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ОСВ → Дашборд · МУП «КГХ»</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
+  --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+header{background:var(--ink);color:#e8eef2;padding:16px 24px}
+header h1{font-size:18px;letter-spacing:.03em}
+header .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+main{max-width:860px;margin:0 auto;padding:24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px;margin-top:16px}
+h2{font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:#31424f;margin-bottom:10px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:34px;text-align:center;color:var(--mut);cursor:pointer}
+.drop.on{border-color:var(--water);background:#f2f8fb;color:var(--ink)}
+.drop b{color:var(--ink)}
+input[type=file]{display:none}
+.btn{display:inline-block;margin-top:14px;background:var(--ink);color:#fff;border:0;border-radius:8px;
+  padding:12px 26px;font:600 14px 'Segoe UI',sans-serif;cursor:pointer;letter-spacing:.04em}
+.btn:disabled{opacity:.5;cursor:default}
+.filelist{margin-top:12px;font-size:13px;color:var(--mut)}
+.err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;padding:12px 16px;margin-top:16px}
+.okbox{background:#e9f4ee;border:1px solid #b5d6c3;color:#1d4f35;border-radius:8px;padding:14px 16px;margin-top:16px;font-size:15px}
+.okbox a{display:inline-block;margin-top:8px;background:var(--ok);color:#fff;text-decoration:none;
+  border-radius:7px;padding:10px 20px;font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{padding:7px 10px;border-bottom:1px solid #e6eaed;text-align:left;vertical-align:top}
+th{background:#f0f3f5;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#31424f}
+td.st-ok{color:var(--ok)} td.st-bad{color:var(--bad);font-weight:600}
+.hint{font-size:13px;color:var(--mut);margin-top:10px}
+ul.prev{margin:8px 0 0 18px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>МУП «Каширское городское хозяйство»</h1>
+  <div class="sub">Генератор финансовой панели из выгрузок 1С</div>
+</header>
+<main>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+  {% if dashboard %}
+  <div class="okbox">
+    Дашборд за период <b>{{ period }}</b> собран.
+    <br><a href="/dashboard/{{ dashboard }}" target="_blank">Открыть дашборд</a>
+  </div>
+  {% endif %}
+
+  {% if audit %}
+  <div class="card">
+    <h2>Протокол обработки файлов</h2>
+    <table>
+      <tr><th>Файл</th><th>Счет</th><th>Результат</th></tr>
+      {% for a in audit %}
+      <tr>
+        <td>{{ a.file }}</td>
+        <td>{{ a.acc }}</td>
+        <td class="{{ 'st-ok' if a.ok else 'st-bad' }}">{{ a.status }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Загрузка оборотно-сальдовых ведомостей</h2>
+    <form method="post" action="/process" enctype="multipart/form-data" id="frm">
+      <label class="drop" id="drop">
+        <b>Перетащите сюда .xls-файлы</b> или нажмите, чтобы выбрать<br>
+        <span style="font-size:12.5px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
+        с детализацией «по дням» и включенными группировками</span>
+        <input type="file" name="files" id="files" multiple accept=".xls,.xlsx">
+      </label>
+      <div class="filelist" id="flist">Файлы не выбраны</div>
+      <button class="btn" id="go" type="submit" disabled>Построить дашборд</button>
+    </form>
+    <div class="hint">Как выгрузить из 1С: Отчеты → Оборотно-сальдовая ведомость по счету →
+      настройки: группировка «По субсчетам» + аналитики, периодичность «По дням» —
+      затем «Сохранить как…» → «Лист Excel (.xls)». План счетов прикладывать не обязательно.</div>
+  </div>
+
+  {% if ready %}
+  <div class="card">
+    <h2>Ранее собранные дашборды</h2>
+    <ul class="prev">
+      {% for r in ready %}<li><a href="/dashboard/{{ r }}" target="_blank">{{ r }}</a></li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</main>
+<script>
+const drop=document.getElementById('drop'), inp=document.getElementById('files'),
+      list=document.getElementById('flist'), go=document.getElementById('go');
+function show(){
+  const fs=[...inp.files];
+  list.textContent = fs.length? ('Выбрано файлов: '+fs.length+' — '+fs.map(f=>f.name).join(', ')) : 'Файлы не выбраны';
+  go.disabled = !fs.length;
+}
+inp.addEventListener('change', show);
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
+drop.addEventListener('drop', ev=>{ inp.files = ev.dataTransfer.files; show(); });
+document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
+</script>
+</body>
+</html>

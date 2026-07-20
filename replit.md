@@ -1,6 +1,9 @@
-# [Project name]
+# ОСВ → Дашборд (МУП «КГХ»)
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Flask-приложение: загрузка оборотно-сальдовых ведомостей из 1С (.xls/.xlsx), аудит-проверки и генерация автономного HTML-дашборда. Код прототипа лежит в `osv-dashboard/` (перенесён из архива, сделанного в Claude).
+
+- Запуск: workflow "OSV Dashboard" (`cd osv-dashboard && PORT=8000 python app.py`), Python 3.11, зависимости: flask, xlrd==2.0.1, openpyxl.
+- Загруженные файлы: `osv-dashboard/uploads/`, готовые дашборды: `osv-dashboard/output/` (в .gitignore).
 
 ## Run & Operate
 
