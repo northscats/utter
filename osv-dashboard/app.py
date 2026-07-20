@@ -11,6 +11,9 @@ from flask import (Flask, abort, redirect, render_template, request,
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 from database import Company, Upload, User, db
 from osvparser import extract_org_name, parse_many
 from builder import build_dataset
@@ -22,11 +25,22 @@ OUTPUT = os.path.join(BASE, 'output')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 
+# Префикс пути, если приложение работает не в корне домена.
+# Задаётся через переменную окружения: SCRIPT_NAME=/osv
+# При развёртывании в корне оставьте переменную пустой или не задавайте её.
+SCRIPT_NAME = os.environ.get('SCRIPT_NAME', '').rstrip('/')
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-change-me')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 МБ
 
-# --- PostgreSQL через DATABASE_URL (Replit предоставляет автоматически) ---
+# Если задан подпуть — сообщаем Flask, где он «живёт»
+if SCRIPT_NAME:
+    app.config['APPLICATION_ROOT'] = SCRIPT_NAME
+    # Доверяем заголовкам X-Forwarded-* от nginx
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+# --- PostgreSQL —  DATABASE_URL из переменной окружения ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

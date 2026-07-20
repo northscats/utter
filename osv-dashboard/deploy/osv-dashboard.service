@@ -1,0 +1,37 @@
+# systemd-юнит для ОСВ Дашборда
+# Путь: /etc/systemd/system/osv-dashboard.service
+#
+# После создания файла:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable osv-dashboard
+#   sudo systemctl start osv-dashboard
+
+[Unit]
+Description=ОСВ Дашборд — генератор финансовых панелей из выгрузок 1С
+After=network.target postgresql.service
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/osv-dashboard
+
+# Переменные окружения
+Environment="DATABASE_URL=postgresql://осв_user:ПАРОЛЬ@localhost:5432/осв_db"
+Environment="SESSION_SECRET=замените-на-случайную-строку-32-символа"
+Environment="SCRIPT_NAME=/osv"
+
+# gunicorn: 2 воркера достаточно для малой нагрузки, увеличьте при необходимости
+ExecStart=/opt/osv-dashboard/venv/bin/gunicorn \
+    --workers 2 \
+    --bind 127.0.0.1:8001 \
+    --timeout 120 \
+    --access-logfile /var/log/osv-dashboard/access.log \
+    --error-logfile  /var/log/osv-dashboard/error.log \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

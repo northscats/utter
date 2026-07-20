@@ -1,0 +1,154 @@
+# Развёртывание ОСВ Дашборда на собственном сервере
+
+Приложение разворачивается по адресу `https://домен.ru/osv/`.  
+ОС: Ubuntu 22.04 / Debian 12. Python 3.11+.
+
+---
+
+## 1. Подготовка сервера
+
+```bash
+sudo apt update && sudo apt install -y python3.11 python3.11-venv python3-pip \
+    postgresql postgresql-contrib nginx
+```
+
+---
+
+## 2. База данных PostgreSQL
+
+```bash
+sudo -u postgres psql <<'SQL'
+CREATE USER осв_user WITH PASSWORD 'ПРИДУМАЙТЕ_ПАРОЛЬ';
+CREATE DATABASE осв_db OWNER осв_user ENCODING 'UTF8';
+SQL
+```
+
+---
+
+## 3. Копирование файлов
+
+```bash
+sudo mkdir -p /opt/osv-dashboard
+sudo cp -r . /opt/osv-dashboard/
+sudo chown -R www-data:www-data /opt/osv-dashboard
+```
+
+---
+
+## 4. Python-окружение и зависимости
+
+```bash
+cd /opt/osv-dashboard
+sudo -u www-data python3.11 -m venv venv
+sudo -u www-data venv/bin/pip install --upgrade pip
+sudo -u www-data venv/bin/pip install -r requirements.txt
+```
+
+---
+
+## 5. Создание таблиц (первый запуск)
+
+```bash
+cd /opt/osv-dashboard
+sudo -u www-data env \
+    DATABASE_URL="postgresql://осв_user:ПАРОЛЬ@localhost:5432/осв_db" \
+    SESSION_SECRET="любая-длинная-строка" \
+    SCRIPT_NAME="/osv" \
+    venv/bin/python - <<'PY'
+from app import app, db, init_db
+with app.app_context():
+    db.create_all()
+    init_db()
+PY
+```
+
+После этой команды будет создан пользователь **admin / admin123** — смените пароль сразу.
+
+---
+
+## 6. Логи
+
+```bash
+sudo mkdir -p /var/log/osv-dashboard
+sudo chown www-data:www-data /var/log/osv-dashboard
+```
+
+---
+
+## 7. systemd-сервис
+
+```bash
+sudo cp deploy/osv-dashboard.service /etc/systemd/system/
+# Отредактируйте файл: вставьте реальные DATABASE_URL и SESSION_SECRET
+sudo nano /etc/systemd/system/osv-dashboard.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable osv-dashboard
+sudo systemctl start osv-dashboard
+sudo systemctl status osv-dashboard   # убедитесь, что active (running)
+```
+
+---
+
+## 8. nginx
+
+```bash
+# Добавьте содержимое deploy/nginx.conf в ваш server{}-блок
+sudo nano /etc/nginx/sites-available/ваш-домен.conf
+
+sudo nginx -t          # проверка синтаксиса
+sudo systemctl reload nginx
+```
+
+После этого приложение доступно по адресу `https://домен.ru/osv/`.
+
+---
+
+## 9. Смена пароля admin
+
+Войдите в psql и обновите хэш:
+
+```bash
+cd /opt/osv-dashboard
+sudo -u www-data env DATABASE_URL="..." venv/bin/python - <<'PY'
+import bcrypt
+from app import app, db
+from database import User
+with app.app_context():
+    u = User.query.filter_by(username='admin').first()
+    u.password_hash = bcrypt.hashpw(b'НовыйПароль', bcrypt.gensalt()).decode()
+    db.session.commit()
+    print('Готово')
+PY
+```
+
+---
+
+## 10. HTTPS (Let's Encrypt)
+
+Если ещё не настроен:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d домен.ru -d www.домен.ru
+```
+
+---
+
+## Проверка работы
+
+```bash
+curl -I https://домен.ru/osv/
+# Ожидается: HTTP/2 200 или 302 (редирект на /osv/login)
+```
+
+---
+
+## Обновление приложения
+
+```bash
+cd /opt/osv-dashboard
+sudo -u www-data git pull          # если используете git
+sudo -u www-data venv/bin/pip install -r requirements.txt
+sudo systemctl restart osv-dashboard
+```
