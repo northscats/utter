@@ -121,26 +121,6 @@ tr:last-child td{border-bottom:0}
       <a href="/logout">Выйти</a>
     </div>
   </div>
-  <div class="hd-tl">
-    <div class="tl-row" style="display:flex;flex-wrap:nowrap;gap:2px;align-items:flex-end">
-      {% for cell in daily_stats.timeline %}
-      <div class="tl-cell tl-{{ cell.status }}{% if cell.is_today %} tl-today{% endif %}"
-           title="{{ cell.label }}{% if cell.is_today %} — сегодня{% endif %}">
-        {% if cell.new_month %}<span class="tl-mon">{{ cell.mon_label }}</span>{% endif %}
-        <span class="tl-day">{{ cell.date }}</span>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="hd-tl-legend">
-      {% if daily_stats.has_data %}
-        <span style="color:#8fa3b1">загружено</span>
-        <b style="color:#c8d8e4">{{ daily_stats.days }} дн.</b>
-        <span style="color:#5a7a90">{{ daily_stats.date_from }} – {{ daily_stats.date_to }}</span>
-      {% else %}
-        <span>суточных данных нет</span>
-      {% endif %}
-    </div>
-  </div>
 </header>
 <main>
 
@@ -179,6 +159,30 @@ tr:last-child td{border-bottom:0}
         Переименовать
       </button>
     </form>
+  </div>
+
+  <!-- Временна́я линейка суточных данных -->
+  <div class="card" style="padding:16px 24px">
+    <div class="tl-row">
+      {% for cell in daily_stats.timeline %}
+      <div class="tl-cell tl-{{ cell.status }}{% if cell.is_today %} tl-today{% endif %}"
+           title="{{ cell.label }}{% if cell.is_today %} — сегодня{% endif %}">
+        {% if cell.new_month %}<span class="tl-mon">{{ cell.mon_label }}</span>{% endif %}
+        <span class="tl-day">{{ cell.date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="tl-legend">
+      <span><span class="tl-swatch tl-swatch-ok"></span>есть данные</span>
+      <span><span class="tl-swatch tl-swatch-missing"></span>пропущен</span>
+      <span><span class="tl-swatch tl-swatch-future"></span>будущее</span>
+      {% if daily_stats.has_data %}
+      <span style="margin-left:4px">
+        <b>{{ daily_stats.days }}</b> дн. · {{ daily_stats.date_from }} – {{ daily_stats.date_to }}
+        · счета: {{ daily_stats.accs|join(', ') }}
+      </span>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Кнопка актуального дашборда -->
