@@ -11,6 +11,18 @@
 body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
 header{background:var(--ink);color:#e8eef2;padding:0}
 .hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px;flex-wrap:wrap}
+.hd-tl{background:#1e3040;border-top:1px solid #2e4558;padding:8px 24px;display:flex;
+  align-items:center;gap:10px;overflow-x:auto}
+.hd-tl .tl-row{flex-wrap:nowrap;gap:2px}
+.hd-tl .tl-cell{width:24px;height:28px}
+.hd-tl .tl-ok{background:#2e7d4f}
+.hd-tl .tl-missing{background:#5c1e18;border:1px solid #7a2a22;color:#e8a09a}
+.hd-tl .tl-future{background:#263545;border:1px solid #344d61;color:#5a7a90}
+.hd-tl .tl-cell.tl-today{outline:2px solid #7fb3d0;outline-offset:1px}
+.hd-tl .tl-day{font-size:9px;color:#c8d8e4}
+.hd-tl .tl-mon{font-size:8px;color:#8fa3b1}
+.hd-tl-legend{font-size:11px;color:#5a7a90;white-space:nowrap;display:flex;align-items:center;gap:8px;
+  border-left:1px solid #2e4558;padding-left:12px;margin-left:4px}
 .hd-back{color:#7fb3d0;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:6px;
   border:1px solid #3a5060;border-radius:6px;padding:5px 12px;white-space:nowrap;transition:background .15s}
 .hd-back:hover{background:#253545}
@@ -109,6 +121,26 @@ tr:last-child td{border-bottom:0}
       <a href="/logout">Выйти</a>
     </div>
   </div>
+  <div class="hd-tl">
+    <div class="tl-row" style="display:flex;flex-wrap:nowrap;gap:2px;align-items:flex-end">
+      {% for cell in daily_stats.timeline %}
+      <div class="tl-cell tl-{{ cell.status }}{% if cell.is_today %} tl-today{% endif %}"
+           title="{{ cell.label }}{% if cell.is_today %} — сегодня{% endif %}">
+        {% if cell.new_month %}<span class="tl-mon">{{ cell.mon_label }}</span>{% endif %}
+        <span class="tl-day">{{ cell.date }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="hd-tl-legend">
+      {% if daily_stats.has_data %}
+        <span style="color:#8fa3b1">загружено</span>
+        <b style="color:#c8d8e4">{{ daily_stats.days }} дн.</b>
+        <span style="color:#5a7a90">{{ daily_stats.date_from }} – {{ daily_stats.date_to }}</span>
+      {% else %}
+        <span>суточных данных нет</span>
+      {% endif %}
+    </div>
+  </div>
 </header>
 <main>
 
@@ -192,31 +224,6 @@ tr:last-child td{border-bottom:0}
   <!-- Загрузка суточного ZIP-архива -->
   <div class="card">
     <h3>Загрузить суточный архив (ZIP)</h3>
-
-    <!-- Временна́я линейка суточных данных -->
-    <div class="tl-wrap">
-      <div class="tl-row">
-        {% for cell in daily_stats.timeline %}
-        <div class="tl-cell tl-{{ cell.status }}{% if cell.is_today %} tl-today{% endif %}"
-             title="{{ cell.label }}{% if cell.is_today %} (сегодня){% endif %}">
-          {% if cell.new_month %}<span class="tl-mon">{{ cell.mon_label }}</span>{% endif %}
-          <span class="tl-day">{{ cell.date }}</span>
-        </div>
-        {% endfor %}
-      </div>
-      <div class="tl-legend">
-        <span><span class="tl-swatch tl-swatch-ok"></span>есть данные</span>
-        <span><span class="tl-swatch tl-swatch-missing"></span>пропущен</span>
-        <span><span class="tl-swatch tl-swatch-future"></span>будущее</span>
-        {% if daily_stats.has_data %}
-        <span style="margin-left:6px">
-          <b>{{ daily_stats.days }}</b> дн. загружено
-          ({{ daily_stats.date_from }} – {{ daily_stats.date_to }})
-          · счета: {{ daily_stats.accs|join(', ') }}
-        </span>
-        {% endif %}
-      </div>
-    </div>
 
     <form method="post" action="/company/{{ company.id }}/upload-zip"
           enctype="multipart/form-data" id="frm-zip">
