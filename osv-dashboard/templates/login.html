@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — ОСВ Дашборд</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;--bad:#bf3222;--water:#1f7a9c}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column}
+header{background:var(--ink);color:#e8eef2;padding:16px 24px}
+header h1{font-size:18px;letter-spacing:.03em}
+header .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+main{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:36px 40px;
+  width:100%;max-width:400px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
+h2{font-size:16px;font-weight:700;margin-bottom:24px;color:var(--ink)}
+label{display:block;font-size:13px;font-weight:600;color:#31424f;margin-bottom:5px}
+input[type=text],input[type=password]{display:block;width:100%;padding:10px 12px;
+  border:1px solid var(--line);border-radius:7px;font:15px 'Segoe UI',sans-serif;
+  color:var(--ink);background:#fff;margin-bottom:16px;outline:none;transition:border .15s}
+input:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
+.btn{display:block;width:100%;background:var(--ink);color:#fff;border:0;border-radius:8px;
+  padding:12px;font:600 14px 'Segoe UI',sans-serif;cursor:pointer;letter-spacing:.04em;
+  margin-top:4px;transition:background .15s}
+.btn:hover{background:#253545}
+.err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:7px;
+  padding:10px 14px;margin-bottom:18px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1>ОСВ Дашборд</h1>
+  <div class="sub">Генератор финансовой панели из выгрузок 1С</div>
+</header>
+<main>
+  <div class="card">
+    <h2>Вход в систему</h2>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <label for="username">Логин</label>
+      <input type="text" id="username" name="username" autocomplete="username" required
+             value="{{ username or '' }}">
+      <label for="password">Пароль</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <button class="btn" type="submit">Войти</button>
+    </form>
+  </div>
+</main>
+</body>
+</html>

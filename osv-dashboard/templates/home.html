@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ОСВ Дашборд — Предприятия</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
+  --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c;--warn:#c98a12}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+header{background:var(--ink);color:#e8eef2;padding:0}
+.hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px}
+.hd-title h1{font-size:18px;letter-spacing:.03em}
+.hd-title .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+.hd-spacer{flex:1}
+.hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:14px}
+.hd-user strong{color:#c8d8e4}
+.hd-user a{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
+  border-radius:6px;padding:4px 10px;transition:background .15s}
+.hd-user a:hover{background:#253545}
+main{max-width:1100px;margin:0 auto;padding:28px 24px}
+.top-bar{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.top-bar h2{font-size:16px;font-weight:700;color:var(--ink);flex:1}
+.btn-new{background:var(--water);color:#fff;border:0;border-radius:8px;
+  padding:11px 22px;font:600 14px 'Segoe UI',sans-serif;cursor:pointer;
+  letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center;gap:8px;
+  transition:background .15s}
+.btn-new:hover{background:#186a87}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+.ccard{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:22px;transition:box-shadow .15s,border-color .15s;cursor:pointer;text-decoration:none;
+  display:block;color:inherit}
+.ccard:hover{box-shadow:0 4px 18px rgba(0,0,0,.10);border-color:#bbc8d0}
+.ccard-name{font-size:17px;font-weight:700;color:var(--ink);margin-bottom:14px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+.meta-item{}
+.meta-label{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--mut);margin-bottom:2px}
+.meta-value{font-size:14px;font-weight:600;color:var(--ink)}
+.badge{display:inline-block;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:600}
+.badge-ok{background:#e4f2ea;color:var(--ok)}
+.badge-bad{background:#fbeae8;color:var(--bad)}
+.badge-none{background:#f0f3f5;color:var(--mut)}
+.badge-profit{background:#e4f2ea;color:var(--ok)}
+.badge-loss{background:#fbeae8;color:var(--bad)}
+.badge-neutral{background:#f0f3f5;color:var(--mut)}
+.ccard-footer{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--mut)}
+.empty{text-align:center;padding:64px 24px;color:var(--mut)}
+.empty-icon{font-size:48px;margin-bottom:16px}
+.empty h3{font-size:18px;font-weight:600;color:#31424f;margin-bottom:8px}
+.empty p{max-width:420px;margin:0 auto 24px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd-top">
+    <div class="hd-title">
+      <h1>ОСВ Дашборд</h1>
+      <div class="sub">Генератор финансовой панели из выгрузок 1С</div>
+    </div>
+    <div class="hd-spacer"></div>
+    <div class="hd-user">
+      <span>Пользователь: <strong>{{ current_user.username }}</strong></span>
+      <a href="/logout">Выйти</a>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="top-bar">
+    <h2>Предприятия ({{ companies|length }})</h2>
+    <a class="btn-new" href="/company/new">+ Добавить предприятие</a>
+  </div>
+
+  {% if companies %}
+  <div class="grid">
+    {% for c in companies %}
+    <a class="ccard" href="/company/{{ c.id }}">
+      <div class="ccard-name" title="{{ c.name }}">{{ c.name }}</div>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <div class="meta-label">Период данных</div>
+          <div class="meta-value">{{ c.last_period or '—' }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Файлов загружено</div>
+          <div class="meta-value">{{ c.files_total }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Закрытие периодов</div>
+          <div class="meta-value">
+            {% if c.closure is none %}
+              <span class="badge badge-none">нет данных</span>
+            {% elif c.closure %}
+              <span class="badge badge-ok">✓ закрыт</span>
+            {% else %}
+              <span class="badge badge-bad">✗ не закрыт</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Финансовый результат</div>
+          <div class="meta-value">
+            {% if c.profit_sign == 'profit' %}
+              <span class="badge badge-profit">Прибыль</span>
+            {% elif c.profit_sign == 'loss' %}
+              <span class="badge badge-loss">Убыток</span>
+            {% else %}
+              <span class="badge badge-neutral">—</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="ccard-footer">
+        Последняя загрузка: {{ c.last_upload or 'нет' }}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div class="empty-icon">📂</div>
+    <h3>Нет ни одного предприятия</h3>
+    <p>Нажмите «Добавить предприятие», чтобы загрузить первые оборотно-сальдовые ведомости.</p>
+    <a class="btn-new" href="/company/new">+ Добавить предприятие</a>
+  </div>
+  {% endif %}
+</main>
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ company.name }} — ОСВ Дашборд</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
+  --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c;--warn:#c98a12}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+header{background:var(--ink);color:#e8eef2;padding:0}
+.hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px;flex-wrap:wrap}
+.hd-back{color:#7fb3d0;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:6px;
+  border:1px solid #3a5060;border-radius:6px;padding:5px 12px;white-space:nowrap;transition:background .15s}
+.hd-back:hover{background:#253545}
+.hd-title h1{font-size:18px;letter-spacing:.03em}
+.hd-title .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px}
+.hd-spacer{flex:1}
+.hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:14px}
+.hd-user strong{color:#c8d8e4}
+.hd-user a{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
+  border-radius:6px;padding:4px 10px}
+main{max-width:960px;margin:0 auto;padding:28px 24px}
+.top-bar{display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}
+.top-bar h2{font-size:16px;font-weight:700;flex:1}
+.btn{border:0;border-radius:8px;padding:11px 22px;font:600 14px 'Segoe UI',sans-serif;
+  cursor:pointer;letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center;
+  gap:8px;transition:background .15s}
+.btn-primary{background:var(--water);color:#fff}
+.btn-primary:hover{background:#186a87}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:20px}
+.card h3{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:#31424f;margin-bottom:18px}
+/* upload form */
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;
+  color:var(--mut);cursor:pointer;transition:border-color .15s,background .15s}
+.drop.on{border-color:var(--water);background:#f2f8fb;color:var(--ink)}
+.drop b{color:var(--ink)}
+input[type=file]{display:none}
+.filelist{margin-top:10px;font-size:13px;color:var(--mut)}
+.btn-submit{background:var(--ink);color:#fff;margin-top:14px}
+.btn-submit:hover{background:#253545}
+.btn-submit:disabled{opacity:.5;cursor:default}
+/* uploads history */
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:9px 12px;border-bottom:1px solid #e6eaed;text-align:left;vertical-align:middle}
+th{background:#f0f3f5;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#31424f}
+tr:last-child td{border-bottom:0}
+.badge{display:inline-block;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:600}
+.badge-ok{background:#e4f2ea;color:var(--ok)}
+.badge-bad{background:#fbeae8;color:var(--bad)}
+.badge-none{background:#f0f3f5;color:var(--mut)}
+.badge-profit{background:#e4f2ea;color:var(--ok)}
+.badge-loss{background:#fbeae8;color:var(--bad)}
+.badge-neutral{background:#f0f3f5;color:var(--mut)}
+.btn-dash{background:#f0f3f5;color:var(--ink);border:1px solid var(--line);border-radius:6px;
+  padding:5px 12px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;text-decoration:none;
+  white-space:nowrap;transition:background .15s}
+.btn-dash:hover{background:#e2e8ec}
+.err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;
+  padding:12px 16px;margin-bottom:18px}
+.audit-card{margin-top:18px}
+.audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600}
+.empty-uploads{text-align:center;padding:32px;color:var(--mut)}
+.hint{font-size:12.5px;color:var(--mut);margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd-top">
+    <a class="hd-back" href="/">← Все предприятия</a>
+    <div class="hd-title">
+      <h1>{{ company.name }}</h1>
+      <div class="sub">Рабочая страница предприятия</div>
+    </div>
+    <div class="hd-spacer"></div>
+    <div class="hd-user">
+      <span><strong>{{ current_user.username }}</strong></span>
+      <a href="/logout">Выйти</a>
+    </div>
+  </div>
+</header>
+<main>
+
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+  {% if audit %}
+  <div class="card audit-card">
+    <h3>Протокол последней обработки</h3>
+    <table class="audit-table">
+      <tr><th>Файл</th><th>Счет</th><th>Результат</th></tr>
+      {% for a in audit %}
+      <tr>
+        <td>{{ a.file }}</td>
+        <td>{{ a.acc }}</td>
+        <td class="{{ 'st-ok' if a.ok else 'st-bad' }}">{{ a.status }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Загрузка новых файлов -->
+  <div class="card">
+    <h3>Загрузить новый период</h3>
+    <form method="post" action="/company/{{ company.id }}/upload" enctype="multipart/form-data" id="frm">
+      <label class="drop" id="drop">
+        <b>Перетащите сюда .xls/.xlsx файлы</b> или нажмите, чтобы выбрать<br>
+        <span style="font-size:12px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
+        с детализацией «по дням» и группировками</span>
+        <input type="file" name="files" id="files" multiple accept=".xls,.xlsx">
+      </label>
+      <div class="filelist" id="flist">Файлы не выбраны</div>
+      <button class="btn btn-submit" id="go" type="submit" disabled>Построить дашборд</button>
+    </form>
+    <div class="hint">Как выгрузить из 1С: Отчеты → ОСВ по счету → группировка «По субсчетам» + аналитики,
+      периодичность «По дням» → «Сохранить как…» → «Лист Excel (.xls)».</div>
+  </div>
+
+  <!-- История загрузок -->
+  <div class="card">
+    <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
+    {% if uploads %}
+    <table>
+      <tr>
+        <th>Дата загрузки</th>
+        <th>Период</th>
+        <th>Счетов</th>
+        <th>Закрытие</th>
+        <th>Результат</th>
+        <th>Дашборд</th>
+      </tr>
+      {% for u in uploads %}
+      <tr>
+        <td>{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
+        <td>{{ u.period_label or '—' }}</td>
+        <td>{{ u.files_count }}</td>
+        <td>
+          {% if u.closure_status is none %}
+            <span class="badge badge-none">—</span>
+          {% elif u.closure_status %}
+            <span class="badge badge-ok">✓</span>
+          {% else %}
+            <span class="badge badge-bad">✗</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.profit_sign == 'profit' %}
+            <span class="badge badge-profit">Прибыль</span>
+          {% elif u.profit_sign == 'loss' %}
+            <span class="badge badge-loss">Убыток</span>
+          {% else %}
+            <span class="badge badge-neutral">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if u.dashboard_file %}
+            <a class="btn-dash" href="/dashboard/{{ company.id }}/{{ u.dashboard_file }}" target="_blank">
+              Открыть →
+            </a>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty-uploads">Загрузок пока нет — добавьте первый пакет файлов выше.</div>
+    {% endif %}
+  </div>
+
+</main>
+<script>
+const drop=document.getElementById('drop'),inp=document.getElementById('files'),
+      list=document.getElementById('flist'),go=document.getElementById('go');
+function show(){
+  const fs=[...inp.files];
+  list.textContent=fs.length?('Выбрано: '+fs.length+' — '+fs.map(f=>f.name).join(', ')):'Файлы не выбраны';
+  go.disabled=!fs.length;
+}
+inp.addEventListener('change',show);
+['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
+drop.addEventListener('drop',ev=>{inp.files=ev.dataTransfer.files;show();});
+document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
+</script>
+</body>
+</html>

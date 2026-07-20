@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+"""Модели базы данных (PostgreSQL через Flask-SQLAlchemy)."""
+import json
+from datetime import datetime, timezone
+
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
+
+db = SQLAlchemy()
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    uploads = db.relationship('Upload', backref='uploader', lazy=True,
+                              foreign_keys='Upload.uploaded_by')
+    companies = db.relationship('Company', backref='creator', lazy=True,
+                                foreign_keys='Company.created_by')
+
+
+class Company(db.Model):
+    __tablename__ = 'companies'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    uploads = db.relationship('Upload', backref='company', lazy=True,
+                              order_by='Upload.uploaded_at.desc()')
+
+
+class Upload(db.Model):
+    __tablename__ = 'uploads'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id'), nullable=False)
+    uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+
+    period_label = db.Column(db.String(100), default='')        # «янв – июн 2025»
+    accounts_loaded = db.Column(db.Text, default='[]')          # JSON-список счетов
+    closure_status = db.Column(db.Boolean, default=None)        # True = закрыт
+    profit_sign = db.Column(db.String(20), default='neutral')   # profit/loss/neutral
+    profit_value = db.Column(db.Float, default=0.0)             # числовое значение
+    dashboard_file = db.Column(db.String(255), default='')      # имя HTML-файла
+    files_count = db.Column(db.Integer, default=0)              # кол-во файлов в пакете
+
+    @property
+    def accounts_list(self):
+        try:
+            return json.loads(self.accounts_loaded)
+        except Exception:
+            return []
