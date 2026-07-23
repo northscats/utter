@@ -3,12 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>МУП «КГХ» — финансовая панель</title>
+<title>Финансовая панель — ОСВ</title>
 <style>
 :root{
   --ink:#1b2733; --ink2:#31424f; --mut:#6b7a86; --paper:#e9edf0; --panel:#ffffff;
-  --line:#d3dade; --heat:#d95b1e; --water:#1f7a9c; --sewer:#3e7d6b; --other:#8a7ba8;
-  --ok:#2e7d4f; --warn:#c98a12; --bad:#bf3222; --lamp-off:#c7d0d6;
+  --line:#d3dade; --ok:#2e7d4f; --warn:#c98a12; --bad:#bf3222; --lamp-off:#c7d0d6;
   --num:'Consolas','Menlo','DejaVu Sans Mono',monospace;
 }
 *{box-sizing:border-box; margin:0; padding:0}
@@ -17,7 +16,7 @@ body{background:var(--paper); color:var(--ink); font:15px/1.5 'Segoe UI','PT San
   font-variant-numeric:tabular-nums;}
 .disp{font-family:'Arial Narrow','Franklin Gothic Medium','Segoe UI',sans-serif; text-transform:uppercase; letter-spacing:.08em}
 .num{font-family:var(--num)}
-/* ---------- header: диспетчерская панель ---------- */
+/* ---------- header ---------- */
 header{background:var(--ink); color:#e8eef2; padding:0}
 .hd-top{display:flex; flex-wrap:wrap; gap:16px; align-items:center; padding:14px 22px 12px}
 .logo{display:flex; align-items:center; gap:12px}
@@ -59,7 +58,7 @@ header{background:var(--ink); color:#e8eef2; padding:0}
 .mbtn .st{display:block;font-size:10px;font-weight:600;letter-spacing:.04em;margin-top:1px}
 .mbtn.on{border-color:var(--ink);background:var(--ink);color:#fff}
 .mbtn.on .st{color:#c6d4de}
-.mbtn:focus-visible{outline:2px solid var(--water)}
+.mbtn:focus-visible{outline:2px solid #1f7a9c}
 .mbtn.off{opacity:.5}
 .flt-note{font-size:12px;color:var(--mut);margin-left:auto}
 /* ---------- контейнер ---------- */
@@ -69,9 +68,10 @@ h2{font-size:15px;letter-spacing:.09em;color:var(--ink2);text-transform:uppercas
   font-family:'Arial Narrow','Franklin Gothic Medium',sans-serif;display:flex;gap:10px;align-items:baseline}
 h2 .exp{font:400 12.5px/1.4 'Segoe UI',sans-serif;color:var(--mut);text-transform:none;letter-spacing:0}
 .note{font-size:12.5px;color:var(--mut);margin-top:6px}
-/* резюме для обзора */
+/* резюме */
 .brief{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--bad);border-radius:10px;
   padding:18px 22px;margin-top:16px}
+.brief.profit{border-left-color:var(--ok)}
 .brief h2{margin-bottom:4px}
 .brief .lead{font-size:14.5px;color:var(--ink);margin-top:6px;max-width:960px}
 .brief ol{margin:12px 0 0 0;padding:0;list-style:none;display:grid;gap:10px}
@@ -80,6 +80,7 @@ h2 .exp{font:400 12.5px/1.4 'Segoe UI',sans-serif;color:var(--mut);text-transfor
   font:700 13px/1 var(--num)}
 .brief li b{color:var(--ink)}
 .brief li .bad{color:var(--bad);font-weight:700}
+.brief li .ok{color:var(--ok);font-weight:700}
 .brief .foot{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px;color:var(--mut)}
 .brief .foot b{color:var(--ink2)}
 /* KPI */
@@ -106,7 +107,7 @@ svg text{font-family:'Segoe UI',sans-serif}
 .hrow{display:grid;grid-template-columns:minmax(150px,300px) 1fr 110px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
 .hrow:last-child{border-bottom:0}
 .hrow .lbl{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hrow .bar{height:16px;border-radius:3px;background:var(--water);min-width:2px}
+.hrow .bar{height:16px;border-radius:3px;background:#1f7a9c;min-width:2px}
 .hrow .val{text-align:right;font-family:var(--num);font-weight:600}
 /* таблицы */
 .tblwrap{overflow-x:auto;margin-top:12px}
@@ -114,7 +115,7 @@ table{border-collapse:collapse;width:100%;font-size:13.5px}
 th{background:#f0f3f5;color:var(--ink2);text-align:right;padding:8px 10px;border-bottom:2px solid var(--line);
   font-size:12px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;cursor:pointer;user-select:none}
 th:first-child,td:first-child{text-align:left}
-th.sorted::after{content:' ▾';color:var(--water)}
+th.sorted::after{content:' ▾';color:#1f7a9c}
 th.sorted.asc::after{content:' ▴'}
 td{padding:7px 10px;border-bottom:1px solid #e6eaed;text-align:right;font-family:var(--num);white-space:nowrap}
 td:first-child{font-family:'Segoe UI',sans-serif;white-space:normal}
@@ -122,7 +123,7 @@ tr.total td{font-weight:700;background:#f6f8f9;border-top:2px solid var(--line)}
 td.neg{color:var(--bad)} td.pos{color:var(--ok)}
 .search{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .search input{border:1px solid var(--line);border-radius:7px;padding:8px 12px;font:14px 'Segoe UI',sans-serif;width:min(360px,100%)}
-.search input:focus-visible{outline:2px solid var(--water)}
+.search input:focus-visible{outline:2px solid #1f7a9c}
 .pill{font-size:12px;color:var(--mut)}
 /* вкладки детального режима */
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:18px}
@@ -130,24 +131,32 @@ td.neg{color:var(--bad)} td.pos{color:var(--ok)}
   cursor:pointer;font:600 13px 'Segoe UI',sans-serif;color:var(--mut);border-bottom:0}
 .tabs button.on{color:var(--ink);background:var(--panel);border-color:var(--ink2);position:relative}
 .tabs button.on::after{content:'';position:absolute;left:0;right:0;bottom:-2px;height:3px;background:var(--panel)}
-.tabs button:focus-visible{outline:2px solid var(--water)}
+.tabs button:focus-visible{outline:2px solid #1f7a9c}
 .tabpane{display:none}
 .tabpane.on{display:block}
 #view-detail{display:none}
 body[data-mode="detail"] #view-exec{display:none}
 body[data-mode="detail"] #view-detail{display:block}
-.muted-big{font-size:13px;color:var(--mut)}
+.muted-big{font-size:13px;color:var(--mut);padding:14px 0}
 footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;color:var(--mut)}
 .tag-dir{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+/* суточная динамика */
+.daily-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px}
+@media(max-width:900px){.daily-grid{grid-template-columns:1fr}}
+.daily-card{background:#f7f9fa;border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.daily-card h3{font-size:13px;color:var(--ink2);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.daily-legend{display:flex;gap:12px;font-size:12px;color:var(--mut);margin-top:6px}
+.daily-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.sect-hide{display:none!important}
 </style>
 </head>
 <body data-mode="exec">
 <header>
   <div class="hd-top">
     <div class="logo">
-      <div class="badge disp">КГХ</div>
+      <div class="badge disp" id="hd-badge">—</div>
       <div>
-        <h1>МУП «Каширское городское хозяйство»</h1>
+        <h1 id="hd-title">Финансовая панель</h1>
         <div class="sub disp">Финансовая панель · <span id="periodLabel"></span> · по данным ОСВ 1С</div>
       </div>
     </div>
@@ -167,55 +176,86 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 <div class="filters">
   <span class="cap disp">Месяцы:</span>
   <span id="monthBtns"></span>
-  <span class="flt-note">Фильтр действует на обороты (доходы, расходы, деньги). Задолженность и налоги показаны на 30.06.2026.</span>
+  <span class="flt-note" id="flt-note">Фильтр действует на обороты (доходы, расходы, деньги). Задолженность и налоги показаны на конец периода.</span>
 </div>
 
 <main>
 <!-- ================= ОБЗОР ================= -->
 <div id="view-exec">
-  <section class="brief">
+  <section class="brief" id="sect-brief">
     <h2>Что происходит <span class="exp" id="brief-note"></span></h2>
     <div class="lead" id="brief-lead"></div>
     <ol id="brief-points"></ol>
     <div class="foot" id="brief-foot"></div>
   </section>
 
-  <div class="kpis" id="kpiRow"></div>
-
-  <section class="card">
-    <h2>Доходы и расходы по месяцам <span class="exp">— сколько заработали от основной деятельности и во что она обошлась</span></h2>
-    <div class="chartwrap" id="ch-main"></div>
-    <div class="legend" id="lg-main"></div>
-    <div class="note">Столбцы — выручка без НДС и производственные + управленческие расходы. Линия — результат от основной деятельности. В отопительный сезон (январь, март) расходы стабильно выше доходов: тариф не покрывает затраты на тепло. Месяцы, не закрытые в учете, показаны полупрозрачно — расходы за них в учет попали не полностью.</div>
+  <!-- суточная динамика (показывается в обзоре если есть суточные данные) -->
+  <section class="card" id="sect-daily-exec">
+    <h2>Суточная динамика <span class="exp" id="daily-exec-period">— обороты и остатки по ключевым счетам</span></h2>
+    <div class="daily-grid">
+      <div class="daily-card" id="daily-51-wrap">
+        <h3>Расчётный счёт 51 — обороты</h3>
+        <div class="chartwrap" id="ch-daily-51"></div>
+        <div class="daily-legend">
+          <span><i style="background:#4d8f6f"></i>Поступления (Дт)</span>
+          <span><i style="background:#a05a5a"></i>Платежи (Кт)</span>
+        </div>
+      </div>
+      <div class="daily-card" id="daily-62-wrap">
+        <h3>Дебиторы 62 — остаток</h3>
+        <div class="chartwrap" id="ch-daily-62"></div>
+      </div>
+      <div class="daily-card" id="daily-60-wrap">
+        <h3>Кредиторы 60 — остаток</h3>
+        <div class="chartwrap" id="ch-daily-60"></div>
+      </div>
+      <div class="daily-card" id="daily-70-wrap">
+        <h3>Оплата труда 70 — обороты</h3>
+        <div class="chartwrap" id="ch-daily-70"></div>
+        <div class="daily-legend">
+          <span><i style="background:#2e6e8e"></i>Начислено (Дт)</span>
+          <span><i style="background:#7d97a8"></i>Выплачено (Кт)</span>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <div class="grid2">
+  <div class="kpis" id="kpiRow"></div>
+
+  <section class="card" id="sect-pl-exec">
+    <h2>Доходы и расходы по месяцам <span class="exp">— результат от основной деятельности</span></h2>
+    <div class="chartwrap" id="ch-main"></div>
+    <div class="legend" id="lg-main"></div>
+    <div class="note" id="note-main"></div>
+  </section>
+
+  <div class="grid2" id="sect-revdir-exec">
     <section class="card">
       <h2>Откуда приходят деньги <span class="exp">— выручка по видам деятельности</span></h2>
       <div class="hbar" id="ch-revdir"></div>
-      <div class="note">Две трети выручки дает теплоснабжение — поэтому финансовый результат предприятия почти полностью зависит от тарифа на тепло и цены газа.</div>
+      <div class="note" id="note-revdir"></div>
     </section>
-    <section class="card">
+    <section class="card" id="sect-costitems-exec">
       <h2>Куда уходят деньги <span class="exp">— крупнейшие статьи расходов</span></h2>
       <div class="hbar" id="ch-costitems"></div>
-      <div class="note">Почти половина всех расходов — оплата труда со взносами. Вторая по величине группа — энергоресурсы (газ и электроэнергия): на них предприятие повлиять почти не может.</div>
+      <div class="note" id="note-costitems"></div>
     </section>
   </div>
 
-  <div class="grid2">
+  <div class="grid2" id="sect-dz-exec">
     <section class="card">
-      <h2>Кто нам должен <span class="exp">— крупнейшие должники на 30.06.2026</span></h2>
+      <h2>Кто нам должен <span class="exp" id="hd-dz-date"></span></h2>
       <div class="hbar" id="ch-debtors"></div>
       <div class="note" id="note-debtors"></div>
     </section>
     <section class="card">
-      <h2>Кому должны мы <span class="exp">— крупнейшие кредиторы на 30.06.2026</span></h2>
+      <h2>Кому должны мы <span class="exp" id="hd-kz-date"></span></h2>
       <div class="hbar" id="ch-creditors"></div>
       <div class="note" id="note-creditors"></div>
     </section>
   </div>
 
-  <section class="card">
+  <section class="card" id="sect-cash-exec">
     <h2>Деньги на счетах <span class="exp">— поступления и платежи по расчетному счету</span></h2>
     <div class="chartwrap" id="ch-cash"></div>
     <div class="legend" id="lg-cash"></div>
@@ -232,7 +272,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <div class="chartwrap" id="ch-pl"></div>
     <div class="legend" id="lg-pl"></div>
     <div class="tblwrap"><table id="tbl-pl"></table></div>
-    <div class="note">Прибыль от продаж = Выручка без НДС − Себестоимость (90.02) − Управленческие (90.08 = закрытие сч. 26). Чистый результат — расчетный, до налога на прибыль. Столбец «Статус» показывает достоверность месяца; по незакрытым месяцам затраты не собраны.</div>
+    <div class="note" id="note-pl"></div>
   </section>
 
   <section class="card tabpane" data-tab="Выручка">
@@ -243,10 +283,10 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
   </section>
 
   <section class="card tabpane" data-tab="Затраты">
-    <h2>Затраты по статьям, руб. <span class="exp">— обороты Дт 20 + 25 + 26 за выбранные месяцы</span></h2>
+    <h2>Затраты по статьям, руб. <span class="exp">— обороты Дт 20 + 25 + 26</span></h2>
     <div class="search"><input id="q-items" type="search" placeholder="Найти статью затрат…" aria-label="Поиск по статьям"><span class="pill" id="pill-items"></span></div>
     <div class="hbar" id="ch-items-full"></div>
-    <h2 style="margin-top:26px">Себестоимость по подразделениям, руб. <span class="exp">— Дт 90.02 (январь–май)</span></h2>
+    <h2 style="margin-top:26px">Себестоимость по подразделениям, руб. <span class="exp" id="hd-dep-period">— Дт 90.02 за период</span></h2>
     <div class="search"><input id="q-dep" type="search" placeholder="Найти подразделение…" aria-label="Поиск по подразделениям"><span class="pill" id="pill-dep"></span></div>
     <div class="hbar" id="ch-dep-full"></div>
   </section>
@@ -267,30 +307,35 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <div class="chartwrap" id="ch-cf2"></div>
     <div class="legend" id="lg-cf2"></div>
     <div class="tblwrap"><table id="tbl-cf"></table></div>
-    <h2 style="margin-top:26px">Касса (сч. 50) по статьям движения, руб. за 1П2026</h2>
+    <h2 style="margin-top:26px">Касса (сч. 50) по статьям движения, руб. <span class="exp" id="hd-kassa-period">— за период</span></h2>
     <div class="tblwrap"><table id="tbl-kassa"></table></div>
   </section>
 
   <section class="card tabpane" data-tab="Налоги и ФОТ">
-    <h2>Расчеты с бюджетом и фондами (сч. 68, 69), руб. за 1П2026</h2>
+    <h2>Расчеты с бюджетом и фондами (сч. 68, 69), руб. <span class="exp" id="hd-nal-period">— за период</span></h2>
     <div class="tblwrap"><table id="tbl-nal"></table></div>
     <div class="note">Положительное сальдо на конец = задолженность перед бюджетом; отрицательное = переплата / наш актив.</div>
     <h2 style="margin-top:26px">Оплата труда (сч. 70), руб. по месяцам</h2>
     <div class="chartwrap" id="ch-zp"></div>
     <div class="legend" id="lg-zp"></div>
-    <div class="note">В незакрытых месяцах начисление зарплаты может быть еще не проведено — тогда показаны только выплаты.</div>
+    <div class="note" id="note-zp"></div>
   </section>
 
   <section class="card tabpane" data-tab="Прочие (91)">
-    <h2>Прочие доходы (91.01), руб. за 1П2026</h2>
+    <h2>Прочие доходы (91.01), руб. <span class="exp" id="hd-i91-period">— за период</span></h2>
     <div class="hbar" id="ch-i91"></div>
-    <h2 style="margin-top:26px">Прочие расходы (91.02, нетто), руб. за 1П2026</h2>
+    <h2 style="margin-top:26px">Прочие расходы (91.02, нетто), руб. <span class="exp" id="hd-e91-period">— за период</span></h2>
     <div class="hbar" id="ch-e91"></div>
-    <div class="note">Через прочие доходы предприятие получает субсидии, пени и повышающие коэффициенты — именно они компенсируют убыток от основной деятельности. Крупнейшая статья расходов — досоздание резерва по сомнительным долгам: признание того, что часть долгов населения не будет взыскана.</div>
+    <div class="note" id="note-91"></div>
+  </section>
+
+  <section class="card tabpane" data-tab="Суточная динамика">
+    <h2>Суточная динамика по счетам <span class="exp" id="hd-daily-period">— обороты за период</span></h2>
+    <div id="daily-tabs-grid"></div>
   </section>
 </div>
 </main>
-<footer>Источник: оборотно-сальдовые ведомости 1С по счетам 20, 25, 26, 50, 51, 60, 62, 66, 68, 69, 70, 76, 90, 91 за отчетный период. Файл автономный: работает без интернета. Подготовлено автоматическим разбором выгрузок; суммы сверены с контрольными итогами ОСВ.</footer>
+<footer id="site-footer">Источник: оборотно-сальдовые ведомости 1С за отчётный период. Файл автономный — работает без интернета. Суммы сверены с контрольными итогами ОСВ.</footer>
 
 <script>
 const D = /*__DATA__*/;
@@ -300,8 +345,8 @@ let sel = D.months.map(()=>true);
 
 /* ---------- утилиты ---------- */
 const S = n => n.toLocaleString('ru-RU',{maximumFractionDigits:0});
-function fm(n){ // млн с одним знаком
-  const m = n/1e6;
+function fm(n){
+  const m=n/1e6;
   return (Math.abs(m)>=100? m.toFixed(0): m.toFixed(1)).replace('.',',')+' млн';
 }
 function fr(n){return S(Math.round(n))}
@@ -309,19 +354,28 @@ function sum(a){return a.reduce((x,y)=>x+y,0)}
 function selSum(a){return a.reduce((x,y,i)=>x+(sel[i]?y:0),0)}
 function el(t,attrs,parent){const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+function show(id,v){const e=document.getElementById(id);if(e)e.classList.toggle('sect-hide',!v)}
+
+/* ---------- цвета для направлений выручки (динамические) ---------- */
+const DIR_PALETTE=['#1f7a9c','#d95b1e','#3e7d6b','#8a7ba8','#c98a12','#5c748a','#7a4f91','#4d8f6f'];
+const _dirColorCache={};
+let _dirIdx=0;
+function dirColor(name){
+  if(!_dirColorCache[name]) _dirColorCache[name]=DIR_PALETTE[_dirIdx++%DIR_PALETTE.length];
+  return _dirColorCache[name];
+}
 
 /* ---------- SVG: сгруппированные столбцы + линия ---------- */
 function barsLine(id, series, line, opts={}){
-  const box = document.getElementById(id); box.innerHTML='';
+  const box = document.getElementById(id); if(!box){return} box.innerHTML='';
   const mIdx = [...D.months.keys()].filter(i=>sel[i]);
   if(!mIdx.length){box.innerHTML='<div class="muted-big">Выберите хотя бы один месяц.</div>';return}
   const W=Math.max(560, mIdx.length*150), H=300, padL=64, padR=16, padT=14, padB=30;
-  const svg = el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto',role:'img'} ,box);
+  const svg = el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto',role:'img'},box);
   let vals=[]; series.forEach(s=>mIdx.forEach(i=>vals.push(s.v[i]))); if(line)mIdx.forEach(i=>vals.push(line.v[i]));
   let max=Math.max(...vals,0), min=Math.min(...vals,0);
   max*=1.08; if(min<0)min*=1.15; if(max-min<1)max=min+1;
   const y = v => padT + (max-v)/(max-min)*(H-padT-padB);
-  // сетка
   const steps=4;
   for(let s=0;s<=steps;s++){
     const v=min+(max-min)*s/steps, yy=y(v);
@@ -346,7 +400,7 @@ function barsLine(id, series, line, opts={}){
   if(line){
     let dstr='';
     mIdx.forEach((mi,k)=>{const x=padL+bw*k+bw/2, yy=y(line.v[mi]); dstr+=(k? ' L':'M')+x+' '+yy});
-    el('path',{d:dstr,fill:'none',stroke:line.c,'stroke-width':2.5,},svg);
+    el('path',{d:dstr,fill:'none',stroke:line.c,'stroke-width':2.5},svg);
     mIdx.forEach((mi,k)=>{
       const x=padL+bw*k+bw/2, yy=y(line.v[mi]);
       const c=el('circle',{cx:x,cy:yy,r:4.5,fill:line.c,stroke:'#fff','stroke-width':1.5,
@@ -359,7 +413,7 @@ function barsLine(id, series, line, opts={}){
 }
 /* ---------- SVG: стек ---------- */
 function stack(id, keys, colors){
-  const box=document.getElementById(id); box.innerHTML='';
+  const box=document.getElementById(id); if(!box){return} box.innerHTML='';
   const mIdx=[...D.months.keys()].filter(i=>sel[i]);
   if(!mIdx.length){box.innerHTML='<div class="muted-big">Выберите хотя бы один месяц.</div>';return}
   const W=Math.max(560,mIdx.length*150),H=300,padL=64,padR=16,padT=14,padB=30;
@@ -386,7 +440,7 @@ function stack(id, keys, colors){
 }
 /* ---------- горизонтальные полосы ---------- */
 function hbars(id, rows, color, opts={}){
-  const box=document.getElementById(id); box.innerHTML='';
+  const box=document.getElementById(id); if(!box){return} box.innerHTML='';
   if(!rows.length){box.innerHTML='<div class="muted-big">Нет данных за выбранные месяцы.</div>';return}
   const max=Math.max(...rows.map(r=>Math.abs(r[1])),1);
   rows.forEach(r=>{
@@ -400,7 +454,7 @@ function hbars(id, rows, color, opts={}){
 }
 /* ---------- таблицы с сортировкой ---------- */
 function table(id, cols, rows, opts={}){
-  const t=document.getElementById(id); t.dataset.sort=opts.sortCol??'';
+  const t=document.getElementById(id); if(!t){return} t.dataset.sort=opts.sortCol??'';
   function render(sortCol, asc){
     let rr=[...rows];
     if(sortCol!=null && sortCol!==''){
@@ -433,22 +487,106 @@ function table(id, cols, rows, opts={}){
   render(opts.sortCol, false);
 }
 
+/* ---------- суточный: линейный график ---------- */
+function dailyLine(boxEl, dates, series){
+  if(!boxEl){return} boxEl.innerHTML='';
+  if(!dates||!dates.length){boxEl.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
+  const n=dates.length;
+  const W=Math.max(400,n*16),H=150,padL=54,padR=12,padT=12,padB=34;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto'},boxEl);
+  let vals=series.flatMap(s=>(s.v||[]).filter(v=>v!=null));
+  if(!vals.length){boxEl.innerHTML='<div class="muted-big">Нет данных.</div>';return}
+  let max=Math.max(...vals,0),min=Math.min(...vals,0);
+  max*=1.1;if(min<0)min*=1.2;if(max-min<1)max=min+1;
+  const yFn=v=>padT+(max-v)/(max-min)*(H-padT-padB);
+  for(let g=0;g<=3;g++){
+    const v=min+(max-min)*g/3,yy=yFn(v);
+    el('line',{x1:padL,x2:W-padR,y1:yy,y2:yy,stroke:'#e3e8eb','stroke-width':1},svg);
+    el('text',{x:padL-5,y:yy+4,'text-anchor':'end','font-size':9,fill:'#7c8a95'},svg).textContent=(v/1e6).toFixed(1);
+  }
+  el('text',{x:padL-5,y:padT-2,'text-anchor':'end','font-size':8,fill:'#9aa7b0'},svg).textContent='млн';
+  if(min<0)el('line',{x1:padL,x2:W-padR,y1:yFn(0),y2:yFn(0),stroke:'#94a3ad','stroke-width':1.2},svg);
+  const bw=(W-padL-padR)/n;
+  const step=Math.max(1,Math.ceil(n/20));
+  dates.forEach((date,k)=>{
+    if(k%step===0)el('text',{x:padL+bw*(k+.5),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
+      .textContent=date.slice(5).replace('-','.');
+  });
+  series.forEach(s=>{
+    let d='',prevK=-2;
+    (s.v||[]).forEach((v,k)=>{
+      if(v==null)return;
+      const x=padL+bw*(k+.5),yy=yFn(v);
+      d+=(k===prevK+1&&prevK>=0?'L':'M')+x+' '+yy;
+      prevK=k;
+    });
+    if(d)el('path',{d,fill:'none',stroke:s.c,'stroke-width':1.8},svg);
+    if(n<=45)(s.v||[]).forEach((v,k)=>{
+      if(v==null)return;
+      const c=el('circle',{cx:padL+bw*(k+.5),cy:yFn(v),r:2.5,fill:s.c},svg);
+      el('title',{},c).textContent=`${s.n}, ${dates[k]}: ${fr(v)} ₽`;
+    });
+  });
+}
+
+/* ---------- суточный: парные столбцы Дт / Кт ---------- */
+function dailyBarsPair(boxEl, dates, obd, obk, nIn, nOut, cIn, cOut){
+  if(!boxEl){return} boxEl.innerHTML='';
+  if(!dates||!dates.length){boxEl.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
+  const n=dates.length;
+  const allV=[...obd,...obk].filter(v=>v>0);
+  if(!allV.length){boxEl.innerHTML='<div class="muted-big">Нет данных за этот период.</div>';return}
+  const W=Math.max(400,n*16),H=150,padL=54,padR=12,padT=12,padB=34;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto'},boxEl);
+  const max=Math.max(...allV)*1.1||1;
+  const yFn=v=>padT+(max-v)/max*(H-padT-padB);
+  const y0=yFn(0);
+  for(let g=0;g<=3;g++){
+    const v=max*g/3,yy=yFn(v);
+    el('line',{x1:padL,x2:W-padR,y1:yy,y2:yy,stroke:'#e3e8eb','stroke-width':1},svg);
+    el('text',{x:padL-5,y:yy+4,'text-anchor':'end','font-size':9,fill:'#7c8a95'},svg).textContent=(v/1e6).toFixed(1);
+  }
+  el('text',{x:padL-5,y:padT-2,'text-anchor':'end','font-size':8,fill:'#9aa7b0'},svg).textContent='млн';
+  const bw=(W-padL-padR)/n, hw=Math.max(bw*0.35,1.5);
+  const step=Math.max(1,Math.ceil(n/20));
+  dates.forEach((date,k)=>{
+    if(k%step===0)el('text',{x:padL+bw*(k+.5),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
+      .textContent=date.slice(5).replace('-','.');
+    const cx=padL+bw*(k+.5);
+    const vo=obd[k]||0,vi=obk[k]||0;
+    if(vo>0){const h=Math.max(y0-yFn(vo),1),r=el('rect',{x:cx-hw-1,y:yFn(vo),width:hw,height:h,fill:cIn,rx:1},svg);el('title',{},r).textContent=`${nIn}, ${date}: ${fr(vo)} ₽`;}
+    if(vi>0){const h=Math.max(y0-yFn(vi),1),r=el('rect',{x:cx+1,y:yFn(vi),width:hw,height:h,fill:cOut,rx:1},svg);el('title',{},r).textContent=`${nOut}, ${date}: ${fr(vi)} ₽`;}
+  });
+}
+
 /* ---------- режимы и вкладки ---------- */
 function setMode(m){
   document.body.dataset.mode=m;
   document.getElementById('mode-exec').classList.toggle('on',m==='exec');
   document.getElementById('mode-detail').classList.toggle('on',m==='detail');
 }
-const TABS=['Финрезультат','Выручка','Затраты','Долги','Деньги','Налоги и ФОТ','Прочие (91)'];
 function buildTabs(){
+  const SEC=D.sections;
+  const tabs=[
+    SEC.has_pl&&'Финрезультат',
+    SEC.has_rev_dir&&'Выручка',
+    (SEC.has_cost_items||SEC.has_pl)&&'Затраты',
+    (SEC.has_dz||SEC.has_kz)&&'Долги',
+    SEC.has_cash&&'Деньги',
+    (SEC.has_taxes||SEC.has_zp)&&'Налоги и ФОТ',
+    SEC.has_91&&'Прочие (91)',
+    SEC.has_daily&&'Суточная динамика',
+  ].filter(Boolean);
   const tb=document.getElementById('tabs');
-  TABS.forEach((t,i)=>{
+  tabs.forEach((t,i)=>{
     const b=document.createElement('button');b.textContent=t;if(!i)b.classList.add('on');
     b.onclick=()=>{tb.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
       document.querySelectorAll('.tabpane').forEach(p=>p.classList.toggle('on',p.dataset.tab===t));};
     tb.appendChild(b);
   });
-  document.querySelector('.tabpane').classList.add('on');
+  if(tabs.length)document.querySelectorAll('.tabpane').forEach(p=>{
+    if(p.dataset.tab===tabs[0])p.classList.add('on');
+  });
 }
 /* ---------- фильтр месяцев ---------- */
 function buildMonthBtns(){
@@ -469,153 +607,357 @@ function plRows(){
     const revn=D.pl.rev[i]-D.pl.nds[i];
     const sales=revn-D.pl.cost[i]-D.pl.adm[i];
     const other=D.pl.oinc[i]-D.pl.oexp[i];
-    return {i, revg:D.pl.rev[i], nds:D.pl.nds[i], revn, cost:D.pl.cost[i], adm:D.pl.adm[i], sales, oinc:D.pl.oinc[i], oexp:D.pl.oexp[i], other, net:sales+other};
+    return {i,revg:D.pl.rev[i],nds:D.pl.nds[i],revn,cost:D.pl.cost[i],adm:D.pl.adm[i],sales,oinc:D.pl.oinc[i],oexp:D.pl.oexp[i],other,net:sales+other};
   });
 }
-const DIRC={'Теплоснабжение':'#d95b1e','Водоснабжение г.п.Кашира':'#1f7a9c','Водоотведение г.п.Кашира':'#3e7d6b'};
-function dirColor(name,i){ return DIRC[name]||'#8a7ba8'; }
 
-/* ---------- рендер ---------- */
+/* ---------- рендер суточных в обзоре ---------- */
+function renderDailyExec(){
+  const DC=D.daily_charts;
+  const dates=DC.dates||[];
+  const accs=DC.accounts||{};
+  show('sect-daily-exec', dates.length>0);
+  if(!dates.length) return;
+
+  const el51=document.getElementById('ch-daily-51');
+  if(accs['51']){
+    dailyBarsPair(el51, dates, accs['51'].obd, accs['51'].obk, 'Поступления', 'Платежи', '#4d8f6f','#a05a5a');
+    show('daily-51-wrap',true);
+  }else show('daily-51-wrap',false);
+
+  const el62=document.getElementById('ch-daily-62');
+  if(accs['62']&&accs['62'].balance){
+    dailyLine(el62, dates, [{n:'Остаток ДЗ',c:'#1f7a9c',v:accs['62'].balance}]);
+    show('daily-62-wrap',true);
+  }else show('daily-62-wrap',false);
+
+  const el60=document.getElementById('ch-daily-60');
+  if(accs['60']&&accs['60'].balance){
+    dailyLine(el60, dates, [{n:'Остаток КЗ',c:'#d95b1e',v:accs['60'].balance}]);
+    show('daily-60-wrap',true);
+  }else show('daily-60-wrap',false);
+
+  const el70=document.getElementById('ch-daily-70');
+  if(accs['70']){
+    dailyBarsPair(el70, dates, accs['70'].obd, accs['70'].obk, 'Начислено', 'Выплачено', '#2e6e8e','#7d97a8');
+    show('daily-70-wrap',true);
+  }else show('daily-70-wrap',false);
+}
+
+/* ---------- рендер суточных в детальной вкладке ---------- */
+function renderDailyDetail(){
+  const DC=D.daily_charts;
+  const dates=DC.dates||[];
+  const accs=DC.accounts||{};
+  const grid=document.getElementById('daily-tabs-grid');
+  if(!grid) return;
+  grid.innerHTML='';
+  if(!dates.length){
+    grid.innerHTML='<div class="muted-big" style="padding:20px 0">Суточных данных нет. Загрузите суточные ОСВ или ZIP-архивы.</div>';
+    return;
+  }
+  const rows=[
+    ['51','Расчётный счёт (51) — обороты','bars','#4d8f6f','#a05a5a'],
+    ['62','Дебиторы (62) — остаток','line','#1f7a9c',null],
+    ['60','Кредиторы (60) — остаток','line','#d95b1e',null],
+    ['70','Оплата труда (70) — обороты','bars','#2e6e8e','#7d97a8'],
+    ['90','Продажи (90) — обороты','bars','#3e7d6b','#8a6a52'],
+    ['68','Налоги (68) — обороты','bars','#8a7ba8','#c98a12'],
+    ['50','Касса (50) — обороты','bars','#4d8f6f','#a05a5a'],
+    ['20','Осн. производство (20) — Дт','bars_single','#c77d4f',null],
+    ['25','Общепроизв. (25) — Дт','bars_single','#9aa7b0',null],
+    ['26','Управленческие (26) — Дт','bars_single','#6b7a86',null],
+  ];
+  rows.forEach(([acc,title,mode,c1,c2])=>{
+    const ad=accs[acc]; if(!ad) return;
+    const wrap=document.createElement('div');
+    wrap.style.cssText='margin-top:18px;padding-top:14px;border-top:1px solid #e3e8eb';
+    const h=document.createElement('h3');
+    h.style.cssText='font-size:13px;color:var(--ink2);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px';
+    h.textContent=title;
+    wrap.appendChild(h);
+    const cw=document.createElement('div');cw.className='chartwrap';
+    wrap.appendChild(cw);
+    grid.appendChild(wrap);
+    if(mode==='line'){
+      const v=ad.balance;
+      if(v)dailyLine(cw,dates,[{n:acc,c:c1,v}]);
+      else dailyBarsPair(cw,dates,ad.obd,ad.obk,'Дт','Кт',c1,c2||'#a05a5a');
+    }else if(mode==='bars'){
+      dailyBarsPair(cw,dates,ad.obd,ad.obk,'Дт','Кт',c1,c2||'#a05a5a');
+    }else{
+      // bars_single — только Дт
+      dailyBarsPair(cw,dates,ad.obd,[].map(()=>0),'Дт','',c1,c1);
+    }
+  });
+}
+
+/* ---------- главный рендер ---------- */
 function renderAll(){
-  /* серверные тексты */
-  document.getElementById('periodLabel').textContent = D.period_label;
+  const SEC=D.sections;
+  // метаданные заголовка
+  const badge=D.company_name? D.company_name.replace(/^(МУП|ГУП|АО|ООО|ПАО|АНО|МУПП?)\s*/i,'').replace(/[«""]/g,'').trim().slice(0,4).toUpperCase():'—';
+  document.getElementById('hd-badge').textContent=badge;
+  document.getElementById('hd-title').textContent=D.company_name||'Финансовая панель';
+  document.title=(D.company_name||'Финансовая панель')+' — ОСВ';
+  document.getElementById('periodLabel').textContent=D.period_label||'';
+
+  const pe=D.period_end_label||'конец периода';
+  document.getElementById('hd-dz-date').textContent=`— крупнейшие должники на ${pe}`;
+  document.getElementById('hd-kz-date').textContent=`— крупнейшие кредиторы на ${pe}`;
+  document.getElementById('flt-note').textContent=
+    `Фильтр действует на обороты (доходы, расходы, деньги). Задолженность и налоги показаны на ${pe}.`;
+  ['hd-nal-period','hd-kassa-period','hd-i91-period','hd-e91-period'].forEach(id=>{
+    const e=document.getElementById(id);if(e)e.textContent='— '+D.period_label;
+  });
+  const e_dep=document.getElementById('hd-dep-period');if(e_dep)e_dep.textContent='— Дт 90.02, '+D.period_label;
+
+  // hazard
   const hz=document.getElementById('hazardBox');
   if(D.hazard){document.getElementById('hazardText').innerHTML=D.hazard;hz.style.display='';}
   else hz.style.display='none';
-  document.getElementById('lampRow').innerHTML = D.months.map((m,i)=>{
-    const cls = D.closing_label[i]==='закрыт'?'ok':(D.closing_label[i]==='НЕ ЗАКРЫТ'?'bad':'warn');
+
+  // лампы
+  document.getElementById('lampRow').innerHTML=D.months.map((m,i)=>{
+    const cls=D.closing_label[i]==='закрыт'?'ok':(D.closing_label[i]==='НЕ ЗАКРЫТ'?'bad':'warn');
     return `<span class="lamp ${cls}"><i></i>${MN[i]}</span>`;
   }).join('');
-  document.getElementById('brief-note').textContent = D.brief.title_note;
-  document.getElementById('brief-lead').textContent = D.brief.lead;
-  document.getElementById('brief-points').innerHTML = D.brief.points.map((p,i)=>
+
+  // резюме
+  const brief=document.getElementById('sect-brief');
+  if(D.brief.is_loss) brief.classList.remove('profit'); else brief.classList.add('profit');
+  document.getElementById('brief-note').textContent=D.brief.title_note||'';
+  document.getElementById('brief-lead').textContent=D.brief.lead||'';
+  document.getElementById('brief-points').innerHTML=D.brief.points.map((p,i)=>
     `<li><span class="n">${i+1}</span><span>${p}</span></li>`).join('');
-  document.getElementById('brief-foot').innerHTML = D.brief.foot;
+  document.getElementById('brief-foot').innerHTML=D.brief.foot||'';
+
+  // P&L расчет
   const P=plRows();
   const selP=P.filter(p=>sel[p.i]);
   const revn=sum(selP.map(p=>p.revn)), spend=sum(selP.map(p=>p.cost+p.adm)),
         sales=sum(selP.map(p=>p.sales)), other=sum(selP.map(p=>p.other)), net=sales+other;
-  const juneOn = D.months.some((_,i)=>sel[i]&&GHOST[i]);
-  /* KPI */
+  const hasOpen=D.months.some((_,i)=>sel[i]&&GHOST[i]);
+
+  // KPI
   const dzDelta=D.dz_tot.sk-D.dz_tot.sn, kzDelta=D.kz_tot.sk-D.kz_tot.sn;
   const taxDebt=D.nal.reduce((s,r)=>s+Math.max(r[5],0),0);
   const cash=D.cf.b51_end+D.cf.b50_end;
+  const avgOut=sum(D.cf.out)/Math.max(D.months.length,1);
+  const cashDays=avgOut>0? (cash/(avgOut/21)).toFixed(1):null;
+  const revLabel=SEC.has_subaccs?'без НДС':'всего, брутто';
   const kpis=[
-    {t:'Заработали от основной деятельности (без НДС)', v:fm(revn), cls:'', d:'выручка за выбранные месяцы'},
-    {t:'Потратили на производство и управление', v:fm(spend), cls:'', d: juneOn?'<b class="up">есть незакрытые месяцы: расходы отражены не полностью</b>':'производственные + управленческие'},
-    {t:'Результат от основной деятельности', v:(sales>=0?'+':'−')+fm(Math.abs(sales)), cls:sales<0?'bad':'ok',
-      d: sales<0?'тарифная выручка не покрывает затраты':'основная деятельность в плюсе'},
-    {t:'Итог с учетом субсидий, пеней и резервов', v:(net>=0?'+':'−')+fm(Math.abs(net)), cls:net<0?'bad':'ok',
-      d:'расчетно, до налога на прибыль'+(juneOn?'; <b class="up">незакрытые месяцы недостоверны</b>':'')},
-    {t:'Нам должны потребители и заказчики', v:fm(D.dz_tot.sk), cls:'warn',
-      d:`на 30.06 · c начала года <b class="up">+${fm(dzDelta)}</b>`},
-    {t:'Мы должны поставщикам', v:fm(D.kz_tot.sk), cls:'warn',
-      d:`на 30.06 · c начала года <b class="up">+${fm(kzDelta)}</b>`},
-    {t:'Долг перед бюджетом (налоги и взносы)', v:fm(taxDebt), cls:'warn', d:'НДС и ЕНС — на 30.06'},
-    {t:'Живые деньги на счетах и в кассе', v:fm(cash), cls:(cash < sum(D.cf.out)/D.months.length/4 ? 'bad':'ok'),
-      d:'≈ '+(cash/(sum(D.cf.out)/D.months.length/21)).toFixed(1).replace('.',',')+' раб. дня платежей'},
-  ];
+    SEC.has_pl&&{t:`Заработали от основной деятельности (${revLabel})`, v:fm(revn), cls:'', d:'за выбранные месяцы'+(hasOpen?'; <b class="up">есть незакрытые</b>':'')},
+    SEC.has_pl&&{t:'Потратили на производство и управление', v:fm(spend), cls:'', d: hasOpen?'<b class="up">незакрытые месяцы: расходы неполные</b>':'производственные + управленческие'},
+    SEC.has_pl&&{t:'Результат от основной деятельности', v:(sales>=0?'+':'−')+fm(Math.abs(sales)), cls:sales<0?'bad':'ok',
+      d: sales<0?'убыточно за период':'основная деятельность в плюсе'},
+    SEC.has_pl&&{t:'Итог с учетом прочих доходов/расходов', v:(net>=0?'+':'−')+fm(Math.abs(net)), cls:net<0?'bad':'ok',
+      d:'расчетно, до налога'+(hasOpen?'; <b class="up">незакрытые недостоверны</b>':'')},
+    (SEC.has_dz)&&{t:'Нам должны потребители и заказчики', v:fm(D.dz_tot.sk), cls:'warn',
+      d:`на ${pe} · c начала периода <b class="up">${dzDelta>=0?'+':''}${fm(dzDelta)}</b>`},
+    (SEC.has_kz)&&{t:'Мы должны поставщикам', v:fm(D.kz_tot.sk), cls:'warn',
+      d:`на ${pe} · c начала периода <b class="up">${kzDelta>=0?'+':''}${fm(kzDelta)}</b>`},
+    (SEC.has_taxes&&taxDebt>0)&&{t:'Долг перед бюджетом (налоги и взносы)', v:fm(taxDebt), cls:'warn', d:`на ${pe}`},
+    SEC.has_cash&&{t:'Живые деньги на счетах и в кассе', v:fm(cash), cls:(cashDays&&+cashDays<5?'bad':(cashDays&&+cashDays<15?'warn':'ok')),
+      d: cashDays? `≈\u202f${cashDays} раб. дней платежей`:'остаток'},
+  ].filter(Boolean);
   document.getElementById('kpiRow').innerHTML=kpis.map(k=>
     `<div class="kpi ${k.cls}"><div class="t">${k.t}</div><div class="v">${k.v}</div><div class="d">${k.d}</div></div>`).join('');
 
-  /* главный график */
-  barsLine('ch-main',
-    [{n:'Доходы (без НДС)',c:'#2e6e8e',v:P.map(p=>p.revn)},
-     {n:'Расходы',c:'#c77d4f',v:P.map(p=>p.cost+p.adm)}],
-    {n:'Результат от основной деятельности',c:'#1b2733',v:P.map(p=>p.sales)},{ghost:true});
-  document.getElementById('lg-main').innerHTML=
-    `<span><i style="background:#2e6e8e"></i>Доходы без НДС</span><span><i style="background:#c77d4f"></i>Расходы (производство + управление)</span><span><i style="background:#1b2733"></i>Результат, млн ₽</span>`;
+  // видимость разделов
+  show('sect-pl-exec', SEC.has_pl);
+  show('sect-revdir-exec', SEC.has_rev_dir||SEC.has_cost_items);
+  show('sect-costitems-exec', SEC.has_cost_items);
+  show('sect-dz-exec', SEC.has_dz||SEC.has_kz);
+  show('sect-cash-exec', SEC.has_cash);
 
-  /* выручка по направлениям (обзор) */
-  const rd=Object.entries(D.rev_dir).map(([k,v])=>[k,selSum(v)]).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]);
-  hbars('ch-revdir', rd, r=>dirColor(r[0]));
+  // главный P&L график
+  if(SEC.has_pl){
+    barsLine('ch-main',
+      [{n:'Доходы'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:P.map(p=>p.revn)},
+       {n:'Расходы',c:'#c77d4f',v:P.map(p=>p.cost+p.adm)}],
+      {n:'Результат от основной деятельности',c:'#1b2733',v:P.map(p=>p.sales)},{ghost:true});
+    document.getElementById('lg-main').innerHTML=
+      `<span><i style="background:#2e6e8e"></i>Доходы${SEC.has_subaccs?' без НДС':''}</span><span><i style="background:#c77d4f"></i>Расходы (производство + управление)</span><span><i style="background:#1b2733"></i>Результат, млн ₽</span>`;
+    const notePl=document.getElementById('note-main');
+    if(notePl){
+      notePl.textContent=SEC.has_subaccs
+        ?'Столбцы — выручка без НДС и расходы. Линия — результат от основной деятельности. Полупрозрачные месяцы — не закрыты в учёте.'
+        :'Данные суточные: субсчета не загружены, НДС не отделён. Показаны обороты счёта 90 в целом.';
+    }
+  }
 
-  /* статьи затрат (обзор, топ-10 + группировка ФОТ) */
-  const items=Object.entries(D.cost_items).map(([k,v])=>[k,selSum(v)]).filter(r=>r[1]>1000);
-  const fot=items.filter(r=>/Оплата труда|Страховые взносы|больничн/i.test(r[0])).reduce((s,r)=>s+r[1],0);
-  const rest=items.filter(r=>!/Оплата труда|Страховые взносы|больничн/i.test(r[0]));
-  const topItems=[['Оплата труда со взносами',fot],...rest].sort((a,b)=>b[1]-a[1]).slice(0,10);
-  hbars('ch-costitems', topItems, '#8a6a52');
+  // выручка по направлениям
+  if(SEC.has_rev_dir){
+    const rd=Object.entries(D.rev_dir).map(([k,v])=>[k,selSum(v)]).filter(r=>r[1]>0).sort((a,b)=>b[1]-a[1]);
+    hbars('ch-revdir', rd, r=>dirColor(r[0]));
+    const nr=document.getElementById('note-revdir');
+    if(nr) nr.textContent=`Всего направлений: ${rd.length}. Выручка по видам деятельности за выбранный период.`;
+  }
 
-  /* должники */
-  const pop=D.dz.filter(r=>/Население|Физические лица/.test(r[0])).reduce((s,r)=>s+r[2],0);
+  // статьи затрат (обзор)
+  if(SEC.has_cost_items){
+    const items=Object.entries(D.cost_items).map(([k,v])=>[k,selSum(v)]).filter(r=>r[1]>1000);
+    const fot=items.filter(r=>/Оплата труда|Страховые взносы|больничн/i.test(r[0])).reduce((s,r)=>s+r[1],0);
+    const rest=items.filter(r=>!/Оплата труда|Страховые взносы|больничн/i.test(r[0]));
+    const topItems=(fot>0?[['Оплата труда со взносами',fot],...rest]:[...items]).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    hbars('ch-costitems', topItems, '#8a6a52');
+    const nc=document.getElementById('note-costitems');
+    if(nc) nc.textContent='Топ-10 статей затрат за выбранный период. Оплата труда сгруппирована со страховыми взносами.';
+  }
+
+  // должники
+  const pop=D.dz.filter(r=>/Население|Физические лица/i.test(r[0])).reduce((s,r)=>s+r[2],0);
   const topDz=D.dz.slice(0,8).map(r=>[r[0],r[2]]);
-  hbars('ch-debtors', topDz, r=>/Население|Физические лица/.test(r[0])?'var(--bad)':'var(--water)');
-  document.getElementById('note-debtors').innerHTML=
-    `Долги населения и физлиц — <b>${fm(pop)}</b> (${Math.round(pop/D.dz_tot.sk*100)}% всей задолженности). За полугодие признано безнадежным к взысканию (досоздан резерв) еще ${fm(D.rezerv.created-D.rezerv.restored)}. Отдельно на счете претензий числится ${fm(D.pretenzii)}.`;
+  hbars('ch-debtors', topDz, r=>/Население|Физические лица/i.test(r[0])?'var(--bad)':'#1f7a9c');
+  const nd=document.getElementById('note-debtors');
+  if(nd){
+    let txt=`Показаны ${topDz.length} крупнейших дебиторов.`;
+    if(pop>0&&D.dz_tot.sk>0) txt+=` Долги населения и физлиц — ${fm(pop)} (${Math.round(pop/D.dz_tot.sk*100)}% всей ДЗ).`;
+    if(D.rezerv.created>D.rezerv.restored) txt+=` Досоздан резерв по сомнительным долгам: ${fm(D.rezerv.created-D.rezerv.restored)}.`;
+    if(D.pretenzii>0) txt+=` На счете претензий: ${fm(D.pretenzii)}.`;
+    nd.textContent=txt;
+  }
 
-  /* кредиторы */
-  hbars('ch-creditors', D.kz.slice(0,8).map(r=>[r[0],r[2]]), r=>/Газпром/.test(r[0])?'var(--heat)':'#5c748a');
-  document.getElementById('note-creditors').innerHTML=
-    `Больше половины долга — перед поставщиком газа: <b>${fm(D.kz[0][2])}</b>. Это зеркало проблемы слева: потребители не платят нам — мы не платим за газ.`;
+  // кредиторы
+  const topKz=D.kz.slice(0,8).map(r=>[r[0],r[2]]);
+  hbars('ch-creditors', topKz, '#5c748a');
+  const nk=document.getElementById('note-creditors');
+  if(nk){
+    let txt=`Показаны ${topKz.length} крупнейших кредиторов.`;
+    if(D.kz.length>0) txt+=` Крупнейший: ${D.kz[0][0]} — ${fm(D.kz[0][2])}.`;
+    nk.textContent=txt;
+  }
 
-  /* деньги (обзор) */
+  // деньги (обзор)
   const flow=P.map((p,i)=>D.cf.inn[i]-D.cf.out[i]);
-  barsLine('ch-cash',
-    [{n:'Пришло на счет',c:'#4d8f6f',v:D.cf.inn},{n:'Ушло со счета',c:'#a05a5a',v:D.cf.out}],
-    {n:'Разница за месяц',c:'#1b2733',v:flow});
-  document.getElementById('lg-cash').innerHTML=
-    `<span><i style="background:#4d8f6f"></i>Поступления</span><span><i style="background:#a05a5a"></i>Платежи</span><span><i style="background:#1b2733"></i>Чистый поток, млн ₽</span>`;
-  document.getElementById('note-cash').innerHTML=
-    `Все, что приходит, сразу уходит на платежи: остаток на счете за полгода почти не изменился (${fm(D.cf.b51_start)} → ${fm(D.cf.b51_end)}). Финансовой подушки нет.`;
+  if(SEC.has_cash){
+    barsLine('ch-cash',
+      [{n:'Пришло на счет',c:'#4d8f6f',v:D.cf.inn},{n:'Ушло со счета',c:'#a05a5a',v:D.cf.out}],
+      {n:'Разница за месяц',c:'#1b2733',v:flow});
+    document.getElementById('lg-cash').innerHTML=
+      `<span><i style="background:#4d8f6f"></i>Поступления</span><span><i style="background:#a05a5a"></i>Платежи</span><span><i style="background:#1b2733"></i>Чистый поток, млн ₽</span>`;
+    const nc2=document.getElementById('note-cash');
+    if(nc2){
+      const b0=fm(D.cf.b51_start), b1=fm(D.cf.b51_end);
+      nc2.textContent=`Остаток на начало периода: ${b0} → на конец: ${b1}.`+
+        (cashDays?` При среднемесячных платежах ${fm(avgOut)} — ≈\u202f${cashDays} рабочих дней.`:'');
+    }
+  }
 
-  /* ===== детальный режим ===== */
-  barsLine('ch-pl',
-    [{n:'Выручка без НДС',c:'#2e6e8e',v:P.map(p=>p.revn)},
-     {n:'Себестоимость',c:'#c77d4f',v:P.map(p=>p.cost)},
-     {n:'Управленческие',c:'#9aa7b0',v:P.map(p=>p.adm)}],
-    {n:'Чистый результат (расч.)',c:'#1b2733',v:P.map(p=>p.net)},{ghost:true});
-  document.getElementById('lg-pl').innerHTML=
-    `<span><i style="background:#2e6e8e"></i>Выручка без НДС</span><span><i style="background:#c77d4f"></i>Себестоимость 90.02</span><span><i style="background:#9aa7b0"></i>Управленческие 90.08</span><span><i style="background:#1b2733"></i>Чистый результат</span>`;
-  table('tbl-pl',
-    [{h:'Месяц'},{h:'Выручка с НДС',f:'n'},{h:'НДС',f:'n'},{h:'Выручка без НДС',f:'n'},{h:'Себестоимость',f:'n'},{h:'Управленческие',f:'n'},{h:'Прибыль от продаж',f:'pl'},{h:'Прочие доходы',f:'n'},{h:'Прочие расходы',f:'n'},{h:'Чистый результат',f:'pl'},{h:'Статус'}],
-    P.filter(p=>sel[p.i]).map(p=>[MN[p.i],p.revg,p.nds,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,
-      D.closing_label[p.i]]),
-    {total:true});
+  // ===== детальный режим =====
+  if(SEC.has_pl){
+    barsLine('ch-pl',
+      [{n:'Выручка'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:P.map(p=>p.revn)},
+       {n:'Себестоимость',c:'#c77d4f',v:P.map(p=>p.cost)},
+       {n:'Управленческие',c:'#9aa7b0',v:P.map(p=>p.adm)}],
+      {n:'Чистый результат (расч.)',c:'#1b2733',v:P.map(p=>p.net)},{ghost:true});
+    document.getElementById('lg-pl').innerHTML=
+      `<span><i style="background:#2e6e8e"></i>Выручка${SEC.has_subaccs?' без НДС':''}</span><span><i style="background:#c77d4f"></i>Себестоимость</span><span><i style="background:#9aa7b0"></i>Управленческие</span><span><i style="background:#1b2733"></i>Чистый результат</span>`;
+    const colNDS=SEC.has_subaccs?[{h:'НДС',f:'n'}]:[];
+    const selCols=[{h:'Месяц'},{h:'Выручка с НДС',f:'n'},...colNDS,{h:'Выручка'+(SEC.has_subaccs?' без НДС':''),f:'n'},{h:'Себестоимость',f:'n'},{h:'Управленческие',f:'n'},{h:'Прибыль от продаж',f:'pl'},{h:'Прочие доходы',f:'n'},{h:'Прочие расходы',f:'n'},{h:'Чистый результат',f:'pl'},{h:'Статус'}];
+    const selRowsFn=SEC.has_subaccs
+      ? p=>[MN[p.i],p.revg,p.nds,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,D.closing_label[p.i]]
+      : p=>[MN[p.i],p.revg,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,D.closing_label[p.i]];
+    table('tbl-pl',selCols,P.filter(p=>sel[p.i]).map(selRowsFn),{total:true});
+    const np=document.getElementById('note-pl');
+    if(np) np.textContent=SEC.has_subaccs
+      ?'Прибыль от продаж = Выручка без НДС − Себестоимость − Управленческие. Чистый результат — расчетный, до налога на прибыль.'
+      :'Суточные данные без субсчётов: НДС не выделен, себестоимость не разделена. Загрузите периодическую ОСВ для полного P&L.';
+  }
 
-  /* выручка stacked + таблица */
-  const dirKeys=Object.keys(D.rev_dir).sort((a,b)=>selSum(D.rev_dir[b])-selSum(D.rev_dir[a]));
-  const dirCols=dirKeys.map(k=>dirColor(k));
-  stack('ch-revstack', dirKeys, dirCols);
-  document.getElementById('lg-revstack').innerHTML=dirKeys.map((k,i)=>`<span><i style="background:${dirCols[i]}"></i>${esc(k)}</span>`).join('');
-  table('tbl-rev',
-    [{h:'Направление'},...MN.filter((_,i)=>sel[i]).map(m=>({h:m,f:'n'})),{h:'Итого',f:'n'}],
-    dirKeys.map(k=>[k,...D.rev_dir[k].filter((_,i)=>sel[i]),selSum(D.rev_dir[k])]),
-    {total:true,sortCol:''});
+  // выручка stacked + таблица
+  if(SEC.has_rev_dir){
+    const dirKeys=Object.keys(D.rev_dir).sort((a,b)=>selSum(D.rev_dir[b])-selSum(D.rev_dir[a]));
+    const dirCols=dirKeys.map(k=>dirColor(k));
+    stack('ch-revstack', dirKeys, dirCols);
+    document.getElementById('lg-revstack').innerHTML=dirKeys.map((k,i)=>`<span><i style="background:${dirCols[i]}"></i>${esc(k)}</span>`).join('');
+    table('tbl-rev',
+      [{h:'Направление'},...MN.filter((_,i)=>sel[i]).map(m=>({h:m,f:'n'})),{h:'Итого',f:'n'}],
+      dirKeys.map(k=>[k,...D.rev_dir[k].filter((_,i)=>sel[i]),selSum(D.rev_dir[k])]),
+      {total:true,sortCol:''});
+  }
 
   renderItems(); renderDeps(); renderDz(); renderKz();
 
-  /* деньги детально */
-  barsLine('ch-cf2',
-    [{n:'Поступления Дт 51',c:'#4d8f6f',v:D.cf.inn},{n:'Списания Кт 51',c:'#a05a5a',v:D.cf.out}],
-    {n:'Чистый поток',c:'#1b2733',v:flow});
-  document.getElementById('lg-cf2').innerHTML=document.getElementById('lg-cash').innerHTML;
-  table('tbl-cf',
-    [{h:'Месяц'},{h:'Поступления',f:'n'},{h:'Платежи',f:'n'},{h:'Чистый поток',f:'pl'}],
-    P.filter(p=>sel[p.i]).map(p=>[MN[p.i],D.cf.inn[p.i],D.cf.out[p.i],flow[p.i]]),{total:true});
-  table('tbl-kassa',
-    [{h:'Статья движения денежных средств'},{h:'Приход',f:'n'},{h:'Расход',f:'n'}],
-    D.kassa,{total:true});
+  // деньги детально
+  if(SEC.has_cash){
+    barsLine('ch-cf2',
+      [{n:'Поступления Дт 51',c:'#4d8f6f',v:D.cf.inn},{n:'Списания Кт 51',c:'#a05a5a',v:D.cf.out}],
+      {n:'Чистый поток',c:'#1b2733',v:flow});
+    document.getElementById('lg-cf2').innerHTML=document.getElementById('lg-cash').innerHTML;
+    table('tbl-cf',
+      [{h:'Месяц'},{h:'Поступления',f:'n'},{h:'Платежи',f:'n'},{h:'Чистый поток',f:'pl'}],
+      P.filter(p=>sel[p.i]).map(p=>[MN[p.i],D.cf.inn[p.i],D.cf.out[p.i],flow[p.i]]),{total:true});
+    table('tbl-kassa',
+      [{h:'Статья движения денежных средств'},{h:'Приход',f:'n'},{h:'Расход',f:'n'}],
+      D.kassa,{total:true});
+  }
 
-  /* налоги, ФОТ */
-  table('tbl-nal',
-    [{h:'Счет'},{h:'Наименование'},{h:'Долг на 01.01',f:'n',sign:1},{h:'Уплачено (Дт)',f:'n'},{h:'Начислено (Кт)',f:'n'},{h:'Долг на 30.06',f:'n',sign:1}],
-    D.nal,{total:true});
-  barsLine('ch-zp',
-    [{n:'Начислено (Кт 70)',c:'#2e6e8e',v:D.zp.n},{n:'Выплачено и удержано (Дт 70)',c:'#7d97a8',v:D.zp.v}],null,{ghost:true});
-  document.getElementById('lg-zp').innerHTML=
-    `<span><i style="background:#2e6e8e"></i>Начислено</span><span><i style="background:#7d97a8"></i>Выплачено и удержано</span>`;
+  // налоги, ФОТ
+  if(SEC.has_taxes||SEC.has_zp){
+    if(SEC.has_taxes){
+      const snDateLabel=D.period_end_label||'конец периода';
+      table('tbl-nal',
+        [{h:'Счет'},{h:'Наименование'},{h:'Долг на начало',f:'n',sign:1},{h:'Уплачено (Дт)',f:'n'},{h:'Начислено (Кт)',f:'n'},{h:`Долг на ${snDateLabel}`,f:'n',sign:1}],
+        D.nal,{total:true});
+    }
+    if(SEC.has_zp){
+      barsLine('ch-zp',
+        [{n:'Начислено (Кт 70)',c:'#2e6e8e',v:D.zp.n},{n:'Выплачено и удержано (Дт 70)',c:'#7d97a8',v:D.zp.v}],null,{ghost:true});
+      document.getElementById('lg-zp').innerHTML=
+        `<span><i style="background:#2e6e8e"></i>Начислено</span><span><i style="background:#7d97a8"></i>Выплачено и удержано</span>`;
+      const nz=document.getElementById('note-zp');
+      if(nz) nz.textContent='В незакрытых месяцах начисление зарплаты может быть ещё не проведено — тогда показаны только выплаты.';
+    }
+  }
 
-  /* 91 */
-  hbars('ch-i91', D.i91.slice(0,12), '#4d8f6f');
-  hbars('ch-e91', D.e91.slice(0,12).map(r=>[r[0],r[1]]), r=>/Резерв/.test(r[0])?'var(--bad)':'#a05a5a');
-  document.getElementById('note-rezerv').innerHTML=
-    `За 1П2026 резерв по сомнительным долгам досоздан на ${fm(D.rezerv.created)} и восстановлен на ${fm(D.rezerv.restored)} — чистое признание проблемных долгов <b>${fm(D.rezerv.created-D.rezerv.restored)}</b>. Таблица выше — брутто, без вычета резерва.`;
-  document.getElementById('note-avans').innerHTML=
-    `Кроме того: авансы, полученные от покупателей (62.02) — ${fm(D.avans_pol)}; авансы, выданные поставщикам (60.02) — ${fm(D.avans_vyd)}.`;
+  // 91
+  if(SEC.has_91){
+    hbars('ch-i91', D.i91.slice(0,12), '#4d8f6f');
+    hbars('ch-e91', D.e91.slice(0,12).map(r=>[r[0],r[1]]), r=>/Резерв/i.test(r[0])?'var(--bad)':'#a05a5a');
+    const n91=document.getElementById('note-91');
+    if(n91){
+      let txt='Прочие доходы могут включать субсидии, пени от контрагентов, возврат переплат. ';
+      if(D.rezerv.created>0||D.rezerv.restored>0)
+        txt+=`Резерв по сомнительным долгам: досоздан ${fm(D.rezerv.created)}, восстановлен ${fm(D.rezerv.restored)} — чистое признание ${fm(D.rezerv.created-D.rezerv.restored)}.`;
+      n91.textContent=txt;
+    }
+  }
+
+  // примечания к таблицам долгов
+  const startLabel=D.months.length? D.months[0].slice(0,4)+'-01-01':'начало';
+  const nr=document.getElementById('note-rezerv');
+  if(nr){
+    let txt=D.dz_tot.sk>0? `ДЗ брутто, без учёта резерва. ` :'';
+    if(D.rezerv.created>D.rezerv.restored) txt+=`Чистое досоздание резерва: ${fm(D.rezerv.created-D.rezerv.restored)}.`;
+    nr.textContent=txt;
+  }
+  const na=document.getElementById('note-avans');
+  if(na){
+    let parts=[];
+    if(D.avans_pol) parts.push(`авансы полученные (62.02) — ${fm(D.avans_pol)}`);
+    if(D.avans_vyd) parts.push(`авансы выданные (60.02) — ${fm(D.avans_vyd)}`);
+    na.textContent=parts.length? 'Кроме того: '+parts.join('; ')+'.':'';
+  }
+
+  // суточная динамика
+  renderDailyExec();
+  renderDailyDetail();
+  // скрываем вкладку суточной если нет данных
+  if(!SEC.has_daily){
+    document.querySelectorAll('.tabs button').forEach(b=>{
+      if(b.textContent==='Суточная динамика') b.style.display='none';
+    });
+  }
+
+  // footer
+  const ftAccs=(D.accounts_loaded||[]).join(', ');
+  const ft=document.getElementById('site-footer');
+  if(ft) ft.textContent=`Источник: ОСВ 1С${ftAccs?' по счетам '+ftAccs:' за отчётный период'}. Файл автономный — работает без интернета. Суммы сверены с контрольными итогами ОСВ.`;
 }
 
-/* поиск по затратам/подразделениям/долгам */
+/* ---------- поиск по затратам/подразделениям/долгам ---------- */
 function renderItems(){
   const q=(document.getElementById('q-items').value||'').toLowerCase();
   let rows=Object.entries(D.cost_items).map(([k,v])=>[k,selSum(v)]).filter(r=>r[1]>1000&&r[0].toLowerCase().includes(q)).sort((a,b)=>b[1]-a[1]);
@@ -626,24 +968,36 @@ function renderDeps(){
   const q=(document.getElementById('q-dep').value||'').toLowerCase();
   let rows=Object.entries(D.cost_dep).map(([k,v])=>[k==='<...>'?'(без подразделения)':k,selSum(v)]).filter(r=>r[1]>1000&&r[0].toLowerCase().includes(q)).sort((a,b)=>b[1]-a[1]);
   document.getElementById('pill-dep').textContent=`подразделений: ${rows.length} · сумма: ${fm(rows.reduce((s,r)=>s+r[1],0))}`;
-  hbars('ch-dep-full', rows.slice(0,40), r=>/Котельн|ТС|Теплоснаб/i.test(r[0])?'var(--heat)':(/канализ|сточн|очистн|Водоотвед/i.test(r[0])?'var(--sewer)':(/вод/i.test(r[0])?'var(--water)':'#5c748a')));
+  // цвет полос — нейтральный, по индексу
+  const palette=['#5c748a','#3e7d6b','#8a7ba8','#1f7a9c','#c98a12','#d95b1e'];
+  const colorMap={};let ci=0;
+  hbars('ch-dep-full', rows.slice(0,40), r=>{
+    if(!colorMap[r[0]])colorMap[r[0]]=palette[ci++%palette.length];
+    return colorMap[r[0]];
+  });
 }
 function renderDz(){
   const q=(document.getElementById('q-dz').value||'').toLowerCase();
+  const yr=D.months.length? D.months[0].slice(0,4):'';
+  const snLbl=yr?`На 01.01.${yr}`:'На начало';
+  const skLbl=D.period_end_label?`На ${D.period_end_label}`:'На конец';
   const rows=D.dz.filter(r=>r[0].toLowerCase().includes(q)).map(r=>[r[0],r[1],r[2],r[2]-r[1]]);
   document.getElementById('pill-dz').textContent=`контрагентов: ${rows.length}`;
-  table('tbl-dz',[{h:'Дебитор'},{h:'На 01.01.26',f:'n'},{h:'На 30.06.26',f:'n'},{h:'Прирост',f:'n',sign:1}],rows,{total:true,sortCol:2});
+  table('tbl-dz',[{h:'Дебитор'},{h:snLbl,f:'n'},{h:skLbl,f:'n'},{h:'Прирост',f:'n',sign:1}],rows,{total:true,sortCol:2});
 }
 function renderKz(){
   const q=(document.getElementById('q-kz').value||'').toLowerCase();
+  const yr=D.months.length? D.months[0].slice(0,4):'';
+  const snLbl=yr?`На 01.01.${yr}`:'На начало';
+  const skLbl=D.period_end_label?`На ${D.period_end_label}`:'На конец';
   const rows=D.kz.filter(r=>r[0].toLowerCase().includes(q)).map(r=>[r[0],r[1],r[2],r[2]-r[1]]);
   document.getElementById('pill-kz').textContent=`контрагентов: ${rows.length}`;
-  table('tbl-kz',[{h:'Кредитор'},{h:'На 01.01.26',f:'n'},{h:'На 30.06.26',f:'n'},{h:'Прирост',f:'n',sign:1}],rows,{total:true,sortCol:2});
+  table('tbl-kz',[{h:'Кредитор'},{h:snLbl,f:'n'},{h:skLbl,f:'n'},{h:'Прирост',f:'n',sign:1}],rows,{total:true,sortCol:2});
 }
 
 buildMonthBtns(); buildTabs(); renderAll();
 ['q-items','q-dep','q-dz','q-kz'].forEach(id=>{
-  const map={ 'q-items':renderItems,'q-dep':renderDeps,'q-dz':renderDz,'q-kz':renderKz };
+  const map={'q-items':renderItems,'q-dep':renderDeps,'q-dz':renderDz,'q-kz':renderKz};
   document.getElementById(id).addEventListener('input',map[id]);
 });
 </script>

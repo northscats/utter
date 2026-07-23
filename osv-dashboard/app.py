@@ -167,13 +167,13 @@ def _upsert_daily_rows(company_id, paths):
     return count
 
 
-def _process_files(paths, company_id, ts, back_url):
+def _process_files(paths, company_id, ts, back_url, company_name=''):
     """Парсит файлы, строит дашборд, возвращает (upload_record_kwargs, audit)."""
     data, audit = parse_many(paths)
     if not data:
         return None, audit
 
-    dataset = build_dataset(data)
+    dataset = build_dataset(data, company_name=company_name)
     html = render_dashboard(dataset, back_url=back_url)
 
     out_dir = os.path.join(OUTPUT, str(company_id))
@@ -322,7 +322,8 @@ def company_new():
 
     back_url = url_for('company_detail', company_id=company.id)
     try:
-        record_kwargs, audit = _process_files(final_paths, company.id, ts, back_url)
+        record_kwargs, audit = _process_files(final_paths, company.id, ts, back_url,
+                                               company_name=org_name)
         if record_kwargs is None:
             db.session.rollback()
             import shutil; shutil.rmtree(final_dir, ignore_errors=True)
@@ -426,7 +427,8 @@ def company_upload_all(company_id):
 
     # Пересобираем дашборд: месячные XLS + суточные из БД
     back_url = url_for('company_detail', company_id=company_id)
-    dataset, rebuild_audit = _rebuild_dashboard_with_daily(company_id)
+    dataset, rebuild_audit = _rebuild_dashboard_with_daily(company_id,
+                                                            company_name=company.name)
     audit_out = rebuild_audit + audit_out
 
     if dataset is None:
@@ -516,7 +518,7 @@ def _find_monthly_xls(company_id):
     return paths
 
 
-def _rebuild_dashboard_with_daily(company_id):
+def _rebuild_dashboard_with_daily(company_id, company_name=''):
     """
     Перестраивает дашборд, объединяя:
       - строки аналитики (rows) из месячных XLS-файлов
@@ -524,6 +526,17 @@ def _rebuild_dashboard_with_daily(company_id):
 
     Возвращает (dataset, audit_list) или (None, audit_list) при ошибке.
     """
+    def _dr_entry(dr):
+        """Словарь daily-записи из DailyRow — включает sn/sk для суточных графиков."""
+        return dict(
+            date=dr.date.isoformat(),
+            month=dr.date.strftime('%Y-%m'),
+            path1='', path2='', path3='',
+            snd=dr.snd, snk=dr.snk,
+            obd=dr.obd, obk=dr.obk,
+            skd=dr.skd, skk=dr.skk,
+        )
+
     monthly_paths = _find_monthly_xls(company_id)
     if not monthly_paths:
         # Нет файлов на диске — строим только из суточных записей БД (если есть)
@@ -535,18 +548,14 @@ def _rebuild_dashboard_with_daily(company_id):
                                      'или суточный ZIP-архив', 'ok': False}]
         data = {}
         for dr in daily_db:
-            acc, month = dr.acc, dr.date.strftime('%Y-%m')
+            acc = dr.acc
             if acc not in data:
                 data[acc] = dict(acc=acc, period='', dims=[], rows=[], daily=[],
                                  warnings=[], check_ok=None,
                                  top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0))
-            data[acc]['daily'].append(dict(
-                date=dr.date.isoformat(), month=month,
-                path1='', path2='', path3='',
-                obd=dr.obd, obk=dr.obk,
-            ))
+            data[acc]['daily'].append(_dr_entry(dr))
         try:
-            dataset = build_dataset(data)
+            dataset = build_dataset(data, company_name=company_name)
         except ValueError as e:
             return None, [{'file': '—', 'acc': '—',
                            'status': f'Ошибка сборки дашборда: {e}', 'ok': False}]
@@ -565,25 +574,18 @@ def _rebuild_dashboard_with_daily(company_id):
     daily_db = DailyRow.query.filter_by(company_id=company_id)\
                              .order_by(DailyRow.date).all()
     for dr in daily_db:
-        acc = dr.acc
+        acc   = dr.acc
         month = dr.date.strftime('%Y-%m')
-        # Пропускаем месяцы, которые есть в детальных месячных файлах
         if acc in monthly_months and month in monthly_months[acc]:
             continue
         if acc not in data:
-            # Создаём заглушку счёта с нулевыми rows/top если нет месячных данных
             data[acc] = dict(acc=acc, period='', dims=[], rows=[], daily=[],
                              warnings=[], check_ok=None,
                              top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0))
-        data[acc]['daily'].append(dict(
-            date=dr.date.isoformat(),
-            month=month,
-            path1='', path2='', path3='',
-            obd=dr.obd, obk=dr.obk,
-        ))
+        data[acc]['daily'].append(_dr_entry(dr))
 
     try:
-        dataset = build_dataset(data)
+        dataset = build_dataset(data, company_name=company_name)
     except ValueError as e:
         return None, audit + [{'file': '—', 'acc': '—',
                                 'status': f'Ошибка сборки дашборда: {e}', 'ok': False}]
@@ -641,7 +643,8 @@ def company_upload_zip(company_id):
 
     # Пересобираем дашборд (месячные данные + новые суточные)
     back_url = url_for('company_detail', company_id=company_id)
-    dataset, audit = _rebuild_dashboard_with_daily(company_id)
+    dataset, audit = _rebuild_dashboard_with_daily(company_id,
+                                                    company_name=company.name)
 
     audit_out = [{'file': e['file'], 'acc': '?',
                   'status': f'ОШИБКА: {e["error"]}', 'ok': False}
@@ -976,7 +979,10 @@ def settings_sync_imap():
                                 row.skd = top['skd']; row.skk = top['skk']
                             db.session.commit()
                             if successes:
-                                _rebuild_dashboard_with_daily(company_id)
+                                _co = db.session.get(Company, company_id)
+                                _rebuild_dashboard_with_daily(
+                                    company_id,
+                                    company_name=_co.name if _co else '')
                                 stats['companies_updated'].add(company_id)
                             stats['files_processed'] += 1
                         else:  # XLS / XLSX
@@ -986,7 +992,10 @@ def settings_sync_imap():
                             shutil.copy2(path, dest)
                             _upsert_daily_rows(company_id, [dest])
                             db.session.commit()
-                            _rebuild_dashboard_with_daily(company_id)
+                            _co = db.session.get(Company, company_id)
+                            _rebuild_dashboard_with_daily(
+                                company_id,
+                                company_name=_co.name if _co else '')
                             stats['companies_updated'].add(company_id)
                             stats['files_processed'] += 1
                     except Exception as exc:

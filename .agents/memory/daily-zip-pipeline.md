@@ -1,33 +1,42 @@
 ---
-name: Daily ZIP pipeline
-description: How daily OSV ZIP archives are processed and merged with monthly data for the dashboard
+name: Daily ZIP pipeline + dashboard build
+description: Как работают суточные ZIP-файлы, DailyRow, и как собирается дашборд из суточных + месячных данных. Включает архитектурные решения по builder.py и шаблону.
 ---
 
-## Rule
-Daily ZIP files are stored in DailyRow DB table. Dashboard is rebuilt by merging
-monthly XLS `rows` (analytics) with DailyRow `daily` entries (time series).
+## Поток данных
 
-**Why:** Daily XLS files lack "Обороты за" sub-rows for most accounts (20, 26, 62, 90).
-The day's turnover lives in the top-level account row. Monthly files have richer
-sub-row detail. Merging: monthly months use XLS sub-rows; new months use DailyRow.
+1. **Суточный XLS или ZIP** → `_upsert_daily_rows` → `DailyRow` (snd/snk/obd/obk/skd/skk)
+2. **Месячный XLS** → `parse_many` → data dict с `rows` + `daily` (строки "Обороты за...")
+3. **`_rebuild_dashboard_with_daily(company_id, company_name='')`** — объединяет:
+   - `parse_many(monthly_paths)` → base data
+   - `DailyRow` → добавляет в `data[acc]['daily']` с полями: `date`, `month`, `path1/2/3=''`, `snd`, `snk`, `obd`, `obk`, `skd`, `skk`
+   - Важно: `skd`/`skk`/`snd`/`snk` из DailyRow теперь включаются в daily-записи — нужны для суточных балансовых графиков
 
-**How to apply:**
-- `parse_zip(zip_path)` in osvparser.py — extracts ZIP, calls parse_osv per XLS,
-  returns (successes, errors). Date extracted from header row 1 via RE_DAILY_HDR.
-- `DailyRow` table: (company_id, date, acc) UNIQUE. Upsert on repeat upload.
-- `_rebuild_dashboard_with_daily(company_id)` in app.py — re-parses monthly XLS
-  (from uploads/<company_id>/<ts>/ dirs, skipping zip_ dirs), loads DailyRow for
-  months NOT already covered by monthly XLS, merges into data dict, calls build_dataset.
-- Route: POST /company/<id>/upload-zip
-- ZIP storage: uploads/<company_id>/zip_<ts>/archive.zip (for audit)
-- Monthly XLS dirs: uploads/<company_id>/<ts>/ (no zip_ prefix = monthly)
+## build_dataset(data, company_name='')
 
-## Date format in daily headers
-Row 1 of daily XLS: "Оборотно-сальдовая ведомость по счету 51 за 5 июля 2026 г."
-RE_DAILY_HDR regex in osvparser.py handles all Russian month names in genitive case.
+- Если `path3=''` у всех daily-записей → `has_path3=False` → упрощённый P&L (account-level totals)
+- Если `path3` есть → полный P&L с субсчётами + фолбек через `_try_msum`
+- Всегда вызывает `build_daily_charts(data)` для суточных рядов
+- Возвращает `sections` dict с флагами наличия данных по разделам
+- Возвращает `company_name` — передаётся во все вызовы
 
-## Verified
-- 168 files (14 accs × 12 days July 1-12 2026) parsed correctly
-- СК→СН stitch: all 11 transitions Δ=0.00 (data is clean)
-- Upsert is idempotent: repeat upload of same ZIP replaces, no duplicates
-- New dashboard includes both Jan-Jun (monthly) and Jul (daily) data
+## build_daily_charts(data)
+
+- Читает `data[acc]['daily']` — поля `date`, `obd`, `obk`, `skd` (опционально), `skk` (опционально)
+- Если `skd`/`skk` есть — строит `balance` (для балансовых линейных графиков)
+- Возвращает `{dates, accounts: {acc: {label, obd, obk, balance}}}`
+
+## dashboard_template.html — ключевые решения
+
+- `D.company_name` → header badge + h1 + title
+- `D.period_end_label` → даты в заголовках, фильтр-нотах, таблицах долгов/налогов
+- `D.sections` → JS show/hide разделов + tabs (условные вкладки)
+- `D.brief.is_loss` → цвет левого бордера brief-карточки (красный/зелёный)
+- DIRC: заменён на `DIR_PALETTE` — динамические цвета по индексу, без ЖКХ-специфики
+- Суточные графики: `dailyBarsPair` + `dailyLine` — показываются в exec-разделе и вкладке "Суточная динамика"
+- Вкладка "Суточная динамика" добавляется только если `SEC.has_daily`
+- Все ЖКХ-специфичные тексты ("тепло и воду", "Газпром", "отопительный сезон") удалены → нейтральные data-driven
+
+**Why:** Дашборд должен работать для любого предприятия, не только МУП КГХ. Суточные данные без субсчётов дают другой путь расчёта P&L.
+
+**How to apply:** При загрузке данных для нового предприятия — всё адаптируется автоматически через `sections` и `has_subaccs`.
