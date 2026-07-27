@@ -11,10 +11,10 @@ paths = [ "/" ]
 localPort = 21844
 
 [services.development]
-run = "cd /home/runner/workspace/osv-dashboard && python app.py"
+run = "cd /home/runner/workspace/osv-dashboard && gunicorn -c gunicorn.conf.py app:app"
 
 [services.production]
-run = [ "bash", "-c", "cd /home/runner/workspace/osv-dashboard && python app.py" ]
+run = [ "bash", "-c", "cd /home/runner/workspace/osv-dashboard && gunicorn -c gunicorn.conf.py app:app" ]
 
 [services.env]
 PORT = "21844"

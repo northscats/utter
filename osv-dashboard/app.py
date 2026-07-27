@@ -7,6 +7,8 @@ import re
 import time
 import traceback
 
+import threading
+
 import bcrypt
 from flask import (Flask, Response, abort, jsonify, redirect, render_template,
                    request, send_from_directory, url_for)
@@ -14,6 +16,8 @@ from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
+
+from jobs import create_job, get_job, finish_job, fail_job
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -52,6 +56,14 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 csrf = CSRFProtect(app)
 
+# ---------------------------------------------------------------------------
+# IMAP background thread state (single-worker gunicorn keeps this in one process)
+# ---------------------------------------------------------------------------
+_imap_stop = threading.Event()           # set() to request graceful shutdown
+_imap_thread: threading.Thread | None = None
+_imap_thread_started = False
+_imap_thread_lock = threading.Lock()
+
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = None
@@ -60,6 +72,25 @@ login_manager.login_message = None
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
+
+def _ensure_imap_thread() -> None:
+    """Start the IMAP background thread once per process (idempotent)."""
+    global _imap_thread, _imap_thread_started
+    if _imap_thread_started:
+        return
+    with _imap_thread_lock:
+        if _imap_thread_started:
+            return
+        _imap_thread_started = True
+    _imap_thread = threading.Thread(target=_imap_loop, daemon=True, name='imap-loop')
+    _imap_thread.start()
+
+
+@app.before_request
+def _maybe_start_imap_thread():
+    """Lazy IMAP thread starter — fires on the first HTTP request."""
+    _ensure_imap_thread()
 
 
 def admin_required(f):
@@ -267,6 +298,451 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
 
 
 # ---------------------------------------------------------------------------
+# IMAP sync helper and background loop
+# ---------------------------------------------------------------------------
+def _get_admin_id() -> int:
+    """Return the ID of the first admin user (used for automated uploads)."""
+    u = User.query.filter_by(role='admin').order_by(User.id).first()
+    return u.id if u else 1
+
+
+def _do_imap_sync(uploader_id: int) -> dict:
+    """Core IMAP sync logic. Must be called inside an app context.
+    Returns dict(ok, msg, processed, updated).
+    """
+    import imaplib, email, ssl, fnmatch, tempfile, shutil as _shutil
+    from email.header import decode_header as _dh
+
+    def _decode(val):
+        if val is None:
+            return ''
+        parts = []
+        for chunk, charset in _dh(val):
+            if isinstance(chunk, bytes):
+                parts.append(chunk.decode(charset or 'utf-8', errors='replace'))
+            else:
+                parts.append(chunk)
+        return ''.join(parts)
+
+    host     = Setting.get('imap_host', '').strip()
+    port_str = Setting.get('imap_port', '993').strip()
+    login    = Setting.get('imap_login', '').strip()
+    password = Setting.get('imap_password', '').strip()
+    folder   = Setting.get('imap_folder', 'INBOX').strip() or 'INBOX'
+
+    if not host or not login or not password:
+        return dict(ok=False, msg='IMAP не настроен: заполните хост, логин и пароль и сохраните.',
+                    processed=0, updated=0)
+
+    try:
+        port_int = int(port_str)
+    except ValueError:
+        return dict(ok=False, msg=f'Неверный порт: {port_str}', processed=0, updated=0)
+
+    rules = EmailRule.query.order_by(EmailRule.id).all()
+
+    def _match_rule(rule, sender, subject):
+        if rule.sender_pattern and not fnmatch.fnmatch(
+                sender.lower(), rule.sender_pattern.lower()):
+            return False
+        if rule.subject_pattern and not fnmatch.fnmatch(
+                subject.lower(), rule.subject_pattern.lower()):
+            return False
+        return True
+
+    stats = dict(emails_checked=0, emails_matched=0,
+                 files_processed=0, files_skipped=0,
+                 companies_updated=set(), errors=[])
+
+    tmp_root = tempfile.mkdtemp(prefix='imap_sync_')
+    try:
+        ctx = ssl.create_default_context()
+        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx, timeout=20) as M:
+            M.login(login, password)
+            status, _ = M.select(folder)
+            if status != 'OK':
+                return dict(ok=False, msg=f'Папка «{folder}» не найдена',
+                            processed=0, updated=0)
+
+            _, uid_list = M.search(None, 'UNSEEN')
+            uids = uid_list[0].split() if uid_list and uid_list[0] else []
+            stats['emails_checked'] = len(uids)
+
+            for uid in uids:
+                _, data = M.fetch(uid, '(RFC822)')
+                raw = data[0][1] if data and data[0] else None
+                if not raw:
+                    continue
+                msg = email.message_from_bytes(raw)
+                sender  = _decode(msg.get('From', ''))
+                subject = _decode(msg.get('Subject', ''))
+
+                matched_company_id = None
+                for rule in rules:
+                    if _match_rule(rule, sender, subject):
+                        matched_company_id = rule.company_id
+                        break
+
+                if matched_company_id is None:
+                    M.store(uid, '+FLAGS', '\\Seen')
+                    continue
+
+                stats['emails_matched'] += 1
+                msg_tmp = os.path.join(tmp_root, uid.decode())
+                os.makedirs(msg_tmp, exist_ok=True)
+
+                attached_paths = []
+                for part in msg.walk():
+                    fname_raw = part.get_filename()
+                    if not fname_raw:
+                        continue
+                    fname = _decode(fname_raw)
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext not in ('.xls', '.xlsx', '.zip'):
+                        continue
+                    payload = part.get_payload(decode=True)
+                    if not payload:
+                        continue
+                    dest = os.path.join(msg_tmp, fname)
+                    with open(dest, 'wb') as fh:
+                        fh.write(payload)
+                    attached_paths.append(dest)
+
+                if not attached_paths:
+                    M.store(uid, '+FLAGS', '\\Seen')
+                    continue
+
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                company_id = matched_company_id
+                for path in attached_paths:
+                    ext = os.path.splitext(path)[1].lower()
+                    try:
+                        if ext == '.zip':
+                            successes, errors_zip = parse_zip(path)
+                            for e in errors_zip:
+                                stats['errors'].append(f"{os.path.basename(path)}: {e['error']}")
+                            for item in successes:
+                                dt  = item['date']
+                                acc = item['parsed']['acc']
+                                top = item['parsed']['top']
+                                row = DailyRow.query.filter_by(
+                                    company_id=company_id, date=dt, acc=acc).first()
+                                if row is None:
+                                    row = DailyRow(company_id=company_id, date=dt, acc=acc)
+                                    db.session.add(row)
+                                row.snd = top['snd']; row.snk = top['snk']
+                                row.obd = top['obd']; row.obk = top['obk']
+                                row.skd = top['skd']; row.skk = top['skk']
+                            db.session.commit()
+                            if successes:
+                                _co = db.session.get(Company, company_id)
+                                _rebuild_dashboard_with_daily(
+                                    company_id,
+                                    company_name=_co.name if _co else '')
+                                stats['companies_updated'].add(company_id)
+                                _dates_z = sorted({it['date'] for it in successes})
+                                _MRU_Z = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
+                                          7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
+                                _d0, _d1 = _dates_z[0], _dates_z[-1]
+                                _zlbl = (f'{_d0.day} {_MRU_Z[_d0.month]}'
+                                         if _d0 == _d1
+                                         else f'{_d0.strftime("%d.%m")}–{_d1.strftime("%d.%m")}')
+                                _up = Upload(
+                                    company_id=company_id,
+                                    uploaded_by=uploader_id,
+                                    period_label=_zlbl,
+                                    accounts_loaded=json.dumps(
+                                        sorted({it['parsed']['acc'] for it in successes})),
+                                    closure_status=None, profit_sign='neutral',
+                                    files_count=len(successes),
+                                    dashboard_file='dashboard_current.html',
+                                    source='auto_imap',
+                                )
+                                db.session.add(_up)
+                                db.session.commit()
+                            stats['files_processed'] += 1
+                        else:  # XLS / XLSX
+                            if _is_daily_xls(path):
+                                save_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
+                            else:
+                                save_dir = os.path.join(UPLOADS, str(company_id), ts)
+                            os.makedirs(save_dir, exist_ok=True)
+                            dest = os.path.join(save_dir, os.path.basename(path))
+                            _shutil.copy2(path, dest)
+                            _upsert_daily_rows(company_id, [dest])
+                            db.session.commit()
+                            _co = db.session.get(Company, company_id)
+                            _rebuild_dashboard_with_daily(
+                                company_id,
+                                company_name=_co.name if _co else '')
+                            stats['companies_updated'].add(company_id)
+                            from osvparser import extract_daily_date as _edd
+                            _xdt = _edd(dest)
+                            _xlbl = _xdt.strftime('%d.%m.%Y') if _xdt else '—'
+                            _up = Upload(
+                                company_id=company_id,
+                                uploaded_by=uploader_id,
+                                period_label=_xlbl,
+                                accounts_loaded='[]',
+                                closure_status=None, profit_sign='neutral',
+                                files_count=1,
+                                dashboard_file='dashboard_current.html',
+                                source='auto_imap',
+                            )
+                            db.session.add(_up)
+                            db.session.commit()
+                            stats['files_processed'] += 1
+                    except Exception as exc:
+                        stats['errors'].append(f"{os.path.basename(path)}: {exc}")
+                        stats['files_skipped'] += 1
+
+                M.store(uid, '+FLAGS', '\\Seen')
+
+            M.logout()
+    except imaplib.IMAP4.error as e:
+        return dict(ok=False, msg=f'Ошибка IMAP-аутентификации: {e}',
+                    processed=0, updated=0)
+    except OSError as e:
+        return dict(ok=False, msg=f'Сетевая ошибка: {e}', processed=0, updated=0)
+    except Exception as e:
+        return dict(ok=False, msg=f'Ошибка: {e}', processed=0, updated=0)
+    finally:
+        _shutil.rmtree(tmp_root, ignore_errors=True)
+
+    upd = len(stats['companies_updated'])
+    lines = []
+    if stats['emails_checked'] == 0:
+        lines.append('Непрочитанных писем нет')
+    else:
+        lines.append(f"Писем проверено: {stats['emails_checked']}, "
+                     f"совпало с правилами: {stats['emails_matched']}")
+    if stats['files_processed']:
+        lines.append(f"Файлов обработано: {stats['files_processed']}, "
+                     f"предприятий обновлено: {upd}")
+    if stats['files_skipped']:
+        lines.append(f"Пропущено с ошибкой: {stats['files_skipped']}")
+    for err in stats['errors'][:3]:
+        lines.append(f"  ⚠ {err}")
+    if len(stats['errors']) > 3:
+        lines.append(f"  … и ещё {len(stats['errors'])-3} ошибок")
+
+    ok = not stats['errors'] or stats['files_processed'] > 0
+    return dict(ok=ok, msg=' | '.join(lines),
+                processed=stats['files_processed'], updated=upd)
+
+
+def _imap_loop() -> None:
+    """Daemon thread: poll IMAP inbox on a configurable interval."""
+    while not _imap_stop.is_set():
+        try:
+            with app.app_context():
+                interval_str = Setting.get('imap_interval', '30')
+                try:
+                    interval = max(5, int(interval_str)) * 60
+                except ValueError:
+                    interval = 30 * 60
+                host = Setting.get('imap_host', '').strip()
+                if host:
+                    uid = _get_admin_id()
+                    result = _do_imap_sync(uid)
+                    if result['processed']:
+                        print(f'[imap-loop] {result["msg"]}')
+                else:
+                    interval = 60  # check again in 1 min if not configured
+        except Exception as exc:
+            print(f'[imap-loop] unhandled error: {exc}')
+            interval = 60
+        _imap_stop.wait(interval)
+
+
+# ---------------------------------------------------------------------------
+# Background upload workers
+# ---------------------------------------------------------------------------
+def _bg_upload_all(job_id: str, company_id: int, company_name: str,
+                   stage_dir: str, ts: str, uploader_id: int) -> None:
+    """Background thread: classify + parse all staged files, rebuild dashboard."""
+    import shutil as _sh
+    with app.app_context():
+        try:
+            audit_out = []
+            zip_dates = []
+            total_files = 0
+
+            all_staged = [os.path.join(stage_dir, f)
+                          for f in os.listdir(stage_dir)
+                          if os.path.isfile(os.path.join(stage_dir, f))]
+            xls_staged = [p for p in all_staged
+                          if os.path.splitext(p)[1].lower() in ('.xls', '.xlsx')]
+            zip_staged = [p for p in all_staged if p.lower().endswith('.zip')]
+
+            # — XLS: classify daily vs monthly, move to permanent dirs
+            if xls_staged:
+                total_files += len(xls_staged)
+                ts_dir    = os.path.join(UPLOADS, str(company_id), ts)
+                daily_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
+                os.makedirs(ts_dir, exist_ok=True)
+                full_xls, daily_xls = [], []
+                for path in xls_staged:
+                    dest = os.path.join(ts_dir, os.path.basename(path))
+                    _sh.move(path, dest)
+                    if _is_daily_xls(dest):
+                        os.makedirs(daily_dir, exist_ok=True)
+                        final = os.path.join(daily_dir, os.path.basename(dest))
+                        os.rename(dest, final)
+                        daily_xls.append(final)
+                    else:
+                        full_xls.append(dest)
+
+                _upsert_daily_rows(company_id, full_xls + daily_xls)
+                db.session.commit()
+
+                if full_xls:
+                    data_check, _ = parse_many(full_xls)
+                    if data_check:
+                        for disc in _compute_discrepancy(company_id, data_check):
+                            audit_out.append(dict(
+                                file=f'сч.{disc["acc"]}',
+                                acc=disc['acc'],
+                                status=(
+                                    f'РАСХОЖДЕНИЕ: расчётное СК на {disc["last_date"]} — '
+                                    f'Дт {disc["calc_skd"]:,.0f} / Кт {disc["calc_skk"]:,.0f} | '
+                                    f'новая ОСВ СН — Дт {disc["new_snd"]:,.0f} / Кт {disc["new_snk"]:,.0f} | '
+                                    f'дельта Дт {disc["delta_d"]:+,.0f} / Кт {disc["delta_k"]:+,.0f}'
+                                ),
+                                ok='disc',
+                            ))
+
+            # — ZIP: move and parse
+            for zp in zip_staged:
+                total_files += 1
+                zip_dir = os.path.join(UPLOADS, str(company_id), f'zip_{ts}')
+                os.makedirs(zip_dir, exist_ok=True)
+                dest = os.path.join(zip_dir, os.path.basename(zp))
+                _sh.move(zp, dest)
+                successes, errors = parse_zip(dest)
+                audit_out += [{'file': e['file'], 'acc': '?',
+                               'status': f'ОШИБКА: {e["error"]}', 'ok': False}
+                              for e in errors]
+                for item in successes:
+                    dt, acc, top = item['date'], item['parsed']['acc'], item['parsed']['top']
+                    row = DailyRow.query.filter_by(
+                        company_id=company_id, date=dt, acc=acc).first()
+                    if row is None:
+                        row = DailyRow(company_id=company_id, date=dt, acc=acc)
+                        db.session.add(row)
+                    row.snd = top['snd']; row.snk = top['snk']
+                    row.obd = top['obd']; row.obk = top['obk']
+                    row.skd = top['skd']; row.skk = top['skk']
+                    zip_dates.append(dt)
+                db.session.commit()
+
+            # Cleanup staging dir
+            _sh.rmtree(stage_dir, ignore_errors=True)
+
+            if not xls_staged and not zip_staged:
+                fail_job(job_id, 'Среди загруженных нет файлов .xls, .xlsx или .zip.')
+                return
+
+            # Rebuild dashboard
+            co = db.session.get(Company, company_id)
+            back_url = f'/company/{company_id}'
+            dataset, rebuild_audit = _rebuild_dashboard_with_daily(
+                company_id, company_name=co.name if co else company_name)
+            audit_out = rebuild_audit + audit_out
+
+            if dataset is None:
+                msg = rebuild_audit[-1]['status'] if rebuild_audit else 'нет данных'
+                fail_job(job_id, f'Дашборд не построен: {msg}')
+                return
+
+            html_content = render_dashboard(dataset, back_url=back_url)
+            out_dir = os.path.join(OUTPUT, str(company_id))
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, 'dashboard_current.html'),
+                      'w', encoding='utf-8') as fh:
+                fh.write(html_content)
+
+            period_lbl = dataset.get('period_label', '')
+            if zip_dates:
+                _MRU = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
+                        7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
+                zd = sorted(set(zip_dates))
+                d0, d1 = zd[0], zd[-1]
+                zl = (f'{d0.day} {_MRU[d0.month]}' if d0 == d1
+                      else f'{d0.strftime("%d.%m")}–{d1.strftime("%d.%m")}')
+                period_lbl = f'{period_lbl} + {zl}'.strip(' +')
+
+            brief = dataset.get('brief', {})
+            lead = brief.get('lead', '')
+            profit_sign = ('loss'   if 'убыток'  in lead.lower() else
+                           'profit' if 'прибыль' in lead.lower() else 'neutral')
+            head = brief.get('head', '')
+            closure_status = ('закрыт' in head.lower()) if head else None
+
+            upload = Upload(
+                company_id=company_id,
+                uploaded_by=uploader_id,
+                period_label=period_lbl,
+                accounts_loaded=json.dumps(sorted(dataset.get('accounts', {}).keys())),
+                closure_status=closure_status,
+                profit_sign=profit_sign,
+                files_count=total_files,
+                dashboard_file='dashboard_current.html',
+                source='manual',
+            )
+            db.session.add(upload)
+            db.session.commit()
+
+            discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
+            finish_job(job_id, dict(
+                audit=audit_out,
+                discrepancy=discrepancy,
+                period_label=period_lbl,
+            ))
+        except Exception as exc:
+            traceback.print_exc()
+            fail_job(job_id, str(exc))
+
+
+def _bg_company_new(job_id: str, company_id: int, final_dir: str,
+                    final_paths: list, ts: str, back_url: str,
+                    company_name: str, uploader_id: int) -> None:
+    """Background thread: process new company files and create first Upload."""
+    import shutil as _sh
+    with app.app_context():
+        try:
+            record_kwargs, audit = _process_files(
+                final_paths, company_id, ts, back_url,
+                company_name=company_name)
+            if record_kwargs is None:
+                fail_job(job_id, 'Ни один файл не удалось разобрать как ОСВ 1С')
+                # Remove the empty company record so the user can retry
+                _sh.rmtree(final_dir, ignore_errors=True)
+                co = db.session.get(Company, company_id)
+                if co:
+                    DailyRow.query.filter_by(company_id=company_id).delete()
+                    Upload.query.filter_by(company_id=company_id).delete()
+                    db.session.delete(co)
+                    db.session.commit()
+                return
+
+            _upsert_daily_rows(company_id, final_paths)
+            upload = Upload(company_id=company_id, uploaded_by=uploader_id,
+                            source='manual', **record_kwargs)
+            db.session.add(upload)
+            db.session.commit()
+
+            finish_job(job_id, dict(
+                audit=audit,
+                discrepancy=[],
+                period_label=record_kwargs.get('period_label', ''),
+            ))
+        except Exception as exc:
+            traceback.print_exc()
+            fail_job(job_id, str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Обработчики ошибок
 # ---------------------------------------------------------------------------
 def _wants_json():
@@ -404,30 +880,19 @@ def company_new():
     shutil.move(tmp_dir, final_dir)
     final_paths = [os.path.join(final_dir, os.path.basename(p)) for p in tmp_paths]
 
+    db.session.commit()  # commit company before starting thread
+
+    # Запускаем обработку в фоне
     back_url = url_for('company_detail', company_id=company.id)
-    try:
-        record_kwargs, audit = _process_files(final_paths, company.id, ts, back_url,
-                                               company_name=org_name)
-        if record_kwargs is None:
-            db.session.rollback()
-            import shutil; shutil.rmtree(final_dir, ignore_errors=True)
-            return render_template('company_new.html',
-                                   error='Ни один файл не удалось разобрать как ОСВ 1С.',
-                                   audit=audit)
+    job_id = create_job(company.id)
+    threading.Thread(
+        target=_bg_company_new,
+        args=(job_id, company.id, final_dir, final_paths, ts,
+              back_url, org_name, current_user.id),
+        daemon=True,
+    ).start()
 
-        _upsert_daily_rows(company.id, final_paths)
-        upload = Upload(company_id=company.id, uploaded_by=current_user.id,
-                        source='manual', **record_kwargs)
-        db.session.add(upload)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        traceback.print_exc()
-        return render_template('company_new.html',
-                               error=f'Ошибка обработки: {e}')
-
-    return redirect(url_for('company_detail', company_id=company.id,
-                            _anchor='audit'))
+    return redirect(url_for('company_detail', company_id=company.id, job=job_id))
 
 
 # ---------------------------------------------------------------------------
@@ -445,6 +910,20 @@ def company_detail(company_id):
                            annual_coverage=_annual_coverage(company_id, year))
 
 
+@app.route('/company/<int:company_id>/job/<job_id>')
+@login_required
+def job_status(company_id, job_id):
+    """Опрос статуса фонового задания (polling endpoint)."""
+    job = get_job(job_id)
+    if not job or job.get('company_id') != company_id:
+        return jsonify(status='not_found'), 404
+    return jsonify(
+        status=job['status'],
+        error=job.get('error'),
+        result=job.get('result'),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Единая загрузка файлов (.xls/.xlsx и/или .zip)
 # ---------------------------------------------------------------------------
@@ -454,91 +933,43 @@ def company_upload_all(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     all_files = [f for f in request.files.getlist('files') if f.filename]
 
-    def _err(msg, audit=None):
+    def _err(msg):
         ups = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
         return render_template('company.html', company=company, uploads=ups,
-                               audit=audit, error=msg, discrepancy=[],
+                               audit=None, error=msg, discrepancy=[],
                                annual_coverage=_annual_coverage(company_id))
 
     if not all_files:
         return _err('Файлы не выбраны.')
 
     ts = time.strftime('%Y%m%d_%H%M%S')
-    audit_out = []
-    zip_dates = []   # datetime.date объекты из ZIP-файлов
-    total_files = 0
 
-    # — XLS/XLSX: классифицируем (суточные vs периодические) и сохраняем
-    xls_files = [f for f in all_files
-                 if f.filename.lower().endswith(('.xls', '.xlsx'))]
-    if xls_files:
-        saved = _save_files(xls_files, company_id, ts)
-        total_files += len(saved)
+    # Сохраняем все файлы в staging-папку синхронно (быстро: только дисковый ввод-вывод)
+    stage_dir = os.path.join(UPLOADS, str(company_id), f'stage_{ts}')
+    os.makedirs(stage_dir, exist_ok=True)
 
-        # Суточные XLS перемещаем в daily_-папку — _find_monthly_xls их пропустит
-        full_saved, daily_saved = [], []
-        daily_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
-        for path in saved:
-            if _is_daily_xls(path):
-                os.makedirs(daily_dir, exist_ok=True)
-                dest = os.path.join(daily_dir, os.path.basename(path))
-                os.rename(path, dest)
-                daily_saved.append(dest)
-            else:
-                full_saved.append(path)
+    saved = 0
+    for f in all_files:
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in ('.xls', '.xlsx', '.zip'):
+            continue
+        dest = os.path.join(stage_dir, os.path.basename(f.filename))
+        f.save(dest)
+        saved += 1
 
-        _upsert_daily_rows(company_id, full_saved + daily_saved)
-        db.session.commit()
-
-        # Отчёт расхождений: сравниваем СН новой периодической ОСВ с расчётным СК
-        if full_saved:
-            data_check, _ = parse_many(full_saved)
-            if data_check:
-                for disc in _compute_discrepancy(company_id, data_check):
-                    audit_out.append(dict(
-                        file=f'сч.{disc["acc"]}',
-                        acc=disc['acc'],
-                        status=(
-                            f'РАСХОЖДЕНИЕ: расчётное СК на {disc["last_date"]} — '
-                            f'Дт {disc["calc_skd"]:,.0f} / Кт {disc["calc_skk"]:,.0f} | '
-                            f'новая ОСВ СН — Дт {disc["new_snd"]:,.0f} / Кт {disc["new_snk"]:,.0f} | '
-                            f'дельта Дт {disc["delta_d"]:+,.0f} / Кт {disc["delta_k"]:+,.0f}'
-                        ),
-                        ok='disc',
-                    ))
-
-    # — ZIP: сохраняем и парсим суточные данные
-    zip_files = [f for f in all_files if f.filename.lower().endswith('.zip')]
-    for zf in zip_files:
-        zip_dir = os.path.join(UPLOADS, str(company_id), f'zip_{ts}')
-        os.makedirs(zip_dir, exist_ok=True)
-        zip_path = os.path.join(zip_dir, os.path.basename(zf.filename))
-        zf.save(zip_path)
-        total_files += 1
-
-        successes, errors = parse_zip(zip_path)
-        audit_out += [{'file': e['file'], 'acc': '?',
-                       'status': f'ОШИБКА: {e["error"]}', 'ok': False}
-                      for e in errors]
-
-        for item in successes:
-            dt  = item['date']
-            acc = item['parsed']['acc']
-            top = item['parsed']['top']
-            row = DailyRow.query.filter_by(
-                company_id=company_id, date=dt, acc=acc).first()
-            if row is None:
-                row = DailyRow(company_id=company_id, date=dt, acc=acc)
-                db.session.add(row)
-            row.snd = top['snd']; row.snk = top['snk']
-            row.obd = top['obd']; row.obk = top['obk']
-            row.skd = top['skd']; row.skk = top['skk']
-            zip_dates.append(dt)
-        db.session.commit()
-
-    if not xls_files and not zip_files:
+    if not saved:
+        import shutil as _sh; _sh.rmtree(stage_dir, ignore_errors=True)
         return _err('Среди загруженных нет файлов .xls, .xlsx или .zip.')
+
+    job_id = create_job(company_id)
+    threading.Thread(
+        target=_bg_upload_all,
+        args=(job_id, company_id, company.name, stage_dir, ts, current_user.id),
+        daemon=True,
+    ).start()
+
+    return redirect(url_for('company_detail', company_id=company_id, job=job_id))
 
     # Пересобираем дашборд: месячные XLS + суточные из БД
     back_url = url_for('company_detail', company_id=company_id)
@@ -1045,239 +1476,9 @@ def settings_test_imap():
 @app.route('/settings/sync-imap', methods=['POST'])
 @admin_required
 def settings_sync_imap():
-    """Ручная синхронизация: смотрим НЕПРОЧИТАННЫЕ письма, забираем вложения,
-    распределяем по предприятиям согласно правилам маршрутизации."""
-    import imaplib, email, ssl, fnmatch, tempfile, shutil
-    from email.header import decode_header as _dh
-    from flask import jsonify
-
-    def _decode(val):
-        """Декодирует RFC-2047 строку в unicode."""
-        if val is None:
-            return ''
-        parts = []
-        for chunk, charset in _dh(val):
-            if isinstance(chunk, bytes):
-                parts.append(chunk.decode(charset or 'utf-8', errors='replace'))
-            else:
-                parts.append(chunk)
-        return ''.join(parts)
-
-    host     = Setting.get('imap_host', '').strip()
-    port_str = Setting.get('imap_port', '993').strip()
-    login    = Setting.get('imap_login', '').strip()
-    password = Setting.get('imap_password', '').strip()
-    folder   = Setting.get('imap_folder', 'INBOX').strip() or 'INBOX'
-
-    if not host or not login or not password:
-        return jsonify(ok=False, msg='IMAP не настроен: заполните хост, логин и пароль и сохраните.')
-
-    try:
-        port_int = int(port_str)
-    except ValueError:
-        return jsonify(ok=False, msg=f'Неверный порт: {port_str}')
-
-    rules = EmailRule.query.order_by(EmailRule.id).all()
-
-    def _match_rule(rule, sender, subject):
-        if rule.sender_pattern and not fnmatch.fnmatch(sender.lower(),
-                                                        rule.sender_pattern.lower()):
-            return False
-        if rule.subject_pattern and not fnmatch.fnmatch(subject.lower(),
-                                                         rule.subject_pattern.lower()):
-            return False
-        return True
-
-    stats = dict(emails_checked=0, emails_matched=0,
-                 files_processed=0, files_skipped=0,
-                 companies_updated=set(), errors=[])
-
-    tmp_root = tempfile.mkdtemp(prefix='imap_sync_')
-    try:
-        ctx = ssl.create_default_context()
-        with imaplib.IMAP4_SSL(host, port_int, ssl_context=ctx,
-                               timeout=20) as M:
-            M.login(login, password)
-            status, _ = M.select(folder)
-            if status != 'OK':
-                return jsonify(ok=False, msg=f'Папка «{folder}» не найдена')
-
-            _, uid_list = M.search(None, 'UNSEEN')
-            uids = uid_list[0].split() if uid_list and uid_list[0] else []
-            stats['emails_checked'] = len(uids)
-
-            for uid in uids:
-                _, data = M.fetch(uid, '(RFC822)')
-                raw = data[0][1] if data and data[0] else None
-                if not raw:
-                    continue
-                msg = email.message_from_bytes(raw)
-                sender  = _decode(msg.get('From', ''))
-                subject = _decode(msg.get('Subject', ''))
-
-                # Ищем подходящее правило
-                matched_company_id = None
-                for rule in rules:
-                    if _match_rule(rule, sender, subject):
-                        matched_company_id = rule.company_id
-                        break
-
-                if matched_company_id is None:
-                    # Письмо не соответствует ни одному правилу — пропускаем,
-                    # но помечаем прочитанным чтобы не мешало при следующем запуске
-                    M.store(uid, '+FLAGS', '\\Seen')
-                    continue
-
-                stats['emails_matched'] += 1
-                msg_tmp = os.path.join(tmp_root, uid.decode())
-                os.makedirs(msg_tmp, exist_ok=True)
-
-                # Скачиваем все подходящие вложения
-                attached_paths = []
-                for part in msg.walk():
-                    ct = part.get_content_type()
-                    fname_raw = part.get_filename()
-                    if not fname_raw:
-                        continue
-                    fname = _decode(fname_raw)
-                    ext = os.path.splitext(fname)[1].lower()
-                    if ext not in ('.xls', '.xlsx', '.zip'):
-                        continue
-                    payload = part.get_payload(decode=True)
-                    if not payload:
-                        continue
-                    dest = os.path.join(msg_tmp, fname)
-                    with open(dest, 'wb') as fh:
-                        fh.write(payload)
-                    attached_paths.append(dest)
-
-                if not attached_paths:
-                    M.store(uid, '+FLAGS', '\\Seen')
-                    continue
-
-                # Обрабатываем каждое вложение
-                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-                company_id = matched_company_id
-                for path in attached_paths:
-                    ext = os.path.splitext(path)[1].lower()
-                    try:
-                        if ext == '.zip':
-                            successes, errors_zip = parse_zip(path)
-                            for e in errors_zip:
-                                stats['errors'].append(f"{fname}: {e['error']}")
-                            for item in successes:
-                                dt  = item['date']
-                                acc = item['parsed']['acc']
-                                top = item['parsed']['top']
-                                row = DailyRow.query.filter_by(
-                                    company_id=company_id, date=dt, acc=acc).first()
-                                if row is None:
-                                    row = DailyRow(company_id=company_id, date=dt, acc=acc)
-                                    db.session.add(row)
-                                row.snd = top['snd']; row.snk = top['snk']
-                                row.obd = top['obd']; row.obk = top['obk']
-                                row.skd = top['skd']; row.skk = top['skk']
-                            db.session.commit()
-                            if successes:
-                                _co = db.session.get(Company, company_id)
-                                _rebuild_dashboard_with_daily(
-                                    company_id,
-                                    company_name=_co.name if _co else '')
-                                stats['companies_updated'].add(company_id)
-                                # Запись в историю
-                                _dates_z = sorted({it['date'] for it in successes})
-                                _MRU_Z = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
-                                          7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
-                                _d0, _d1 = _dates_z[0], _dates_z[-1]
-                                _zlbl = (f'{_d0.day} {_MRU_Z[_d0.month]}'
-                                         if _d0 == _d1
-                                         else f'{_d0.strftime("%d.%m")}–{_d1.strftime("%d.%m")}')
-                                _up = Upload(
-                                    company_id=company_id,
-                                    uploaded_by=current_user.id,
-                                    period_label=_zlbl,
-                                    accounts_loaded=json.dumps(
-                                        sorted({it['parsed']['acc'] for it in successes})),
-                                    closure_status=None, profit_sign='neutral',
-                                    files_count=len(successes),
-                                    dashboard_file='dashboard_current.html',
-                                    source='auto_imap',
-                                )
-                                db.session.add(_up)
-                                db.session.commit()
-                            stats['files_processed'] += 1
-                        else:  # XLS / XLSX
-                            if _is_daily_xls(path):
-                                # Суточный XLS: только DailyRow, не становится базой
-                                save_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
-                            else:
-                                # Периодическая ОСВ: становится базовым файлом
-                                save_dir = os.path.join(UPLOADS, str(company_id), ts)
-                            os.makedirs(save_dir, exist_ok=True)
-                            dest = os.path.join(save_dir, os.path.basename(path))
-                            shutil.copy2(path, dest)
-                            _upsert_daily_rows(company_id, [dest])
-                            db.session.commit()
-                            _co = db.session.get(Company, company_id)
-                            _rebuild_dashboard_with_daily(
-                                company_id,
-                                company_name=_co.name if _co else '')
-                            stats['companies_updated'].add(company_id)
-                            # Запись в историю
-                            from osvparser import extract_daily_date as _edd
-                            _xdt = _edd(dest)
-                            _xlbl = _xdt.strftime('%d.%m.%Y') if _xdt else '—'
-                            _up = Upload(
-                                company_id=company_id,
-                                uploaded_by=current_user.id,
-                                period_label=_xlbl,
-                                accounts_loaded='[]',
-                                closure_status=None, profit_sign='neutral',
-                                files_count=1,
-                                dashboard_file='dashboard_current.html',
-                                source='auto_imap',
-                            )
-                            db.session.add(_up)
-                            db.session.commit()
-                            stats['files_processed'] += 1
-                    except Exception as exc:
-                        stats['errors'].append(f"{os.path.basename(path)}: {exc}")
-                        stats['files_skipped'] += 1
-
-                M.store(uid, '+FLAGS', '\\Seen')
-
-            M.logout()
-    except imaplib.IMAP4.error as e:
-        return jsonify(ok=False, msg=f'Ошибка IMAP-аутентификации: {e}')
-    except OSError as e:
-        return jsonify(ok=False, msg=f'Сетевая ошибка: {e}')
-    except Exception as e:
-        return jsonify(ok=False, msg=f'Ошибка: {e}')
-    finally:
-        shutil.rmtree(tmp_root, ignore_errors=True)
-
-    # Формируем итоговое сообщение
-    upd = len(stats['companies_updated'])
-    lines = []
-    if stats['emails_checked'] == 0:
-        lines.append('Непрочитанных писем нет')
-    else:
-        lines.append(f"Писем проверено: {stats['emails_checked']}, "
-                     f"совпало с правилами: {stats['emails_matched']}")
-    if stats['files_processed']:
-        lines.append(f"Файлов обработано: {stats['files_processed']}, "
-                     f"предприятий обновлено: {upd}")
-    if stats['files_skipped']:
-        lines.append(f"Пропущено с ошибкой: {stats['files_skipped']}")
-    for err in stats['errors'][:3]:
-        lines.append(f"  ⚠ {err}")
-    if len(stats['errors']) > 3:
-        lines.append(f"  … и ещё {len(stats['errors'])-3} ошибок")
-
-    ok = not stats['errors'] or stats['files_processed'] > 0
-    return jsonify(ok=ok, msg=' | '.join(lines),
-                   processed=stats['files_processed'],
-                   updated=upd)
+    """Ручная синхронизация — тонкая обёртка над _do_imap_sync()."""
+    result = _do_imap_sync(current_user.id)
+    return jsonify(**result)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -1449,12 +1650,14 @@ if __name__ == '__main__':
     # Повторяем попытку подключения до 10 раз с паузой 2 с.
     for _attempt in range(10):
         try:
-            init_db()
+            with app.app_context():
+                init_db()
             break
         except Exception as _e:
             print(f'[startup] БД недоступна (попытка {_attempt + 1}/10): {_e}')
             if _attempt == 9:
                 raise
             time.sleep(2)
+    _ensure_imap_thread()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
             debug=False, threaded=True)
