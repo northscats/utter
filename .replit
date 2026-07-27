@@ -1,7 +1,5 @@
 modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 
-run = "cd osv-dashboard && python app.py"
-
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
