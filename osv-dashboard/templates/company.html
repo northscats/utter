@@ -272,13 +272,11 @@ tr:last-child td{border-bottom:0}
     <!-- Имя предприятия -->
     <form method="post" action="/company/{{ company.id }}/rename"
           class="ab-rename-form">
-      <span class="ab-label">Наименование:</span>
-      <input type="text" name="name" value="{{ company.name }}" class="ab-input">
+      <input type="text" name="name" value="{{ company.name }}" class="ab-input" placeholder="Наименование предприятия">
       <button type="submit" class="ab-btn" title="Переименовать">
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 17h3.75L17 6.75a2.652 2.652 0 0 0-3.75-3.75L3 13.25V17z"/><path d="M13.25 3 17 6.75"/>
         </svg>
-        Сохранить
       </button>
       <button type="button" onclick="openDeleteModal()" class="ab-btn ab-btn-del" title="Удалить предприятие">
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
