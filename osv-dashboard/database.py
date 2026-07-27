@@ -55,7 +55,12 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.Text, nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='user')  # 'admin' | 'user'
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    @property
+    def is_admin(self):
+        return self.role == 'admin'
 
     uploads = db.relationship('Upload', backref='uploader', lazy=True,
                               foreign_keys='Upload.uploaded_by')

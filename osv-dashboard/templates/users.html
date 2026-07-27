@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Пользователи — ГИС УЗТЭР. Модуль: Анализ ФХД РСО</title>
+<style>
+:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
+  --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c;--warn:#c98a12}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
+header{background:var(--ink);color:#e8eef2;padding:0}
+.hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px;flex-wrap:wrap}
+.hd-title h1{font-size:18px;letter-spacing:.03em}
+.hd-title a{text-decoration:none;color:inherit}
+.hd-title .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+.hd-spacer{flex:1}
+.hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:10px}
+.hd-user strong{color:#c8d8e4}
+.hd-btn{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
+  border-radius:6px;padding:4px 10px;transition:background .15s;display:inline-flex;
+  align-items:center;gap:5px;white-space:nowrap}
+.hd-btn:hover{background:#253545}
+.hd-btn.active{background:#253545;border-color:#5a8a9c;color:#c8d8e4}
+
+main{max-width:860px;margin:0 auto;padding:28px 24px}
+.page-title{font-size:20px;font-weight:700;margin-bottom:24px;color:var(--ink)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:24px;margin-bottom:20px}
+.card h3{font-size:15px;font-weight:700;margin-bottom:6px;color:var(--ink)}
+.card .desc{font-size:13px;color:var(--mut);margin-bottom:20px}
+
+/* Таблица пользователей */
+.users-table{width:100%;border-collapse:collapse;margin-top:6px}
+.users-table th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#31424f;
+  padding:9px 12px;background:#f0f3f5;border-bottom:1px solid var(--line);text-align:left;
+  font-weight:700}
+.users-table td{padding:11px 12px;border-bottom:1px solid #edf0f3;font-size:14px;
+  vertical-align:middle}
+.users-table tr:last-child td{border-bottom:0}
+.users-table tr:hover td{background:#f7f9fa}
+
+.badge-role{display:inline-block;border-radius:5px;padding:2px 9px;font-size:12px;font-weight:600}
+.badge-admin{background:#ddeef8;color:#1a5f7a}
+.badge-user{background:#f0f3f5;color:var(--mut)}
+
+.actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+
+/* Форма добавления пользователя */
+.add-user-grid{display:grid;grid-template-columns:1fr 1fr 160px auto;gap:8px;align-items:end;margin-top:16px}
+.add-user-grid label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px;
+  text-transform:uppercase;letter-spacing:.06em}
+.add-user-grid input,.add-user-grid select{
+  border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+  font:14px 'Segoe UI',sans-serif;color:var(--ink);width:100%;background:#fff}
+.add-user-grid input:focus,.add-user-grid select:focus{outline:0;border-color:var(--water)}
+
+/* Inline-форма смены пароля */
+.pw-form{display:flex;gap:6px;align-items:center}
+.pw-form input{border:1px solid var(--line);border-radius:6px;padding:5px 9px;
+  font:13px 'Segoe UI',sans-serif;width:140px;color:var(--ink)}
+.pw-form input:focus{outline:0;border-color:var(--water)}
+
+.btn{border:0;border-radius:7px;padding:6px 14px;font:600 12px 'Segoe UI',sans-serif;
+  cursor:pointer;transition:background .15s;white-space:nowrap}
+.btn-primary{background:var(--water);color:#fff}
+.btn-primary:hover{background:#186a87}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn-ghost{background:#f0f3f5;color:var(--ink);border:1px solid var(--line)}
+.btn-ghost:hover{background:#e2e8ec}
+.btn-danger{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
+.btn-danger:hover{background:#f7d0cb}
+.btn-role{background:#eef4f8;color:#1a5f7a;border:1px solid #b8d5e5}
+.btn-role:hover{background:#ddeef8}
+
+.alert{padding:10px 16px;border-radius:8px;font-size:13px;margin-bottom:18px}
+.alert-error{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
+
+.self-note{font-size:12px;color:var(--mut);font-style:italic}
+
+@media(max-width:640px){
+  .add-user-grid{grid-template-columns:1fr 1fr}
+  .actions{flex-direction:column;align-items:flex-start}
+  .pw-form{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd-top">
+    <div class="hd-title">
+      <a href="/"><h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1></a>
+      <div class="sub">Генератор финансовой панели из выгрузок 1С</div>
+    </div>
+    <div class="hd-spacer"></div>
+    <div class="hd-user">
+      <span>{{ current_user.username }} <span class="badge-role badge-admin" style="margin-left:2px">Администратор</span></span>
+      <a class="hd-btn" href="/">← Главная</a>
+      <a class="hd-btn active" href="/users">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8a8 8 0 0 1 14.32-4.906A2 2 0 0 0 16 14H4a2 2 0 0 0-2 2v2zm14-4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+        </svg>
+        Пользователи
+      </a>
+      <a class="hd-btn" href="/settings">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+          <path fill-rule="evenodd" d="M10 0a1 1 0 0 1 1 1v1.07A8.002 8.002 0 0 1 17.93 9H19a1 1 0 1 1 0 2h-1.07A8.002 8.002 0 0 1 11 17.93V19a1 1 0 1 1-2 0v-1.07A8.002 8.002 0 0 1 2.07 11H1a1 1 0 1 1 0-2h1.07A8.002 8.002 0 0 1 9 2.07V1a1 1 0 0 1 1-1zm-6 10a6 6 0 1 0 12 0 6 6 0 0 0-12 0z" clip-rule="evenodd"/>
+        </svg>
+        Настройки
+      </a>
+      <a class="hd-btn" href="/logout">Выйти</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">Управление пользователями</div>
+
+  {% if error %}
+  <div class="alert alert-error">{{ error }}</div>
+  {% endif %}
+
+  <!-- ─── Список пользователей ─── -->
+  <div class="card">
+    <h3>Учётные записи</h3>
+    <p class="desc">Все зарегистрированные пользователи системы.</p>
+
+    <table class="users-table">
+      <thead>
+        <tr>
+          <th>Логин</th>
+          <th>Роль</th>
+          <th>Создан</th>
+          <th>Пароль</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            <strong>{{ u.username }}</strong>
+            {% if u.id == current_user.id %}
+            <span class="self-note">(вы)</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.role == 'admin' %}
+            <span class="badge-role badge-admin">Администратор</span>
+            {% else %}
+            <span class="badge-role badge-user">Пользователь</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--mut);font-size:13px">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
+          <td>
+            <form class="pw-form" method="post" action="/users/{{ u.id }}/set-password">
+              <input type="password" name="password" placeholder="Новый пароль" minlength="4">
+              <button class="btn btn-ghost btn-sm" type="submit">Установить</button>
+            </form>
+          </td>
+          <td>
+            <div class="actions">
+              {% if u.id != current_user.id %}
+                <!-- Переключение роли -->
+                <form method="post" action="/users/{{ u.id }}/set-role" style="display:inline">
+                  {% if u.role == 'admin' %}
+                  <input type="hidden" name="role" value="user">
+                  <button class="btn btn-ghost btn-sm" type="submit"
+                    title="Перевести в Пользователи"
+                    onclick="return confirm('Перевести «{{ u.username }}» из Администратора в Пользователя?')">
+                    ↓ В пользователи
+                  </button>
+                  {% else %}
+                  <input type="hidden" name="role" value="admin">
+                  <button class="btn btn-role btn-sm" type="submit"
+                    title="Назначить администратором"
+                    onclick="return confirm('Назначить «{{ u.username }}» администратором?')">
+                    ↑ В администраторы
+                  </button>
+                  {% endif %}
+                </form>
+                <!-- Удаление -->
+                <form method="post" action="/users/{{ u.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Удалить пользователя «{{ u.username }}»? Это действие нельзя отменить.')">
+                  <button class="btn btn-danger btn-sm" type="submit">Удалить</button>
+                </form>
+              {% else %}
+                <span class="self-note">нельзя изменить себя</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ─── Создание нового пользователя ─── -->
+  <div class="card">
+    <h3>Добавить пользователя</h3>
+    <p class="desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
+
+    <form method="post" action="/users/create">
+      <div class="add-user-grid">
+        <div>
+          <label>Логин</label>
+          <input type="text" name="username" placeholder="ivanov" required autocomplete="off">
+        </div>
+        <div>
+          <label>Пароль</label>
+          <input type="password" name="password" placeholder="минимум 4 символа" required minlength="4">
+        </div>
+        <div>
+          <label>Роль</label>
+          <select name="role">
+            <option value="user">Пользователь</option>
+            <option value="admin">Администратор</option>
+          </select>
+        </div>
+        <div style="padding-bottom:1px">
+          <button class="btn btn-primary" type="submit">+ Создать</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</main>
+</body>
+</html>

@@ -12,6 +12,7 @@ from flask import (Flask, Response, abort, redirect, render_template, request,
                    send_from_directory, url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
+from functools import wraps
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -56,6 +57,17 @@ login_manager.login_message = None
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
+
+def admin_required(f):
+    """Декоратор: доступ только для администраторов."""
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not current_user.is_admin:
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +261,14 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
         files_count=len(paths),
     )
     return record_kwargs, audit
+
+
+# ---------------------------------------------------------------------------
+# Обработчики ошибок
+# ---------------------------------------------------------------------------
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('403.html'), 403
 
 
 # ---------------------------------------------------------------------------
@@ -1280,6 +1300,79 @@ def settings():
 
 
 # ---------------------------------------------------------------------------
+# Управление пользователями (только для администраторов)
+# ---------------------------------------------------------------------------
+@app.route('/users')
+@admin_required
+def users_list():
+    users = User.query.order_by(User.created_at).all()
+    return render_template('users.html', users=users)
+
+
+@app.route('/users/create', methods=['POST'])
+@admin_required
+def users_create():
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    role = request.form.get('role', 'user')
+    if role not in ('admin', 'user'):
+        role = 'user'
+    error = None
+    if not username:
+        error = 'Укажите логин.'
+    elif len(password) < 4:
+        error = 'Пароль должен содержать не менее 4 символов.'
+    elif User.query.filter_by(username=username).first():
+        error = f'Пользователь «{username}» уже существует.'
+    if error:
+        users = User.query.order_by(User.created_at).all()
+        return render_template('users.html', users=users, error=error)
+    new_user = User(
+        username=username,
+        password_hash=_hash_password(password),
+        role=role,
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/<int:user_id>/delete', methods=['POST'])
+@admin_required
+def users_delete(user_id):
+    user = db.session.get(User, user_id)
+    if user and user.id != current_user.id:
+        db.session.delete(user)
+        db.session.commit()
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/<int:user_id>/set-password', methods=['POST'])
+@admin_required
+def users_set_password(user_id):
+    user = db.session.get(User, user_id)
+    password = request.form.get('password', '').strip()
+    if user and len(password) >= 4:
+        user.password_hash = _hash_password(password)
+        db.session.commit()
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/<int:user_id>/set-role', methods=['POST'])
+@admin_required
+def users_set_role(user_id):
+    user = db.session.get(User, user_id)
+    role = request.form.get('role', 'user')
+    if role not in ('admin', 'user'):
+        role = 'user'
+    # Нельзя понизить самого себя
+    if user and user.id != current_user.id:
+        user.role = role
+        db.session.commit()
+    return redirect(url_for('users_list'))
+
+
+# ---------------------------------------------------------------------------
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
 def init_db():
@@ -1296,11 +1389,28 @@ def init_db():
                 _conn.commit()
         except Exception:
             pass
+        # Миграция: добавляем колонку role если отсутствует
+        try:
+            from sqlalchemy import text as _text2
+            with db.engine.connect() as _conn2:
+                _conn2.execute(_text2(
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                    "role VARCHAR(20) NOT NULL DEFAULT 'user'"
+                ))
+                # Первый созданный пользователь (наименьший id) — всегда admin
+                _conn2.execute(_text2(
+                    "UPDATE users SET role = 'admin' "
+                    "WHERE id = (SELECT MIN(id) FROM users)"
+                ))
+                _conn2.commit()
+        except Exception:
+            pass
         # Создаём admin, если пользователей нет
         if not User.query.first():
             admin = User(
                 username='admin',
                 password_hash=_hash_password('admin123'),
+                role='admin',
             )
             db.session.add(admin)
             db.session.commit()

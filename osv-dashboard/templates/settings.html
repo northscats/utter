@@ -102,8 +102,16 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </div>
     <div class="hd-spacer"></div>
     <div class="hd-user">
-      <span>Пользователь: <strong>{{ current_user.username }}</strong></span>
+      <span>{{ current_user.username }}{% if current_user.is_admin %} <span style="font-size:11px;background:#253545;color:#7fb3d0;border-radius:4px;padding:1px 6px;margin-left:4px">admin</span>{% endif %}</span>
       <a class="hd-btn" href="/">← Главная</a>
+      {% if current_user.is_admin %}
+      <a class="hd-btn" href="/users">
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8a8 8 0 0 1 14.32-4.906A2 2 0 0 0 16 14H4a2 2 0 0 0-2 2v2zm14-4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+        </svg>
+        Пользователи
+      </a>
+      {% endif %}
       <a class="hd-btn active" href="/settings">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
