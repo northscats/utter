@@ -392,9 +392,10 @@ def company_detail(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
+    year = request.args.get('year', None, type=int)
     return render_template('company.html', company=company, uploads=uploads,
                            audit=None, error=None, discrepancy=[],
-                           daily_stats=_daily_stats(company_id))
+                           annual_coverage=_annual_coverage(company_id, year))
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +412,7 @@ def company_upload_all(company_id):
                           .order_by(Upload.uploaded_at.desc()).all()
         return render_template('company.html', company=company, uploads=ups,
                                audit=audit, error=msg, discrepancy=[],
-                               daily_stats=_daily_stats(company_id))
+                               annual_coverage=_annual_coverage(company_id))
 
     if not all_files:
         return _err('Файлы не выбраны.')
@@ -551,7 +552,7 @@ def company_upload_all(company_id):
     return render_template('company.html', company=company, uploads=uploads,
                            audit=audit_out, error=None,
                            discrepancy=discrepancy,
-                           daily_stats=_daily_stats(company_id))
+                           annual_coverage=_annual_coverage(company_id))
 
 
 # ---------------------------------------------------------------------------
@@ -683,10 +684,9 @@ def company_upload_zip(company_id):
     def _back(error=None, audit=None):
         uploads = Upload.query.filter_by(company_id=company_id)\
                               .order_by(Upload.uploaded_at.desc()).all()
-        daily_stats = _daily_stats(company_id)
         return render_template('company.html', company=company, uploads=uploads,
                                audit=audit, error=error, discrepancy=[],
-                               daily_stats=daily_stats)
+                               annual_coverage=_annual_coverage(company_id))
 
     if not zfile or not zfile.filename:
         return _back(error='Файл не выбран.')
@@ -775,64 +775,132 @@ def company_upload_zip(company_id):
 
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
-    daily_stats = _daily_stats(company_id)
     return render_template('company.html', company=company, uploads=uploads,
                            audit=audit_out, error=None, discrepancy=[],
-                           daily_stats=daily_stats)
+                           annual_coverage=_annual_coverage(company_id))
 
 
-def _daily_stats(company_id):
-    """Статистика суточных данных + временна́я линейка для страницы компании."""
-    from datetime import date as _d, timedelta as _td
+def _annual_coverage(company_id, year=None):
+    """Годовая карта покрытия: месячные ОСВ (Upload) + суточные (DailyRow)."""
+    import calendar as _cal
+    import re as _re
+    from datetime import date as _d
+
     today = _d.today()
+    if year is None:
+        year = today.year
 
-    rows = DailyRow.query.filter_by(company_id=company_id).all()
-    dates_with_data = {r.date for r in rows}
-    accs = sorted({r.acc for r in rows})
+    # --- Все суточные строки ---
+    all_rows = DailyRow.query.filter_by(company_id=company_id).all()
+    all_dates = {r.date for r in all_rows}
+    year_dates = {d for d in all_dates if d.year == year}
+    data_start = min(all_dates) if all_dates else None
 
-    # Окно линейки: от первой даты с данными (или 1-го числа текущего месяца)
-    # до today+7, но не длиннее 60 дней назад
-    if dates_with_data:
-        start = min(dates_with_data)
-        min_start = today - _td(days=59)
-        if start < min_start:
-            start = min_start
-    else:
-        start = today.replace(day=1)
-    end = today + _td(days=7)
+    # --- Все загрузки ---
+    all_uploads = Upload.query.filter_by(company_id=company_id)\
+                              .order_by(Upload.uploaded_at.asc()).all()
 
-    timeline = []
-    d = start
-    while d <= end:
-        if d > today:
-            status = 'future'
-        elif d in dates_with_data:
-            status = 'ok'
+    # Привязка Upload к (year, month) через period_label или uploaded_at
+    RU_M = {'янв':1,'фев':2,'мар':3,'апр':4,'май':5,'июн':6,
+             'июл':7,'авг':8,'сен':9,'окт':10,'ноя':11,'дек':12}
+
+    def _upl_ym(u):
+        lbl = (u.period_label or '').lower()
+        hits = _re.findall(r'(янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)', lbl)
+        yr_hit = _re.search(r'\b(20\d{2})\b', lbl)
+        if hits:
+            mon = RU_M[hits[-1]]
+            yr = int(yr_hit.group(1)) if yr_hit else u.uploaded_at.year
+            return yr, mon
+        # DD.MM–DD.MM → берём последний MM
+        m2 = _re.search(r'\d+\.(\d+)[\s–\-]+\d+\.(\d+)', lbl)
+        if m2:
+            return u.uploaded_at.year, int(m2.group(2))
+        return u.uploaded_at.year, u.uploaded_at.month
+
+    # (year, month) → лучший Upload (с dashboard_file предпочтительнее)
+    upl_map = {}
+    for u in all_uploads:
+        key = _upl_ym(u)
+        if key not in upl_map or (u.dashboard_file and not upl_map[key].dashboard_file):
+            upl_map[key] = u
+
+    MON = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
+
+    months = []
+    for m in range(1, 13):
+        days_in_month = _cal.monthrange(year, m)[1]
+        first_wd = _d(year, m, 1).weekday()  # 0=Пн
+        upload = upl_map.get((year, m))
+
+        # Статус месячной ОСВ
+        month_start = _d(year, m, 1)
+        if month_start > today:
+            upl_status = 'future'
+        elif upload is None:
+            upl_status = 'no_upload'
+        elif upload.closure_status is True:
+            upl_status = 'closed_profit' if upload.profit_sign == 'profit' else (
+                         'closed_loss'   if upload.profit_sign == 'loss'   else 'closed')
+        elif upload.closure_status is False:
+            upl_status = 'open'
         else:
-            status = 'missing'
-        timeline.append(dict(
-            date=d.strftime('%d'),
-            label=d.strftime('%d.%m'),
-            status=status,
-            is_today=(d == today),
-            new_month=(d.day == 1),
-            mon_label=d.strftime('%b') if d.day == 1 else '',
+            upl_status = 'uploaded'
+
+        # Суточная сетка (None = пустая ячейка выравнивания)
+        days = [None] * first_wd
+        for dn in range(1, days_in_month + 1):
+            day = _d(year, m, dn)
+            if day > today:
+                st = 'future'
+            elif day in year_dates:
+                st = 'ok'
+            elif data_start and day >= data_start:
+                st = 'missing'
+            else:
+                st = 'nodata'
+            days.append(dict(day=dn, date=day.strftime('%d.%m'),
+                             status=st, is_today=(day == today)))
+
+        past  = [d for d in days if d and d['status'] != 'future']
+        ok    = [d for d in days if d and d['status'] == 'ok']
+        miss  = [d for d in days if d and d['status'] == 'missing']
+
+        months.append(dict(
+            num=m, name=MON[m - 1],
+            days=days,
+            upload=upload,
+            upl_status=upl_status,
+            ok_days=len(ok),
+            miss_days=len(miss),
+            past_days=len(past),
+            coverage_pct=int(len(ok) * 100 / len(past)) if past else 0,
         ))
-        d += _td(days=1)
 
-    if not dates_with_data:
-        return dict(has_data=False, date_from=None, date_to=None,
-                    days=0, accs=[], records=0, timeline=timeline)
+    # Навигация по годам
+    data_years = sorted(
+        {d.year for d in all_dates} |
+        {u.uploaded_at.year for u in all_uploads} |
+        {today.year}
+    )
+    prev_year = year - 1 if (year - 1) in data_years else None
+    next_year = year + 1 if (year + 1) in data_years else None
 
-    dates_sorted = sorted(dates_with_data)
+    total_ok   = sum(m['ok_days']   for m in months)
+    total_past = sum(m['past_days'] for m in months)
+    year_accs  = sorted({r.acc for r in all_rows if r.date.year == year})
+
     return dict(
-        has_data=True,
-        date_from=dates_sorted[0].strftime('%d.%m.%Y'),
-        date_to=dates_sorted[-1].strftime('%d.%m.%Y'),
-        days=len(dates_with_data),
-        accs=accs,
-        records=len(rows),
-        timeline=timeline,
+        year=year,
+        months=months,
+        prev_year=prev_year,
+        next_year=next_year,
+        data_years=data_years,
+        total_ok=total_ok,
+        total_past=total_past,
+        coverage_pct=int(total_ok * 100 / total_past) if total_past else 0,
+        accs=year_accs,
+        has_any=bool(all_dates or all_uploads),
     )
 
 

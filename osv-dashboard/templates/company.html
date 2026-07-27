@@ -81,22 +81,74 @@ tr:last-child td{border-bottom:0}
 .audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600} .audit-table td.st-warn{color:#7a5a00;font-weight:600}
 .empty-uploads{text-align:center;padding:32px;color:var(--mut)}
 .hint{font-size:12.5px;color:var(--mut);margin-top:10px}
-/* timeline */
-.tl-wrap{margin-bottom:6px}
-.tl-row{display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end}
-.tl-cell{width:26px;height:30px;border-radius:4px;display:flex;flex-direction:column;
-  align-items:center;justify-content:flex-end;padding-bottom:4px;position:relative;cursor:default}
-.tl-ok   {background:#2e7d4f;color:#fff}
-.tl-missing{background:#fbeae8;border:1px solid #e7b6b0;color:#bf3222}
-.tl-future {background:#f0f3f5;border:1px solid var(--line);color:#8fa3b1}
-.tl-cell.tl-today{outline:2px solid var(--ink);outline-offset:1px}
-.tl-day{font-size:9px;font-weight:700;line-height:1}
-.tl-mon{font-size:8px;font-weight:400;opacity:.7;line-height:1;margin-bottom:1px}
-.tl-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--mut);margin-top:8px;align-items:center}
-.tl-swatch{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:middle;margin-right:3px}
-.tl-swatch-ok{background:#2e7d4f}
-.tl-swatch-missing{background:#fbeae8;border:1px solid #e7b6b0}
-.tl-swatch-future{background:#f0f3f5;border:1px solid var(--line)}
+/* ── Annual Coverage Map ─────────────────────────────────────── */
+.ac-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;margin-bottom:20px}
+.ac-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.ac-title{font-size:13px;font-weight:700;color:#31424f;text-transform:uppercase;
+  letter-spacing:.07em;flex:1}
+.ac-year-nav{display:flex;align-items:center;gap:6px}
+.ac-year-btn{background:#f0f3f5;border:1px solid var(--line);border-radius:6px;
+  padding:3px 10px;font:600 12px 'Segoe UI',sans-serif;color:var(--ink);cursor:pointer;
+  text-decoration:none;transition:background .15s}
+.ac-year-btn:hover{background:#e2e8ec}
+.ac-year-cur{font:700 15px 'Segoe UI',sans-serif;color:var(--ink);padding:0 4px}
+.ac-summary{font-size:12px;color:var(--mut)}
+.ac-summary b{color:var(--ink)}
+/* month grid */
+.ac-months{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:720px){.ac-months{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:480px){.ac-months{grid-template-columns:repeat(2,1fr)}}
+.ac-month{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+/* month header = upload status bar */
+.ac-mon-hdr{padding:5px 8px;display:flex;align-items:center;justify-content:space-between;gap:4px}
+.ac-mon-name{font:700 12px 'Segoe UI',sans-serif}
+.ac-mon-badge{font-size:10px;font-weight:600;border-radius:3px;padding:1px 5px;white-space:nowrap}
+/* upload status colours */
+.ac-upl-closed_profit .ac-mon-hdr{background:#d4edda}
+.ac-upl-closed_profit .ac-mon-name{color:#1a5c30}
+.ac-upl-closed_profit .ac-mon-badge{background:#2e7d4f;color:#fff}
+.ac-upl-closed_loss   .ac-mon-hdr{background:#fde8d0}
+.ac-upl-closed_loss   .ac-mon-name{color:#7a3010}
+.ac-upl-closed_loss   .ac-mon-badge{background:#c96020;color:#fff}
+.ac-upl-closed       .ac-mon-hdr{background:#d6eaf8}
+.ac-upl-closed       .ac-mon-name{color:#1a4060}
+.ac-upl-closed       .ac-mon-badge{background:#1f7a9c;color:#fff}
+.ac-upl-open         .ac-mon-hdr{background:#fff9db}
+.ac-upl-open         .ac-mon-name{color:#6b4c00}
+.ac-upl-open         .ac-mon-badge{background:#d4a800;color:#fff}
+.ac-upl-uploaded     .ac-mon-hdr{background:#e8f4fb}
+.ac-upl-uploaded     .ac-mon-name{color:#1a4060}
+.ac-upl-uploaded     .ac-mon-badge{background:#5aa0c0;color:#fff}
+.ac-upl-no_upload    .ac-mon-hdr{background:#fbeae8}
+.ac-upl-no_upload    .ac-mon-name{color:#7c2018}
+.ac-upl-no_upload    .ac-mon-badge{background:#e7b6b0;color:#7c2018}
+.ac-upl-future       .ac-mon-hdr{background:#f0f3f5}
+.ac-upl-future       .ac-mon-name{color:#8fa3b1}
+.ac-upl-future       .ac-mon-badge{background:#d3dade;color:#6b7a86}
+/* daily mini-calendar */
+.ac-cal{padding:5px 6px 6px;display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.ac-wd-row{display:contents}
+.ac-wd{font-size:8px;color:#a0b0bc;text-align:center;padding-bottom:2px;font-weight:600}
+.ac-pad{width:100%;aspect-ratio:1}
+.ac-day{width:100%;aspect-ratio:1;border-radius:2px;cursor:default;position:relative}
+.ac-day:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 3px);
+  left:50%;transform:translateX(-50%);background:#1b2733;color:#fff;font-size:10px;
+  padding:2px 5px;border-radius:3px;white-space:nowrap;pointer-events:none;z-index:10}
+.ac-d-ok     {background:#2e7d4f}
+.ac-d-missing{background:#fbeae8;border:1px solid #e7b6b0}
+.ac-d-nodata {background:#f0f3f5}
+.ac-d-future {background:#eaecee}
+.ac-d-today  {outline:2px solid var(--ink);outline-offset:1px;z-index:1}
+/* coverage bar inside month footer */
+.ac-cov-bar{height:3px;background:#eaecee}
+.ac-cov-fill{height:3px;background:#2e7d4f;transition:width .3s}
+/* legend */
+.ac-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--mut);
+  margin-top:12px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.ac-sw{display:inline-block;width:11px;height:11px;border-radius:2px;
+  vertical-align:middle;margin-right:3px}
+.ac-legend-sep{width:1px;height:12px;background:var(--line);margin:0 4px}
 /* dashboard open button */
 .dash-open-bar{display:flex;align-items:center;gap:14px;background:#f0f6fb;
   border:1px solid #c5dff0;border-radius:10px;padding:14px 20px;margin-bottom:20px}
@@ -301,27 +353,85 @@ tr:last-child td{border-bottom:0}
     </div>
   </div>
 
-  <!-- Временна́я линейка суточных данных -->
-  <div class="card" style="padding:16px 24px">
-    <div class="tl-row">
-      {% for cell in daily_stats.timeline %}
-      <div class="tl-cell tl-{{ cell.status }}{% if cell.is_today %} tl-today{% endif %}"
-           title="{{ cell.label }}{% if cell.is_today %} — сегодня{% endif %}">
-        {% if cell.new_month %}<span class="tl-mon">{{ cell.mon_label }}</span>{% endif %}
-        <span class="tl-day">{{ cell.date }}</span>
+  {% set ac = annual_coverage %}
+  {% set UPL_LABELS = {
+    'closed_profit': 'Закрыт / прибыль',
+    'closed_loss':   'Закрыт / убыток',
+    'closed':        'Закрыт',
+    'open':          'Не закрыт',
+    'uploaded':      'Загружена ОСВ',
+    'no_upload':     'Нет ОСВ',
+    'future':        'Будущий'
+  } %}
+  <!-- Годовая карта покрытия -->
+  <div class="ac-card">
+    <div class="ac-header">
+      <div class="ac-title">Покрытие данными — {{ ac.year }}</div>
+      <div class="ac-year-nav">
+        {% if ac.prev_year %}
+        <a class="ac-year-btn" href="?year={{ ac.prev_year }}">← {{ ac.prev_year }}</a>
+        {% endif %}
+        <span class="ac-year-cur">{{ ac.year }}</span>
+        {% if ac.next_year %}
+        <a class="ac-year-btn" href="?year={{ ac.next_year }}">{{ ac.next_year }} →</a>
+        {% endif %}
+      </div>
+      {% if ac.has_any %}
+      <div class="ac-summary">
+        Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
+        ({{ ac.coverage_pct }}%)
+        {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="ac-months">
+      {% for mon in ac.months %}
+      {% set upl = mon.upload %}
+      <div class="ac-month ac-upl-{{ mon.upl_status }}">
+        <!-- Шапка месяца: статус периодической ОСВ -->
+        <div class="ac-mon-hdr"
+             title="{% if upl %}Загружена {{ upl.uploaded_at.strftime('%d.%m.%Y') }} · {{ upl.period_label }}{% else %}ОСВ за этот месяц не загружена{% endif %}">
+          <span class="ac-mon-name">{{ mon.name }}</span>
+          <span class="ac-mon-badge">{{ UPL_LABELS.get(mon.upl_status, '—') }}</span>
+        </div>
+        <!-- Суточная мини-сетка (Пн–Вс) -->
+        <div class="ac-cal">
+          <div class="ac-wd">Пн</div><div class="ac-wd">Вт</div><div class="ac-wd">Ср</div>
+          <div class="ac-wd">Чт</div><div class="ac-wd">Пт</div>
+          <div class="ac-wd" style="color:#c0a0a0">Сб</div>
+          <div class="ac-wd" style="color:#c0a0a0">Вс</div>
+          {% for cell in mon.days %}
+            {% if cell is none %}
+              <div class="ac-pad"></div>
+            {% else %}
+              <div class="ac-day ac-d-{{ cell.status }}{% if cell.is_today %} ac-d-today{% endif %}"
+                   data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <!-- Полоска покрытия -->
+        {% if mon.past_days > 0 %}
+        <div class="ac-cov-bar">
+          <div class="ac-cov-fill" style="width:{{ mon.coverage_pct }}%"></div>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
-    <div class="tl-legend">
-      <span><span class="tl-swatch tl-swatch-ok"></span>есть данные</span>
-      <span><span class="tl-swatch tl-swatch-missing"></span>пропущен</span>
-      <span><span class="tl-swatch tl-swatch-future"></span>будущее</span>
-      {% if daily_stats.has_data %}
-      <span style="margin-left:4px">
-        <b>{{ daily_stats.days }}</b> дн. · {{ daily_stats.date_from }} – {{ daily_stats.date_to }}
-        · счета: {{ daily_stats.accs|join(', ') }}
-      </span>
-      {% endif %}
+
+    <!-- Легенда -->
+    <div class="ac-legend">
+      <span><span class="ac-sw" style="background:#d4edda;border:1px solid #2e7d4f"></span>Закрыт / прибыль</span>
+      <span><span class="ac-sw" style="background:#fde8d0;border:1px solid #c96020"></span>Закрыт / убыток</span>
+      <span><span class="ac-sw" style="background:#fff9db;border:1px solid #d4a800"></span>Не закрыт</span>
+      <span><span class="ac-sw" style="background:#e8f4fb;border:1px solid #5aa0c0"></span>Загружена ОСВ</span>
+      <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>Нет ОСВ</span>
+      <div class="ac-legend-sep"></div>
+      <span><span class="ac-sw" style="background:#2e7d4f"></span>суточные есть</span>
+      <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>суточные пропущены</span>
+      <span><span class="ac-sw" style="background:#f0f3f5;border:1px solid var(--line)"></span>до начала данных</span>
     </div>
   </div>
 
