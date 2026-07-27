@@ -314,7 +314,6 @@ tr:last-child td{border-bottom:0}
     <!-- Кнопка дашборда -->
     {% if current_dash %}
     <div class="ab-dash-seg">
-      <span class="ab-dash-meta">{{ current_dash.period_label or '—' }}</span>
       <a class="ab-btn ab-btn-dash"
          href="/dashboard/{{ company.id }}/dashboard_current.html"
          title="Обновлён {{ current_dash.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">
