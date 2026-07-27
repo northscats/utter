@@ -109,6 +109,33 @@ tr:last-child td{border-bottom:0}
 .btn-open-dash-empty{background:#e9edf0;color:var(--mut);border:1px dashed var(--line);
   border-radius:8px;padding:10px 20px;font:600 13px 'Segoe UI',sans-serif;cursor:default;
   white-space:nowrap}
+/* compact action bar */
+.action-bar{display:flex;align-items:center;gap:0;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;padding:10px 16px;
+  margin-bottom:20px;flex-wrap:wrap;gap:8px}
+.ab-rename-form,.ab-upload-form{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.ab-rename-form{flex:1;min-width:240px}
+.ab-upload-form{flex-shrink:0}
+.ab-label{font-size:12px;font-weight:600;color:#31424f;white-space:nowrap}
+.ab-input{flex:1;min-width:160px;max-width:340px;padding:5px 9px;border:1px solid var(--line);
+  border-radius:6px;font:14px 'Segoe UI',sans-serif;color:var(--ink);outline:none;background:#fafbfc}
+.ab-input:focus{border-color:#7fb3d0;background:#fff}
+.ab-btn{display:inline-flex;align-items:center;gap:5px;border-radius:6px;padding:5px 10px;
+  font:600 12px 'Segoe UI',sans-serif;cursor:pointer;white-space:nowrap;border:1px solid var(--line);
+  background:#f0f3f5;color:var(--ink);transition:background .15s;text-decoration:none}
+.ab-btn:hover{background:#e2e8ec}
+.ab-btn:disabled{opacity:.45;cursor:default}
+.ab-btn-del{background:#fbeae8;color:var(--bad);border-color:#f0c8c3;padding:5px 8px}
+.ab-btn-del:hover{background:#f5d6d2}
+.ab-btn-pick{background:#1f7a9c;color:#fff;border-color:#186a87;cursor:pointer}
+.ab-btn-pick:hover{background:#186a87}
+.ab-btn-go{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ab-btn-go:hover:not(:disabled){background:#253545}
+.ab-flist{font-size:11px;color:var(--mut);max-width:140px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.ab-sep{width:1px;background:var(--line);height:28px;margin:0 8px;flex-shrink:0}
+@media(max-width:640px){.ab-sep{display:none}.ab-upload-form{border-top:1px solid var(--line);
+  padding-top:8px;width:100%}}
 </style>
 </head>
 <body>
@@ -191,29 +218,50 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Переименование предприятия -->
-  <div class="card" style="padding:16px 24px">
+  <!-- Компактная панель: имя + загрузка -->
+  <div class="action-bar">
+
+    <!-- Имя предприятия -->
     <form method="post" action="/company/{{ company.id }}/rename"
-          style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <label style="font-size:13px;font-weight:600;color:#31424f;white-space:nowrap">
-        Наименование:
-      </label>
-      <input type="text" name="name" value="{{ company.name }}"
-             style="flex:1;min-width:220px;padding:7px 11px;border:1px solid var(--line);
-                    border-radius:7px;font:15px 'Segoe UI',sans-serif;color:var(--ink);outline:none">
-      <button type="submit"
-              style="background:#f0f3f5;color:var(--ink);border:1px solid var(--line);
-                     border-radius:7px;padding:7px 13px;font:600 12px 'Segoe UI',sans-serif;
-                     cursor:pointer;white-space:nowrap">
-        Переименовать
+          class="ab-rename-form">
+      <span class="ab-label">Наименование:</span>
+      <input type="text" name="name" value="{{ company.name }}" class="ab-input">
+      <button type="submit" class="ab-btn" title="Переименовать">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17h3.75L17 6.75a2.652 2.652 0 0 0-3.75-3.75L3 13.25V17z"/><path d="M13.25 3 17 6.75"/>
+        </svg>
+        Сохранить
       </button>
-      <button type="button" onclick="openDeleteModal()"
-              style="background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3;
-                     border-radius:7px;padding:7px 13px;font:600 12px 'Segoe UI',sans-serif;
-                     cursor:pointer;white-space:nowrap">
-        Удалить предприятие
+      <button type="button" onclick="openDeleteModal()" class="ab-btn ab-btn-del" title="Удалить предприятие">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 17 6"/><path d="M8 6V4h4v2"/><path d="M7 6l1 11h4l1-11"/>
+        </svg>
       </button>
     </form>
+
+    <!-- Разделитель -->
+    <div class="ab-sep"></div>
+
+    <!-- Загрузка файлов -->
+    <form method="post" action="/company/{{ company.id }}/upload-all"
+          enctype="multipart/form-data" id="frm" class="ab-upload-form">
+      <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
+        </svg>
+        Выбрать…
+      </label>
+      <input type="file" name="files" id="files-input" multiple
+             accept=".xls,.xlsx,.zip" style="display:none">
+      <span id="flist" class="ab-flist">не выбраны</span>
+      <button class="ab-btn ab-btn-go" id="go" type="submit" disabled title="Загрузить выбранные файлы">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/>
+        </svg>
+        Загрузить
+      </button>
+    </form>
+
   </div>
 
   <!-- Модальное окно подтверждения удаления -->
@@ -300,28 +348,6 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Загрузка файлов -->
-  <div class="card">
-    <h3>Загрузить файлы</h3>
-    <form method="post" action="/company/{{ company.id }}/upload-all"
-          enctype="multipart/form-data" id="frm">
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-        <label for="files-input" class="btn btn-primary" style="cursor:pointer;margin:0">
-          Выбрать файлы…
-        </label>
-        <span id="flist" style="font-size:13px;color:var(--mut)">Файлы не выбраны</span>
-        <input type="file" name="files" id="files-input" multiple
-               accept=".xls,.xlsx,.zip" style="display:none">
-        <button class="btn btn-submit" id="go" type="submit" disabled
-                style="margin:0">Загрузить</button>
-      </div>
-      <div class="hint" style="margin-top:10px">
-        Принимаются файлы <b>.xls</b> и <b>.xlsx</b> (ОСВ за период) и <b>.zip</b> (суточные архивы).
-        Можно выбрать несколько файлов любых типов сразу.
-      </div>
-    </form>
-  </div>
-
   <!-- История загрузок -->
   <div class="card">
     <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
@@ -382,11 +408,12 @@ inp.addEventListener('change',function(){
   const fs=[...inp.files];
   if(!fs.length){list.textContent='Файлы не выбраны';go.disabled=true;return;}
   const names=fs.map(f=>f.name);
-  list.textContent='Выбрано: '+fs.length+' — '+names.join(', ');
+  list.textContent=fs.length+' файл'+
+    (fs.length===1?'':fs.length<5?'а':'ов')+': '+names.join(', ');
   go.disabled=false;
 });
 document.getElementById('frm').addEventListener('submit',function(){
-  go.disabled=true;go.textContent='Загружаю…';
+  go.disabled=true;go.innerHTML='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8" stroke-dasharray="50" stroke-dashoffset="25"/></svg> Загружаю…';
 });
 
 // --- Модалка удаления ---
