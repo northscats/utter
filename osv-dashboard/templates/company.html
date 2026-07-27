@@ -135,10 +135,11 @@ tr:last-child td{border-bottom:0}
 .ac-day:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 3px);
   left:50%;transform:translateX(-50%);background:#1b2733;color:#fff;font-size:10px;
   padding:2px 5px;border-radius:3px;white-space:nowrap;pointer-events:none;z-index:10}
-.ac-d-ok     {background:#2e7d4f}
-.ac-d-missing{background:#fbeae8;border:1px solid #e7b6b0}
-.ac-d-nodata {background:#f0f3f5}
-.ac-d-future {background:#eaecee}
+.ac-d-ok      {background:#2e7d4f}
+.ac-d-monthly {background:#cfe2f3;border:1px solid #7bafd4}
+.ac-d-missing {background:#fbeae8;border:1px solid #e7b6b0}
+.ac-d-nodata  {background:#f0f3f5}
+.ac-d-future  {background:#eaecee}
 .ac-d-today  {outline:2px solid var(--ink);outline-offset:1px;z-index:1}
 /* coverage bar inside month footer */
 .ac-cov-bar{height:3px;background:#eaecee}
@@ -407,9 +408,15 @@ tr:last-child td{border-bottom:0}
       </div>
       {% if ac.has_any %}
       <div class="ac-summary">
-        Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
-        ({{ ac.coverage_pct }}%)
-        {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
+        {% if ac.total_months_past > 0 %}
+          Месяцев: <b>{{ ac.total_months_ok }}</b>/{{ ac.total_months_past }}
+          ({{ ac.months_coverage_pct }}%)
+        {% endif %}
+        {% if ac.has_daily %}
+          &nbsp;·&nbsp; Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
+          ({{ ac.coverage_pct }}%)
+          {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
+        {% endif %}
       </div>
       {% endif %}
     </div>
@@ -436,7 +443,7 @@ tr:last-child td{border-bottom:0}
               <div class="ac-pad"></div>
             {% else %}
               <div class="ac-day ac-d-{{ cell.status }}{% if cell.is_today %} ac-d-today{% endif %}"
-                   data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
+                   data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'monthly' %} месячная ОСВ{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
               </div>
             {% endif %}
           {% endfor %}
@@ -461,6 +468,7 @@ tr:last-child td{border-bottom:0}
       <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>Нет ОСВ</span>
       <div class="ac-legend-sep"></div>
       <span><span class="ac-sw" style="background:#2e7d4f"></span>суточные есть</span>
+      <span><span class="ac-sw" style="background:#cfe2f3;border:1px solid #7bafd4"></span>только месячная ОСВ</span>
       <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>суточные пропущены</span>
       <span><span class="ac-sw" style="background:#f0f3f5;border:1px solid var(--line)"></span>до начала данных</span>
     </div>

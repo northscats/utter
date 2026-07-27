@@ -1491,17 +1491,23 @@ def _annual_coverage(company_id, year=None):
             if day > today:
                 st = 'future'
             elif day in year_dates:
-                st = 'ok'
+                st = 'ok'         # есть суточные данные
+            elif upload is not None:
+                st = 'monthly'    # месяц загружен, но суточной детализации нет
             elif data_start and day >= data_start:
-                st = 'missing'
+                st = 'missing'    # пропуск в суточном ряду
             else:
-                st = 'nodata'
+                st = 'nodata'     # до начала каких-либо данных
             days.append(dict(day=dn, date=day.strftime('%d.%m'),
                              status=st, is_today=(day == today)))
 
         past  = [d for d in days if d and d['status'] != 'future']
         ok    = [d for d in days if d and d['status'] == 'ok']
         miss  = [d for d in days if d and d['status'] == 'missing']
+
+        month_start_d = _d(year, m, 1)
+        months_past_1 = 1 if month_start_d <= today else 0
+        months_ok_1   = 1 if (upload is not None and month_start_d <= today) else 0
 
         months.append(dict(
             num=m, name=MON[m - 1],
@@ -1512,6 +1518,8 @@ def _annual_coverage(company_id, year=None):
             miss_days=len(miss),
             past_days=len(past),
             coverage_pct=int(len(ok) * 100 / len(past)) if past else 0,
+            months_past=months_past_1,
+            months_ok=months_ok_1,
         ))
 
     # Навигация по годам
@@ -1523,8 +1531,10 @@ def _annual_coverage(company_id, year=None):
     prev_year = year - 1 if (year - 1) in data_years else None
     next_year = year + 1 if (year + 1) in data_years else None
 
-    total_ok   = sum(m['ok_days']   for m in months)
-    total_past = sum(m['past_days'] for m in months)
+    total_ok          = sum(m['ok_days']    for m in months)
+    total_past        = sum(m['past_days']  for m in months)
+    total_months_ok   = sum(m['months_ok']  for m in months)
+    total_months_past = sum(m['months_past'] for m in months)
     year_accs  = sorted({r.acc for r in all_rows if r.date.year == year})
 
     return dict(
@@ -1536,6 +1546,11 @@ def _annual_coverage(company_id, year=None):
         total_ok=total_ok,
         total_past=total_past,
         coverage_pct=int(total_ok * 100 / total_past) if total_past else 0,
+        total_months_ok=total_months_ok,
+        total_months_past=total_months_past,
+        months_coverage_pct=int(total_months_ok * 100 / total_months_past)
+                            if total_months_past else 0,
+        has_daily=bool(all_dates),
         accs=year_accs,
         has_any=bool(all_dates or all_uploads),
     )
