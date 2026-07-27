@@ -1,2 +1,3 @@
 - [Daily ZIP pipeline](daily-zip-pipeline.md) — суточные ZIP → DailyRow в БД, дашборд пересобирается слиянием месячных XLS + суточных записей
 - [Flask + PG startup race](flask-pg-startup.md) — PostgreSQL иногда поднимается позже Flask; init_db() нужен retry-цикл, иначе workflow = NOT_STARTED
+- [AI provider integration](ai-provider.md) — AiProvider + AiSummary в БД; ai_client.py на urllib без SDK; vLLM требует chat_template_kwargs в корне тела

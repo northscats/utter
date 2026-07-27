@@ -118,6 +118,35 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
 
 
+class AiProvider(db.Model):
+    """Настройки LLM-провайдера (OpenAI-совместимый API)."""
+    __tablename__ = 'ai_providers'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    name       = db.Column(db.String(100), nullable=False)
+    base_url   = db.Column(db.String(500), default='')
+    api_key    = db.Column(db.Text, default='')   # хранится зашифрованным (enc:…)
+    model      = db.Column(db.String(200), default='')
+    is_active  = db.Column(db.Boolean, nullable=False, default=True)
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class AiSummary(db.Model):
+    """Кэш последнего ИИ-заключения по предприятию (один на предприятие, перезаписывается)."""
+    __tablename__ = 'ai_summaries'
+
+    id                = db.Column(db.Integer, primary_key=True)
+    company_id        = db.Column(db.Integer, db.ForeignKey('companies.id'),
+                                  nullable=False, unique=True)
+    content           = db.Column(db.Text, default='')
+    provider_name     = db.Column(db.String(100), default='')
+    model_name        = db.Column(db.String(200), default='')
+    prompt_tokens     = db.Column(db.Integer, default=0)
+    completion_tokens = db.Column(db.Integer, default=0)
+    generated_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
 class DailyRow(db.Model):
     """Суточные данные из ZIP-архивов: один счёт, один день."""
     __tablename__ = 'daily_rows'

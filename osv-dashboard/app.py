@@ -2,7 +2,7 @@
 """ОСВ Дашборд — веб-приложение с PostgreSQL, авторизацией и мультипредприятием."""
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 import time
 import traceback
@@ -22,7 +22,8 @@ from jobs import create_job, get_job, finish_job, fail_job
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import AuditLog, Company, DailyRow, EmailRule, Setting, Upload, User, db
+from database import (AiProvider, AiSummary, AuditLog, Company, DailyRow,
+                       EmailRule, Setting, Upload, User, db)
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 
@@ -1060,9 +1061,13 @@ def company_detail(company_id):
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
     year = request.args.get('year', None, type=int)
+    ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
+    ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
     return render_template('company.html', company=company, uploads=uploads,
                            audit=None, error=None, discrepancy=[],
-                           annual_coverage=_annual_coverage(company_id, year))
+                           annual_coverage=_annual_coverage(company_id, year),
+                           ai_summary=ai_summary,
+                           ai_provider_configured=ai_provider_configured)
 
 
 @app.route('/company/<int:company_id>/job/<job_id>')
@@ -1076,6 +1081,134 @@ def job_status(company_id, job_id):
         status=job['status'],
         error=job.get('error'),
         result=job.get('result'),
+    )
+
+
+@app.route('/company/<int:company_id>/ai-summary', methods=['POST'])
+@login_required
+def company_ai_summary(company_id):
+    """Формирует ИИ-заключение по финансовым данным предприятия."""
+    from ai_client import call_ai_provider as _call_ai
+    company = db.session.get(Company, company_id) or abort(404)
+
+    # Выбираем провайдера: явно помеченный default → иначе первый активный
+    provider = (AiProvider.query.filter_by(is_default=True, is_active=True).first()
+                or AiProvider.query.filter_by(is_active=True).first())
+    if not provider or not provider.base_url or not provider.model:
+        return jsonify(ok=False, error='ИИ-провайдер не настроен'), 400
+
+    api_key = decrypt_value(provider.api_key) if provider.api_key else ''
+
+    # ── Сбор данных ──────────────────────────────────────────────────────────
+    uploads = Upload.query.filter_by(company_id=company_id)\
+                          .order_by(Upload.uploaded_at.desc()).all()
+    latest = uploads[0] if uploads else None
+
+    # Последнее сальдо по ключевым счетам (из DailyRow)
+    key_accs = {'51': 'Сч.51 Расчётный счёт',
+                '62': 'Сч.62 Дебиторы (потребители)',
+                '60': 'Сч.60 Кредиторы (поставщики)',
+                '70': 'Сч.70 Расчёты с персоналом'}
+    daily_facts = {}
+    for acc in key_accs:
+        row = (DailyRow.query
+               .filter_by(company_id=company_id, acc=acc)
+               .order_by(DailyRow.date.desc())
+               .first())
+        if row:
+            daily_facts[acc] = {'date': row.date.strftime('%d.%m.%Y'),
+                                'skd': row.skd, 'skk': row.skk}
+
+    cov = _annual_coverage(company_id)
+
+    # ── Формирование промпта ─────────────────────────────────────────────────
+    lines = [f'Организация: {company.name}']
+
+    if latest:
+        lines.append(f'Период ОСВ: {latest.period_label or "не указан"}')
+        cl = ('закрыт' if latest.closure_status is True
+              else ('не закрыт' if latest.closure_status is False else 'неизвестно'))
+        lines.append(f'Статус закрытия периода: {cl}')
+        fin_map = {'profit': 'прибыль', 'loss': 'убыток', 'neutral': 'нейтральный'}
+        lines.append(f'Финансовый результат: {fin_map.get(latest.profit_sign, "—")}')
+        if latest.profit_value:
+            v = f'{latest.profit_value:,.2f}'.replace(',', ' ')
+            lines.append(f'Сумма финансового результата: {v} руб.')
+        accs = latest.accounts_list
+        if accs:
+            lines.append(f'Загруженные счета ОСВ: {", ".join(accs)}')
+
+    lines.append(f'Покрытие данными: {cov["total_months_ok"]}/{cov["total_months_past"]} '
+                 f'мес. ({cov["months_coverage_pct"]}%)')
+
+    if daily_facts:
+        lines.append('\nОстатки по ключевым счетам (суточные данные, последняя дата):')
+        for acc, info in daily_facts.items():
+            saldo = info['skd'] - info['skk']
+            v = f'{saldo:,.2f}'.replace(',', ' ')
+            lines.append(f'  {key_accs[acc]} на {info["date"]}: сальдо {v} руб.')
+
+    if len(uploads) > 1:
+        lines.append(f'\nВсего пакетов загрузок: {len(uploads)}')
+
+    system_msg = (
+        'Ты финансовый аналитик, специализирующийся на анализе данных '
+        'оборотно-сальдовых ведомостей (ОСВ) организаций жилищно-коммунального '
+        'хозяйства России. Дай краткое профессиональное заключение (3–5 абзацев) '
+        'по предоставленным данным. Укажи ключевые риски и сильные стороны. '
+        'Отвечай строго на русском языке.'
+    )
+    user_msg = '\n'.join(lines)
+
+    # ── Вызов ИИ ─────────────────────────────────────────────────────────────
+    try:
+        result = _call_ai(
+            base_url=provider.base_url,
+            api_key=api_key,
+            model=provider.model,
+            messages=[
+                {'role': 'system', 'content': system_msg},
+                {'role': 'user',   'content': user_msg},
+            ],
+            temperature=0.3,
+            max_tokens=1500,
+            enable_thinking=False,
+            timeout=90,
+        )
+    except Exception as e:
+        app.logger.error('AI summary error for company %s: %s', company_id, e)
+        return jsonify(ok=False, error=str(e)), 502
+
+    content = result['content']
+    usage   = result['usage']
+
+    # ── Сохранение (upsert) ───────────────────────────────────────────────────
+    summary = AiSummary.query.filter_by(company_id=company_id).first()
+    if summary is None:
+        summary = AiSummary(company_id=company_id)
+        db.session.add(summary)
+    summary.content           = content
+    summary.provider_name     = provider.name
+    summary.model_name        = provider.model
+    summary.prompt_tokens     = usage.get('prompt_tokens', 0)
+    summary.completion_tokens = usage.get('completion_tokens', 0)
+    summary.generated_at      = datetime.now(timezone.utc)
+    db.session.commit()
+
+    log_event('ai_summary_generated', {
+        'company_id': company_id,
+        'tokens': usage.get('prompt_tokens', 0) + usage.get('completion_tokens', 0),
+    })
+
+    return jsonify(
+        ok=True,
+        content=content,
+        meta=dict(
+            provider=provider.name,
+            model=provider.model,
+            tokens=usage.get('prompt_tokens', 0) + usage.get('completion_tokens', 0),
+            generated_at=summary.generated_at.strftime('%d.%m.%Y %H:%M'),
+        ),
     )
 
 
@@ -1666,6 +1799,32 @@ def settings_sync_imap():
     return jsonify(**result)
 
 
+@app.route('/settings/test-ai', methods=['POST'])
+@admin_required
+def settings_test_ai():
+    """Проверка подключения к AI-провайдеру (AJAX)."""
+    from ai_client import call_ai_provider as _call_ai
+    base_url  = request.form.get('base_url', '').strip()
+    api_key   = request.form.get('api_key', '').strip()
+    model     = request.form.get('model', '').strip()
+
+    if not base_url or not model:
+        return jsonify(ok=False, msg='Укажите Base URL и модель')
+    try:
+        result = _call_ai(
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+            messages=[{'role': 'user', 'content': 'Ответь одним словом: OK'}],
+            max_tokens=16,
+            timeout=20,
+        )
+        answer = result['content'][:120] or '(пустой ответ)'
+        return jsonify(ok=True, msg=f'Подключение успешно. Ответ модели: {answer}')
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
 @app.route('/settings', methods=['GET', 'POST'])
 @admin_required
 def settings():
@@ -1704,6 +1863,46 @@ def settings():
                 db.session.delete(rule)
                 db.session.commit()
 
+        elif action == 'add_ai_provider':
+            ai_name    = request.form.get('ai_name', '').strip()
+            ai_url     = request.form.get('ai_base_url', '').strip()
+            ai_key_raw = request.form.get('ai_api_key', '').strip()
+            ai_model   = request.form.get('ai_model', '').strip()
+            ai_active  = request.form.get('ai_is_active') == '1'
+            ai_default = request.form.get('ai_is_default') == '1'
+            if ai_name and ai_url and ai_model:
+                if ai_default:
+                    AiProvider.query.update({'is_default': False})
+                prov = AiProvider(
+                    name=ai_name,
+                    base_url=ai_url,
+                    api_key=encrypt_value(ai_key_raw) if ai_key_raw else '',
+                    model=ai_model,
+                    is_active=ai_active,
+                    is_default=ai_default,
+                )
+                db.session.add(prov)
+                db.session.commit()
+                log_event('ai_provider_added', {'name': ai_name})
+
+        elif action == 'delete_ai_provider':
+            provider_id = request.form.get('provider_id', type=int)
+            prov = db.session.get(AiProvider, provider_id)
+            if prov:
+                pname = prov.name
+                db.session.delete(prov)
+                db.session.commit()
+                log_event('ai_provider_deleted', {'name': pname})
+
+        elif action == 'set_default_ai_provider':
+            provider_id = request.form.get('provider_id', type=int)
+            AiProvider.query.update({'is_default': False})
+            prov = db.session.get(AiProvider, provider_id)
+            if prov:
+                prov.is_default = True
+                db.session.commit()
+                log_event('ai_provider_set_default', {'name': prov.name})
+
         return redirect(url_for('settings'))
 
     imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
@@ -1711,11 +1910,13 @@ def settings():
     if imap_cfg.get('imap_password'):
         imap_cfg['imap_password'] = decrypt_value(imap_cfg['imap_password'])
     rules = EmailRule.query.order_by(EmailRule.id).all()
+    ai_providers = AiProvider.query.order_by(AiProvider.created_at).all()
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
                            imap_cfg=imap_cfg,
                            rules=rules,
-                           companies=companies)
+                           companies=companies,
+                           ai_providers=ai_providers)
 
 
 # ---------------------------------------------------------------------------

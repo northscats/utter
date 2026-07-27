@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>{{ company.name }} — ГИС УЗТЭР. Модуль: Анализ ФХД РСО</title>
 <style>
 :root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
@@ -77,6 +78,27 @@ tr:last-child td{border-bottom:0}
 .btn-dash:hover{background:#e2e8ec}
 .err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;
   padding:12px 16px;margin-bottom:18px}
+/* ─── Блок ИИ-заключения ─── */
+.ai-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:22px 24px;margin-bottom:20px}
+.ai-card-hdr{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.ai-card-title{font-size:14px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.07em;color:#31424f;flex:1}
+.ai-not-cfg{font-size:13px;color:var(--mut)}
+.ai-btn{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:8px;
+  padding:9px 20px;font:600 13px 'Segoe UI',sans-serif;cursor:pointer;
+  background:var(--water);color:#fff;transition:background .15s;white-space:nowrap}
+.ai-btn:hover{background:#186a87}
+.ai-btn:disabled{opacity:.5;cursor:default}
+.ai-content{margin-top:16px;padding:16px 18px;background:#f7f9fa;border-radius:8px;
+  border:1px solid var(--line);font-size:14px;line-height:1.75;white-space:pre-wrap;
+  color:var(--ink)}
+.ai-meta{margin-top:8px;font-size:12px;color:var(--mut)}
+.ai-err-msg{margin-top:12px;background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;
+  border-radius:7px;padding:10px 14px;font-size:13px}
+.ai-spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.35);
+  border-top-color:#fff;border-radius:50%;animation:aispin .6s linear infinite}
+@keyframes aispin{to{transform:rotate(360deg)}}
 .audit-card{margin-top:18px}
 .audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600} .audit-table td.st-warn{color:#7a5a00;font-weight:600}
 .empty-uploads{text-align:center;padding:32px;color:var(--mut)}
@@ -474,6 +496,43 @@ tr:last-child td{border-bottom:0}
     </div>
   </div>
 
+  <!-- ─── Заключение ИИ ─── -->
+  {% set _ai_ok  = ai_provider_configured | default(false) %}
+  {% set _ai_sum = ai_summary | default(none) %}
+  <div class="ai-card">
+    <div class="ai-card-hdr">
+      <span class="ai-card-title">Заключение ИИ</span>
+      {% if not _ai_ok %}
+        <span class="ai-not-cfg">ИИ-провайдер не настроен &mdash;</span>
+        <a href="/settings" style="font-size:13px;color:var(--water);text-decoration:none">
+          настроить →
+        </a>
+      {% else %}
+        <button class="ai-btn" id="ai-btn" onclick="requestAiSummary()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+          </svg>
+          {% if _ai_sum %}Обновить заключение{% else %}Сформировать заключение{% endif %}
+        </button>
+      {% endif %}
+    </div>
+
+    {% if _ai_sum %}
+    <div class="ai-content" id="ai-content">{{ _ai_sum.content }}</div>
+    <div class="ai-meta" id="ai-meta">
+      Сформировано: {{ _ai_sum.generated_at.strftime('%d.%m.%Y %H:%M') }} &middot;
+      {{ _ai_sum.provider_name }} &middot; {{ _ai_sum.model_name }} &middot;
+      {{ _ai_sum.prompt_tokens + _ai_sum.completion_tokens }} токенов
+    </div>
+    {% else %}
+    <div class="ai-content" id="ai-content" style="display:none"></div>
+    <div class="ai-meta"    id="ai-meta"    style="display:none"></div>
+    {% endif %}
+    <div class="ai-err-msg" id="ai-err" style="display:none"></div>
+  </div>
+
   <!-- История загрузок -->
   <div class="card">
     <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
@@ -658,6 +717,47 @@ function closeDeleteModal() {
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') closeDeleteModal();
 });
+
+function requestAiSummary() {
+  var btn     = document.getElementById('ai-btn');
+  var content = document.getElementById('ai-content');
+  var meta    = document.getElementById('ai-meta');
+  var errEl   = document.getElementById('ai-err');
+  var csrf    = document.querySelector('meta[name="csrf-token"]').content;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="ai-spin"></span> Формирую…';
+  errEl.style.display = 'none';
+
+  fetch('/company/{{ company.id }}/ai-summary', {
+    method: 'POST',
+    body: new FormData(),
+    headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' }
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        content.textContent = d.content;
+        content.style.display = 'block';
+        meta.innerHTML = 'Сформировано: ' + d.meta.generated_at +
+          ' &middot; ' + d.meta.provider +
+          ' &middot; ' + d.meta.model +
+          ' &middot; ' + d.meta.tokens + ' токенов';
+        meta.style.display = 'block';
+        btn.innerHTML = 'Обновить заключение';
+      } else {
+        errEl.textContent = d.error || 'Ошибка при получении заключения';
+        errEl.style.display = 'block';
+        btn.innerHTML = 'Сформировать заключение';
+      }
+    })
+    .catch(function() {
+      errEl.textContent = 'Не удалось выполнить запрос';
+      errEl.style.display = 'block';
+      btn.innerHTML = 'Сформировать заключение';
+    })
+    .finally(function() { btn.disabled = false; });
+}
 </script>
 </body>
 </html>
