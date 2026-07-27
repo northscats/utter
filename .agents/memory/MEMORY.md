@@ -1,1 +1,2 @@
 - [Daily ZIP pipeline](daily-zip-pipeline.md) — суточные ZIP → DailyRow в БД, дашборд пересобирается слиянием месячных XLS + суточных записей
+- [Flask + PG startup race](flask-pg-startup.md) — PostgreSQL иногда поднимается позже Flask; init_db() нужен retry-цикл, иначе workflow = NOT_STARTED

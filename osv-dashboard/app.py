@@ -1308,6 +1308,16 @@ def init_db():
 
 
 if __name__ == '__main__':
-    init_db()
+    # PostgreSQL в Replit иногда поднимается позже Flask.
+    # Повторяем попытку подключения до 10 раз с паузой 2 с.
+    for _attempt in range(10):
+        try:
+            init_db()
+            break
+        except Exception as _e:
+            print(f'[startup] БД недоступна (попытка {_attempt + 1}/10): {_e}')
+            if _attempt == 9:
+                raise
+            time.sleep(2)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
             debug=False, threaded=True)
