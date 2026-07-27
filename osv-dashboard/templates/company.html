@@ -176,29 +176,13 @@ tr:last-child td{border-bottom:0}
 .ab-sep{width:1px;background:var(--line);height:28px;margin:0 8px;flex-shrink:0}
 @media(max-width:640px){.ab-sep{display:none}.ab-upload-form{border-top:1px solid var(--line);
   padding-top:8px;width:100%}}
-/* top-row: action-bar + dash-pill side by side */
-.top-row{display:flex;align-items:stretch;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-.top-row .action-bar{margin-bottom:0;flex:1 1 auto;min-width:0}
-.ab-rename-form{flex:0 1 auto}  /* don't grow – keep name block compact */
-/* dashboard pill */
-.dash-pill{display:flex;flex-direction:column;justify-content:center;gap:4px;
-  background:var(--ink);color:#e8eef2;border-radius:12px;padding:10px 16px;
-  flex:0 0 auto;min-width:180px;max-width:240px;white-space:nowrap}
-.dash-pill strong{font-size:12px;font-weight:700;color:#fff;display:block;
-  letter-spacing:.03em;line-height:1.2}
-.dash-pill .dp-meta{font-size:10px;color:#8fa3b1;line-height:1.3;
-  overflow:hidden;text-overflow:ellipsis}
-.dash-pill .dp-btn{display:inline-flex;align-items:center;gap:5px;margin-top:6px;
-  background:#1f7a9c;color:#fff;border:0;border-radius:7px;
-  padding:5px 12px;font:700 12px 'Segoe UI',sans-serif;cursor:pointer;
-  text-decoration:none;align-self:flex-start;transition:background .15s;white-space:nowrap}
-.dash-pill .dp-btn:hover{background:#186a87}
-.dash-pill-empty{display:flex;flex-direction:column;justify-content:center;gap:3px;
-  background:#f0f3f5;color:var(--mut);border:1px dashed var(--line);border-radius:12px;
-  padding:10px 16px;flex:0 0 auto;min-width:160px}
-.dash-pill-empty strong{font-size:12px;color:#6b7a86;font-weight:700;display:block}
-.dash-pill-empty span{font-size:10px;color:#8fa3b1}
-@media(max-width:700px){.top-row{flex-direction:column}.dash-pill,.dash-pill-empty{max-width:100%;min-width:0}}
+/* dashboard segment inside action-bar */
+.ab-dash-seg{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.ab-dash-meta{font-size:11px;color:var(--mut);white-space:nowrap;
+  max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.ab-btn-dash{background:var(--ink);color:#fff;border-color:var(--ink)}
+.ab-btn-dash:hover{background:#253545}
+.ab-dash-none{font-size:11px;color:var(--mut);white-space:nowrap;font-style:italic}
 </style>
 </head>
 <body>
@@ -281,79 +265,72 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Строка: панель управления + пилюля дашборда -->
+  <!-- Единая панель: имя + загрузка + дашборд -->
   {% set current_dash = uploads|selectattr('dashboard_file')|list|first %}
-  <div class="top-row">
+  <div class="action-bar">
 
-    <!-- Компактная панель: имя + загрузка -->
-    <div class="action-bar">
+    <!-- Имя предприятия -->
+    <form method="post" action="/company/{{ company.id }}/rename"
+          class="ab-rename-form">
+      <span class="ab-label">Наименование:</span>
+      <input type="text" name="name" value="{{ company.name }}" class="ab-input">
+      <button type="submit" class="ab-btn" title="Переименовать">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17h3.75L17 6.75a2.652 2.652 0 0 0-3.75-3.75L3 13.25V17z"/><path d="M13.25 3 17 6.75"/>
+        </svg>
+        Сохранить
+      </button>
+      <button type="button" onclick="openDeleteModal()" class="ab-btn ab-btn-del" title="Удалить предприятие">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 17 6"/><path d="M8 6V4h4v2"/><path d="M7 6l1 11h4l1-11"/>
+        </svg>
+      </button>
+    </form>
 
-      <!-- Имя предприятия -->
-      <form method="post" action="/company/{{ company.id }}/rename"
-            class="ab-rename-form">
-        <span class="ab-label">Наименование:</span>
-        <input type="text" name="name" value="{{ company.name }}" class="ab-input">
-        <button type="submit" class="ab-btn" title="Переименовать">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 17h3.75L17 6.75a2.652 2.652 0 0 0-3.75-3.75L3 13.25V17z"/><path d="M13.25 3 17 6.75"/>
-          </svg>
-          Сохранить
-        </button>
-        <button type="button" onclick="openDeleteModal()" class="ab-btn ab-btn-del" title="Удалить предприятие">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 17 6"/><path d="M8 6V4h4v2"/><path d="M7 6l1 11h4l1-11"/>
-          </svg>
-        </button>
-      </form>
+    <div class="ab-sep"></div>
 
-      <!-- Разделитель -->
-      <div class="ab-sep"></div>
+    <!-- Загрузка файлов -->
+    <form method="post" action="/company/{{ company.id }}/upload-all"
+          enctype="multipart/form-data" id="frm" class="ab-upload-form">
+      <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
+        </svg>
+        Выбрать…
+      </label>
+      <input type="file" name="files" id="files-input" multiple
+             accept=".xls,.xlsx,.zip" style="display:none">
+      <span id="flist" class="ab-flist">не выбраны</span>
+      <button class="ab-btn ab-btn-go" id="go" type="submit" disabled title="Загрузить выбранные файлы">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/>
+        </svg>
+        Загрузить
+      </button>
+    </form>
 
-      <!-- Загрузка файлов -->
-      <form method="post" action="/company/{{ company.id }}/upload-all"
-            enctype="multipart/form-data" id="frm" class="ab-upload-form">
-        <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
-          </svg>
-          Выбрать…
-        </label>
-        <input type="file" name="files" id="files-input" multiple
-               accept=".xls,.xlsx,.zip" style="display:none">
-        <span id="flist" class="ab-flist">не выбраны</span>
-        <button class="ab-btn ab-btn-go" id="go" type="submit" disabled title="Загрузить выбранные файлы">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/>
-          </svg>
-          Загрузить
-        </button>
-      </form>
+    <div class="ab-sep"></div>
 
-    </div><!-- /action-bar -->
-
-    <!-- Пилюля дашборда -->
+    <!-- Кнопка дашборда -->
     {% if current_dash %}
-    <div class="dash-pill">
-      <strong>Актуальный дашборд</strong>
-      <div class="dp-meta">
-        Обновлён {{ current_dash.uploaded_at.strftime('%d.%m.%Y %H:%M') }}<br>
-        Период: {{ current_dash.period_label or '—' }}
-      </div>
-      <a class="dp-btn" href="/dashboard/{{ company.id }}/dashboard_current.html">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <div class="ab-dash-seg">
+      <span class="ab-dash-meta">{{ current_dash.period_label or '—' }}</span>
+      <a class="ab-btn ab-btn-dash"
+         href="/dashboard/{{ company.id }}/dashboard_current.html"
+         title="Обновлён {{ current_dash.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="16" height="14" rx="2"/><path d="M6 8h8M6 12h5"/>
         </svg>
         Открыть дашборд
       </a>
     </div>
     {% else %}
-    <div class="dash-pill-empty">
-      <strong>Дашборд не построен</strong>
-      <span>Загрузите ОСВ — появится автоматически</span>
-    </div>
+    <span class="ab-dash-none" title="Загрузите ОСВ — дашборд появится автоматически">
+      Дашборд не построен
+    </span>
     {% endif %}
 
-  </div><!-- /top-row -->
+  </div><!-- /action-bar -->
 
   <!-- Модальное окно подтверждения удаления -->
   <div id="del-overlay" onclick="closeDeleteModal()"
