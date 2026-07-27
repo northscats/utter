@@ -18,27 +18,28 @@ header{background:var(--ink);color:#e8eef2;padding:0}
 main{max-width:680px;margin:0 auto;padding:28px 24px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px}
 h2{font-size:16px;font-weight:700;margin-bottom:20px}
-.drop{border:2px dashed var(--line);border-radius:10px;padding:34px;text-align:center;
-  color:var(--mut);cursor:pointer;transition:border-color .15s,background .15s}
-.drop.on{border-color:var(--water);background:#f2f8fb;color:var(--ink)}
-.drop b{color:var(--ink)}
 input[type=file]{display:none}
-.filelist{margin-top:10px;font-size:13px;color:var(--mut)}
-label.field-label{display:block;font-size:13px;font-weight:600;color:#31424f;
-  margin:18px 0 5px}
+.upload-row{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+.btn-file{display:inline-flex;align-items:center;gap:8px;background:var(--water);color:#fff;
+  border:0;border-radius:8px;padding:11px 22px;font:600 14px 'Segoe UI',sans-serif;
+  cursor:pointer;letter-spacing:.03em;transition:background .15s;white-space:nowrap}
+.btn-file:hover{background:#186a88}
+.btn-file svg{flex-shrink:0}
+.filelist{font-size:13px;color:var(--mut);min-height:20px}
+.filelist.has-files{color:var(--ink)}
+.field-hint{font-size:12px;color:var(--mut);margin-bottom:18px;line-height:1.45}
+label.field-label{display:block;font-size:13px;font-weight:600;color:#31424f;margin:18px 0 5px}
 input[type=text]{display:block;width:100%;padding:10px 12px;border:1px solid var(--line);
-  border-radius:7px;font:15px 'Segoe UI',sans-serif;color:var(--ink);outline:none;
-  transition:border .15s}
+  border-radius:7px;font:15px 'Segoe UI',sans-serif;color:var(--ink);outline:none;transition:border .15s}
 input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
-.btn{border:0;border-radius:8px;padding:12px 26px;font:600 14px 'Segoe UI',sans-serif;
+.btn-primary{border:0;border-radius:8px;padding:12px 26px;font:600 14px 'Segoe UI',sans-serif;
   cursor:pointer;letter-spacing:.04em;display:inline-block;margin-top:16px;
-  transition:background .15s}
-.btn-primary{background:var(--ink);color:#fff}
+  background:var(--ink);color:#fff;transition:background .15s}
 .btn-primary:hover{background:#253545}
-.btn-primary:disabled{opacity:.5;cursor:default}
+.btn-primary:disabled{opacity:.45;cursor:default}
 .err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;
   padding:12px 16px;margin-bottom:20px}
-.hint{font-size:12.5px;color:var(--mut);margin-top:12px}
+.hint{font-size:12.5px;color:var(--mut);margin-top:16px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -57,13 +58,19 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
     <h2>Загрузить оборотно-сальдовые ведомости</h2>
     <form method="post" action="/company/new" enctype="multipart/form-data" id="frm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label class="drop" id="drop">
-        <b>Перетащите сюда .xls/.xlsx файлы</b> или нажмите, чтобы выбрать<br>
-        <span style="font-size:12px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
-        с детализацией «по дням» и включенными группировками</span>
-        <input type="file" name="files" id="files" multiple accept=".xls,.xlsx">
-      </label>
-      <div class="filelist" id="flist">Файлы не выбраны</div>
+      <input type="file" name="files" id="files" multiple accept=".xls,.xlsx">
+
+      <div class="upload-row">
+        <button type="button" class="btn-file" id="pick-btn" onclick="document.getElementById('files').click()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 2v9M4 7l4-5 4 5" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M2 13h12" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+          Выбрать файлы…
+        </button>
+        <span class="filelist" id="flist">Файлы не выбраны</span>
+      </div>
+      <div class="field-hint">Формат: .xls или .xlsx, можно выбрать сразу несколько файлов</div>
 
       {% if ask_name %}
       <input type="hidden" name="tmp_key" value="{{ tmp_key or '' }}">
@@ -74,27 +81,32 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
       <input type="hidden" name="org_name" value="{{ org_name or '' }}">
       {% endif %}
 
-      <button class="btn btn-primary" id="go" type="submit"
+      <br>
+      <button class="btn-primary" id="go" type="submit"
               {% if not ask_name %}disabled{% endif %}>
         Создать предприятие и построить дашборд
       </button>
     </form>
-    <div class="hint">Как выгрузить из 1С: Отчеты → ОСВ по счету → группировка «По субсчетам» + аналитики,
+    <div class="hint">Как выгрузить из 1С: Отчёты → ОСВ по счёту → группировка «По субсчетам» + аналитики,
       периодичность «По дням» → «Сохранить как…» → «Лист Excel (.xls)».</div>
   </div>
 </main>
 <script>
-const drop=document.getElementById('drop'),inp=document.getElementById('files'),
-      list=document.getElementById('flist'),go=document.getElementById('go');
-function show(){
+const inp=document.getElementById('files'),
+      list=document.getElementById('flist'),
+      go=document.getElementById('go');
+inp.addEventListener('change',function(){
   const fs=[...inp.files];
-  list.textContent=fs.length?('Выбрано: '+fs.length+' — '+fs.map(f=>f.name).join(', ')):'Файлы не выбраны';
-  go.disabled=!fs.length;
-}
-inp.addEventListener('change',show);
-['dragover','dragenter'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on')}));
-['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on')}));
-drop.addEventListener('drop',ev=>{inp.files=ev.dataTransfer.files;show();});
+  if(fs.length){
+    list.textContent='Выбрано: '+fs.length+' — '+fs.map(f=>f.name).join(', ');
+    list.classList.add('has-files');
+    go.disabled=false;
+  } else {
+    list.textContent='Файлы не выбраны';
+    list.classList.remove('has-files');
+    go.disabled=true;
+  }
+});
 document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
 </script>
 </body>
