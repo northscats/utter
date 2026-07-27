@@ -365,9 +365,11 @@ tr:last-child td{border-bottom:0}
   } %}
   <!-- Годовая карта покрытия -->
   <div class="ac-card">
-    <div class="ac-header">
+    <div class="ac-header" style="cursor:pointer" onclick="toggleAC()" title="Свернуть / развернуть">
       <div class="ac-title">Покрытие данными — {{ ac.year }}</div>
-      <div class="ac-year-nav">
+      <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
+        border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
+      <div class="ac-year-nav" onclick="event.stopPropagation()">
         {% if ac.prev_year %}
         <a class="ac-year-btn" href="?year={{ ac.prev_year }}">← {{ ac.prev_year }}</a>
         {% endif %}
@@ -385,6 +387,7 @@ tr:last-child td{border-bottom:0}
       {% endif %}
     </div>
 
+    <div id="ac-body">
     <div class="ac-months">
       {% for mon in ac.months %}
       {% set upl = mon.upload %}
@@ -421,8 +424,9 @@ tr:last-child td{border-bottom:0}
       {% endfor %}
     </div>
 
+    </div><!-- /ac-body -->
     <!-- Легенда -->
-    <div class="ac-legend">
+    <div class="ac-legend" id="ac-legend">
       <span><span class="ac-sw" style="background:#d4edda;border:1px solid #2e7d4f"></span>Закрыт / прибыль</span>
       <span><span class="ac-sw" style="background:#fde8d0;border:1px solid #c96020"></span>Закрыт / убыток</span>
       <span><span class="ac-sw" style="background:#fff9db;border:1px solid #d4a800"></span>Не закрыт</span>
@@ -525,6 +529,30 @@ inp.addEventListener('change',function(){
 document.getElementById('frm').addEventListener('submit',function(){
   go.disabled=true;go.innerHTML='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8" stroke-dasharray="50" stroke-dashoffset="25"/></svg> Загружаю…';
 });
+
+// --- Сворачивание карты покрытия ---
+(function(){
+  var collapsed = localStorage.getItem('ac_collapsed') === '1';
+  function applyAC(anim){
+    var body=document.getElementById('ac-body'),
+        leg=document.getElementById('ac-legend'),
+        btn=document.getElementById('ac-toggle-btn');
+    if(!body) return;
+    if(collapsed){
+      body.style.display='none'; leg.style.display='none';
+      btn.textContent='▼ развернуть';
+    } else {
+      body.style.display=''; leg.style.display='';
+      btn.textContent='▲ свернуть';
+    }
+  }
+  applyAC(false);
+  window.toggleAC = function(){
+    collapsed = !collapsed;
+    localStorage.setItem('ac_collapsed', collapsed ? '1' : '0');
+    applyAC(true);
+  };
+})();
 
 // --- Модалка удаления ---
 let _delTimer = null;
