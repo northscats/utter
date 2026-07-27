@@ -282,6 +282,7 @@ tr:last-child td{border-bottom:0}
     <!-- Имя предприятия -->
     <form method="post" action="/company/{{ company.id }}/rename"
           class="ab-rename-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="text" name="name" value="{{ company.name }}" class="ab-input" placeholder="Наименование предприятия">
       <button type="submit" class="ab-btn" title="Переименовать">
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -300,6 +301,7 @@ tr:last-child td{border-bottom:0}
     <!-- Загрузка файлов -->
     <form method="post" action="/company/{{ company.id }}/upload-all"
           enctype="multipart/form-data" id="frm" class="ab-upload-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
@@ -363,6 +365,7 @@ tr:last-child td{border-bottom:0}
           Отмена
         </button>
         <form method="post" action="/company/{{ company.id }}/delete" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button id="del-confirm" type="submit" disabled
                   style="background:#bf3222;color:#fff;border:0;border-radius:8px;
                          padding:10px 22px;font:600 14px 'Segoe UI',sans-serif;

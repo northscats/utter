@@ -156,6 +156,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
           <td style="color:var(--mut);font-size:13px">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
           <td>
             <form class="pw-form" method="post" action="/users/{{ u.id }}/set-password">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="password" name="password" placeholder="Новый пароль" minlength="4">
               <button class="btn btn-ghost btn-sm" type="submit">Установить</button>
             </form>
@@ -165,6 +166,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
               {% if u.id != current_user.id %}
                 <!-- Переключение роли -->
                 <form method="post" action="/users/{{ u.id }}/set-role" style="display:inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   {% if u.role == 'admin' %}
                   <input type="hidden" name="role" value="user">
                   <button class="btn btn-ghost btn-sm" type="submit"
@@ -184,6 +186,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
                 <!-- Удаление -->
                 <form method="post" action="/users/{{ u.id }}/delete" style="display:inline"
                   onsubmit="return confirm('Удалить пользователя «{{ u.username }}»? Это действие нельзя отменить.')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-danger btn-sm" type="submit">Удалить</button>
                 </form>
               {% else %}
@@ -203,6 +206,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     <p class="desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
 
     <form method="post" action="/users/create">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="add-user-grid">
         <div>
           <label>Логин</label>

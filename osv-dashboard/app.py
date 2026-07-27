@@ -8,10 +8,11 @@ import time
 import traceback
 
 import bcrypt
-from flask import (Flask, Response, abort, redirect, render_template, request,
-                   send_from_directory, url_for)
+from flask import (Flask, Response, abort, jsonify, redirect, render_template,
+                   request, send_from_directory, url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
@@ -36,6 +37,7 @@ SCRIPT_NAME = os.environ.get('SCRIPT_NAME', '').rstrip('/')
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-change-me')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 МБ
+app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1 час
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -48,6 +50,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
+csrf = CSRFProtect(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -266,9 +269,33 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
 # ---------------------------------------------------------------------------
 # Обработчики ошибок
 # ---------------------------------------------------------------------------
+def _wants_json():
+    """True если клиент ожидает JSON (AJAX-запрос)."""
+    return (request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+            'application/json' in request.headers.get('Accept', ''))
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    if _wants_json():
+        return jsonify(error='CSRF token invalid or expired'), 403
+    return render_template('403.html'), 403
+
+
 @app.errorhandler(403)
 def forbidden(e):
+    if _wants_json():
+        return jsonify(error='Доступ запрещён'), 403
     return render_template('403.html'), 403
+
+
+# ---------------------------------------------------------------------------
+# Вспомогательный эндпоинт для JS/HTMX-клиентов: получить CSRF-токен
+# ---------------------------------------------------------------------------
+@app.route('/api/auth/csrf', methods=['GET'])
+@login_required
+def get_csrf_token():
+    return jsonify(csrf_token=generate_csrf())
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
 <title>Настройки — ГИС УЗТЭР. Модуль: Анализ ФХД РСО</title>
 <style>
 :root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;
@@ -136,6 +137,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       (например, <code>osv@company.ru</code>) и настроить переадресацию из 1С.
     </p>
     <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="save_imap">
       <div class="field-grid">
         {% for key, label, placeholder in imap_keys %}
@@ -214,6 +216,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
           <td style="color:var(--mut);font-size:13px">{{ r.note or '—' }}</td>
           <td style="text-align:right">
             <form method="post" style="display:inline" onsubmit="return confirm('Удалить правило?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="action" value="delete_rule">
               <input type="hidden" name="rule_id" value="{{ r.id }}">
               <button class="btn btn-danger" type="submit" style="padding:5px 12px;font-size:12px">Удалить</button>
@@ -229,6 +232,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 
     <!-- Форма добавления правила -->
     <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="add_rule">
       <div class="add-rule-grid">
         <div>
@@ -281,7 +285,11 @@ function testImap() {
   result.style.display = 'none';
   idle.style.display = 'none';
 
-  fetch('/settings/test-imap', { method: 'POST', body: data })
+  fetch('/settings/test-imap', {
+    method: 'POST',
+    body: data,
+    headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content }
+  })
     .then(r => r.json())
     .then(d => {
       dot.className = 'dot ' + (d.ok ? 'dot-ok' : 'dot-bad');
@@ -316,7 +324,10 @@ function syncImap() {
   fetch('/settings/sync-imap', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
+      },
       body: new FormData()          /* непустое тело — гарантирует передачу cookie */
     })
     .then(r => {

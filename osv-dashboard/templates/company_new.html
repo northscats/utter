@@ -56,6 +56,7 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
     <h2>Загрузить оборотно-сальдовые ведомости</h2>
     <form method="post" action="/company/new" enctype="multipart/form-data" id="frm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="drop" id="drop">
         <b>Перетащите сюда .xls/.xlsx файлы</b> или нажмите, чтобы выбрать<br>
         <span style="font-size:12px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
