@@ -1442,25 +1442,33 @@ def _annual_coverage(company_id, year=None):
              'июл':7,'авг':8,'сен':9,'окт':10,'ноя':11,'дек':12}
 
     def _upl_ym(u):
+        """Возвращает список (year, month) — один элемент или диапазон.
+        'Январь–Июнь 2026' → [(2026,1),(2026,2),(2026,3),(2026,4),(2026,5),(2026,6)]
+        'Июнь 2026'        → [(2026,6)]
+        """
         lbl = (u.period_label or '').lower()
         hits = _re.findall(r'(янв|фев|мар|апр|май|июн|июл|авг|сен|окт|ноя|дек)', lbl)
         yr_hit = _re.search(r'\b(20\d{2})\b', lbl)
+        yr = int(yr_hit.group(1)) if yr_hit else u.uploaded_at.year
         if hits:
-            mon = RU_M[hits[-1]]
-            yr = int(yr_hit.group(1)) if yr_hit else u.uploaded_at.year
-            return yr, mon
+            m_start = RU_M[hits[0]]
+            m_end   = RU_M[hits[-1]]
+            if m_start <= m_end:
+                return [(yr, m) for m in range(m_start, m_end + 1)]
+            # Диапазон через год (редко) — берём только конечный месяц
+            return [(yr, m_end)]
         # DD.MM–DD.MM → берём последний MM
         m2 = _re.search(r'\d+\.(\d+)[\s–\-]+\d+\.(\d+)', lbl)
         if m2:
-            return u.uploaded_at.year, int(m2.group(2))
-        return u.uploaded_at.year, u.uploaded_at.month
+            return [(u.uploaded_at.year, int(m2.group(2)))]
+        return [(u.uploaded_at.year, u.uploaded_at.month)]
 
     # (year, month) → лучший Upload (с dashboard_file предпочтительнее)
     upl_map = {}
     for u in all_uploads:
-        key = _upl_ym(u)
-        if key not in upl_map or (u.dashboard_file and not upl_map[key].dashboard_file):
-            upl_map[key] = u
+        for key in _upl_ym(u):
+            if key not in upl_map or (u.dashboard_file and not upl_map[key].dashboard_file):
+                upl_map[key] = u
 
     MON = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
 
