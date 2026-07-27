@@ -204,6 +204,7 @@ tr:last-child td{border-bottom:0}
         Пользователи
       </a>
       {% endif %}
+      {% if current_user.is_admin %}
       <a href="/settings" title="Настройки">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
@@ -211,6 +212,7 @@ tr:last-child td{border-bottom:0}
         </svg>
         Настройки
       </a>
+      {% endif %}
       <a href="/logout">Выйти</a>
     </div>
   </div>

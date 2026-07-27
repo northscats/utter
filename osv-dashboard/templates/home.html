@@ -111,6 +111,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
         Пользователи
       </a>
       {% endif %}
+      {% if current_user.is_admin %}
       <a href="/settings" title="Настройки">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
@@ -118,6 +119,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
         </svg>
         Настройки
       </a>
+      {% endif %}
       <a href="/logout">Выйти</a>
     </div>
   </div>

@@ -976,7 +976,7 @@ IMAP_KEYS = [
 
 
 @app.route('/settings/test-imap', methods=['POST'])
-@login_required
+@admin_required
 def settings_test_imap():
     import imaplib
     import ssl
@@ -1016,7 +1016,7 @@ def settings_test_imap():
 
 
 @app.route('/settings/sync-imap', methods=['POST'])
-@login_required
+@admin_required
 def settings_sync_imap():
     """Ручная синхронизация: смотрим НЕПРОЧИТАННЫЕ письма, забираем вложения,
     распределяем по предприятиям согласно правилам маршрутизации."""
@@ -1254,7 +1254,7 @@ def settings_sync_imap():
 
 
 @app.route('/settings', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def settings():
     companies = Company.query.order_by(Company.name).all()
 
