@@ -8,7 +8,7 @@ import time
 import traceback
 
 import bcrypt
-from flask import (Flask, abort, redirect, render_template, request,
+from flask import (Flask, Response, abort, redirect, render_template, request,
                    send_from_directory, url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
