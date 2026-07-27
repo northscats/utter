@@ -112,6 +112,41 @@ def _company_summary(company):
     )
 
 
+def _is_daily_xls(path):
+    """True если XLS — суточная ОСВ (дата в шапке), False — периодическая (будет базой)."""
+    from osvparser import extract_daily_date
+    return extract_daily_date(path) is not None
+
+
+def _compute_discrepancy(company_id, new_data):
+    """Сравнивает СН новой ОСВ с расчётным СК из последних суточных записей.
+    Возвращает список расхождений по счетам, отсортированный по убыванию дельты."""
+    results = []
+    for acc, d in new_data.items():
+        new_snd = d['top']['snd']
+        new_snk = d['top']['snk']
+        if new_snd == 0.0 and new_snk == 0.0:
+            continue  # нет начального сальдо — сравнивать нечего
+        last_dr = DailyRow.query.filter_by(company_id=company_id, acc=acc)\
+                                .order_by(DailyRow.date.desc()).first()
+        if last_dr is None:
+            continue
+        delta_d = new_snd - last_dr.skd
+        delta_k = new_snk - last_dr.skk
+        if abs(delta_d) > 1.0 or abs(delta_k) > 1.0:
+            results.append(dict(
+                acc=acc,
+                last_date=last_dr.date.strftime('%d.%m.%Y'),
+                calc_skd=last_dr.skd,
+                calc_skk=last_dr.skk,
+                new_snd=new_snd,
+                new_snk=new_snk,
+                delta_d=delta_d,
+                delta_k=delta_k,
+            ))
+    return sorted(results, key=lambda x: abs(x['delta_d']) + abs(x['delta_k']), reverse=True)
+
+
 def _org_name_from_filename(path):
     """Пробует извлечь название орг. из имени суточного файла.
 
@@ -335,7 +370,7 @@ def company_new():
 
         _upsert_daily_rows(company.id, final_paths)
         upload = Upload(company_id=company.id, uploaded_by=current_user.id,
-                        **record_kwargs)
+                        source='manual', **record_kwargs)
         db.session.add(upload)
         db.session.commit()
     except Exception as e:
@@ -358,7 +393,7 @@ def company_detail(company_id):
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
     return render_template('company.html', company=company, uploads=uploads,
-                           audit=None, error=None,
+                           audit=None, error=None, discrepancy=[],
                            daily_stats=_daily_stats(company_id))
 
 
@@ -375,7 +410,7 @@ def company_upload_all(company_id):
         ups = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
         return render_template('company.html', company=company, uploads=ups,
-                               audit=audit, error=msg,
+                               audit=audit, error=msg, discrepancy=[],
                                daily_stats=_daily_stats(company_id))
 
     if not all_files:
@@ -386,14 +421,44 @@ def company_upload_all(company_id):
     zip_dates = []   # datetime.date объекты из ZIP-файлов
     total_files = 0
 
-    # — XLS/XLSX: сохраняем в обычную папку (не zip_*)
+    # — XLS/XLSX: классифицируем (суточные vs периодические) и сохраняем
     xls_files = [f for f in all_files
                  if f.filename.lower().endswith(('.xls', '.xlsx'))]
     if xls_files:
         saved = _save_files(xls_files, company_id, ts)
         total_files += len(saved)
-        _upsert_daily_rows(company_id, saved)
+
+        # Суточные XLS перемещаем в daily_-папку — _find_monthly_xls их пропустит
+        full_saved, daily_saved = [], []
+        daily_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
+        for path in saved:
+            if _is_daily_xls(path):
+                os.makedirs(daily_dir, exist_ok=True)
+                dest = os.path.join(daily_dir, os.path.basename(path))
+                os.rename(path, dest)
+                daily_saved.append(dest)
+            else:
+                full_saved.append(path)
+
+        _upsert_daily_rows(company_id, full_saved + daily_saved)
         db.session.commit()
+
+        # Отчёт расхождений: сравниваем СН новой периодической ОСВ с расчётным СК
+        if full_saved:
+            data_check, _ = parse_many(full_saved)
+            if data_check:
+                for disc in _compute_discrepancy(company_id, data_check):
+                    audit_out.append(dict(
+                        file=f'сч.{disc["acc"]}',
+                        acc=disc['acc'],
+                        status=(
+                            f'РАСХОЖДЕНИЕ: расчётное СК на {disc["last_date"]} — '
+                            f'Дт {disc["calc_skd"]:,.0f} / Кт {disc["calc_skk"]:,.0f} | '
+                            f'новая ОСВ СН — Дт {disc["new_snd"]:,.0f} / Кт {disc["new_snk"]:,.0f} | '
+                            f'дельта Дт {disc["delta_d"]:+,.0f} / Кт {disc["delta_k"]:+,.0f}'
+                        ),
+                        ok='disc',
+                    ))
 
     # — ZIP: сохраняем и парсим суточные данные
     zip_files = [f for f in all_files if f.filename.lower().endswith('.zip')]
@@ -475,14 +540,17 @@ def company_upload_all(company_id):
         profit_sign=profit_sign,
         files_count=total_files,
         dashboard_file='dashboard_current.html',
+        source='manual',
     )
     db.session.add(upload)
     db.session.commit()
 
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
+    discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
     return render_template('company.html', company=company, uploads=uploads,
                            audit=audit_out, error=None,
+                           discrepancy=discrepancy,
                            daily_stats=_daily_stats(company_id))
 
 
@@ -521,7 +589,7 @@ def _find_monthly_xls(company_id):
         return []
     paths = []
     for ts_dir in os.listdir(company_dir):
-        if ts_dir.startswith('zip_'):   # папки ZIP-загрузок пропускаем
+        if ts_dir.startswith(('zip_', 'daily_', 'tmp_')):  # не базовые папки
             continue
         full = os.path.join(company_dir, ts_dir)
         if not os.path.isdir(full):
@@ -617,7 +685,8 @@ def company_upload_zip(company_id):
                               .order_by(Upload.uploaded_at.desc()).all()
         daily_stats = _daily_stats(company_id)
         return render_template('company.html', company=company, uploads=uploads,
-                               audit=audit, error=error, daily_stats=daily_stats)
+                               audit=audit, error=error, discrepancy=[],
+                               daily_stats=daily_stats)
 
     if not zfile or not zfile.filename:
         return _back(error='Файл не выбран.')
@@ -695,6 +764,7 @@ def company_upload_zip(company_id):
         profit_sign='neutral',
         files_count=upserted,
         dashboard_file=out_name,
+        source='manual',
     )
     db.session.add(upload)
     db.session.commit()
@@ -707,7 +777,8 @@ def company_upload_zip(company_id):
                           .order_by(Upload.uploaded_at.desc()).all()
     daily_stats = _daily_stats(company_id)
     return render_template('company.html', company=company, uploads=uploads,
-                           audit=audit_out, error=None, daily_stats=daily_stats)
+                           audit=audit_out, error=None, discrepancy=[],
+                           daily_stats=daily_stats)
 
 
 def _daily_stats(company_id):
@@ -998,9 +1069,35 @@ def settings_sync_imap():
                                     company_id,
                                     company_name=_co.name if _co else '')
                                 stats['companies_updated'].add(company_id)
+                                # Запись в историю
+                                _dates_z = sorted({it['date'] for it in successes})
+                                _MRU_Z = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
+                                          7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
+                                _d0, _d1 = _dates_z[0], _dates_z[-1]
+                                _zlbl = (f'{_d0.day} {_MRU_Z[_d0.month]}'
+                                         if _d0 == _d1
+                                         else f'{_d0.strftime("%d.%m")}–{_d1.strftime("%d.%m")}')
+                                _up = Upload(
+                                    company_id=company_id,
+                                    uploaded_by=current_user.id,
+                                    period_label=_zlbl,
+                                    accounts_loaded=json.dumps(
+                                        sorted({it['parsed']['acc'] for it in successes})),
+                                    closure_status=None, profit_sign='neutral',
+                                    files_count=len(successes),
+                                    dashboard_file='dashboard_current.html',
+                                    source='auto_imap',
+                                )
+                                db.session.add(_up)
+                                db.session.commit()
                             stats['files_processed'] += 1
                         else:  # XLS / XLSX
-                            save_dir = os.path.join(UPLOADS, str(company_id), ts)
+                            if _is_daily_xls(path):
+                                # Суточный XLS: только DailyRow, не становится базой
+                                save_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
+                            else:
+                                # Периодическая ОСВ: становится базовым файлом
+                                save_dir = os.path.join(UPLOADS, str(company_id), ts)
                             os.makedirs(save_dir, exist_ok=True)
                             dest = os.path.join(save_dir, os.path.basename(path))
                             shutil.copy2(path, dest)
@@ -1011,6 +1108,22 @@ def settings_sync_imap():
                                 company_id,
                                 company_name=_co.name if _co else '')
                             stats['companies_updated'].add(company_id)
+                            # Запись в историю
+                            from osvparser import extract_daily_date as _edd
+                            _xdt = _edd(dest)
+                            _xlbl = _xdt.strftime('%d.%m.%Y') if _xdt else '—'
+                            _up = Upload(
+                                company_id=company_id,
+                                uploaded_by=current_user.id,
+                                period_label=_xlbl,
+                                accounts_loaded='[]',
+                                closure_status=None, profit_sign='neutral',
+                                files_count=1,
+                                dashboard_file='dashboard_current.html',
+                                source='auto_imap',
+                            )
+                            db.session.add(_up)
+                            db.session.commit()
                             stats['files_processed'] += 1
                     except Exception as exc:
                         stats['errors'].append(f"{os.path.basename(path)}: {exc}")
@@ -1104,6 +1217,17 @@ def settings():
 def init_db():
     with app.app_context():
         db.create_all()
+        # Миграция: добавляем новые колонки если отсутствуют
+        try:
+            from sqlalchemy import text as _text
+            with db.engine.connect() as _conn:
+                _conn.execute(_text(
+                    "ALTER TABLE uploads ADD COLUMN IF NOT EXISTS "
+                    "source VARCHAR(20) DEFAULT 'manual'"
+                ))
+                _conn.commit()
+        except Exception:
+            pass
         # Создаём admin, если пользователей нет
         if not User.query.first():
             admin = User(

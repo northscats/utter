@@ -90,6 +90,7 @@ class Upload(db.Model):
     profit_value = db.Column(db.Float, default=0.0)             # числовое значение
     dashboard_file = db.Column(db.String(255), default='')      # имя HTML-файла
     files_count = db.Column(db.Integer, default=0)              # кол-во файлов в пакете
+    source = db.Column(db.String(20), default='manual')         # 'manual' | 'auto_imap'
 
     @property
     def accounts_list(self):

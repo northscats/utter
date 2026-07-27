@@ -60,6 +60,14 @@ tr:last-child td{border-bottom:0}
 .badge-ok{background:#e4f2ea;color:var(--ok)}
 .badge-bad{background:#fbeae8;color:var(--bad)}
 .badge-none{background:#f0f3f5;color:var(--mut)}
+.src-manual{background:#f0f3f5;color:var(--mut);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+.src-auto{background:#e8f4fb;color:#1f5f80;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600;white-space:nowrap}
+.disc-block{background:#fffbea;border:1px solid #f0c040;border-radius:10px;padding:14px 18px;margin-bottom:18px}
+.disc-block h4{font-size:13px;font-weight:700;color:#7a5a00;margin-bottom:10px}
+.disc-block table{font-size:12px}
+.disc-block td,.disc-block th{padding:5px 10px}
+.disc-delta-pos{color:var(--ok);font-weight:700}
+.disc-delta-neg{color:var(--bad);font-weight:700}
 .badge-profit{background:#e4f2ea;color:var(--ok)}
 .badge-loss{background:#fbeae8;color:var(--bad)}
 .badge-neutral{background:#f0f3f5;color:var(--mut)}
@@ -70,7 +78,7 @@ tr:last-child td{border-bottom:0}
 .err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;
   padding:12px 16px;margin-bottom:18px}
 .audit-card{margin-top:18px}
-.audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600}
+.audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600} .audit-table td.st-warn{color:#7a5a00;font-weight:600}
 .empty-uploads{text-align:center;padding:32px;color:var(--mut)}
 .hint{font-size:12.5px;color:var(--mut);margin-top:10px}
 /* timeline */
@@ -129,6 +137,43 @@ tr:last-child td{border-bottom:0}
 
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
+  {% if discrepancy %}
+  <div class="disc-block">
+    <h4>⚠ Обнаружены расхождения с суточными данными</h4>
+    <p style="font-size:12px;color:#7a5a00;margin-bottom:10px">
+      Сальдо в загруженной ОСВ отличается от расчётного из суточных файлов.
+      Возможно, бухгалтер корректировал проводки задним числом.
+    </p>
+    <table>
+      <tr>
+        <th>Счёт</th>
+        <th>Расчётное СК (суточные)</th>
+        <th>Фактическое СН (новая ОСВ)</th>
+        <th>Дельта Дт</th>
+        <th>Дельта Кт</th>
+      </tr>
+      {% for d in discrepancy %}
+      {% set acc = d.acc %}
+      {% set last_date = d.last_date %}
+      {% set disc_status = d.status %}
+      {% set delta_d = disc_status.split('дельта Дт')[1].split('/')[0].strip() if 'дельта Дт' in disc_status else '?' %}
+      {% set delta_k = disc_status.split('/ Кт')[1].strip() if '/ Кт' in disc_status else '?' %}
+      <tr>
+        <td><strong>{{ acc }}</strong></td>
+        <td style="font-size:12px">на {{ last_date }}:
+          Дт {{ '{:,.0f}'.format(d.calc_skd) }} / Кт {{ '{:,.0f}'.format(d.calc_skk) }}</td>
+        <td style="font-size:12px">
+          Дт {{ '{:,.0f}'.format(d.new_snd) }} / Кт {{ '{:,.0f}'.format(d.new_snk) }}</td>
+        <td class="{{ 'disc-delta-pos' if d.delta_d > 0 else 'disc-delta-neg' }}">
+          {{ '{:+,.0f}'.format(d.delta_d) }}</td>
+        <td class="{{ 'disc-delta-pos' if d.delta_k > 0 else 'disc-delta-neg' }}">
+          {{ '{:+,.0f}'.format(d.delta_k) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
   {% if audit %}
   <div class="card audit-card">
     <h3>Протокол последней обработки</h3>
@@ -138,7 +183,8 @@ tr:last-child td{border-bottom:0}
       <tr>
         <td>{{ a.file }}</td>
         <td>{{ a.acc }}</td>
-        <td class="{{ 'st-ok' if a.ok else 'st-bad' }}">{{ a.status }}</td>
+        <td class="{{ 'st-ok' if a.ok == true else ('st-warn' if a.ok == 'disc' else 'st-bad') }}">
+          {{ a.status }}</td>
       </tr>
       {% endfor %}
     </table>
@@ -283,6 +329,7 @@ tr:last-child td{border-bottom:0}
     <table>
       <tr>
         <th>Дата загрузки</th>
+        <th>Источник</th>
         <th>Период</th>
         <th>Файлов</th>
         <th>Закрытие</th>
@@ -291,6 +338,13 @@ tr:last-child td{border-bottom:0}
       {% for u in uploads %}
       <tr>
         <td>{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
+        <td>
+          {% if u.source == 'auto_imap' %}
+            <span class="src-auto">📧 Авто</span>
+          {% else %}
+            <span class="src-manual">👤 Вручную</span>
+          {% endif %}
+        </td>
         <td>{{ u.period_label or '—' }}</td>
         <td>{{ u.files_count }}</td>
         <td>
