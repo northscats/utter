@@ -99,6 +99,7 @@ def _company_summary(company):
     uploads = company.uploads  # уже отсортированы по убыванию
     last = uploads[0] if uploads else None
     files_total = sum(u.files_count for u in uploads)
+    dash_path = os.path.join(OUTPUT, str(company.id), 'dashboard_current.html')
     return dict(
         id=company.id,
         name=company.name,
@@ -107,6 +108,7 @@ def _company_summary(company):
         closure=last.closure_status if last else None,
         profit_sign=last.profit_sign if last else 'neutral',
         last_upload=(last.uploaded_at.strftime('%d.%m.%Y') if last else None),
+        has_dashboard=os.path.isfile(dash_path),
     )
 
 
