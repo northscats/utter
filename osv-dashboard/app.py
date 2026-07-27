@@ -495,8 +495,20 @@ def dashboard(company_id, name):
     name = os.path.basename(name)
     if not name.endswith('.html'):
         abort(404)
-    out_dir = os.path.join(OUTPUT, str(company_id))
-    return send_from_directory(out_dir, name)
+    fpath = os.path.join(OUTPUT, str(company_id), name)
+    if not os.path.isfile(fpath):
+        abort(404)
+    with open(fpath, encoding='utf-8') as f:
+        html = f.read()
+    # Гарантируем наличие кнопки "Все предприятия" независимо от даты генерации файла
+    if 'href="/"' not in html:
+        html = html.replace(
+            '<a class="hd-back"',
+            '<a class="hd-back" href="/">☰ Все предприятия</a>'
+            '\n    <a class="hd-back"',
+            1,
+        )
+    return Response(html, mimetype='text/html')
 
 
 # ---------------------------------------------------------------------------
