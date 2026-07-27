@@ -22,7 +22,7 @@ from jobs import create_job, get_job, finish_job, fail_job
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import Company, DailyRow, EmailRule, Setting, Upload, User, db
+from database import AuditLog, Company, DailyRow, EmailRule, Setting, Upload, User, db
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 
@@ -55,6 +55,30 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 csrf = CSRFProtect(app)
+
+# ---------------------------------------------------------------------------
+# Шифрование значений в БД (Fernet / AES-128-CBC)
+# ---------------------------------------------------------------------------
+import sys as _sys
+from cryptography.fernet import Fernet as _Fernet
+
+_ENCRYPTION_KEY_RAW = os.environ.get('ENCRYPTION_KEY', '')
+if not _ENCRYPTION_KEY_RAW:
+    print(
+        '\n[FATAL] Переменная окружения ENCRYPTION_KEY не задана.\n'
+        'Сгенерируйте ключ:\n'
+        '  python3 -c "import secrets,base64; '
+        'print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"\n'
+        'и сохраните как Replit Secret с именем ENCRYPTION_KEY.\n',
+        file=_sys.stderr, flush=True,
+    )
+    _sys.exit(1)
+try:
+    _FERNET = _Fernet(_ENCRYPTION_KEY_RAW.encode())
+except Exception as _fernet_err:
+    print(f'[FATAL] Неверный формат ENCRYPTION_KEY: {_fernet_err}',
+          file=_sys.stderr, flush=True)
+    _sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # IMAP background thread state (single-worker gunicorn keeps this in one process)
@@ -327,7 +351,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
     host     = Setting.get('imap_host', '').strip()
     port_str = Setting.get('imap_port', '993').strip()
     login    = Setting.get('imap_login', '').strip()
-    password = Setting.get('imap_password', '').strip()
+    password = decrypt_value(Setting.get('imap_password', '').strip())
     folder   = Setting.get('imap_folder', 'INBOX').strip() or 'INBOX'
 
     if not host or not login or not password:
@@ -694,6 +718,9 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             db.session.commit()
 
             discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
+            log_event('file_upload',
+                      {'company_id': company_id, 'files': total_files, 'period': period_lbl},
+                      user_id=uploader_id)
             finish_job(job_id, dict(
                 audit=audit_out,
                 discrepancy=discrepancy,
@@ -732,6 +759,9 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
             db.session.add(upload)
             db.session.commit()
 
+            log_event('company_created',
+                      {'company_id': company_id, 'name': company_name},
+                      user_id=uploader_id)
             finish_job(job_id, dict(
                 audit=audit,
                 discrepancy=[],
@@ -740,6 +770,115 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
         except Exception as exc:
             traceback.print_exc()
             fail_job(job_id, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Шифрование / дешифрование (хранилище чувствительных настроек в БД)
+# ---------------------------------------------------------------------------
+_XLS_MAGIC = b'\xd0\xcf\x11\xe0'  # CFBF — Excel 97-2003
+_ZIP_MAGIC  = b'PK'                # ZIP / OOXML (xlsx, zip)
+
+
+def encrypt_value(plain: str) -> str:
+    """Шифрует строку. Возвращает «enc:<ciphertext>»."""
+    if not plain:
+        return plain
+    return 'enc:' + _FERNET.encrypt(plain.encode()).decode()
+
+
+def decrypt_value(cipher: str) -> str:
+    """Расшифровывает значение, зашифрованное через encrypt_value().
+    Открытый текст (без префикса enc:) возвращается как есть — миграция без перезаписи."""
+    if not cipher or not cipher.startswith('enc:'):
+        return cipher
+    try:
+        return _FERNET.decrypt(cipher[4:].encode()).decode()
+    except Exception:
+        return ''
+
+
+def log_event(action: str, details=None, user_id: int | None = None,
+              ip: str | None = None) -> None:
+    """Записывает событие безопасности в таблицу audit_log.
+    Никогда не вызывает исключений — ошибки ведения журнала не должны ломать запросы."""
+    from sqlalchemy.orm import Session as _AuditSession
+    try:
+        uid = user_id
+        _ip = ip
+        if uid is None:
+            try:
+                if current_user.is_authenticated:
+                    uid = current_user.id
+            except Exception:
+                pass
+        if _ip is None:
+            try:
+                _ip = request.remote_addr
+            except Exception:
+                pass
+        entry = AuditLog(
+            user_id=uid,
+            action=action,
+            details=json.dumps(details, ensure_ascii=False, default=str)
+                    if details is not None else None,
+            ip=_ip,
+        )
+        with _AuditSession(db.engine) as _sess:
+            _sess.add(entry)
+            _sess.commit()
+    except Exception:
+        pass
+
+
+def _validate_upload(path: str, filename: str) -> tuple[bool, str]:
+    """Проверяет magic bytes файла. Для ZIP проверяет zip-bomb и path traversal.
+    Возвращает (ok, сообщение_об_ошибке)."""
+    ext = os.path.splitext(filename)[1].lower()
+    try:
+        with open(path, 'rb') as fh:
+            head = fh.read(8)
+    except OSError as e:
+        return False, f'Не удалось прочитать «{filename}»: {e}'
+
+    if ext == '.xls':
+        if not head.startswith(_XLS_MAGIC):
+            return False, f'«{filename}» не является Excel 97-2003 (.xls) — неверная сигнатура файла'
+    elif ext == '.xlsx':
+        if not head.startswith(_ZIP_MAGIC):
+            return False, f'«{filename}» не является Excel 2007+ (.xlsx) — неверная сигнатура файла'
+    elif ext == '.zip':
+        if not head.startswith(_ZIP_MAGIC):
+            return False, f'«{filename}» не является ZIP-архивом — неверная сигнатура файла'
+        ok, err = _check_zip_safety(path, filename)
+        if not ok:
+            return False, err
+
+    return True, ''
+
+
+def _check_zip_safety(path: str, filename: str) -> tuple[bool, str]:
+    """Zip-bomb (>500 МБ распакованных данных) и path traversal."""
+    import zipfile as _zf
+    MAX_UNCOMPRESSED = 500 * 1024 * 1024
+    try:
+        with _zf.ZipFile(path, 'r') as zfile:
+            total = sum(i.file_size for i in zfile.infolist())
+            if total > MAX_UNCOMPRESSED:
+                return False, (
+                    f'«{filename}» отклонён: распакованный объём '
+                    f'{total // 1024 // 1024} МБ превышает лимит 500 МБ (возможный zip-bomb)'
+                )
+            for info in zfile.infolist():
+                name = info.filename
+                parts = name.replace('\\', '/').split('/')
+                if name.startswith('/') or '..' in parts:
+                    return False, (
+                        f'«{filename}» содержит опасный путь в архиве '
+                        f'(path traversal): «{name}»'
+                    )
+    except _zf.BadZipFile as e:
+        return False, f'«{filename}» — повреждённый ZIP-архив: {e}'
+    return True, ''
 
 
 # ---------------------------------------------------------------------------
@@ -763,6 +902,14 @@ def forbidden(e):
     if _wants_json():
         return jsonify(error='Доступ запрещён'), 403
     return render_template('403.html'), 403
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    app.logger.error('500 Internal Server Error:\n%s', traceback.format_exc())
+    if _wants_json():
+        return jsonify(error='Внутренняя ошибка сервера'), 500
+    return render_template('500.html'), 500
 
 
 # ---------------------------------------------------------------------------
@@ -789,7 +936,9 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and _check_password(password, user.password_hash):
             login_user(user)
+            log_event('login_ok', {'username': username})
             return redirect(url_for('home'))
+        log_event('login_fail', {'username': username})
         error = 'Неверный логин или пароль.'
     return render_template('login.html', error=error, username=username)
 
@@ -797,6 +946,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    log_event('logout')
     logout_user()
     return redirect(url_for('login'))
 
@@ -848,6 +998,10 @@ def company_new():
                 continue
             dest = os.path.join(tmp_dir, name)
             f.save(dest)
+            ok, err = _validate_upload(dest, name)
+            if not ok:
+                import shutil as _sh_cn; _sh_cn.rmtree(tmp_dir, ignore_errors=True)
+                return render_template('company_new.html', error=err)
             tmp_paths.append(dest)
         tmp_key = ts
 
@@ -881,6 +1035,7 @@ def company_new():
     final_paths = [os.path.join(final_dir, os.path.basename(p)) for p in tmp_paths]
 
     db.session.commit()  # commit company before starting thread
+    log_event('company_new_started', {'name': org_name, 'company_id': company.id})
 
     # Запускаем обработку в фоне
     back_url = url_for('company_detail', company_id=company.id)
@@ -956,6 +1111,10 @@ def company_upload_all(company_id):
             continue
         dest = os.path.join(stage_dir, os.path.basename(f.filename))
         f.save(dest)
+        ok, err = _validate_upload(dest, f.filename)
+        if not ok:
+            import shutil as _sh_v; _sh_v.rmtree(stage_dir, ignore_errors=True)
+            return _err(err)
         saved += 1
 
     if not saved:
@@ -1391,8 +1550,10 @@ def company_rename(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     new_name = request.form.get('name', '').strip()
     if new_name:
+        old_name = company.name
         company.name = new_name
         db.session.commit()
+        log_event('company_renamed', {'id': company_id, 'old': old_name, 'new': new_name})
     return redirect(url_for('company_detail', company_id=company_id))
 
 
@@ -1401,6 +1562,7 @@ def company_rename(company_id):
 def company_delete(company_id):
     import shutil
     company = db.session.get(Company, company_id) or abort(404)
+    log_event('company_deleted', {'id': company_id, 'name': company.name})
 
     # Удаляем все связанные записи
     DailyRow.query.filter_by(company_id=company_id).delete()
@@ -1492,8 +1654,11 @@ def settings():
         if action == 'save_imap':
             for key, _, _ in IMAP_KEYS:
                 val = request.form.get(key, '').strip()
+                if key == 'imap_password' and val:
+                    val = encrypt_value(val)
                 Setting.set(key, val)
             db.session.commit()
+            log_event('imap_settings_saved')
 
         elif action == 'add_rule':
             company_id      = request.form.get('company_id', type=int)
@@ -1519,6 +1684,9 @@ def settings():
         return redirect(url_for('settings'))
 
     imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
+    # Расшифровываем пароль для отображения в форме (страница только для admin)
+    if imap_cfg.get('imap_password'):
+        imap_cfg['imap_password'] = decrypt_value(imap_cfg['imap_password'])
     rules = EmailRule.query.order_by(EmailRule.id).all()
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
@@ -1562,6 +1730,7 @@ def users_create():
     )
     db.session.add(new_user)
     db.session.commit()
+    log_event('user_created', {'username': username, 'role': role})
     return redirect(url_for('users_list'))
 
 
@@ -1570,6 +1739,7 @@ def users_create():
 def users_delete(user_id):
     user = db.session.get(User, user_id)
     if user and user.id != current_user.id:
+        log_event('user_deleted', {'username': user.username})
         db.session.delete(user)
         db.session.commit()
     return redirect(url_for('users_list'))
@@ -1583,6 +1753,7 @@ def users_set_password(user_id):
     if user and len(password) >= 4:
         user.password_hash = _hash_password(password)
         db.session.commit()
+        log_event('user_password_changed', {'username': user.username})
     return redirect(url_for('users_list'))
 
 
@@ -1595,8 +1766,11 @@ def users_set_role(user_id):
         role = 'user'
     # Нельзя понизить самого себя
     if user and user.id != current_user.id:
+        old_role = user.role
         user.role = role
         db.session.commit()
+        log_event('user_role_changed',
+                  {'username': user.username, 'old': old_role, 'new': role})
     return redirect(url_for('users_list'))
 
 

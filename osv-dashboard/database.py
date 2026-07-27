@@ -105,6 +105,19 @@ class Upload(db.Model):
             return []
 
 
+class AuditLog(db.Model):
+    """Журнал событий безопасности (входы, изменения пользователей, загрузки файлов и т.д.)."""
+    __tablename__ = 'audit_log'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'),
+                           nullable=True)
+    action     = db.Column(db.String(64), nullable=False, index=True)
+    details    = db.Column(db.Text, default=None)       # JSON-строка с деталями
+    ip         = db.Column(db.String(45), default=None) # IPv4 или IPv6
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
+
+
 class DailyRow(db.Model):
     """Суточные данные из ZIP-архивов: один счёт, один день."""
     __tablename__ = 'daily_rows'
