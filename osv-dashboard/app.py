@@ -1347,6 +1347,11 @@ def dashboard(company_id, name):
             '\n    <a class="hd-back"',
             1,
         )
+    # Вставляем CSRF-токен, company_id и флаг AI прямо в уже собранный HTML
+    ai_ok = AiProvider.query.filter_by(is_active=True).first() is not None
+    html = html.replace("'__CSRF__'",   f"'{generate_csrf()}'",    1)
+    html = html.replace('__CID__',      str(company_id),            1)
+    html = html.replace('__AI_OK__',    'true' if ai_ok else 'false', 1)
     return Response(html, mimetype='text/html')
 
 
@@ -1797,6 +1802,154 @@ def settings_sync_imap():
     """Ручная синхронизация — тонкая обёртка над _do_imap_sync()."""
     result = _do_imap_sync(current_user.id)
     return jsonify(**result)
+
+
+@app.route('/ai/brief', methods=['POST'])
+@login_required
+def ai_brief():
+    """Генерирует блок «Что происходит» через ИИ по данным из дашборда."""
+    import json as _json
+    import re as _re
+    from ai_client import call_ai_provider as _call_ai
+
+    req = request.get_json(force=True, silent=True) or {}
+
+    provider = (AiProvider.query.filter_by(is_default=True, is_active=True).first()
+                or AiProvider.query.filter_by(is_active=True).first())
+    if not provider:
+        return jsonify(ok=False, error='ИИ-провайдер не настроен'), 400
+
+    api_key = decrypt_value(provider.api_key) if provider.api_key else ''
+
+    def _mln(v):
+        sign = '+' if v >= 0 else '−'
+        return f'{sign}{abs(v)/1e6:.1f} млн ₽'.replace('.', ',')
+
+    company_name = req.get('company_name', 'Предприятие')
+    period       = req.get('period', '')
+    months_list  = req.get('months', [])
+    closing      = req.get('closing', [])
+    pl           = req.get('pl', {})
+    dz_tot       = req.get('dz_tot', {})
+    kz_tot       = req.get('kz_tot', {})
+    cash         = req.get('cash', {})
+    kz_rows      = req.get('kz', [])
+    hazard       = req.get('hazard', '')
+
+    lines = [f'Организация: {company_name}']
+    if period:
+        lines.append(f'Отчётный период: {period}')
+    if months_list:
+        closed_m     = [m for m, s in zip(months_list, closing) if 'закрыт' in s.lower() and 'не закрыт' not in s.lower()]
+        not_closed_m = [m for m, s in zip(months_list, closing) if 'не закрыт' in s.lower()]
+        if closed_m:
+            lines.append(f'Закрытые месяцы: {", ".join(closed_m)}')
+        if not_closed_m:
+            lines.append(f'⚠ Незакрытые (данные неполные): {", ".join(not_closed_m)}')
+
+    if pl:
+        rev   = pl.get('rev_total', 0)
+        nds   = pl.get('nds_total', 0)
+        cost  = pl.get('cost_total', 0)
+        adm   = pl.get('adm_total', 0)
+        oinc  = pl.get('oinc_total', 0)
+        oexp  = pl.get('oexp_total', 0)
+        revn  = rev - nds
+        spend = cost + adm
+        sales = revn - spend
+        net   = sales + oinc - oexp
+        lines.append('\nФинансовые результаты:')
+        lines.append(f'  Выручка без НДС: {revn/1e6:.1f} млн ₽'.replace('.', ','))
+        lines.append(f'  Расходы (производство + управление): {spend/1e6:.1f} млн ₽'.replace('.', ','))
+        lines.append(f'  Результат от основной деятельности: {_mln(sales)}')
+        if oinc or oexp:
+            lines.append(f'  Прочие доходы: {oinc/1e6:.1f} млн ₽, прочие расходы: {oexp/1e6:.1f} млн ₽'.replace('.', ','))
+            lines.append(f'  Итоговый результат: {_mln(net)}')
+    else:
+        sales = 0; net = 0
+
+    if dz_tot:
+        sn, sk = dz_tot.get('sn', 0), dz_tot.get('sk', 0)
+        lines.append(f'\nДебиторская задолженность: начало {sn/1e6:.1f} млн ₽ → конец {sk/1e6:.1f} млн ₽ (изм. {_mln(sk-sn)})'.replace('.', ','))
+    if kz_tot:
+        sn, sk = kz_tot.get('sn', 0), kz_tot.get('sk', 0)
+        lines.append(f'Кредиторская задолженность: начало {sn/1e6:.1f} млн ₽ → конец {sk/1e6:.1f} млн ₽ (изм. {_mln(sk-sn)})'.replace('.', ','))
+        if kz_rows:
+            top = kz_rows[0]
+            lines.append(f'Крупнейший кредитор: {top[0]} — {top[2]/1e6:.1f} млн ₽'.replace('.', ','))
+    if cash:
+        cash_end  = cash.get('end', 0)
+        cash_days = cash.get('days', 0)
+        lines.append(f'Деньги на счетах и в кассе: {cash_end/1e6:.1f} млн ₽ (≈{max(cash_days,0):.0f} раб. дней платежей)'.replace('.', ','))
+    if hazard:
+        h_clean = _re.sub(r'<[^>]+>', '', hazard)
+        lines.append(f'\n⚠ Качество данных: {h_clean}')
+
+    is_loss = (sales < 0) if pl else False
+
+    system_msg = (
+        'Ты финансовый аналитик — специалист по ОСВ организаций ЖКХ России. '
+        'По приведённым финансовым данным сформируй блок «Что происходит». '
+        'Верни ТОЛЬКО валидный JSON без пояснений:\n'
+        '{\n'
+        '  "lead": "Одно предложение — главный вывод (чистый текст, без HTML)",\n'
+        '  "points": [\n'
+        '    "<b>Тема.</b> Факт с цифрами, используй <span class=\\"bad\\">−X млн ₽</span> и <span class=\\"ok\\">+X млн ₽</span> для выделения",\n'
+        '    "..."\n'
+        '  ],\n'
+        '  "foot": "<b>Приоритеты:</b> пункт1; пункт2.",\n'
+        '  "is_loss": true\n'
+        '}\n'
+        'Правила: 4–6 пунктов; каждый начинается с <b>Тема.</b>; '
+        'is_loss=true если основная деятельность убыточна; только русский язык.'
+    )
+
+    try:
+        result = _call_ai(
+            base_url=provider.base_url,
+            api_key=api_key,
+            model=provider.model,
+            messages=[
+                {'role': 'system', 'content': system_msg},
+                {'role': 'user',   'content': '\n'.join(lines)},
+            ],
+            temperature=0.25,
+            max_tokens=1200,
+            enable_thinking=False,
+            timeout=60,
+        )
+    except Exception as e:
+        app.logger.error('AI brief error: %s', e)
+        return jsonify(ok=False, error=str(e)), 502
+
+    content = result['content']
+
+    # Извлекаем JSON — убираем markdown-фенсы, ищем первый {...}
+    json_str = content
+    m = _re.search(r'```(?:json)?\s*([\s\S]*?)```', content, _re.IGNORECASE)
+    if m:
+        json_str = m.group(1).strip()
+    else:
+        m2 = _re.search(r'\{[\s\S]*\}', content)
+        if m2:
+            json_str = m2.group(0)
+
+    try:
+        brief_data = _json.loads(json_str)
+        # Нормализуем обязательные поля
+        brief_data.setdefault('lead', '')
+        brief_data.setdefault('points', [])
+        brief_data.setdefault('foot', '')
+        brief_data.setdefault('is_loss', is_loss)
+    except Exception:
+        brief_data = {
+            'lead': content[:200],
+            'points': [f'<b>Заключение.</b> {content[:600]}'],
+            'foot': '',
+            'is_loss': is_loss,
+        }
+
+    return jsonify(ok=True, brief=brief_data)
 
 
 @app.route('/settings/test-ai', methods=['POST'])

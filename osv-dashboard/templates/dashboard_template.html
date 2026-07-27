@@ -83,6 +83,20 @@ h2 .exp{font:400 12.5px/1.4 'Segoe UI',sans-serif;color:var(--mut);text-transfor
 .brief li .ok{color:var(--ok);font-weight:700}
 .brief .foot{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px;color:var(--mut)}
 .brief .foot b{color:var(--ink2)}
+/* AI brief */
+.brief-hdr{display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap}
+.brief-hdr h2{margin-bottom:4px;flex:1}
+.ai-brief-btn{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:8px;
+  padding:7px 15px;font:600 12.5px 'Segoe UI',sans-serif;cursor:pointer;
+  background:var(--water);color:#fff;white-space:nowrap;flex-shrink:0;margin-top:2px;
+  transition:background .15s}
+.ai-brief-btn:hover{background:#186a87}
+.ai-brief-btn:disabled{opacity:.5;cursor:default}
+.ai-brief-spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.35);
+  border-top-color:#fff;border-radius:50%;animation:bspin .6s linear infinite}
+@keyframes bspin{to{transform:rotate(360deg)}}
+.brief-ai-err{margin-top:10px;background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;
+  border-radius:7px;padding:8px 12px;font-size:13px}
 /* KPI */
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;margin-top:16px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;position:relative;overflow:hidden}
@@ -184,10 +198,15 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 <!-- ================= ОБЗОР ================= -->
 <div id="view-exec">
   <section class="brief" id="sect-brief">
-    <h2>Что происходит <span class="exp" id="brief-note"></span></h2>
+    <div class="brief-hdr">
+      <h2>Что происходит <span class="exp" id="brief-note"></span></h2>
+      <button class="ai-brief-btn" id="ai-brief-btn"
+              onclick="requestAiBrief()" style="display:none">✦ Резюме ИИ</button>
+    </div>
     <div class="lead" id="brief-lead"></div>
     <ol id="brief-points"></ol>
     <div class="foot" id="brief-foot"></div>
+    <div class="brief-ai-err" id="brief-ai-err" style="display:none"></div>
   </section>
 
   <!-- суточная динамика (показывается в обзоре если есть суточные данные) -->
@@ -340,6 +359,9 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 
 <script>
 const D = /*__DATA__*/;
+const _CSRF  = '__CSRF__';
+const _CID   = __CID__;
+const _AI_OK = __AI_OK__;
 const MN = D.month_names, MSHORT = D.month_short, GHOST = D.ghost;
 const MSTATUS = D.closing_label.map(s=>s==='закрыт'?'закрыт':(s==='НЕ ЗАКРЫТ'?'не закрыт':'част.'));
 let sel = D.months.map(()=>true);
@@ -997,6 +1019,63 @@ function renderKz(){
 }
 
 buildMonthBtns(); buildTabs(); renderAll();
+if(_AI_OK){ const b=document.getElementById('ai-brief-btn'); if(b) b.style.display=''; }
+
+function requestAiBrief(){
+  const btn=document.getElementById('ai-brief-btn');
+  const errEl=document.getElementById('brief-ai-err');
+  const s=arr=>arr.reduce((a,b)=>a+b,0);
+  btn.disabled=true;
+  btn.innerHTML='<span class="ai-brief-spin"></span> Формирую…';
+  errEl.style.display='none';
+  const avgOut=s(D.cf.out)/Math.max(D.months.length,1);
+  const cashEnd=D.cf.b51_end+D.cf.b50_end;
+  const cashDays=avgOut>0?cashEnd/(avgOut/21):0;
+  const payload={
+    company_name:D.company_name,
+    period:D.period_label,
+    months:D.month_names,
+    closing:D.closing_label,
+    pl:{
+      rev_total:s(D.pl.rev), nds_total:s(D.pl.nds),
+      cost_total:s(D.pl.cost), adm_total:s(D.pl.adm),
+      oinc_total:s(D.pl.oinc), oexp_total:s(D.pl.oexp),
+    },
+    dz_tot:D.dz_tot, kz_tot:D.kz_tot,
+    cash:{end:cashEnd, avg_out:avgOut, days:cashDays},
+    kz:D.kz.slice(0,3),
+    hazard:D.hazard||'',
+  };
+  fetch('/ai/brief',{
+    method:'POST',
+    body:JSON.stringify(payload),
+    headers:{'Content-Type':'application/json','X-CSRFToken':_CSRF,'X-Requested-With':'XMLHttpRequest'},
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.ok&&d.brief){
+      const b=d.brief;
+      const sect=document.getElementById('sect-brief');
+      if(b.is_loss) sect.classList.remove('profit'); else sect.classList.add('profit');
+      document.getElementById('brief-lead').textContent=b.lead||'';
+      document.getElementById('brief-points').innerHTML=(b.points||[]).map((p,i)=>
+        `<li><span class="n">${i+1}</span><span>${p}</span></li>`).join('');
+      document.getElementById('brief-foot').innerHTML=b.foot||'';
+      btn.innerHTML='✦ Обновить';
+    } else {
+      errEl.textContent=d.error||'Ошибка при генерации резюме';
+      errEl.style.display='block';
+      btn.innerHTML='✦ Резюме ИИ';
+    }
+  })
+  .catch(()=>{
+    errEl.textContent='Не удалось выполнить запрос';
+    errEl.style.display='block';
+    btn.innerHTML='✦ Резюме ИИ';
+  })
+  .finally(()=>{ btn.disabled=false; });
+}
+
 ['q-items','q-dep','q-dz','q-kz'].forEach(id=>{
   const map={'q-items':renderItems,'q-dep':renderDeps,'q-dz':renderDz,'q-kz':renderKz};
   document.getElementById(id).addEventListener('input',map[id]);
