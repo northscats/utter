@@ -539,3 +539,118 @@ def build_dataset(data, company_name=''):
         sections       =sections,
         accounts_loaded=sorted(data.keys()),
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# KPI-снимок для сводной матрицы главной страницы
+# ──────────────────────────────────────────────────────────────────────────────
+def extract_kpis(dataset):
+    """Вычисляет 10 показателей рейтинга из dataset.
+    Возвращает dict {metrics, signals, display, score, counts}."""
+    pl       = dataset.get('pl', {})
+    rev_arr  = pl.get('rev', [])
+    nds_arr  = pl.get('nds', [])
+    cost_arr = pl.get('cost', [])
+    adm_arr  = pl.get('adm', [])
+
+    rev_total  = sum(rev_arr)
+    nds_total  = sum(nds_arr)
+    rev_net    = rev_total - nds_total
+    cost_total = sum(cost_arr)
+    adm_total  = sum(adm_arr)
+    ebitda     = rev_net - cost_total - adm_total
+
+    dz_tot = dataset.get('dz_tot', {})
+    kz_tot = dataset.get('kz_tot', {})
+    dz_sk  = dz_tot.get('sk', 0) or 0
+    kz_sk  = kz_tot.get('sk', 0) or 0
+
+    cf       = dataset.get('cf', {})
+    cash_end = (cf.get('b51_end', 0) or 0) + (cf.get('b50_end', 0) or 0)
+
+    credits      = dataset.get('credits', {})
+    credits_sk   = credits.get('sk', 0) or 0
+    credits_sn   = credits.get('sn', 0) or 0
+    credits_avg  = (credits_sk + credits_sn) / 2
+
+    e91      = dataset.get('e91', [])
+    interest = sum(v for n, v in e91 if 'процент' in n.lower())
+
+    comm44       = dataset.get('comm44', [])
+    comm44_total = sum(comm44) if comm44 else -1
+
+    zp        = dataset.get('zp', {})
+    zp_total  = sum(zp.get('v', []))
+
+    nal        = dataset.get('nal', [])
+    tax_social = sum(r[4] for r in nal if r[0].startswith('69') or r[0] == '68.01')
+
+    n_months = len(dataset.get('months', [])) or 1
+    n_days   = n_months * 30
+
+    def _safe(a, b):
+        return (a / b) if b else None
+
+    raw = {
+        'dz_days':    _safe(dz_sk * n_days, rev_net)            if rev_net > 0 and dz_sk > 0    else None,
+        'kz_dz':      _safe(kz_sk, dz_sk)                       if dz_sk > 0                    else None,
+        'liquidity':  _safe(cash_end, kz_sk)                    if kz_sk > 0                    else None,
+        'debt_ebitda':_safe(credits_sk - cash_end, ebitda)      if credits_sk > 0 and ebitda > 0 else None,
+        'rate':       _safe(interest / credits_avg / n_months * 12 * 100, 1)
+                                                                  if credits_avg > 0 and interest > 0 else None,
+        'tax_burden': _safe(tax_social * 100, zp_total)         if zp_total > 0                 else None,
+        'nvv_pct':    None,
+        'cost_pct':   _safe(cost_total * 100, rev_net)          if rev_net > 0                  else None,
+        'comm_pct':   _safe(comm44_total * 100, rev_net)        if comm44_total >= 0 and rev_net > 0 else None,
+        'adm_pct':    _safe(adm_total * 100, rev_net)           if rev_net > 0                  else None,
+    }
+
+    def sig(v, g, y):
+        if v is None:
+            return 'na'
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return 'na'
+        return 'green' if g(fv) else 'yellow' if y(fv) else 'red'
+
+    signals = {
+        'dz_days':    sig(raw['dz_days'],    lambda v: v <= 60,  lambda v: v <= 90),
+        'kz_dz':      sig(raw['kz_dz'],      lambda v: v <= 1.0, lambda v: v <= 1.5),
+        'liquidity':  sig(raw['liquidity'],  lambda v: v >= 0.5, lambda v: v >= 0.2),
+        'debt_ebitda':sig(raw['debt_ebitda'],lambda v: v <= 2.5, lambda v: v <= 4.0),
+        'rate':       sig(raw['rate'],       lambda v: v <= 18,  lambda v: v <= 22),
+        'tax_burden': sig(raw['tax_burden'], lambda v: v <= 32,  lambda v: v <= 38),
+        'nvv_pct':    'na',
+        'cost_pct':   sig(raw['cost_pct'],   lambda v: v <= 80,  lambda v: v <= 95),
+        'comm_pct':   sig(raw['comm_pct'],   lambda v: v <= 3,   lambda v: v <= 5),
+        'adm_pct':    sig(raw['adm_pct'],    lambda v: v <= 8,   lambda v: v <= 12),
+    }
+
+    def _fmt(key, v):
+        if v is None:
+            return '—'
+        fmts = {
+            'dz_days':    lambda x: f'{round(x)} дн.',
+            'kz_dz':      lambda x: f'{x:.2f}×',
+            'liquidity':  lambda x: f'{x:.2f}',
+            'debt_ebitda':lambda x: f'{x:.1f}×',
+            'rate':       lambda x: f'{x:.1f}%',
+            'tax_burden': lambda x: f'{x:.1f}%',
+            'nvv_pct':    lambda x: '—',
+            'cost_pct':   lambda x: f'{x:.1f}%',
+            'comm_pct':   lambda x: f'{x:.1f}%',
+            'adm_pct':    lambda x: f'{x:.1f}%',
+        }
+        return fmts.get(key, str)(v)
+
+    display = {k: _fmt(k, v) for k, v in raw.items()}
+    display['nvv_pct'] = '—'
+
+    counts = {'green': 0, 'yellow': 0, 'red': 0, 'na': 0}
+    for s in signals.values():
+        counts[s] = counts.get(s, 0) + 1
+    scoreable = counts['green'] + counts['yellow'] + counts['red'] or 1
+    score = round((counts['green'] * 100 + counts['yellow'] * 50) / (scoreable * 100) * 100)
+
+    return dict(signals=signals, display=display, score=score, counts=counts)

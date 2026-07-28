@@ -158,6 +158,17 @@ def render_dashboard(dataset, back_url='/'):
     return tpl
 
 
+def _save_kpi_cache(dataset, out_dir):
+    """Вычисляет KPI из dataset и сохраняет kpi_cache.json рядом с дашбордом."""
+    from builder import extract_kpis
+    try:
+        kpis = extract_kpis(dataset)
+        with open(os.path.join(out_dir, 'kpi_cache.json'), 'w', encoding='utf-8') as f:
+            json.dump(kpis, f, ensure_ascii=False)
+    except Exception as exc:
+        app.logger.warning(f'kpi_cache save failed: {exc}')
+
+
 def _hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
@@ -171,7 +182,16 @@ def _company_summary(company):
     uploads = company.uploads  # уже отсортированы по убыванию
     last = uploads[0] if uploads else None
     files_total = sum(u.files_count for u in uploads)
-    dash_path = os.path.join(OUTPUT, str(company.id), 'dashboard_current.html')
+    out_dir = os.path.join(OUTPUT, str(company.id))
+    dash_path = os.path.join(out_dir, 'dashboard_current.html')
+    kpi_path  = os.path.join(out_dir, 'kpi_cache.json')
+    kpis = None
+    if os.path.isfile(kpi_path):
+        try:
+            with open(kpi_path, encoding='utf-8') as _kf:
+                kpis = json.load(_kf)
+        except Exception:
+            pass
     return dict(
         id=company.id,
         name=company.name,
@@ -181,6 +201,7 @@ def _company_summary(company):
         profit_sign=last.profit_sign if last else 'neutral',
         last_upload=(last.uploaded_at.strftime('%d.%m.%Y') if last else None),
         has_dashboard=os.path.isfile(dash_path),
+        kpis=kpis,
     )
 
 
@@ -290,6 +311,7 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
     out_name = 'dashboard_current.html'
     with open(os.path.join(out_dir, out_name), 'w', encoding='utf-8') as f:
         f.write(html)
+    _save_kpi_cache(dataset, out_dir)
 
     # Выясняем статус закрытия из brief
     brief = dataset.get('brief', {})
@@ -1280,6 +1302,7 @@ def company_upload_all(company_id):
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, 'dashboard_current.html'), 'w', encoding='utf-8') as f:
         f.write(html_content)
+    _save_kpi_cache(dataset, out_dir)
 
     # Метаданные для записи в историю
     period_lbl = dataset.get('period_label', '')
@@ -1523,6 +1546,7 @@ def company_upload_zip(company_id):
     out_name = 'dashboard_current.html'
     with open(os.path.join(out_dir, out_name), 'w', encoding='utf-8') as f:
         f.write(html)
+    _save_kpi_cache(dataset, out_dir)
 
     # Диапазон дат из ZIP
     _MRU = {1:'января',2:'февраля',3:'марта',4:'апреля',5:'мая',6:'июня',
@@ -1722,6 +1746,7 @@ def company_regen(company_id):
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, 'dashboard_current.html'), 'w', encoding='utf-8') as f:
             f.write(html)
+        _save_kpi_cache(dataset, out_dir)
         log_event('dashboard_regen', {'company_id': company_id})
     return redirect(url_for('company_detail', company_id=company_id))
 

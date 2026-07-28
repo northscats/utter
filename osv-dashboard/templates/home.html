@@ -32,9 +32,20 @@ header{background:var(--ink);color:#e8eef2;padding:0}
   text-decoration:none;white-space:nowrap}
 .hd-drop a:hover{background:#253545;color:#fff}
 .hd-drop-sep{border-top:1px solid #3a5060;margin:4px 0}
-main{max-width:1100px;margin:0 auto;padding:28px 24px}
-.top-bar{display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap}
-.top-bar h2{font-size:16px;font-weight:700;color:var(--ink);flex:1}
+
+main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
+.top-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.top-bar h2{font-size:16px;font-weight:700;color:var(--ink)}
+.top-bar-right{display:flex;align-items:center;gap:10px;margin-left:auto;flex-wrap:wrap}
+
+/* переключатель вид таблица / матрица */
+.view-toggle{display:flex;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.view-toggle button{background:none;border:none;padding:8px 16px;font:600 13px 'Segoe UI',sans-serif;
+  color:var(--mut);cursor:pointer;transition:background .12s,color .12s;white-space:nowrap;
+  display:flex;align-items:center;gap:6px}
+.view-toggle button.active{background:var(--water);color:#fff}
+.view-toggle button:first-child{border-right:1px solid var(--line)}
+
 .btn-new{background:var(--water);color:#fff;border:0;border-radius:8px;
   padding:10px 20px;font:600 14px 'Segoe UI',sans-serif;cursor:pointer;
   letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center;gap:7px;
@@ -44,7 +55,7 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
 /* --- таблица-список предприятий --- */
 .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
   border:1px solid var(--line);border-radius:12px}
-.companies-table{width:100%;border-collapse:collapse;background:var(--panel);min-width:600px}
+.companies-table{width:100%;border-collapse:collapse;background:var(--panel)}
 .companies-table thead th{
   background:#f0f3f5;font-size:11px;text-transform:uppercase;letter-spacing:.07em;
   color:#31424f;padding:11px 16px;text-align:left;border-bottom:1px solid var(--line);
@@ -53,35 +64,19 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
 .companies-table tbody tr:last-child{border-bottom:0}
 .companies-table tbody tr:hover{background:#f7f9fa}
 .companies-table td{padding:14px 16px;vertical-align:middle}
-
-/* колонка: название */
 .col-name{min-width:160px}
 .company-name{font-size:15px;font-weight:700;color:var(--ink);word-break:break-word}
-.company-meta{font-size:12px;color:var(--mut);margin-top:2px}
-
-/* колонка: период */
 .col-period{white-space:nowrap;font-size:14px;color:var(--ink)}
-
-/* колонка: файлов */
 .col-files{white-space:nowrap;font-size:14px;color:var(--ink);text-align:center}
-
-/* колонка: закрытие */
 .col-closure{text-align:center}
-
-/* колонка: результат */
-.col-profit{}
-
-/* колонка: действие */
 .col-action{text-align:right;white-space:nowrap}
-
-/* адаптив: на узких экранах скрываем менее важные колонки */
 @media(max-width:640px){
   .col-files,.col-closure{display:none}
   .companies-table{min-width:0}
 }
 @media(max-width:480px){
   .col-period{display:none}
-  main{padding:16px 12px}
+  main{padding:16px 12px;width:100%}
 }
 
 .badge{display:inline-block;border-radius:5px;padding:3px 10px;font-size:12px;font-weight:600}
@@ -97,12 +92,61 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
   white-space:nowrap;transition:background .15s;display:inline-block}
 .btn-open:hover{background:#e2e8ec;border-color:#c0cad0}
 
-/* пустое состояние */
 .empty{text-align:center;padding:72px 24px;color:var(--mut);
   background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .empty-icon{font-size:52px;margin-bottom:18px}
 .empty h3{font-size:18px;font-weight:600;color:#31424f;margin-bottom:8px}
 .empty p{max-width:420px;margin:0 auto 24px;font-size:14px}
+
+/* ── матрица КПЭ ── */
+#view-matrix{display:none}
+.matrix-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  border:1px solid var(--line);border-radius:12px}
+.matrix-table{border-collapse:collapse;background:#fff;width:100%;min-width:900px}
+.matrix-table thead th{
+  background:#f0f3f5;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+  color:#31424f;padding:9px 10px;text-align:center;border-bottom:1px solid var(--line);
+  font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:1}
+.matrix-table thead th.th-name{text-align:left;min-width:170px;max-width:280px;position:sticky;left:0;z-index:2;background:#f0f3f5}
+.matrix-table thead th.th-score{background:#e8f4fb;color:#1f7a9c;min-width:80px}
+.matrix-table tbody tr{border-bottom:1px solid #edf0f3;transition:background .12s;cursor:pointer}
+.matrix-table tbody tr:last-child{border-bottom:0}
+.matrix-table tbody tr:hover{background:#f7f9fa}
+.matrix-table td{padding:8px 10px;vertical-align:middle;text-align:center;font-size:13px}
+.matrix-table td.td-name{
+  text-align:left;font-weight:700;font-size:13.5px;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;
+  position:sticky;left:0;background:#fff;border-right:1px solid #e8ecef;z-index:1}
+.matrix-table tbody tr:hover td.td-name{background:#f7f9fa}
+.matrix-table td.td-score{background:#f0f8fc;border-left:1px solid #d0e8f2}
+.kpi-cell{padding:6px 8px !important}
+.kpi-inner{display:flex;align-items:center;justify-content:center;gap:5px;
+  border-radius:6px;padding:5px 8px;font-size:12.5px;font-weight:600;line-height:1}
+.kpi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sig-green  .kpi-inner{background:#d1fae5;color:#14532d}
+.sig-green  .kpi-dot{background:#16a34a}
+.sig-yellow .kpi-inner{background:#fef9c3;color:#713f12}
+.sig-yellow .kpi-dot{background:#ca8a04}
+.sig-red    .kpi-inner{background:#fee2e2;color:#7f1d1d}
+.sig-red    .kpi-dot{background:#dc2626}
+.sig-na     .kpi-inner{background:#f0f3f5;color:#7a96a8}
+.sig-na     .kpi-dot{background:#b0bec5}
+
+/* Score-ячейка */
+.score-box{display:flex;flex-direction:column;align-items:center;gap:3px}
+.score-num{font-size:17px;font-weight:800;color:#1f7a9c;line-height:1}
+.score-bar{width:46px;height:5px;background:#d0e8f2;border-radius:3px;overflow:hidden}
+.score-fill{height:100%;border-radius:3px;background:#1f7a9c}
+.score-counts{font-size:10px;color:#7a96a8;white-space:nowrap}
+
+/* матрица-легенда */
+.matrix-legend{display:flex;align-items:center;gap:20px;margin-top:10px;
+  font-size:12px;color:var(--mut);flex-wrap:wrap}
+.ml-item{display:flex;align-items:center;gap:5px}
+.ml-dot{width:9px;height:9px;border-radius:50%}
+
+/* подсказка */
+.th-hint{cursor:help;border-bottom:1px dashed #9ab0be}
 </style>
 </head>
 <body>
@@ -132,59 +176,147 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
 <main>
   <div class="top-bar">
     <h2>Предприятия{% if companies %} ({{ companies|length }}){% endif %}</h2>
-    <a class="btn-new" href="{{ url_for('company_new') }}">+ Добавить предприятие</a>
+    <div class="top-bar-right">
+      {% if companies %}
+      <div class="view-toggle">
+        <button id="btn-table" class="active" onclick="switchView('table')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="12" height="12" rx="1.5"/><line x1="1" y1="5" x2="13" y2="5"/><line x1="1" y1="9" x2="13" y2="9"/><line x1="5" y1="5" x2="5" y2="13"/></svg>
+          Таблица
+        </button>
+        <button id="btn-matrix" onclick="switchView('matrix')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="5" height="5" rx="1"/><rect x="8" y="1" width="5" height="5" rx="1"/><rect x="1" y="8" width="5" height="5" rx="1"/><rect x="8" y="8" width="5" height="5" rx="1"/></svg>
+          Матрица КПЭ
+        </button>
+      </div>
+      {% endif %}
+      <a class="btn-new" href="{{ url_for('company_new') }}">+ Добавить предприятие</a>
+    </div>
   </div>
 
   {% if companies %}
-  <div class="table-wrap"><table class="companies-table">
-    <thead>
-      <tr>
-        <th class="col-name">Наименование предприятия</th>
-        <th class="col-period">Период данных</th>
-        <th class="col-files">Загрузок</th>
-        <th class="col-closure">Закрытие периодов</th>
-        <th class="col-profit">Фин. результат</th>
-        <th class="col-action">Последняя загрузка</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in companies %}
-      {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
-      <tr onclick="location.href='{{ dest }}'">
-        <td class="col-name">
-          <div class="company-name">{{ c.name }}</div>
-        </td>
-        <td class="col-period">{{ c.last_period or '—' }}</td>
-        <td class="col-files">{{ c.files_total }}</td>
-        <td class="col-closure">
-          {% if c.closure is none %}
-            <span class="badge badge-none">нет данных</span>
-          {% elif c.closure %}
-            <span class="badge badge-ok">✓ закрыт</span>
-          {% else %}
-            <span class="badge badge-bad">✗ не закрыт</span>
-          {% endif %}
-        </td>
-        <td class="col-profit">
-          {% if c.profit_sign == 'profit' %}
-            <span class="badge badge-profit">Прибыль</span>
-          {% elif c.profit_sign == 'loss' %}
-            <span class="badge badge-loss">Убыток</span>
-          {% else %}
-            <span class="badge badge-neutral">—</span>
-          {% endif %}
-        </td>
-        <td class="col-action" style="font-size:13px;color:var(--mut)">
-          {{ c.last_upload or '—' }}
-        </td>
-        <td>
-          <a class="btn-open" href="{{ dest }}">Открыть →</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table></div>
+  <!-- ── ТАБЛИЦА ── -->
+  <div id="view-table">
+    <div class="table-wrap"><table class="companies-table">
+      <thead>
+        <tr>
+          <th class="col-name">Наименование предприятия</th>
+          <th class="col-period">Период данных</th>
+          <th class="col-files">Загрузок</th>
+          <th class="col-closure">Закрытие периодов</th>
+          <th class="col-profit">Фин. результат</th>
+          <th class="col-action">Последняя загрузка</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in companies %}
+        {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
+        <tr onclick="location.href='{{ dest }}'">
+          <td class="col-name">
+            <div class="company-name">{{ c.name }}</div>
+          </td>
+          <td class="col-period">{{ c.last_period or '—' }}</td>
+          <td class="col-files">{{ c.files_total }}</td>
+          <td class="col-closure">
+            {% if c.closure is none %}
+              <span class="badge badge-none">нет данных</span>
+            {% elif c.closure %}
+              <span class="badge badge-ok">✓ закрыт</span>
+            {% else %}
+              <span class="badge badge-bad">✗ не закрыт</span>
+            {% endif %}
+          </td>
+          <td class="col-profit">
+            {% if c.profit_sign == 'profit' %}
+              <span class="badge badge-profit">Прибыль</span>
+            {% elif c.profit_sign == 'loss' %}
+              <span class="badge badge-loss">Убыток</span>
+            {% else %}
+              <span class="badge badge-neutral">—</span>
+            {% endif %}
+          </td>
+          <td class="col-action" style="font-size:13px;color:var(--mut)">
+            {{ c.last_upload or '—' }}
+          </td>
+          <td>
+            <a class="btn-open" href="{{ dest }}">Открыть →</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+
+  <!-- ── МАТРИЦА КПЭ ── -->
+  <div id="view-matrix">
+    <div class="matrix-wrap">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th class="th-name">Предприятие</th>
+            <th title="Дебиторская задолженность: период оборачиваемости (дни). Эталон ≤ 60 дн."><span class="th-hint">ДЗ</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">оборач., дн.</span></th>
+            <th title="Кредиторская задолженность / Дебиторская задолженность. Эталон ≤ 1.0×"><span class="th-hint">КЗ / ДЗ</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">соотношение</span></th>
+            <th title="Коэффициент ликвидности: Денежные средства / КЗ. Эталон ≥ 0.50"><span class="th-hint">Ликвид.</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">ДС / КЗ</span></th>
+            <th title="Долговая нагрузка: Чистый долг (сч.66,67) / EBITDA. Эталон ≤ 2.5×"><span class="th-hint">Долг</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">/ EBITDA</span></th>
+            <th title="Эффективная ставка по кредитам (проценты 91.02 / тело долга 66,67). Эталон ≤ 18%"><span class="th-hint">Ставка</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">% годовых</span></th>
+            <th title="Налоговая нагрузка на ФОТ: (НДФЛ + взносы) / ФОТ. Эталон ≤ 32%"><span class="th-hint">ФОТ нагр.</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">% от ФОТ</span></th>
+            <th title="Процент выполнения НВВ. Требует загрузки планового значения."><span class="th-hint">НВВ %</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">выполнение</span></th>
+            <th title="Себестоимость / Выручка нетто. Эталон ≤ 80%"><span class="th-hint">С/С</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">% выручки</span></th>
+            <th title="Коммерческие расходы (сч.44) / Выручка нетто. Эталон ≤ 3%"><span class="th-hint">Ком.</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">% выручки</span></th>
+            <th title="Управленческие расходы (сч.26) / Выручка нетто. Эталон ≤ 8%"><span class="th-hint">УПР</span><br><span style="font-size:9px;font-weight:400;color:#7a96a8">% выручки</span></th>
+            <th class="th-score" title="Интегральный рейтинг финансового здоровья (0–100)">SCORE<br><span style="font-size:9px;font-weight:400;color:#5b9ab8">0 – 100</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set kpi_keys = ['dz_days','kz_dz','liquidity','debt_ebitda','rate','tax_burden','nvv_pct','cost_pct','comm_pct','adm_pct'] %}
+          {% for c in companies %}
+          {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
+          <tr onclick="location.href='{{ dest }}'">
+            <td class="td-name" title="{{ c.name }}">{{ c.name }}</td>
+            {% if c.kpis %}
+              {% for key in kpi_keys %}
+              {% set sig = c.kpis.signals[key] %}
+              {% set disp = c.kpis.display[key] %}
+              <td class="kpi-cell sig-{{ sig }}">
+                <div class="kpi-inner">
+                  <div class="kpi-dot"></div>
+                  <span>{{ disp }}</span>
+                </div>
+              </td>
+              {% endfor %}
+              <td class="td-score">
+                <div class="score-box">
+                  <div class="score-num">{{ c.kpis.score }}</div>
+                  <div class="score-bar"><div class="score-fill" style="width:{{ c.kpis.score }}%"></div></div>
+                  <div class="score-counts">
+                    <span style="color:#16a34a">{{ c.kpis.counts.green }}✓</span>
+                    <span style="color:#ca8a04;margin:0 2px">{{ c.kpis.counts.yellow }}!</span>
+                    <span style="color:#dc2626">{{ c.kpis.counts.red }}✗</span>
+                  </div>
+                </div>
+              </td>
+            {% else %}
+              {% for _ in range(10) %}
+              <td class="kpi-cell sig-na">
+                <div class="kpi-inner"><div class="kpi-dot"></div><span>—</span></div>
+              </td>
+              {% endfor %}
+              <td class="td-score"><span style="color:#9ab0be;font-size:13px">—</span></td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="matrix-legend">
+      <span style="font-weight:700;color:#4a6070">СВЕТОФОР:</span>
+      <div class="ml-item"><div class="ml-dot" style="background:#16a34a"></div> Норма — значение в пределах эталона</div>
+      <div class="ml-item"><div class="ml-dot" style="background:#ca8a04"></div> Внимание — умеренное отклонение</div>
+      <div class="ml-item"><div class="ml-dot" style="background:#dc2626"></div> Критично — превышение порога</div>
+      <div class="ml-item"><div class="ml-dot" style="background:#b0bec5"></div> Нет данных — счёт не загружен в ОСВ</div>
+      <span style="margin-left:8px;color:#9ab0be">· Нажмите строку чтобы открыть дашборд · Наведите на заголовок столбца для пояснения</span>
+    </div>
+  </div>
 
   {% else %}
   <div class="empty">
@@ -197,6 +329,26 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
 </main>
 <script>
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
+
+function switchView(v){
+  var t=document.getElementById('view-table');
+  var m=document.getElementById('view-matrix');
+  var bt=document.getElementById('btn-table');
+  var bm=document.getElementById('btn-matrix');
+  if(!t||!m) return;
+  t.style.display = v==='table' ? '' : 'none';
+  m.style.display = v==='matrix' ? '' : 'none';
+  if(bt) bt.classList.toggle('active', v==='table');
+  if(bm) bm.classList.toggle('active', v==='matrix');
+  try{ localStorage.setItem('home_view', v); }catch(e){}
+}
+
+(function(){
+  try{
+    var lv=localStorage.getItem('home_view');
+    if(lv==='matrix') switchView('matrix');
+  }catch(e){}
+})();
 </script>
 </body>
 </html>
