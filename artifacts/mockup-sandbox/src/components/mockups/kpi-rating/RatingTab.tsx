@@ -215,26 +215,22 @@ function KPICard({ kpi }: { kpi: KPI }) {
             display: "flex", flexDirection: "column", alignItems: "center", minWidth: 80,
           }}>
             <span style={{ fontSize: 10, color: "#7a96a8", fontWeight: 600, marginBottom: 2 }}>ФАКТ</span>
-            <span style={{ fontSize: 20, fontWeight: 800, color: cfg.dot, lineHeight: 1 }}>{kpi.actual}</span>
+            <span style={{ fontSize: 20, fontWeight: 800, color: "#1c2b38", lineHeight: 1 }}>{kpi.actual}</span>
           </div>
           <div style={{
-            background: "#e8f4fb", borderRadius: 7, padding: "6px 12px",
+            background: "#f0f3f5", borderRadius: 7, padding: "6px 12px",
             display: "flex", flexDirection: "column", alignItems: "center", minWidth: 80,
           }}>
-            <span style={{ fontSize: 10, color: "#5b8fa8", fontWeight: 600, marginBottom: 2 }}>ЭТАЛОН</span>
-            <span style={{ fontSize: 20, fontWeight: 800, color: "#1f7a9c", lineHeight: 1 }}>{kpi.benchmark}</span>
+            <span style={{ fontSize: 10, color: "#7a96a8", fontWeight: 600, marginBottom: 2 }}>ЭТАЛОН</span>
+            <span style={{ fontSize: 20, fontWeight: 800, color: "#4a6070", lineHeight: 1 }}>{kpi.benchmark}</span>
           </div>
           <div style={{
-            background: kpi.deltaDir === "better" ? "#d1fae5" : kpi.deltaDir === "worse" ? "#fee2e2" : "#f0f3f5",
+            background: "#f0f3f5",
             borderRadius: 7, padding: "6px 12px",
             display: "flex", flexDirection: "column", alignItems: "center", minWidth: 80,
           }}>
-            <span style={{ fontSize: 10, fontWeight: 600, marginBottom: 2,
-              color: kpi.deltaDir === "better" ? "#16a34a" : kpi.deltaDir === "worse" ? "#dc2626" : "#7a96a8",
-            }}>ОТКЛ.</span>
-            <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1,
-              color: kpi.deltaDir === "better" ? "#16a34a" : kpi.deltaDir === "worse" ? "#dc2626" : "#7a96a8",
-            }}>{kpi.delta}</span>
+            <span style={{ fontSize: 10, fontWeight: 600, marginBottom: 2, color: "#7a96a8" }}>ОТКЛ.</span>
+            <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: "#1c2b38" }}>{kpi.delta}</span>
           </div>
         </div>
 
