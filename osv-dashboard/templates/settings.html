@@ -320,6 +320,13 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
               <button class="btn btn-test" type="submit" style="padding:5px 10px;font-size:12px">По умолч.</button>
             </form>
             {% endif %}
+            <button class="btn btn-test btn-edit-ai" type="button" style="padding:5px 10px;font-size:12px"
+              data-id="{{ p.id }}"
+              data-name="{{ p.name | e }}"
+              data-url="{{ p.base_url | e }}"
+              data-model="{{ p.model | e }}"
+              data-active="{{ '1' if p.is_active else '0' }}"
+              data-default="{{ '1' if p.is_default else '0' }}">Изменить</button>
             <form method="post" style="display:inline"
                   onsubmit="return confirm('Удалить провайдер «{{ p.name }}»?')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -335,6 +342,47 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     {% else %}
     <div class="empty-rules">Провайдеры не добавлены</div>
     {% endif %}
+
+    <!-- Модальное окно редактирования провайдера -->
+    <div id="ai-edit-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center">
+      <div style="background:#fff;border-radius:12px;padding:28px 32px;max-width:520px;width:calc(100% - 32px);box-shadow:0 8px 32px rgba(0,0,0,.18);position:relative">
+        <button type="button" onclick="closeEditAi()"
+                style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:20px;cursor:pointer;color:var(--mut)">×</button>
+        <div style="font-size:14px;font-weight:700;margin-bottom:16px;color:#31424f">Редактировать провайдер</div>
+        <form method="post" id="ai-edit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="action" value="update_ai_provider">
+          <input type="hidden" name="provider_id" id="edit-provider-id">
+          <div class="add-ai-grid">
+            <div>
+              <label>Название *</label>
+              <input type="text" name="ai_name" id="edit-ai-name" required>
+            </div>
+            <div>
+              <label>Модель *</label>
+              <input type="text" name="ai_model" id="edit-ai-model" required>
+            </div>
+            <div style="grid-column:1/-1">
+              <label>Base URL *</label>
+              <input type="url" name="ai_base_url" id="edit-ai-url" required>
+            </div>
+            <div style="grid-column:1/-1">
+              <label>API Key <span style="font-weight:400;text-transform:none;letter-spacing:0">(оставьте пустым, чтобы не менять)</span></label>
+              <input type="password" name="ai_api_key" id="edit-ai-key"
+                     placeholder="оставьте пустым, чтобы не менять" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="ai-checks" style="margin-top:12px">
+            <label><input type="checkbox" name="ai_is_active" id="edit-ai-active" value="1"> Активен</label>
+            <label><input type="checkbox" name="ai_is_default" id="edit-ai-default" value="1"> По умолчанию</label>
+          </div>
+          <div class="form-actions" style="margin-top:18px">
+            <button class="btn btn-primary" type="submit">Сохранить</button>
+            <button class="btn btn-test" type="button" onclick="closeEditAi()">Отмена</button>
+          </div>
+        </form>
+      </div>
+    </div>
 
     <!-- Форма добавления -->
     <form method="post" id="ai-add-form"
@@ -464,6 +512,29 @@ function syncImap() {
       btn.textContent = '↓ Синхронизировать';
     });
 }
+
+function openEditAi(btn) {
+  const d = btn.dataset;
+  document.getElementById('edit-provider-id').value  = d.id;
+  document.getElementById('edit-ai-name').value      = d.name  || '';
+  document.getElementById('edit-ai-url').value       = d.url   || '';
+  document.getElementById('edit-ai-model').value     = d.model || '';
+  document.getElementById('edit-ai-key').value       = '';
+  document.getElementById('edit-ai-active').checked  = d.active  === '1';
+  document.getElementById('edit-ai-default').checked = d.default === '1';
+  document.getElementById('ai-edit-overlay').style.display = 'flex';
+}
+function closeEditAi() {
+  document.getElementById('ai-edit-overlay').style.display = 'none';
+}
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.btn-edit-ai').forEach(function(btn) {
+    btn.addEventListener('click', function() { openEditAi(btn); });
+  });
+  document.getElementById('ai-edit-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeEditAi();
+  });
+});
 
 function testAi() {
   const btn = document.getElementById('btn-test-ai');

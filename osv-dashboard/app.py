@@ -2038,6 +2038,31 @@ def settings():
                 db.session.commit()
                 log_event('ai_provider_added', {'name': ai_name})
 
+        elif action == 'update_ai_provider':
+            provider_id  = request.form.get('provider_id', type=int)
+            prov = db.session.get(AiProvider, provider_id)
+            if prov:
+                ai_name    = request.form.get('ai_name', '').strip()
+                ai_url     = request.form.get('ai_base_url', '').strip()
+                ai_key_raw = request.form.get('ai_api_key', '').strip()
+                ai_model   = request.form.get('ai_model', '').strip()
+                ai_active  = request.form.get('ai_is_active') == '1'
+                ai_default = request.form.get('ai_is_default') == '1'
+                if ai_name:
+                    prov.name = ai_name
+                if ai_url:
+                    prov.base_url = ai_url
+                if ai_model:
+                    prov.model = ai_model
+                if ai_key_raw:                          # пустое поле → ключ не перезаписывается
+                    prov.api_key = encrypt_value(ai_key_raw)
+                prov.is_active = ai_active
+                if ai_default and not prov.is_default:
+                    AiProvider.query.update({'is_default': False})
+                prov.is_default = ai_default
+                db.session.commit()
+                log_event('ai_provider_updated', {'name': prov.name})
+
         elif action == 'delete_ai_provider':
             provider_id = request.form.get('provider_id', type=int)
             prov = db.session.get(AiProvider, provider_id)
