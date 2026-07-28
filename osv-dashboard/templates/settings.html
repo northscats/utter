@@ -18,6 +18,17 @@ header{background:var(--ink);color:#e8eef2;padding:0}
 .hd-spacer{flex:1}
 .hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:10px}
 .hd-user strong{color:#c8d8e4}
+.hd-uname{position:relative;color:#c8d8e4;font-size:13px;font-weight:600;cursor:pointer;
+  display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:7px;
+  user-select:none;border:1px solid #3a5060;transition:background .15s}
+.hd-uname:hover,.hd-uname.open{background:#253545}
+.hd-drop{display:none;position:absolute;right:0;top:calc(100% + 5px);
+  background:#1b2733;border:1px solid #3a5060;border-radius:8px;
+  min-width:130px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.45);overflow:hidden}
+.hd-uname.open .hd-drop{display:block}
+.hd-drop a{display:block;padding:10px 16px;color:#c8d8e4;font-size:13px;
+  text-decoration:none;white-space:nowrap}
+.hd-drop a:hover{background:#253545;color:#fff}
 .hd-btn{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
   border-radius:6px;padding:4px 10px;transition:background .15s;display:inline-flex;
   align-items:center;gap:5px;white-space:nowrap}
@@ -122,7 +133,6 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </div>
     <div class="hd-spacer"></div>
     <div class="hd-user">
-      <span>{{ current_user.username }}{% if current_user.is_admin %} <span style="font-size:11px;background:#253545;color:#7fb3d0;border-radius:4px;padding:1px 6px;margin-left:4px">admin</span>{% endif %}</span>
       <a class="hd-btn" href="/">← Главная</a>
       {% if current_user.is_admin %}
       <a class="hd-btn" href="/users">
@@ -131,7 +141,6 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         </svg>
         Пользователи
       </a>
-      {% endif %}
       <a class="hd-btn active" href="/settings">
         <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
           <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
@@ -139,7 +148,12 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         </svg>
         Настройки
       </a>
-      <a class="hd-btn" href="/logout">Выйти</a>
+      {% endif %}
+      <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
+        {{ current_user.username }}
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
+        <div class="hd-drop"><a href="/logout">Выйти</a></div>
+      </div>
     </div>
   </div>
 </header>
@@ -569,6 +583,7 @@ function testAi() {
       btn.textContent = 'Тест подключения';
     });
 }
+document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
 </script>
 </body>
 </html>
