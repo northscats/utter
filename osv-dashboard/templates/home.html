@@ -336,8 +336,8 @@ function switchView(v){
   var bt=document.getElementById('btn-table');
   var bm=document.getElementById('btn-matrix');
   if(!t||!m) return;
-  t.style.display = v==='table' ? '' : 'none';
-  m.style.display = v==='matrix' ? '' : 'none';
+  t.style.display = v==='table' ? 'block' : 'none';
+  m.style.display = v==='matrix' ? 'block' : 'none';
   if(bt) bt.classList.toggle('active', v==='table');
   if(bm) bm.classList.toggle('active', v==='matrix');
   try{ localStorage.setItem('home_view', v); }catch(e){}
