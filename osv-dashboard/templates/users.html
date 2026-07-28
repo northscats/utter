@@ -102,7 +102,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 <header>
   <div class="hd-top">
     <div class="hd-title">
-      <a href="/"><h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1></a>
+      <a href="{{ url_for('home') }}"><h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1></a>
       <div class="sub">Генератор финансовой панели из выгрузок 1С · v0.100</div>
     </div>
     <div class="hd-spacer"></div>
@@ -111,11 +111,11 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         {{ current_user.username }}
         <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
         <div class="hd-drop">
-          <a href="/">← Главная</a>
-          <a href="/users">Пользователи</a>
-          <a href="/settings">Настройки</a>
+          <a href="{{ url_for('home') }}">← Главная</a>
+          <a href="{{ url_for('users_list') }}">Пользователи</a>
+          <a href="{{ url_for('settings') }}">Настройки</a>
           <div class="hd-drop-sep"></div>
-          <a href="/logout">Выйти</a>
+          <a href="{{ url_for('logout') }}">Выйти</a>
         </div>
       </div>
     </div>
@@ -162,7 +162,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
           </td>
           <td style="color:var(--mut);font-size:13px">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
           <td>
-            <form class="pw-form" method="post" action="/users/{{ u.id }}/set-password">
+            <form class="pw-form" method="post" action="{{ url_for('users_set_password', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="password" name="password" placeholder="Новый пароль" minlength="4">
               <button class="btn btn-ghost btn-sm" type="submit">Установить</button>
@@ -172,7 +172,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
             <div class="actions">
               {% if u.id != current_user.id %}
                 <!-- Переключение роли -->
-                <form method="post" action="/users/{{ u.id }}/set-role" style="display:inline">
+                <form method="post" action="{{ url_for('users_set_role', user_id=u.id) }}" style="display:inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   {% if u.role == 'admin' %}
                   <input type="hidden" name="role" value="user">
@@ -191,7 +191,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
                   {% endif %}
                 </form>
                 <!-- Удаление -->
-                <form method="post" action="/users/{{ u.id }}/delete" style="display:inline"
+                <form method="post" action="{{ url_for('users_delete', user_id=u.id) }}" style="display:inline"
                   onsubmit="return confirm('Удалить пользователя «{{ u.username }}»? Это действие нельзя отменить.')">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-danger btn-sm" type="submit">Удалить</button>
@@ -212,7 +212,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     <h3>Добавить пользователя</h3>
     <p class="desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
 
-    <form method="post" action="/users/create">
+    <form method="post" action="{{ url_for('users_create') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="add-user-grid">
         <div>

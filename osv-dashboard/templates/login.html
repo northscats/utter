@@ -38,7 +38,7 @@ input:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
   <div class="card">
     <h2>Вход в систему</h2>
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
-    <form method="post" action="/login">
+    <form method="post" action="{{ url_for('login') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="username">Логин</label>
       <input type="text" id="username" name="username" autocomplete="username" required

@@ -47,7 +47,8 @@ app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1 час
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
     app.config['APPLICATION_ROOT'] = SCRIPT_NAME
-    # Доверяем заголовкам X-Forwarded-* от nginx
+    app.config['SESSION_COOKIE_PATH'] = SCRIPT_NAME
+    # Доверяем заголовкам X-Forwarded-* от nginx/Apache
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # --- PostgreSQL —  DATABASE_URL из переменной окружения ---

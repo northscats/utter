@@ -129,7 +129,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 <header>
   <div class="hd-top">
     <div class="hd-title">
-      <a href="/"><h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1></a>
+      <a href="{{ url_for('home') }}"><h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1></a>
       <div class="sub">Генератор финансовой панели из выгрузок 1С · v0.100</div>
     </div>
     <div class="hd-spacer"></div>
@@ -138,13 +138,13 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         {{ current_user.username }}
         <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
         <div class="hd-drop">
-          <a href="/">← Главная</a>
+          <a href="{{ url_for('home') }}">← Главная</a>
           {% if current_user.is_admin %}
-          <a href="/users">Пользователи</a>
-          <a href="/settings">Настройки</a>
+          <a href="{{ url_for('users_list') }}">Пользователи</a>
+          <a href="{{ url_for('settings') }}">Настройки</a>
           {% endif %}
           <div class="hd-drop-sep"></div>
-          <a href="/logout">Выйти</a>
+          <a href="{{ url_for('logout') }}">Выйти</a>
         </div>
       </div>
     </div>

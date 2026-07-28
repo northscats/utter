@@ -46,7 +46,7 @@ ul.prev{margin:8px 0 0 18px;font-size:14px}
   {% if dashboard %}
   <div class="okbox">
     Дашборд за период <b>{{ period }}</b> собран.
-    <br><a href="/dashboard/{{ dashboard }}" target="_blank">Открыть дашборд</a>
+    <br><a href="{{ request.script_root }}/dashboard/{{ dashboard }}" target="_blank">Открыть дашборд</a>
   </div>
   {% endif %}
 
@@ -68,7 +68,7 @@ ul.prev{margin:8px 0 0 18px;font-size:14px}
 
   <div class="card">
     <h2>Загрузка оборотно-сальдовых ведомостей</h2>
-    <form method="post" action="/process" enctype="multipart/form-data" id="frm">
+    <form method="post" action="{{ request.script_root }}/process" enctype="multipart/form-data" id="frm">
       <label class="drop" id="drop">
         <b>Перетащите сюда .xls-файлы</b> или нажмите, чтобы выбрать<br>
         <span style="font-size:12.5px">ОСВ 1С по счетам 20, 25, 26, 50, 51, 60, 62, 68, 69, 70, 76, 90, 91
@@ -87,7 +87,7 @@ ul.prev{margin:8px 0 0 18px;font-size:14px}
   <div class="card">
     <h2>Ранее собранные дашборды</h2>
     <ul class="prev">
-      {% for r in ready %}<li><a href="/dashboard/{{ r }}" target="_blank">{{ r }}</a></li>{% endfor %}
+      {% for r in ready %}<li><a href="{{ request.script_root }}/dashboard/{{ r }}" target="_blank">{{ r }}</a></li>{% endfor %}
     </ul>
   </div>
   {% endif %}
