@@ -31,6 +31,7 @@ header{background:var(--ink);color:#e8eef2;padding:0}
 .hd-drop a{display:block;padding:10px 16px;color:#c8d8e4;font-size:13px;
   text-decoration:none;white-space:nowrap}
 .hd-drop a:hover{background:#253545;color:#fff}
+.hd-drop-sep{border-top:1px solid #3a5060;margin:4px 0}
 main{max-width:1100px;margin:0 auto;padding:28px 24px}
 .top-bar{display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap}
 .top-bar h2{font-size:16px;font-weight:700;color:var(--ink);flex:1}
@@ -113,25 +114,17 @@ main{max-width:1100px;margin:0 auto;padding:28px 24px}
     </div>
     <div class="hd-spacer"></div>
     <div class="hd-user">
-      {% if current_user.is_admin %}
-      <a href="/users">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8a8 8 0 0 1 14.32-4.906A2 2 0 0 0 16 14H4a2 2 0 0 0-2 2v2zm14-4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
-        </svg>
-        Пользователи
-      </a>
-      <a href="/settings">
-        <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor">
-          <path d="M10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
-          <path fill-rule="evenodd" d="M10 0a1 1 0 0 1 1 1v1.07A8.002 8.002 0 0 1 17.93 9H19a1 1 0 1 1 0 2h-1.07A8.002 8.002 0 0 1 11 17.93V19a1 1 0 1 1-2 0v-1.07A8.002 8.002 0 0 1 2.07 11H1a1 1 0 1 1 0-2h1.07A8.002 8.002 0 0 1 9 2.07V1a1 1 0 0 1 1-1zm-6 10a6 6 0 1 0 12 0 6 6 0 0 0-12 0z" clip-rule="evenodd"/>
-        </svg>
-        Настройки
-      </a>
-      {% endif %}
       <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
         {{ current_user.username }}
         <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
-        <div class="hd-drop"><a href="/logout">Выйти</a></div>
+        <div class="hd-drop">
+          {% if current_user.is_admin %}
+          <a href="/users">Пользователи</a>
+          <a href="/settings">Настройки</a>
+          {% endif %}
+          <div class="hd-drop-sep"></div>
+          <a href="/logout">Выйти</a>
+        </div>
       </div>
     </div>
   </div>
