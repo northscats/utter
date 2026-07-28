@@ -362,6 +362,16 @@ tr:last-child td{border-bottom:0}
         </svg>
         Открыть дашборд
       </a>
+      <form method="post" action="{{ url_for('company_regen', company_id=company.id) }}" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="ab-btn" title="Пересобрать дашборд из загруженных данных"
+                style="padding:6px 10px">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4v5h5"/><path d="M16 16v-5h-5"/>
+            <path d="M4.93 9A8 8 0 1 1 15.07 11"/>
+          </svg>
+        </button>
+      </form>
     </div>
     {% else %}
     <span class="ab-dash-none" title="Загрузите ОСВ — дашборд появится автоматически">

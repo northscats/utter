@@ -1707,6 +1707,25 @@ def _annual_coverage(company_id, year=None):
 
 
 # ---------------------------------------------------------------------------
+# Ручная пересборка дашборда
+# ---------------------------------------------------------------------------
+@app.route('/company/<int:company_id>/regen', methods=['POST'])
+@login_required
+def company_regen(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    dataset, err = _rebuild_dashboard_with_daily(company_id, company.name)
+    if dataset is None:
+        app.logger.error(f'regen failed for company {company_id}: {err}')
+    else:
+        html = render_dashboard(dataset, back_url=url_for('company_detail', company_id=company_id))
+        out_dir = os.path.join(OUTPUT, str(company_id))
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, 'dashboard_current.html'), 'w', encoding='utf-8') as f:
+            f.write(html)
+        log_event('dashboard_regen', {'company_id': company_id})
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
 # Переименование предприятия
 # ---------------------------------------------------------------------------
 @app.route('/company/<int:company_id>/rename', methods=['POST'])
