@@ -1,3 +1,4 @@
+import { useState } from "react";
 type Signal = "green" | "yellow" | "red";
 
 interface KPI {
@@ -250,7 +251,9 @@ function KPICard({ kpi }: { kpi: KPI }) {
 }
 
 export function RatingTab() {
+  const [filter, setFilter] = useState<Signal | null>(null);
   const score = Math.round((COUNTS.green * 100 + COUNTS.yellow * 50) / (DATA.length * 100) * 100);
+  const visible = filter ? DATA.filter(d => d.signal === filter) : DATA;
 
   return (
     <div style={{
@@ -321,20 +324,27 @@ export function RatingTab() {
           {/* Signal counts */}
           {([["green","Норма"],["yellow","Внимание"],["red","Критично"]] as [Signal,string][]).map(([s, lbl]) => {
             const cfg = SIGNAL_CFG[s];
+            const active = filter === s;
             return (
-              <div key={s} style={{
-                background: cfg.bg, border: `1px solid ${cfg.border}`,
-                borderRadius: 10, padding: "10px 18px",
-                display: "flex", alignItems: "center", gap: 10,
-              }}>
+              <div key={s} onClick={() => setFilter(active ? null : s as Signal)}
+                style={{
+                  background: active ? cfg.dot : cfg.bg,
+                  border: `1.5px solid ${active ? cfg.dot : cfg.border}`,
+                  borderRadius: 10, padding: "10px 18px",
+                  display: "flex", alignItems: "center", gap: 10,
+                  cursor: "pointer", userSelect: "none",
+                  boxShadow: active ? `0 2px 10px ${cfg.dot}44` : "none",
+                  transition: "all .15s",
+                }}>
                 <div style={{
                   width: 32, height: 32, borderRadius: "50%",
-                  background: cfg.dot, display: "flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: `0 0 8px ${cfg.dot}55`,
+                  background: active ? "rgba(255,255,255,.25)" : cfg.dot,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: active ? "none" : `0 0 8px ${cfg.dot}55`,
                 }}>
                   <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>{COUNTS[s]}</span>
                 </div>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.dot }}>{lbl}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: active ? "#fff" : cfg.dot }}>{lbl}</span>
               </div>
             );
           })}
@@ -364,7 +374,7 @@ export function RatingTab() {
           gridTemplateColumns: "repeat(2, 1fr)",
           gap: 12,
         }}>
-          {DATA.map(kpi => <KPICard key={kpi.num} kpi={kpi} />)}
+          {visible.map(kpi => <KPICard key={kpi.num} kpi={kpi} />)}
         </div>
 
         {/* ── Legend ── */}
