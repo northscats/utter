@@ -1146,6 +1146,7 @@ function openDailyModal(acc){
   var n=dates.length-1;
   var s0=document.getElementById('dms0'),s1=document.getElementById('dms1');
   s0.max=n;s0.value=0;s1.max=n;s1.value=n;
+  _dmBindSliders();
   _dmFill();_dmRedraw();
   document.getElementById('daily-modal-ov').classList.add('open');
   document.addEventListener('keydown',_dmEsc);
@@ -1177,16 +1178,21 @@ function _dmRedraw(){
     dailyBarsPair(box,dates,accs['70'].obd.slice(s0,s1+1),accs['70'].obk.slice(s0,s1+1),
       'Начислено','Выплачено','#2e6e8e','#7d97a8',{h:360});
 }
-document.getElementById('dms0').addEventListener('input',function(){
-  var s1=document.getElementById('dms1');
-  if(+this.value>=+s1.value)this.value=Math.max(0,+s1.value-1);
-  _dmFill();_dmRedraw();
-});
-document.getElementById('dms1').addEventListener('input',function(){
-  var s0=document.getElementById('dms0');
-  if(+this.value<=+s0.value)this.value=Math.min(+this.max,+s0.value+1);
-  _dmFill();_dmRedraw();
-});
+/* слайдеры привязываются лениво при первом открытии (элементы после </script>) */
+var _dmBound=false;
+function _dmBindSliders(){
+  if(_dmBound)return; _dmBound=true;
+  document.getElementById('dms0').addEventListener('input',function(){
+    var s1=document.getElementById('dms1');
+    if(+this.value>=+s1.value)this.value=Math.max(0,+s1.value-1);
+    _dmFill();_dmRedraw();
+  });
+  document.getElementById('dms1').addEventListener('input',function(){
+    var s0=document.getElementById('dms0');
+    if(+this.value<=+s0.value)this.value=Math.min(+this.max,+s0.value+1);
+    _dmFill();_dmRedraw();
+  });
+}
 /* вешаем клик на карточки 51 и 70 */
 ['51','70'].forEach(function(a){
   var w=document.getElementById('daily-'+a+'-wrap');
