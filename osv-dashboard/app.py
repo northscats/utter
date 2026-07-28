@@ -982,6 +982,19 @@ def logout():
 @login_required
 def home():
     companies = Company.query.order_by(Company.created_at.desc()).all()
+    # Автоматически восстанавливаем kpi_cache.json для компаний, у которых
+    # уже есть дашборд, но кэш КПЭ отсутствует (например, после деплоя).
+    for c in companies:
+        out_dir   = os.path.join(OUTPUT, str(c.id))
+        dash_path = os.path.join(out_dir, 'dashboard_current.html')
+        kpi_path  = os.path.join(out_dir, 'kpi_cache.json')
+        if os.path.isfile(dash_path) and not os.path.isfile(kpi_path):
+            try:
+                dataset, _err = _rebuild_dashboard_with_daily(c.id, c.name)
+                if dataset is not None:
+                    _save_kpi_cache(dataset, out_dir)
+            except Exception as exc:
+                app.logger.warning(f'auto kpi_cache regen failed for company {c.id}: {exc}')
     cards = [_company_summary(c) for c in companies]
     return render_template('home.html', companies=cards)
 
