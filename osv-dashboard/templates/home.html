@@ -270,7 +270,7 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
         <tbody>
           {% set kpi_keys = ['dz_days','kz_dz','liquidity','debt_ebitda','rate','tax_burden','nvv_pct','cost_pct','comm_pct','adm_pct'] %}
           {% for c in companies %}
-          {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
+          {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html#rating' if c.has_dashboard else '/company/' ~ c.id %}
           <tr onclick="location.href='{{ dest }}'">
             <td class="td-name" title="{{ c.name }}">{{ c.name }}</td>
             {% if c.kpis %}

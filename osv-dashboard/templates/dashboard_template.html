@@ -1305,6 +1305,7 @@ function renderRating(){
 }
 
 buildMonthBtns(); buildTabs(); renderAll();
+if(location.hash==='#rating') setMode('rating');
 /* кнопка ИИ показывается сервером через __AI_DISP__ */
 
 function requestAiBrief(){
