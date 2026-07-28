@@ -1,0 +1,481 @@
+Deployment
+Source
+Log
+
+2026-07-28 18:35:26.14
+6fed0d1a
+User
+127.0.0.1 - - [28/Jul/2026:15:35:26 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/dashboard/1/dashboard_current.html" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:28.15
+6fed0d1a
+User
+[2026-07-28 15:35:28,152] ERROR in app: regen failed for company 1: [{'file': '—', 'acc': '—', 'status': 'Нет данных: загрузите ОСВ-файлы (.xls/.xlsx) или суточный ZIP-архив', 'ok': False}]
+
+2026-07-28 18:35:28.18
+6fed0d1a
+User
+127.0.0.1 - - [28/Jul/2026:15:35:28 +0000] "POST /company/1/regen HTTP/1.1" 302 207 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:28.73
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:28 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:29.45
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:29 +0000] "GET /robots.txt HTTP/1.1" 404 207 "-" "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
+
+2026-07-28 18:35:30.06
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:30 +0000] "GET / HTTP/1.1" 302 217 "-" "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
+
+2026-07-28 18:35:30.48
+6fed0d1a
+System
+sending SIGTERM to artifact process artifact=artifacts/api-server
+
+2026-07-28 18:35:30.48
+6fed0d1a
+System
+received signal, shutting down artifact processes signal=terminated
+
+2026-07-28 18:35:30.48
+6fed0d1a
+System
+sending SIGTERM to artifact process artifact=artifacts/osv-app
+
+2026-07-28 18:35:30.48
+6fed0d1a
+User
+[2026-07-28 15:35:30 +0000] [22] [INFO] Handling signal: term
+
+2026-07-28 18:35:30.49
+6fed0d1a
+System
+artifact process exited with error error=signal: terminated artifact=artifacts/api-server
+
+2026-07-28 18:35:30.62
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:30 +0000] "GET /login?next=%2F HTTP/1.1" 200 2749 "-" "Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)"
+
+2026-07-28 18:35:31.66
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:31 +0000] "GET /dashboard/1/dashboard_current.html HTTP/1.1" 200 132971 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:35.66
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:35 +0000] "GET / HTTP/1.1" 302 217 "-" "undici"
+
+2026-07-28 18:35:36.03
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:36 +0000] "GET /login?next=%2F HTTP/1.1" 200 2749 "-" "undici"
+
+2026-07-28 18:35:36.95
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:36 +0000] "GET /dashboard/1/dashboard_current.html HTTP/1.1" 200 132971 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:39.17
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:39 +0000] "GET /dashboard/1/dashboard_current.html HTTP/1.1" 200 132971 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:40.98
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:40 +0000] "GET / HTTP/1.1" 302 217 "-" "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+
+2026-07-28 18:35:41.21
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:41 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/dashboard/1/dashboard_current.html" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:41.32
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:41 +0000] "GET /login?next=%2F HTTP/1.1" 200 2749 "-" "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+
+2026-07-28 18:35:41.85
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:41 +0000] "GET /favicon.ico HTTP/1.1" 404 207 "https://gisuzter.replit.app/login?next=%2F" "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Mobile Safari/537.36"
+
+2026-07-28 18:35:42.92
+93000a62
+User
+[2026-07-28 15:35:42,921] ERROR in app: regen failed for company 1: [{'file': '—', 'acc': '—', 'status': 'Нет данных: загрузите ОСВ-файлы (.xls/.xlsx) или суточный ZIP-архив', 'ok': False}]
+
+2026-07-28 18:35:42.95
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:42 +0000] "POST /company/1/regen HTTP/1.1" 302 207 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:43.42
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:43 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:35:44.65
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:44 +0000] "GET /robots.txt HTTP/1.1" 404 207 "-" "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/140.0.0.0 Safari/537.36"
+
+2026-07-28 18:35:45.32
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:35:45 +0000] "GET /dashboard/1/dashboard_current.html HTTP/1.1" 200 132971 "https://gisuzter.replit.app/company/1" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:37:12.92
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:37:12 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/dashboard/1/dashboard_current.html" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+
+2026-07-28 18:37:28.25
+93000a62
+User
+cursor.execute(statement, parameters)
+
+2026-07-28 18:37:28.25
+93000a62
+User
+Traceback (most recent call last):
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/osv-dashboard/app.py", line 1756, in company_delete
+
+2026-07-28 18:37:28.25
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.25
+93000a62
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+
+2026-07-28 18:37:28.25
+93000a62
+User
+Traceback (most recent call last):
+
+2026-07-28 18:37:28.25
+93000a62
+User
+self.dialect.do_execute(
+
+2026-07-28 18:37:28.25
+93000a62
+User
+return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args) # type: ignore[no-any-return]
+
+2026-07-28 18:37:28.25
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 902, in dispatch_request
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+
+2026-07-28 18:37:28.25
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.25
+93000a62
+User
+[2026-07-28 15:37:27,566] ERROR in app: Exception on /company/1/delete [POST]
+
+2026-07-28 18:37:28.25
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.25
+93000a62
+User
+db.session.commit()
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+
+2026-07-28 18:37:28.25
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.25
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/scoping.py", line 596, in commit
+
+2026-07-28 18:37:28.25
+93000a62
+User
+rv = self.dispatch_request()
+
+2026-07-28 18:37:28.26
+93000a62
+User
+return connection._execute_clauseelement(
+
+2026-07-28 18:37:28.26
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:37:28.26
+93000a62
+User
+return meth(
+
+2026-07-28 18:37:58.67
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:37:58 +0000] "GET / HTTP/1.1" 200 7827 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:38:00.11
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:38:00 +0000] "GET /dashboard/1/dashboard_current.html HTTP/1.1" 200 132971 "https://gisuzter.replit.app/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:38:42.35
+93000a62
+User
+127.0.0.1 - - [28/Jul/2026:15:38:42 +0000] "GET /company/1 HTTP/1.1" 200 108630 "https://gisuzter.replit.app/dashboard/1/dashboard_current.html" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.4.0.0 Safari/537.36"
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask_login/utils.py", line 290, in decorated_view
+
+2026-07-28 18:38:52.16
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:52.16
+93000a62
+User
+rv = self.handle_user_exception(e)
+
+2026-07-28 18:38:52.16
+93000a62
+User
+The above exception was the direct cause of the following exception:
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+
+2026-07-28 18:38:52.16
+93000a62
+User
+self.dialect.do_execute(
+
+2026-07-28 18:38:52.16
+93000a62
+User
+return current_app.ensure_sync(func)(*args, **kwargs)
+
+2026-07-28 18:38:52.16
+93000a62
+User
+Traceback (most recent call last):
+
+2026-07-28 18:38:52.16
+93000a62
+User
+[2026-07-28 15:38:52,158] ERROR in app: Exception on /company/1/delete [POST]
+
+2026-07-28 18:38:52.16
+93000a62
+User
+psycopg2.errors.ForeignKeyViolation: update or delete on table "companies" violates foreign key constraint "ai_summaries_company_id_fkey" on table "ai_summaries"
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+
+2026-07-28 18:38:52.16
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:52.16
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:52.16
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:52.16
+93000a62
+User
+response = self.full_dispatch_request()
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+
+2026-07-28 18:38:52.16
+93000a62
+User
+DETAIL: Key (id)=(1) is still referenced from table "ai_summaries".
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/osv-dashboard/app.py", line 1756, in company_delete
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+
+2026-07-28 18:38:52.16
+93000a62
+User
+return connection._execute_clauseelement(
+
+2026-07-28 18:38:52.16
+93000a62
+User
+^^^^^
+
+2026-07-28 18:38:52.16
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+
+2026-07-28 18:38:55.86
+93000a62
+User
+The above exception was the direct cause of the following exception:
+
+2026-07-28 18:38:55.86
+93000a62
+User
+Traceback (most recent call last):
+
+2026-07-28 18:38:55.86
+93000a62
+User
+DETAIL: Key (id)=(1) is still referenced from table "ai_summaries".
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 1511, in wsgi_app
+
+2026-07-28 18:38:55.86
+93000a62
+User
+[2026-07-28 15:38:55,858] ERROR in app: Exception on /company/1/delete [POST]
+
+2026-07-28 18:38:55.86
+93000a62
+User
+response = self.full_dispatch_request()
+
+2026-07-28 18:38:55.86
+93000a62
+User
+cursor.execute(statement, parameters)
+
+2026-07-28 18:38:55.86
+93000a62
+User
+rv = self.handle_user_exception(e)
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 917, in full_dispatch_request
+
+2026-07-28 18:38:55.86
+93000a62
+User
+psycopg2.errors.ForeignKeyViolation: update or delete on table "companies" violates foreign key constraint "ai_summaries_company_id_fkey" on table "ai_summaries"
+
+2026-07-28 18:38:55.86
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:55.86
+93000a62
+User
+Traceback (most recent call last):
+
+2026-07-28 18:38:55.86
+93000a62
+User
+self.dialect.do_execute(
+
+2026-07-28 18:38:55.86
+93000a62
+User
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/flask/app.py", line 919, in full_dispatch_request
+
+2026-07-28 18:38:55.86
+93000a62
+User
+File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/sqlalchemy/orm/unitofwork.py", line 678, in execute
+
+2026-07-28 18:39:00.03
+93

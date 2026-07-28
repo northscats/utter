@@ -1749,6 +1749,7 @@ def company_delete(company_id):
     log_event('company_deleted', {'id': company_id, 'name': company.name})
 
     # Удаляем все связанные записи
+    AiSummary.query.filter_by(company_id=company_id).delete()
     DailyRow.query.filter_by(company_id=company_id).delete()
     Upload.query.filter_by(company_id=company_id).delete()
     EmailRule.query.filter_by(company_id=company_id).delete()
