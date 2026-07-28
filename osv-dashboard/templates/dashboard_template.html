@@ -120,7 +120,14 @@ svg text{font-family:'Segoe UI',sans-serif}
 .hbar{margin-top:10px}
 .hrow{display:grid;grid-template-columns:minmax(150px,300px) 1fr 110px;gap:10px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
 .hrow:last-child{border-bottom:0}
-.hrow .lbl{color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hrow .lbl{color:var(--ink2);position:relative;cursor:default;min-width:0}
+.hrow .lbl .lbl-text{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hrow .lbl::after{content:attr(data-label);position:absolute;left:0;bottom:calc(100% + 7px);
+  background:#1c2b38;color:#ddeaf3;font-size:12px;line-height:1.45;
+  padding:6px 11px;border-radius:7px;white-space:normal;max-width:340px;min-width:120px;
+  z-index:200;box-shadow:0 4px 14px rgba(0,0,0,.4);border:1px solid #3a5060;
+  pointer-events:none;opacity:0;transition:opacity .15s}
+.hrow .lbl:hover::after{opacity:1}
 .hrow .bar{height:16px;border-radius:3px;background:#1f7a9c;min-width:2px}
 .hrow .val{text-align:right;font-family:var(--num);font-weight:600}
 /* таблицы */
@@ -469,7 +476,7 @@ function hbars(id, rows, color, opts={}){
   rows.forEach(r=>{
     const div=document.createElement('div');div.className='hrow';
     const c = typeof color==='function'? color(r): color;
-    div.innerHTML=`<span class="lbl" title="${esc(r[0])}">${opts.mark&&opts.mark(r)?opts.mark(r):''}${esc(r[0])}</span>
+    div.innerHTML=`<span class="lbl" data-label="${esc(r[0])}"><span class="lbl-text">${opts.mark&&opts.mark(r)?opts.mark(r):''}${esc(r[0])}</span></span>
       <span><span class="bar" style="width:${Math.max(1.5,Math.abs(r[1])/max*100)}%;background:${c}"></span></span>
       <span class="val">${fm(r[1])}</span>`;
     box.appendChild(div);
