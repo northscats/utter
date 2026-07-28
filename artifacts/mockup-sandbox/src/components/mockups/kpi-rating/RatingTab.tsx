@@ -176,7 +176,6 @@ function KPICard({ kpi }: { kpi: KPI }) {
     <div style={{
       background: "#fff",
       border: `1px solid ${cfg.border}`,
-      borderLeft: `4px solid ${cfg.dot}`,
       borderRadius: 10,
       padding: "14px 16px",
       display: "flex", gap: 12, alignItems: "flex-start",
