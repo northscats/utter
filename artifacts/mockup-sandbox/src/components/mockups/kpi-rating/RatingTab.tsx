@@ -159,27 +159,14 @@ const COUNTS = {
   red:    DATA.filter(d => d.signal === "red").length,
 };
 
-function TrafficLight({ signal }: { signal: Signal }) {
+function StatusDot({ signal }: { signal: Signal }) {
+  const cfg = SIGNAL_CFG[signal];
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center",
-      gap: 4, padding: "6px 4px",
-      background: "#1c2b38", borderRadius: 8,
-      width: 24,
-    }}>
-      {(["red","yellow","green"] as Signal[]).map(s => (
-        <div key={s} style={{
-          width: 14, height: 14, borderRadius: "50%",
-          background: s === signal
-            ? (s === "red" ? "#ef4444" : s === "yellow" ? "#eab308" : "#22c55e")
-            : "#2e4155",
-          boxShadow: s === signal
-            ? `0 0 8px 2px ${s === "red" ? "#ef444488" : s === "yellow" ? "#eab30888" : "#22c55e88"}`
-            : "none",
-          transition: "all .2s",
-        }} />
-      ))}
-    </div>
+      width: 10, height: 10, borderRadius: "50%",
+      background: cfg.dot,
+      flexShrink: 0, marginTop: 4,
+    }} />
   );
 }
 
@@ -195,8 +182,8 @@ function KPICard({ kpi }: { kpi: KPI }) {
       display: "flex", gap: 12, alignItems: "flex-start",
       boxShadow: "0 1px 4px rgba(0,0,0,.06)",
     }}>
-      {/* Traffic light */}
-      <TrafficLight signal={kpi.signal} />
+      {/* Status dot */}
+      <StatusDot signal={kpi.signal} />
 
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
