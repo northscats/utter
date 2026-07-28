@@ -168,6 +168,46 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 .daily-card h3{font-size:13px;color:var(--ink2);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
 .daily-legend{display:flex;gap:12px;font-size:12px;color:var(--mut);margin-top:6px}
 .daily-legend i{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:-1px}
+/* кликабельные карточки 51 + 70 */
+.daily-card-clickable{cursor:pointer;transition:box-shadow .15s,border-color .15s}
+.daily-card-clickable:hover{box-shadow:0 2px 12px rgba(0,0,0,.12);border-color:#a8bcc7}
+.daily-card-clickable .dc-expand{float:right;font-size:11px;color:#7fb3d0;
+  border:1px solid #c8d8e4;border-radius:5px;padding:2px 7px;margin-top:-1px;
+  user-select:none;letter-spacing:.03em;font-weight:400;text-transform:none}
+.daily-card-clickable:hover .dc-expand{background:#e8f3f9;color:#1f7a9c}
+/* модальное окно суточной динамики */
+#daily-modal-ov{display:none;position:fixed;inset:0;background:rgba(15,25,35,.6);
+  z-index:900;align-items:center;justify-content:center}
+#daily-modal-ov.open{display:flex}
+#daily-modal-box{background:#fff;border-radius:14px;width:92vw;max-height:90vh;
+  display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.3);overflow:hidden}
+#daily-modal-hd{display:flex;align-items:center;padding:16px 20px 14px;
+  border-bottom:1px solid var(--line);gap:12px}
+#daily-modal-hd h3{flex:1;font-size:15px;font-weight:700;color:var(--ink);margin:0}
+#daily-modal-close{background:none;border:1px solid var(--line);border-radius:7px;
+  cursor:pointer;color:var(--ink2);font-size:18px;line-height:1;padding:3px 10px}
+#daily-modal-close:hover{background:#f0f3f5}
+#daily-modal-body{flex:1;overflow-y:auto;padding:18px 20px 22px}
+#daily-modal-chart{width:100%;min-height:300px}
+#daily-modal-leg{display:flex;gap:14px;font-size:12.5px;color:var(--mut);margin-top:8px}
+#daily-modal-leg i{width:11px;height:11px;border-radius:2px;display:inline-block;
+  margin-right:5px;vertical-align:-1px}
+/* ползунок диапазона */
+#daily-modal-slider-wrap{margin-top:20px;padding:0 2px}
+#dmp-labels{display:flex;justify-content:space-between;font-size:12px;
+  color:var(--ink2);margin-bottom:10px;font-family:var(--num)}
+.dslider{position:relative;height:26px;display:flex;align-items:center}
+.dslider-track{position:absolute;left:0;right:0;height:4px;background:#d3dade;border-radius:2px;pointer-events:none}
+.dslider-fill{position:absolute;height:4px;background:#1f7a9c;border-radius:2px;pointer-events:none}
+.dslider input[type=range]{position:absolute;width:100%;margin:0;
+  -webkit-appearance:none;appearance:none;background:transparent;pointer-events:none;outline:none}
+.dslider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+  width:18px;height:18px;border-radius:50%;background:#1f7a9c;
+  border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.28);
+  cursor:pointer;pointer-events:all}
+.dslider input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
+  background:#1f7a9c;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.28);
+  cursor:pointer;pointer-events:all;border:2px solid #fff}
 .sect-hide{display:none!important}
 </style>
 </head>
@@ -518,11 +558,12 @@ function table(id, cols, rows, opts={}){
 }
 
 /* ---------- суточный: линейный график ---------- */
-function dailyLine(boxEl, dates, series){
+function dailyLine(boxEl, dates, series, opts){
+  opts=opts||{};
   if(!boxEl){return} boxEl.innerHTML='';
   if(!dates||!dates.length){boxEl.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
   const n=dates.length;
-  const W=Math.max(400,n*16),H=150,padL=54,padR=12,padT=12,padB=34;
+  const W=Math.max(400,n*16),H=opts.h||150,padL=54,padR=12,padT=12,padB=34;
   const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto'},boxEl);
   let vals=series.flatMap(s=>(s.v||[]).filter(v=>v!=null));
   if(!vals.length){boxEl.innerHTML='<div class="muted-big">Нет данных.</div>';return}
@@ -560,13 +601,14 @@ function dailyLine(boxEl, dates, series){
 }
 
 /* ---------- суточный: парные столбцы Дт / Кт ---------- */
-function dailyBarsPair(boxEl, dates, obd, obk, nIn, nOut, cIn, cOut){
+function dailyBarsPair(boxEl, dates, obd, obk, nIn, nOut, cIn, cOut, opts){
+  opts=opts||{};
   if(!boxEl){return} boxEl.innerHTML='';
   if(!dates||!dates.length){boxEl.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
   const n=dates.length;
   const allV=[...obd,...obk].filter(v=>v>0);
   if(!allV.length){boxEl.innerHTML='<div class="muted-big">Нет данных за этот период.</div>';return}
-  const W=Math.max(400,n*16),H=150,padL=54,padR=12,padT=12,padB=34;
+  const W=Math.max(400,n*16),H=opts.h||150,padL=54,padR=12,padT=12,padB=34;
   const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto'},boxEl);
   const max=Math.max(...allV)*1.1||1;
   const yFn=v=>padT+(max-v)/max*(H-padT-padB);
@@ -1087,6 +1129,94 @@ function requestAiBrief(){
   const map={'q-items':renderItems,'q-dep':renderDeps,'q-dz':renderDz,'q-kz':renderKz};
   document.getElementById(id).addEventListener('input',map[id]);
 });
+
+/* ===== Модальное окно суточной динамики ===== */
+var _dmAcc=null,_dmDates=null;
+function openDailyModal(acc){
+  var DC=D.daily_charts,dates=DC.dates||[],accs=DC.accounts||{};
+  if(!dates.length||!accs[acc])return;
+  _dmAcc=acc;_dmDates=dates;
+  var titles={'51':'Расчётный счёт 51 — суточные обороты','70':'Оплата труда 70 — суточные обороты'};
+  var legs={
+    '51':'<span><i style="background:#4d8f6f"></i>Поступления (Дт)</span><span><i style="background:#a05a5a"></i>Платежи (Кт)</span>',
+    '70':'<span><i style="background:#2e6e8e"></i>Начислено (Дт)</span><span><i style="background:#7d97a8"></i>Выплачено (Кт)</span>'
+  };
+  document.getElementById('daily-modal-title').textContent=titles[acc]||('Счёт '+acc);
+  document.getElementById('daily-modal-leg').innerHTML=legs[acc]||'';
+  var n=dates.length-1;
+  var s0=document.getElementById('dms0'),s1=document.getElementById('dms1');
+  s0.max=n;s0.value=0;s1.max=n;s1.value=n;
+  _dmFill();_dmRedraw();
+  document.getElementById('daily-modal-ov').classList.add('open');
+  document.addEventListener('keydown',_dmEsc);
+}
+function closeDailyModal(){
+  document.getElementById('daily-modal-ov').classList.remove('open');
+  document.removeEventListener('keydown',_dmEsc);
+}
+function _dmEsc(e){if(e.key==='Escape')closeDailyModal();}
+function _dmFill(){
+  var s0=document.getElementById('dms0'),s1=document.getElementById('dms1');
+  var n=+s0.max||1;
+  var p0=+s0.value/n*100,p1=+s1.value/n*100;
+  var f=document.getElementById('dslider-fill');
+  f.style.left=p0+'%';f.style.right=(100-p1)+'%';
+  var d=_dmDates||[];
+  document.getElementById('dmp-labels').innerHTML=
+    '<span>'+( d[+s0.value]||'')+'</span><span>'+(d[+s1.value]||'')+'</span>';
+}
+function _dmRedraw(){
+  var s0=+document.getElementById('dms0').value,s1=+document.getElementById('dms1').value;
+  var dates=(_dmDates||[]).slice(s0,s1+1);
+  var accs=D.daily_charts.accounts||{};
+  var box=document.getElementById('daily-modal-chart');
+  if(_dmAcc==='51'&&accs['51'])
+    dailyBarsPair(box,dates,accs['51'].obd.slice(s0,s1+1),accs['51'].obk.slice(s0,s1+1),
+      'Поступления','Платежи','#4d8f6f','#a05a5a',{h:360});
+  else if(_dmAcc==='70'&&accs['70'])
+    dailyBarsPair(box,dates,accs['70'].obd.slice(s0,s1+1),accs['70'].obk.slice(s0,s1+1),
+      'Начислено','Выплачено','#2e6e8e','#7d97a8',{h:360});
+}
+document.getElementById('dms0').addEventListener('input',function(){
+  var s1=document.getElementById('dms1');
+  if(+this.value>=+s1.value)this.value=Math.max(0,+s1.value-1);
+  _dmFill();_dmRedraw();
+});
+document.getElementById('dms1').addEventListener('input',function(){
+  var s0=document.getElementById('dms0');
+  if(+this.value<=+s0.value)this.value=Math.min(+this.max,+s0.value+1);
+  _dmFill();_dmRedraw();
+});
+/* вешаем клик на карточки 51 и 70 */
+['51','70'].forEach(function(a){
+  var w=document.getElementById('daily-'+a+'-wrap');
+  if(!w)return;
+  w.classList.add('daily-card-clickable');
+  var h3=w.querySelector('h3');
+  if(h3)h3.innerHTML+=' <span class="dc-expand">⤢ развернуть</span>';
+  w.addEventListener('click',function(){openDailyModal(a);});
+});
 </script>
+<div id="daily-modal-ov" onclick="if(event.target===this)closeDailyModal()">
+  <div id="daily-modal-box">
+    <div id="daily-modal-hd">
+      <h3 id="daily-modal-title"></h3>
+      <button id="daily-modal-close" onclick="closeDailyModal()" title="Закрыть (Esc)">✕</button>
+    </div>
+    <div id="daily-modal-body">
+      <div id="daily-modal-chart"></div>
+      <div id="daily-modal-leg"></div>
+      <div id="daily-modal-slider-wrap">
+        <div id="dmp-labels"></div>
+        <div class="dslider">
+          <div class="dslider-track"></div>
+          <div class="dslider-fill" id="dslider-fill"></div>
+          <input type="range" id="dms0" min="0" value="0">
+          <input type="range" id="dms1" min="0" value="100">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
