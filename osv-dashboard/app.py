@@ -42,7 +42,7 @@ SCRIPT_NAME = os.environ.get('SCRIPT_NAME', '').rstrip('/')
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-change-me')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 МБ
-app.config['WTF_CSRF_TIME_LIMIT'] = 3600  # 1 час
+app.config['WTF_CSRF_TIME_LIMIT'] = None   # токен живёт до истечения сессии
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
