@@ -158,6 +158,27 @@ td.neg{color:var(--bad)} td.pos{color:var(--ok)}
 #view-detail{display:none}
 body[data-mode="detail"] #view-exec{display:none}
 body[data-mode="detail"] #view-detail{display:block}
+#view-rating{display:none}
+body[data-mode="rating"] #view-exec{display:none}
+body[data-mode="rating"] #view-detail{display:none}
+body[data-mode="rating"] #view-rating{display:block}
+/* rating cards */
+.rt-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}
+.rt-card{background:#fff;border:1px solid #d3dade;border-radius:10px;padding:14px 16px;display:flex;gap:10px;align-items:flex-start;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.rt-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.rt-meta{font-size:11.5px;color:#5e7a8a;margin-bottom:8px}
+.rt-vals{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.rt-val-box{background:#f0f3f5;border-radius:7px;padding:6px 12px;display:flex;flex-direction:column;align-items:center;min-width:80px}
+.rt-val-lbl{font-size:10px;font-weight:600;color:#7a96a8;margin-bottom:2px}
+.rt-val-num{font-size:20px;font-weight:800;color:#1c2b38;line-height:1}
+.rt-bench-num{font-size:20px;font-weight:800;color:#4a6070;line-height:1}
+.rt-comment{font-size:11.5px;color:#5e7a8a;line-height:1.4;border-top:1px dashed #d3dade;padding-top:7px}
+.rt-badge{font-size:11px;font-weight:600;border-radius:20px;padding:2px 9px;border:1px solid;white-space:nowrap}
+.rt-summary{background:#fff;border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.07)}
+.rt-filter-btn{display:flex;align-items:center;gap:10px;border-radius:10px;padding:8px 16px;cursor:pointer;border:1.5px solid;transition:all .15s;user-select:none}
+.rt-score{width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.12);flex-shrink:0}
+.rt-score-in{width:42px;height:42px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center}
+@media(max-width:680px){.rt-grid{grid-template-columns:1fr}}
 .muted-big{font-size:13px;color:var(--mut);padding:14px 0}
 footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;color:var(--mut)}
 .tag-dir{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px}
@@ -228,6 +249,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <div class="modes" role="tablist" aria-label="Режим просмотра">
       <button id="mode-exec" class="on" onclick="setMode('exec')">Обзор</button>
       <button id="mode-detail" onclick="setMode('detail')">Детально</button>
+      <button id="mode-rating" onclick="setMode('rating')">Рейтинг</button>
     </div>
   </div>
   <div class="lamps">
@@ -401,6 +423,11 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <h2>Суточная динамика по счетам <span class="exp" id="hd-daily-period">— обороты за период</span></h2>
     <div id="daily-tabs-grid"></div>
   </section>
+</div>
+
+<!-- ================= РЕЙТИНГ ================= -->
+<div id="view-rating">
+  <div id="rating-content"></div>
 </div>
 </main>
 <footer id="site-footer">Источник: оборотно-сальдовые ведомости 1С за отчётный период. Файл автономный — работает без интернета. Суммы сверены с контрольными итогами ОСВ.</footer>
@@ -637,6 +664,8 @@ function setMode(m){
   document.body.dataset.mode=m;
   document.getElementById('mode-exec').classList.toggle('on',m==='exec');
   document.getElementById('mode-detail').classList.toggle('on',m==='detail');
+  document.getElementById('mode-rating').classList.toggle('on',m==='rating');
+  if(m==='rating') renderRating();
 }
 function buildTabs(){
   const SEC=D.sections;
@@ -1066,6 +1095,213 @@ function renderKz(){
   const rows=D.kz.filter(r=>r[0].toLowerCase().includes(q)).map(r=>[r[0],r[1],r[2],r[2]-r[1]]);
   document.getElementById('pill-kz').textContent=`контрагентов: ${rows.length}`;
   table('tbl-kz',[{h:'Кредитор'},{h:snLbl,f:'n'},{h:skLbl,f:'n'},{h:'Прирост',f:'n',sign:1}],rows,{total:true,sortCol:2});
+}
+
+/* ── Рейтинг показателей ФХД ── */
+function renderRating(){
+  const box=document.getElementById('rating-content'); if(!box) return;
+  const ss=arr=>arr?arr.reduce((s,v,i)=>sel[i]?s+v:s,0):0;
+  const nMon=sel.filter(Boolean).length||1;
+  const nDays=nMon*30;
+
+  const revTotal=ss(D.pl.rev), ndsTotal=ss(D.pl.nds);
+  const revNet=revTotal-ndsTotal;
+  const costTotal=ss(D.pl.cost), admTotal=ss(D.pl.adm);
+  const ebitda=revNet-costTotal-admTotal;
+  const dzSk=D.dz_tot?D.dz_tot.sk:0, kzSk=D.kz_tot?D.kz_tot.sk:0;
+  const cashEnd=D.cf?(D.cf.b51_end+D.cf.b50_end):0;
+  const creditsSk=D.credits?D.credits.sk:0;
+  const creditsAvg=D.credits?(D.credits.sk+D.credits.sn)/2:0;
+  const interest=(D.e91||[]).filter(([n])=>/процент/i.test(n)).reduce((s,[,v])=>s+v,0);
+  const comm44Total=D.comm44?ss(D.comm44):-1;
+  const zpTotal=D.zp?ss(D.zp.v):0;
+  const taxSocial=(D.nal||[]).filter(r=>r[0].startsWith('69')||r[0]==='68.01').reduce((s,r)=>s+r[4],0);
+
+  function sig(v,gFn,yFn){
+    if(v===null||v===undefined||isNaN(v)||!isFinite(v)) return 'na';
+    return gFn(v)?'green':yFn(v)?'yellow':'red';
+  }
+  const SC={
+    green: {bg:'#d1fae5',border:'#6ee7b7',dot:'#16a34a',lbl:'Норма'},
+    yellow:{bg:'#fef9c3',border:'#fde047',dot:'#ca8a04',lbl:'Внимание'},
+    red:   {bg:'#fee2e2',border:'#fca5a5',dot:'#dc2626',lbl:'Критично'},
+    na:    {bg:'#f0f3f5',border:'#d3dade',dot:'#7a96a8',lbl:'Нет данных'},
+  };
+
+  const metrics=[
+    {n:1,name:'Дебиторская задолженность',acc:'сч. 62, 76',
+     metric:'Период оборачиваемости',
+     val:revNet>0&&dzSk>0?dzSk/revNet*nDays:null,
+     bench:'≤ 60 дн.',
+     fmt:v=>v!==null?Math.round(v)+' дн.':'—',
+     sig:v=>sig(v,v=>v<=60,v=>v<=90),
+     note:v=>v===null?'Нет данных по выручке или ДЗ.':
+       v<=60?'Деньги возвращаются в срок. Сбор платежей эффективен.':
+       v<=90?'Оборачиваемость чуть выше нормы. Усилить претензионную работу.':
+       'Деньги «заморожены» у должников. Высокий риск кассового разрыва.'},
+    {n:2,name:'Кредиторская задолженность',acc:'сч. 60, 68–70',
+     metric:'КЗ / ДЗ соотношение',
+     val:dzSk>0?kzSk/dzSk:null,
+     bench:'≤ 1.0×',
+     fmt:v=>v!==null?v.toFixed(2)+'×':'—',
+     sig:v=>sig(v,v=>v<=1.0,v=>v<=1.5),
+     note:v=>v===null?'Нет данных по задолженности.':
+       v<=1.0?'КЗ не превышает ДЗ. Компания финансирует себя.':
+       v<=1.5?'КЗ немного выше ДЗ. Следить за сроками оплаты поставщикам.':
+       'Живём в долг у поставщиков. Риск остановки поставок.'},
+    {n:3,name:'Денежные средства',acc:'сч. 50, 51',
+     metric:'Коэффициент ликвидности (ДС / КЗ)',
+     val:kzSk>0?cashEnd/kzSk:null,
+     bench:'≥ 0.50',
+     fmt:v=>v!==null?v.toFixed(2):'—',
+     sig:v=>sig(v,v=>v>=0.5,v=>v>=0.2),
+     note:v=>v===null?'Нет данных по КЗ.':
+       v>=0.5?'Денежная подушка покрывает КЗ. Ликвидность в норме.':
+       v>=0.2?'Подушка частично покрывает КЗ. Контролировать платёжный календарь.':
+       'Критически мало денег. Не покрывает даже 20% КЗ.'},
+    {n:4,name:'Кредиты и займы',acc:'сч. 66, 67',
+     metric:'Чистый долг / EBITDA',
+     val:creditsSk>0&&ebitda>0?(creditsSk-cashEnd)/ebitda:null,
+     bench:'≤ 2.5×',
+     fmt:v=>v!==null?v.toFixed(1)+'×':'—',
+     sig:v=>sig(v,v=>v<=2.5,v=>v<=4.0),
+     note:v=>creditsSk===0?'Кредиты отсутствуют или сч. 66/67 не загружены.':
+       ebitda<=0?'EBITDA отрицательна — долговая нагрузка критична.':
+       v===null?'Нет данных.':
+       v<=2.5?'Долговая нагрузка комфортная.':
+       v<=4.0?'Нагрузка выше нормы. Осторожно с новыми кредитами.':
+       'Долговая нагрузка критична. Требуется реструктуризация.'},
+    {n:5,name:'Проценты по кредитам',acc:'сч. 91.02',
+     metric:'Эффективная ставка, % годовых',
+     val:creditsAvg>0&&interest>0?interest/creditsAvg/nMon*12*100:null,
+     bench:'≤ 18%',
+     fmt:v=>v!==null?v.toFixed(1)+'%':'—',
+     sig:v=>sig(v,v=>v<=18,v=>v<=22),
+     note:v=>creditsSk===0?'Кредиты и займы отсутствуют.':
+       v===null?'Нет данных о процентах в 91.02.':
+       v<=18?'Стоимость долга в норме.':
+       v<=22?'Ставка выше рынка. Рассмотреть рефинансирование.':
+       'Высокая стоимость долга. Срочно рефинансировать.'},
+    {n:6,name:'Налоги и сборы',acc:'сч. 68, 69',
+     metric:'Нагрузка на ФОТ (взносы + НДФЛ / ФОТ)',
+     val:zpTotal>0?taxSocial/zpTotal*100:null,
+     bench:'≤ 32%',
+     fmt:v=>v!==null?v.toFixed(1)+'%':'—',
+     sig:v=>sig(v,v=>v<=32,v=>v<=38),
+     note:v=>v===null?'Нет данных по ФОТ (сч. 70).':
+       v<=32?'Налоговая нагрузка на ФОТ в норме.':
+       v<=38?'Чуть выше нормы. Проверить льготы.':
+       'Высокая нагрузка. Проверить правильность начислений.'},
+    {n:7,name:'Выручка',acc:'сч. 90.01',
+     metric:'% выполнения НВВ',
+     val:null,
+     bench:'≥ 95%',
+     fmt:()=>'Нет плана',
+     sig:()=>'na',
+     note:()=>'Для расчёта нужно плановое значение НВВ из тарифного решения регулятора.'},
+    {n:8,name:'Себестоимость',acc:'сч. 90.02, 20',
+     metric:'Доля в выручке нетто, %',
+     val:revNet>0?costTotal/revNet*100:null,
+     bench:'≤ 80%',
+     fmt:v=>v!==null?v.toFixed(1)+'%':'—',
+     sig:v=>sig(v,v=>v<=80,v=>v<=95),
+     note:v=>v===null?'Нет данных по выручке.':
+       v<=80?'Себестоимость в норме. Достаточная валовая маржа.':
+       v<=95?'Себестоимость высокая. Анализировать статьи перерасхода.':
+       'Критически высока. Работа на грани убытка.'},
+    {n:9,name:'Коммерческие расходы',acc:'сч. 44',
+     metric:'Доля в выручке нетто, %',
+     val:comm44Total>=0&&revNet>0?comm44Total/revNet*100:null,
+     bench:'≤ 3%',
+     fmt:v=>v!==null?v.toFixed(1)+'%':'—',
+     sig:v=>sig(v,v=>v<=3,v=>v<=5),
+     note:v=>!D.sections.has_comm44?'Сч. 44 не загружен в ОСВ.':
+       v===null?'Нет данных.':
+       v<=3?'Коммерческие расходы в норме.':
+       v<=5?'Немного выше нормы. Оптимизировать сбытовые затраты.':
+       'Высокие коммерческие расходы. Переводить клиентов в онлайн.'},
+    {n:10,name:'Управленческие расходы',acc:'сч. 26',
+     metric:'Доля в выручке нетто, %',
+     val:revNet>0?admTotal/revNet*100:null,
+     bench:'≤ 8%',
+     fmt:v=>v!==null?v.toFixed(1)+'%':'—',
+     sig:v=>sig(v,v=>v<=8,v=>v<=12),
+     note:v=>v===null?'Нет данных по выручке.':
+       v<=8?'Управленческие расходы в норме.':
+       v<=12?'Чуть выше нормы. Оптимизировать АУП.':
+       'Высокие управленческие расходы. Аудит штатной численности.'},
+  ];
+
+  const computed=metrics.map(m=>({...m,signal:m.sig(m.val),disp:m.fmt(m.val),noteText:m.note(m.val)}));
+  const cnts={green:0,yellow:0,red:0,na:0};
+  computed.forEach(m=>{if(cnts[m.signal]!==undefined) cnts[m.signal]++;});
+  const scoreable=computed.filter(m=>m.signal!=='na').length||1;
+  const score=Math.round((cnts.green*100+cnts.yellow*50)/(scoreable*100)*100);
+  const scoreColor=score>=70?'#22c55e':score>=40?'#eab308':'#ef4444';
+
+  const curF=box.dataset.filter||'';
+  const visible=curF?computed.filter(m=>m.signal===curF):computed;
+
+  // ── summary
+  const sigBtns=[['green','Норма'],['yellow','Внимание'],['red','Критично']].map(([s,lbl])=>{
+    const c=SC[s], active=curF===s;
+    return `<div class="rt-filter-btn" data-rf="${s}" style="background:${active?c.dot:c.bg};border-color:${c.border};box-shadow:${active?'0 2px 10px '+c.dot+'44':'none'}">
+      <div style="width:28px;height:28px;border-radius:50%;background:${active?'rgba(255,255,255,.25)':c.dot};display:flex;align-items:center;justify-content:center">
+        <span style="font-size:14px;font-weight:800;color:#fff">${cnts[s]}</span></div>
+      <span style="font-size:12px;font-weight:600;color:${active?'#fff':c.dot}">${lbl}</span></div>`;
+  }).join('');
+
+  const pe=D.period_end_label||'конец периода';
+  const summHtml=`<div class="rt-summary">
+    <div style="flex:1;min-width:160px">
+      <div style="font-size:17px;font-weight:800;color:#1c2b38;margin-bottom:2px">Рейтинг финансового здоровья</div>
+      <div style="font-size:12px;color:#7a96a8">Эталон: медиана РСО теплоснабжения · данные на ${pe}</div>
+    </div>
+    <div class="rt-score" style="background:conic-gradient(${scoreColor} ${score*3.6}deg,#e2e8f0 0deg)">
+      <div class="rt-score-in">
+        <span style="font-size:16px;font-weight:800;color:#1c2b38;line-height:1">${score}</span>
+        <span style="font-size:9px;color:#7a96a8">/100</span>
+      </div>
+    </div>
+    ${sigBtns}
+    <div style="background:#e8f4fb;border:1px solid #b3d9ee;border-radius:10px;padding:8px 14px">
+      <div style="font-size:10px;font-weight:600;color:#5b8fa8">ЭТАЛОН</div>
+      <div style="font-size:12px;font-weight:700;color:#1c2b38">Медиана по РСО РФ</div>
+      <div style="font-size:10.5px;color:#7a96a8">теплоснабжение · 2024</div>
+    </div>
+  </div>`;
+
+  // ── cards
+  const cardsHtml=visible.map(m=>{
+    const c=SC[m.signal];
+    return `<div class="rt-card">
+      <div class="rt-dot" style="background:${c.dot}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px;flex-wrap:wrap">
+          <span style="font-size:11px;font-weight:700;color:#7a96a8;background:#f0f3f5;border-radius:4px;padding:1px 6px;flex-shrink:0">№${m.n}</span>
+          <span style="font-weight:700;font-size:13.5px;color:#1c2b38;flex:1">${m.name}</span>
+          <span class="rt-badge" style="background:${c.bg};color:${c.dot};border-color:${c.border}">${c.lbl}</span>
+        </div>
+        <div class="rt-meta">${m.metric} · <span style="color:#9ab0be">${m.acc}</span></div>
+        <div class="rt-vals">
+          <div class="rt-val-box"><div class="rt-val-lbl">ФАКТ</div><div class="rt-val-num">${m.disp}</div></div>
+          <div class="rt-val-box"><div class="rt-val-lbl">ЭТАЛОН</div><div class="rt-bench-num">${m.bench}</div></div>
+        </div>
+        <div class="rt-comment">${m.noteText}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const legendHtml=`<div style="margin-top:14px;background:#fff;border-radius:10px;padding:10px 18px;display:flex;gap:20px;align-items:center;flex-wrap:wrap;box-shadow:0 1px 3px rgba(0,0,0,.05)">
+    <span style="font-size:11px;font-weight:700;color:#7a96a8">СВЕТОФОР:</span>
+    ${[['#16a34a','Норма — значение в пределах эталона'],['#ca8a04','Внимание — отклонение до 20%'],['#dc2626','Критично — отклонение свыше 20%'],['#7a96a8','Нет данных — счёт не загружен']].map(([dot,txt])=>`<div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:${dot};flex-shrink:0"></div><span style="font-size:11.5px;color:#5e7a8a">${txt}</span></div>`).join('')}
+  </div>`;
+
+  box.innerHTML=summHtml+`<div class="rt-grid">${cardsHtml}</div>`+legendHtml;
+  box.querySelectorAll('[data-rf]').forEach(btn=>{
+    btn.style.cursor='pointer';
+    btn.onclick=()=>{box.dataset.filter=box.dataset.filter===btn.dataset.rf?'':btn.dataset.rf; renderRating();};
+  });
 }
 
 buildMonthBtns(); buildTabs(); renderAll();

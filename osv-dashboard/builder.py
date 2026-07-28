@@ -329,6 +329,20 @@ def build_dataset(data, company_name=''):
     r7602      = sub_row('76', '76.02')
     pretenzii  = round(r7602['skd'], 2) if r7602 else 0
 
+    # ── кредиты и займы (66 краткосрочные, 67 долгосрочные)
+    t66, t67 = s.top('66'), s.top('67')
+    credits = dict(
+        sn66=round(max(0.0, t66['snk'] - t66['snd']), 2),
+        sk66=round(max(0.0, t66['skk'] - t66['skd']), 2),
+        sn67=round(max(0.0, t67['snk'] - t67['snd']), 2),
+        sk67=round(max(0.0, t67['skk'] - t67['skd']), 2),
+    )
+    credits['sn'] = credits['sn66'] + credits['sn67']
+    credits['sk'] = credits['sk66'] + credits['sk67']
+
+    # ── коммерческие расходы сч. 44
+    comm44 = _msum(s.daily('44'), months, 'obd')
+
     # ── служебные метки периода
     ys = sorted({m[:4] for m in months})
     period_label     = (f"{MONTH_NAMES[months[0][5:]]}–{MONTH_NAMES[months[-1][5:]]} {ys[-1]}"
@@ -492,6 +506,8 @@ def build_dataset(data, company_name=''):
         has_taxes    =bool(nal),
         has_zp       =s.has('70'),
         has_91       =bool(i91) or bool(e91),
+        has_credits  =credits['sk'] > 0,
+        has_comm44   =s.has('44'),
         has_daily    =bool(daily_charts['dates']),
         has_subaccs  =has_path3,
     )
@@ -516,6 +532,7 @@ def build_dataset(data, company_name=''):
         avans_pol      =round(r6202['skk'], 2) if r6202 else 0,
         avans_vyd      =round(r6002['skd'], 2) if r6002 else 0,
         cf=cf, kassa=kassa, nal=nal, zp=zp, i91=i91, e91=e91,
+        credits=credits, comm44=comm44,
         rezerv=dict(created=round(rez_created, 2), restored=round(rez_restored, 2)),
         pretenzii      =pretenzii,
         daily_charts   =daily_charts,

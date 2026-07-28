@@ -305,7 +305,7 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
     else:
         profit_sign = 'neutral'
 
-    want = ['20', '25', '26', '50', '51', '60', '62', '68', '69', '70', '76', '90', '91']
+    want = ['20', '25', '26', '44', '50', '51', '60', '62', '66', '67', '68', '69', '70', '76', '90', '91']
     missing = [a for a in want if a not in data]
     if missing:
         audit.append(dict(file='—', acc=', '.join(missing),
