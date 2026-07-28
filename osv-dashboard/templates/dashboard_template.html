@@ -7,7 +7,7 @@
 <style>
 :root{
   --ink:#1b2733; --ink2:#31424f; --mut:#6b7a86; --paper:#e9edf0; --panel:#ffffff;
-  --line:#d3dade; --ok:#2e7d4f; --warn:#c98a12; --bad:#bf3222; --lamp-off:#c7d0d6;
+  --line:#d3dade; --ok:#2e7d4f; --warn:#c98a12; --bad:#bf3222; --lamp-off:#c7d0d6; --water:#1f7a9c;
   --num:'Consolas','Menlo','DejaVu Sans Mono',monospace;
 }
 *{box-sizing:border-box; margin:0; padding:0}
@@ -249,7 +249,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <div class="brief-hdr">
       <h2>Что происходит <span class="exp" id="brief-note"></span></h2>
       <button class="ai-brief-btn" id="ai-brief-btn"
-              onclick="requestAiBrief()" style="display:none">✦ Резюме ИИ</button>
+              onclick="requestAiBrief()" style="display:__AI_DISP__">✦ Резюме ИИ</button>
     </div>
     <div class="lead" id="brief-lead"></div>
     <ol id="brief-points"></ol>
@@ -1069,7 +1069,7 @@ function renderKz(){
 }
 
 buildMonthBtns(); buildTabs(); renderAll();
-if(_AI_OK){ const b=document.getElementById('ai-brief-btn'); if(b) b.style.display=''; }
+/* кнопка ИИ показывается сервером через __AI_DISP__ */
 
 function requestAiBrief(){
   const btn=document.getElementById('ai-brief-btn');

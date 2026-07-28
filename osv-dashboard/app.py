@@ -1353,6 +1353,7 @@ def dashboard(company_id, name):
     html = html.replace("'__CSRF__'",   f"'{generate_csrf()}'",    1)
     html = html.replace('__CID__',      str(company_id),            1)
     html = html.replace('__AI_OK__',    'true' if ai_ok else 'false', 1)
+    html = html.replace('__AI_DISP__',  'inline-flex' if ai_ok else 'none', 1)
     return Response(html, mimetype='text/html')
 
 
