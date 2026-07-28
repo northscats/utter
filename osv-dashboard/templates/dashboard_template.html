@@ -1178,7 +1178,7 @@ function _dmRedraw(){
     dailyBarsPair(box,dates,accs['70'].obd.slice(s0,s1+1),accs['70'].obk.slice(s0,s1+1),
       'Начислено','Выплачено','#2e6e8e','#7d97a8',{h:360});
 }
-/* слайдеры привязываются лениво при первом открытии (элементы после </script>) */
+/* слайдеры привязываются лениво при первом открытии (элементы идут после тега script) */
 var _dmBound=false;
 function _dmBindSliders(){
   if(_dmBound)return; _dmBound=true;
