@@ -188,7 +188,8 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
   cursor:pointer;color:var(--ink2);font-size:18px;line-height:1;padding:3px 10px}
 #daily-modal-close:hover{background:#f0f3f5}
 #daily-modal-body{flex:1;overflow-y:auto;padding:18px 20px 22px}
-#daily-modal-chart{width:100%;min-height:300px}
+#daily-modal-chart{width:100%;height:360px;overflow:hidden}
+#daily-modal-chart svg{width:100% !important;height:100% !important;display:block}
 #daily-modal-leg{display:flex;gap:14px;font-size:12.5px;color:var(--mut);margin-top:8px}
 #daily-modal-leg i{width:11px;height:11px;border-radius:2px;display:inline-block;
   margin-right:5px;vertical-align:-1px}
@@ -1177,6 +1178,8 @@ function _dmRedraw(){
   else if(_dmAcc==='70'&&accs['70'])
     dailyBarsPair(box,dates,accs['70'].obd.slice(s0,s1+1),accs['70'].obk.slice(s0,s1+1),
       'Начислено','Выплачено','#2e6e8e','#7d97a8',{h:360});
+  var svg=box.querySelector('svg');
+  if(svg) svg.setAttribute('preserveAspectRatio','none');
 }
 /* слайдеры привязываются лениво при первом открытии (элементы идут после тега script) */
 var _dmBound=false;
