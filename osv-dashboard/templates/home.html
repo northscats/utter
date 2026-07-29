@@ -47,9 +47,9 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
 .view-toggle button:first-child{border-right:1px solid var(--line)}
 
 .btn-new{background:var(--water);color:#fff;border:0;border-radius:8px;
-  padding:10px 20px;font:600 14px 'Segoe UI',sans-serif;cursor:pointer;
-  letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center;gap:7px;
-  transition:background .15s;white-space:nowrap}
+  padding:0;width:32px;height:32px;font:600 18px 'Segoe UI',sans-serif;cursor:pointer;
+  text-decoration:none;display:inline-flex;align-items:center;justify-content:center;
+  transition:background .15s;flex-shrink:0}
 .btn-new:hover{background:#186a87}
 
 /* --- таблица-список предприятий --- */
@@ -189,7 +189,7 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
         </button>
       </div>
       {% endif %}
-      <a class="btn-new" href="{{ url_for('company_new') }}">+ Добавить предприятие</a>
+      <a class="btn-new" href="{{ url_for('company_new') }}" title="Добавить предприятие">+</a>
     </div>
   </div>
 
@@ -323,7 +323,7 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
     <div class="empty-icon">📂</div>
     <h3>Нет ни одного предприятия</h3>
     <p>Нажмите «Добавить предприятие», чтобы загрузить первые оборотно-сальдовые ведомости.</p>
-    <a class="btn-new" href="{{ url_for('company_new') }}">+ Добавить предприятие</a>
+    <a class="btn-new" href="{{ url_for('company_new') }}" title="Добавить предприятие">+</a>
   </div>
   {% endif %}
 </main>
