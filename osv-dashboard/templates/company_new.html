@@ -40,6 +40,21 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
 .err{background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;border-radius:8px;
   padding:12px 16px;margin-bottom:20px}
 .hint{font-size:12.5px;color:var(--mut);margin-top:16px;line-height:1.5}
+/* ── OSV coverage panel ── */
+.osv-panel{background:#f7f9fb;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-top:14px}
+.osv-panel-title{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#31424f;margin-bottom:12px}
+.osv-groups{display:flex;flex-direction:column;gap:8px}
+.osv-group{display:flex;align-items:flex-start;gap:10px}
+.osv-group-label{font-size:11.5px;color:var(--mut);width:140px;flex-shrink:0;padding-top:4px;font-weight:600}
+.osv-group-pills{display:flex;flex-wrap:wrap;gap:5px;flex:1}
+.osv-pill{font-size:11.5px;font-weight:600;border-radius:5px;padding:3px 8px;cursor:default;white-space:nowrap}
+.osv-pill-ok{background:#d1fae5;color:#14532d}
+.osv-pill-miss{background:#fee2e2;color:#7f1d1d}
+.osv-pill-opt{background:#f0f3f5;color:#9ab0be}
+.osv-summary{margin-top:12px;font-size:12.5px;padding:8px 12px;border-radius:7px}
+.osv-summary-ok{background:#e9f4ee;color:#1d4f35}
+.osv-summary-warn{background:#fff7ed;color:#7c3a00;border:1px solid #fcd77a}
+.osv-unrecognized{margin-top:6px;font-size:11px;color:var(--mut)}
 </style>
 </head>
 <body>
@@ -71,6 +86,7 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
         <span class="filelist" id="flist">Файлы не выбраны</span>
       </div>
       <div class="field-hint">Формат: .xls или .xlsx, можно выбрать сразу несколько файлов</div>
+      <div id="osv-panel" style="display:none" class="osv-panel"></div>
 
       {% if ask_name %}
       <input type="hidden" name="tmp_key" value="{{ tmp_key or '' }}">
@@ -92,13 +108,57 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
   </div>
 </main>
 <script>
+/* ── OSV coverage panel ── */
+const _OSV_GROUPS=[
+  {label:'Финрезультат',accounts:[{acc:'90',name:'Продажи (выручка)',critical:true},{acc:'91',name:'Прочие доходы/расходы',critical:false}]},
+  {label:'Затраты',accounts:[{acc:'20',name:'Осн. производство',critical:true},{acc:'25',name:'Общепроизводственные',critical:true},{acc:'26',name:'Управленческие',critical:true},{acc:'44',name:'Коммерческие',critical:false}]},
+  {label:'Долги',accounts:[{acc:'62',name:'Покупатели (ДЗ)',critical:true},{acc:'60',name:'Поставщики (КЗ)',critical:true},{acc:'76',name:'Прочие расчёты',critical:false}]},
+  {label:'Деньги',accounts:[{acc:'51',name:'Расчётные счета',critical:true},{acc:'50',name:'Касса',critical:false}]},
+  {label:'Налоги и ФОТ',accounts:[{acc:'70',name:'Оплата труда',critical:true},{acc:'68',name:'Налоги и сборы',critical:true},{acc:'69',name:'Соц. страхование',critical:true}]},
+  {label:'Кредиты и займы',accounts:[{acc:'66',name:'Краткосрочные',critical:false},{acc:'67',name:'Долгосрочные',critical:false}]}
+];
+function _osvFW(n){return n===1?'файл':n<=4?'файла':'файлов';}
+function _osvExtractAcc(name){
+  var m=name.match(/(?:по\s+счет[уё]?|счет[уё]?)\s+(\d{2,3}(?:\.\d{1,2})?)/i);
+  return m?m[1].split('.')[0]:null;
+}
+function _osvRenderPanel(files,panelId){
+  var panel=document.getElementById(panelId);
+  if(!panel)return;
+  if(!files.length){panel.innerHTML='';panel.style.display='none';return;}
+  var accMap={},unrec=[];
+  files.forEach(function(f){
+    var acc=_osvExtractAcc(f.name);
+    if(acc){if(!accMap[acc])accMap[acc]=[];accMap[acc].push(f.name);}
+    else unrec.push(f.name);
+  });
+  var missCrit=0;
+  _OSV_GROUPS.forEach(function(g){g.accounts.forEach(function(a){if(a.critical&&!accMap[a.acc])missCrit++;});});
+  var h='<div class="osv-panel-title">Покрытие ОСВ</div><div class="osv-groups">';
+  _OSV_GROUPS.forEach(function(g){
+    h+='<div class="osv-group"><div class="osv-group-label">'+g.label+'</div><div class="osv-group-pills">';
+    g.accounts.forEach(function(a){
+      var fs=accMap[a.acc];
+      if(fs){h+='<div class="osv-pill osv-pill-ok" title="'+fs.join('\n')+'">сч.'+a.acc+' · '+fs.length+' '+_osvFW(fs.length)+'</div>';}
+      else if(a.critical){h+='<div class="osv-pill osv-pill-miss" title="'+a.name+' — не загружена">сч.'+a.acc+' · нет ⚠</div>';}
+      else{h+='<div class="osv-pill osv-pill-opt" title="'+a.name+'">сч.'+a.acc+' · —</div>';}
+    });
+    h+='</div></div>';
+  });
+  h+='</div>';
+  if(missCrit===0){h+='<div class="osv-summary osv-summary-ok">✓ Все обязательные ведомости прикреплены</div>';}
+  else{var s=missCrit===1?'ой':'ых',t=missCrit===1?'и':'ей';h+='<div class="osv-summary osv-summary-warn">⚠ Не хватает '+missCrit+' обязательн'+s+' ведомост'+t+' — дашборд будет неполным</div>';}
+  if(unrec.length){h+='<div class="osv-unrecognized">Не распознаны ('+unrec.length+'): '+unrec.join(', ')+'</div>';}
+  panel.innerHTML=h;panel.style.display='';
+}
+
 const inp=document.getElementById('files'),
       list=document.getElementById('flist'),
       go=document.getElementById('go');
 inp.addEventListener('change',function(){
   const fs=[...inp.files];
   if(fs.length){
-    list.textContent='Выбрано: '+fs.length+' — '+fs.map(f=>f.name).join(', ');
+    list.textContent='Выбрано: '+fs.length+' файл'+(fs.length===1?'':fs.length<5?'а':'ов');
     list.classList.add('has-files');
     go.disabled=false;
   } else {
@@ -106,6 +166,7 @@ inp.addEventListener('change',function(){
     list.classList.remove('has-files');
     go.disabled=true;
   }
+  _osvRenderPanel(fs,'osv-panel');
 });
 document.getElementById('frm').addEventListener('submit',()=>{go.disabled=true;go.textContent='Обрабатываю…'});
 </script>
