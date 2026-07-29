@@ -972,13 +972,23 @@ def login():
 def logout():
     log_event('logout')
     logout_user()
-    return redirect(url_for('login'))
+    return redirect(url_for('landing'))
+
+
+# ---------------------------------------------------------------------------
+# Посадочная страница (публичная)
+# ---------------------------------------------------------------------------
+@app.route('/')
+def landing():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    return render_template('landing.html', second_url=None)
 
 
 # ---------------------------------------------------------------------------
 # Главная — список предприятий
 # ---------------------------------------------------------------------------
-@app.route('/')
+@app.route('/home')
 @login_required
 def home():
     companies = Company.query.order_by(Company.created_at.desc()).all()
