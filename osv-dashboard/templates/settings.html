@@ -431,6 +431,31 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </form>
   </div>
 
+  <!-- ─── Посадочная страница ─── -->
+  <div class="card">
+    <h3>Посадочная страница</h3>
+    <p class="desc">
+      Настройка кнопки альтернативной версии в меню входа на посадочной странице («Войти в систему» → выпадающий список).
+    </p>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="save_landing">
+      <div class="field-grid">
+        <label for="landing_v09_label">Название кнопки</label>
+        <input type="text" id="landing_v09_label" name="landing_v09_label"
+               value="{{ landing_cfg.v09_label }}" placeholder="Версия 0.9 alfa">
+
+        <label for="landing_v09_url">URL (в текущей вкладке)</label>
+        <input type="text" id="landing_v09_url" name="landing_v09_url"
+               value="{{ landing_cfg.v09_url }}" placeholder="https://...">
+        <div class="hint">Оставьте пустым — кнопка будет неактивна.</div>
+      </div>
+      <div style="margin-top:18px">
+        <button type="submit" class="btn btn-primary">Сохранить</button>
+      </div>
+    </form>
+  </div>
+
 </main>
 <script>
 function testImap() {

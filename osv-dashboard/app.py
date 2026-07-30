@@ -982,7 +982,10 @@ def logout():
 def landing():
     if current_user.is_authenticated:
         return redirect(url_for('home'))
-    return render_template('landing.html', second_url=None)
+    v09_label = Setting.get('landing_v09_label', 'Версия 0.9 alfa')
+    v09_url   = Setting.get('landing_v09_url', '')
+    return render_template('landing.html', second_url=None,
+                           v09_label=v09_label, v09_url=v09_url)
 
 
 # ---------------------------------------------------------------------------
@@ -2153,6 +2156,14 @@ def settings():
                 db.session.commit()
                 log_event('ai_provider_set_default', {'name': prov.name})
 
+        elif action == 'save_landing':
+            label = request.form.get('landing_v09_label', '').strip()
+            url_  = request.form.get('landing_v09_url', '').strip()
+            Setting.set('landing_v09_label', label or 'Версия 0.9 alfa')
+            Setting.set('landing_v09_url', url_)
+            db.session.commit()
+            log_event('landing_settings_saved')
+
         return redirect(url_for('settings'))
 
     imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
@@ -2161,12 +2172,17 @@ def settings():
         imap_cfg['imap_password'] = decrypt_value(imap_cfg['imap_password'])
     rules = EmailRule.query.order_by(EmailRule.id).all()
     ai_providers = AiProvider.query.order_by(AiProvider.created_at).all()
+    landing_cfg = {
+        'v09_label': Setting.get('landing_v09_label', 'Версия 0.9 alfa'),
+        'v09_url':   Setting.get('landing_v09_url', ''),
+    }
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
                            imap_cfg=imap_cfg,
                            rules=rules,
                            companies=companies,
-                           ai_providers=ai_providers)
+                           ai_providers=ai_providers,
+                           landing_cfg=landing_cfg)
 
 
 # ---------------------------------------------------------------------------

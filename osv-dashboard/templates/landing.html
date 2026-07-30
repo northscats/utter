@@ -43,6 +43,20 @@ h1 .accent{color:var(--blue-mid)}
 .btn-secondary{background:var(--panel);color:var(--ink);border:1.5px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.06)}
 .btn-secondary:hover{border-color:var(--blue-mid);color:var(--blue);box-shadow:0 4px 14px rgba(0,0,0,.1);transform:translateY(-1px)}
 
+/* Login dropdown */
+.login-wrap{position:relative;display:inline-block}
+.login-btn{display:inline-flex;align-items:center;gap:10px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:15px 36px;font:700 14px 'Segoe UI',sans-serif;letter-spacing:.03em;cursor:pointer;box-shadow:0 4px 20px rgba(0,63,138,.28);transition:all .18s;white-space:nowrap}
+.login-btn:hover{background:#00337a;box-shadow:0 6px 28px rgba(0,63,138,.38)}
+.login-btn .chevron{margin-left:2px;transition:transform .18s;flex-shrink:0}
+.login-wrap.open .chevron{transform:rotate(180deg)}
+.login-drop{display:none;position:absolute;top:calc(100% + 8px);left:0;min-width:220px;background:#fff;border:1.5px solid var(--line);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.12);overflow:hidden;z-index:100}
+.login-wrap.open .login-drop{display:block}
+.login-drop a{display:flex;align-items:center;gap:10px;padding:13px 16px;font:14px 'Segoe UI',sans-serif;color:var(--ink);text-decoration:none;transition:background .15s}
+.login-drop a:hover{background:#f0f4fa}
+.login-drop a + a{border-top:1px solid var(--line)}
+.drop-badge{font-size:10px;font-weight:700;letter-spacing:.06em;color:#fff;background:#2e7d4f;border-radius:5px;padding:2px 6px;flex-shrink:0;margin-left:auto}
+.drop-ver{font-size:12px;color:var(--mut);margin-top:1px}
+
 /* Feature cards */
 .features{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:780px}
 .feat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;display:flex;align-items:flex-start;gap:12px;flex:1 1 210px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
@@ -104,12 +118,44 @@ footer{background:var(--panel);border-top:1px solid var(--line);padding:15px 56p
   </p>
 
   <div class="cta-row">
-    <a href="{{ url_for('login') }}" class="btn btn-primary">
-      <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="10" cy="7" r="3.5"/><path d="M3 17c0-3.5 3.1-6 7-6s7 2.5 7 6"/>
-      </svg>
-      Войти в систему
-    </a>
+    <!-- Dropdown «Войти в систему» -->
+    <div class="login-wrap" id="loginWrap">
+      <button class="login-btn" onclick="toggleLogin(event)">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="10" cy="7" r="3.5"/><path d="M3 17c0-3.5 3.1-6 7-6s7 2.5 7 6"/>
+        </svg>
+        Войти в систему
+        <svg class="chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 5l4 4 4-4"/></svg>
+      </button>
+      <div class="login-drop">
+        <a href="{{ url_for('login') }}">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="#2e7d4f" stroke-width="2.2" stroke-linecap="round"><path d="M4 10l5 5L16 5"/></svg>
+          <div>
+            <div>Версия 1.0</div>
+            <div class="drop-ver">Основная версия</div>
+          </div>
+          <span class="drop-badge">АКТУАЛЬНО</span>
+        </a>
+        {% if v09_url %}
+        <a href="{{ v09_url }}">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--mut)" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
+          <div>
+            <div>{{ v09_label }}</div>
+            <div class="drop-ver">Предыдущая версия</div>
+          </div>
+        </a>
+        {% else %}
+        <a href="#" style="opacity:.45;pointer-events:none">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--mut)" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/></svg>
+          <div>
+            <div>{{ v09_label }}</div>
+            <div class="drop-ver">URL не настроен</div>
+          </div>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
     <a href="{{ second_url or '#' }}" class="btn btn-secondary">
       <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="10" cy="10" r="8"/><path d="M10 6v4l3 2"/>
@@ -117,6 +163,11 @@ footer{background:var(--panel);border-top:1px solid var(--line);padding:15px 56p
       Открытые данные
     </a>
   </div>
+
+  <script>
+  function toggleLogin(e){e.stopPropagation();document.getElementById('loginWrap').classList.toggle('open')}
+  document.addEventListener('click',function(){document.getElementById('loginWrap').classList.remove('open')});
+  </script>
 
 </main>
 
