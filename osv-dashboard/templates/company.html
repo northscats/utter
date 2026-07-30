@@ -233,6 +233,44 @@ tr:last-child td{border-bottom:0}
 .ab-btn-dash{background:var(--ink);color:#fff;border-color:var(--ink)}
 .ab-btn-dash:hover{background:#253545}
 .ab-dash-none{font-size:11px;color:var(--mut);white-space:nowrap;font-style:italic}
+/* ── Реквизиты предприятия ── */
+.req-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  margin-bottom:20px;overflow:hidden}
+.req-header{display:flex;align-items:center;gap:10px;padding:14px 18px;cursor:pointer;
+  user-select:none;transition:background .12s}
+.req-header:hover{background:#f7f9fa}
+.req-title{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:#31424f;flex:1}
+.req-toggle{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:5px;
+  padding:2px 8px;white-space:nowrap}
+.req-body{padding:18px 20px;border-top:1px solid var(--line)}
+.req-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+@media(max-width:600px){.req-grid{grid-template-columns:1fr}}
+.req-field{display:flex;flex-direction:column;gap:4px}
+.req-field-full{grid-column:1/-1}
+.req-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:#546e7a}
+.req-input{padding:6px 10px;border:1px solid var(--line);border-radius:7px;
+  font:14px 'Segoe UI',sans-serif;color:var(--ink);outline:none;background:#fafbfc;
+  transition:border-color .15s}
+.req-input:focus{border-color:#7fb3d0;background:#fff}
+.req-actions{margin-top:16px;display:flex;align-items:center;gap:10px}
+.req-save{background:#1f7a9c;color:#fff;border:0;border-radius:8px;
+  padding:8px 20px;font:600 13px 'Segoe UI',sans-serif;cursor:pointer;
+  transition:background .15s}
+.req-save:hover{background:#186a87}
+.req-saved{font-size:12px;color:var(--ok);display:none}
+/* ── Комплектность счетов ── */
+.comp-badge{display:inline-flex;align-items:center;gap:2px;border-radius:5px;
+  padding:2px 8px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.comp-full{background:#e4f2ea;color:#1a5c30}
+.comp-partial{background:#fff7ed;color:#7c3a00;cursor:help}
+.comp-none{background:#fbeae8;color:#7c2018}
+.comp-na{background:#f0f3f5;color:#9ab0be}
+.comp-summary{display:flex;flex-wrap:wrap;gap:16px;background:#f7f9fb;
+  border:1px solid var(--line);border-radius:8px;padding:10px 16px;
+  margin-bottom:12px;font-size:12.5px;color:var(--ink)}
+.comp-summary b{color:var(--ink)}
 </style>
 </head>
 <body>
@@ -395,6 +433,81 @@ tr:last-child td{border-bottom:0}
     {% endif %}
 
   </div><!-- /action-bar -->
+
+  <!-- ── Реквизиты предприятия ── -->
+  <div class="req-card">
+    <div class="req-header" onclick="toggleReq()">
+      <span class="req-title">📋 Реквизиты предприятия</span>
+      {% if company.inn or company.director_name or company.full_name %}
+        <span style="font-size:12px;color:var(--mut)">
+          {% if company.inn %}ИНН {{ company.inn }}{% endif %}
+          {% if company.director_name %} · {{ company.director_name }}{% endif %}
+        </span>
+      {% else %}
+        <span style="font-size:12px;color:#9ab0be;font-style:italic">не заполнены</span>
+      {% endif %}
+      <span class="req-toggle" id="req-toggle-btn">▼ заполнить</span>
+    </div>
+    <div class="req-body" id="req-body" style="display:none">
+      <form id="req-form" method="post"
+            action="{{ url_for('company_details', company_id=company.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="req-grid">
+          <div class="req-field">
+            <label class="req-label" for="req-inn">ИНН</label>
+            <input class="req-input" type="text" id="req-inn" name="inn"
+                   value="{{ company.inn or '' }}" maxlength="20" placeholder="7701234567">
+          </div>
+          <div class="req-field">
+            <label class="req-label" for="req-fullname">Полное наименование</label>
+            <input class="req-input" type="text" id="req-fullname" name="full_name"
+                   value="{{ company.full_name or '' }}"
+                   placeholder="ООО «Наименование»">
+          </div>
+          <div class="req-field req-field-full">
+            <label class="req-label" for="req-address">Юридический адрес</label>
+            <input class="req-input" type="text" id="req-address" name="address"
+                   value="{{ company.address or '' }}"
+                   placeholder="г. Москва, ул. Примерная, 1">
+          </div>
+          <div class="req-field">
+            <label class="req-label" for="req-dir">ФИО Руководителя</label>
+            <input class="req-input" type="text" id="req-dir" name="director_name"
+                   value="{{ company.director_name or '' }}"
+                   placeholder="Иванов Иван Иванович">
+          </div>
+          <div class="req-field">
+            <label class="req-label" for="req-dir-phone">Тел. руководителя</label>
+            <input class="req-input" type="text" id="req-dir-phone" name="director_phone"
+                   value="{{ company.director_phone or '' }}"
+                   placeholder="+7 (495) 000-00-00">
+          </div>
+          <div class="req-field">
+            <label class="req-label" for="req-acc">ФИО Гл. бухгалтера</label>
+            <input class="req-input" type="text" id="req-acc" name="accountant_name"
+                   value="{{ company.accountant_name or '' }}"
+                   placeholder="Петрова Мария Ивановна">
+          </div>
+          <div class="req-field">
+            <label class="req-label" for="req-acc-phone">Тел. гл. бухгалтера</label>
+            <input class="req-input" type="text" id="req-acc-phone" name="accountant_phone"
+                   value="{{ company.accountant_phone or '' }}"
+                   placeholder="+7 (495) 000-00-01">
+          </div>
+          <div class="req-field req-field-full">
+            <label class="req-label" for="req-note">Примечание</label>
+            <input class="req-input" type="text" id="req-note" name="note"
+                   value="{{ company.note or '' }}"
+                   placeholder="Например: головное предприятие, филиал и т.д.">
+          </div>
+        </div>
+        <div class="req-actions">
+          <button type="button" class="req-save" onclick="saveReq()">Сохранить реквизиты</button>
+          <span class="req-saved" id="req-saved">✓ Сохранено</span>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <div id="osv-panel" style="display:none" class="osv-panel"></div>
 
@@ -570,6 +683,23 @@ tr:last-child td{border-bottom:0}
   <div class="card">
     <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
     {% if uploads %}
+
+    {# Сводка по комплектности #}
+    {% if completeness_summary %}
+    {% set cs = completeness_summary %}
+    <div class="comp-summary">
+      <span>Всего загрузок: <b>{{ cs.total }}</b></span>
+      <span style="color:#1a5c30">✓ Полных: <b>{{ cs.full_count }}</b></span>
+      {% if cs.partial_count > 0 %}
+      <span style="color:#7c3a00">⚠ Неполных: <b>{{ cs.partial_count }}</b></span>
+      {% endif %}
+      {% if cs.none_count > 0 %}
+      <span style="color:#7c2018">✗ Пустых: <b>{{ cs.none_count }}</b></span>
+      {% endif %}
+      <span style="color:var(--mut)">Среднее покрытие: <b>{{ cs.avg_coverage }}/{{ cs.total_required }}</b> счетов</span>
+    </div>
+    {% endif %}
+
     <table>
       <tr>
         <th>Дата загрузки</th>
@@ -578,8 +708,9 @@ tr:last-child td{border-bottom:0}
         <th>Файлов</th>
         <th>Закрытие</th>
         <th>Результат</th>
+        <th>Комплектность</th>
       </tr>
-      {% for u in uploads %}
+      {% for u, comp in uploads_with_completeness %}
       <tr>
         <td>{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
         <td>
@@ -607,6 +738,20 @@ tr:last-child td{border-bottom:0}
             <span class="badge badge-loss">Убыток</span>
           {% else %}
             <span class="badge badge-neutral">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if comp %}
+            {% if comp.status == 'full' %}
+              <span class="comp-badge comp-full">✓ {{ comp.found }}/{{ comp.total }}</span>
+            {% elif comp.status == 'partial' %}
+              <span class="comp-badge comp-partial"
+                    title="Отсутствуют счета: {{ comp.missing|join(', ') }}">⚠ {{ comp.found }}/{{ comp.total }}</span>
+            {% else %}
+              <span class="comp-badge comp-none">✗ 0/{{ comp.total }}</span>
+            {% endif %}
+          {% else %}
+            <span class="comp-badge comp-na">—</span>
           {% endif %}
         </td>
       </tr>
@@ -737,6 +882,48 @@ document.getElementById('frm').addEventListener('submit',function(){
 
   setTimeout(poll, 800);
 })();
+
+// --- Реквизиты предприятия ---
+function toggleReq() {
+  var body = document.getElementById('req-body');
+  var btn  = document.getElementById('req-toggle-btn');
+  if (!body) return;
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : '';
+  btn.textContent = open ? '▼ заполнить' : '▲ свернуть';
+}
+function saveReq() {
+  var form = document.getElementById('req-form');
+  var saved = document.getElementById('req-saved');
+  var btn = form.querySelector('.req-save');
+  var data = new FormData(form);
+  btn.disabled = true; btn.textContent = 'Сохраняю…';
+  fetch(form.action, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: data,
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    btn.disabled = false; btn.textContent = 'Сохранить реквизиты';
+    if (d.ok) {
+      saved.style.display = 'inline';
+      setTimeout(function(){ saved.style.display = 'none'; }, 3000);
+      // Обновить ИНН в заголовке карточки без перезагрузки
+      var innVal = document.getElementById('req-inn').value.trim();
+      var dirVal = document.getElementById('req-dir').value.trim();
+      var hdr = document.querySelector('.req-header');
+      if (hdr) {
+        var meta = hdr.querySelector('span:nth-child(2)');
+        if (!meta) { meta = document.createElement('span'); meta.style='font-size:12px;color:var(--mut)'; hdr.insertBefore(meta, document.getElementById('req-toggle-btn')); }
+        meta.textContent = (innVal ? 'ИНН ' + innVal : '') + (dirVal ? (innVal ? ' · ' : '') + dirVal : '');
+      }
+    } else {
+      alert('Ошибка при сохранении: ' + (d.error || 'неизвестная'));
+    }
+  })
+  .catch(function(){ btn.disabled = false; btn.textContent = 'Сохранить реквизиты'; alert('Ошибка сети'); });
+}
 
 // --- Сворачивание карты покрытия ---
 (function(){

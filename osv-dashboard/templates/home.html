@@ -147,6 +147,66 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
 
 /* подсказка */
 .th-hint{cursor:help;border-bottom:1px dashed #9ab0be}
+
+/* ── статус-точка предприятия ── */
+.co-dot{display:inline-block;width:9px;height:9px;border-radius:50%;
+  flex-shrink:0;vertical-align:middle}
+.co-dot-green{background:#16a34a}
+.co-dot-yellow{background:#ca8a04}
+.co-dot-red{background:#dc2626}
+.co-dot-grey{background:#b0bec5}
+.co-dot-wrap{display:flex;align-items:center;gap:8px}
+/* ── поиск предприятий ── */
+.co-search-wrap{position:relative}
+.co-search{padding:6px 10px 6px 28px;border:1px solid var(--line);border-radius:8px;
+  font:14px 'Segoe UI',sans-serif;color:var(--ink);background:#fff;outline:none;
+  width:230px;transition:border-color .15s}
+.co-search:focus{border-color:#7fb3d0}
+.co-search-ico{position:absolute;left:9px;top:50%;transform:translateY(-50%);
+  font-size:12px;color:var(--mut);pointer-events:none}
+/* ── бейджи комплектности ── */
+.comp-badge{display:inline-flex;align-items:center;gap:2px;border-radius:5px;
+  padding:2px 8px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.comp-full{background:#e4f2ea;color:#1a5c30}
+.comp-partial{background:#fff7ed;color:#7c3a00;cursor:help}
+.comp-none{background:#fbeae8;color:#7c2018}
+.comp-na{background:#f0f3f5;color:#9ab0be}
+/* ── модальное окно (справочник) ── */
+.reg-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;
+  align-items:center;justify-content:center;z-index:1000}
+.reg-overlay.show{display:flex}
+.reg-modal{background:#fff;border-radius:12px;width:95%;max-width:1280px;
+  max-height:88vh;display:flex;flex-direction:column;
+  box-shadow:0 10px 40px rgba(0,0,0,.28)}
+.reg-mhdr{padding:12px 18px;background:#1b2733;color:#fff;
+  display:flex;justify-content:space-between;align-items:center;
+  border-radius:12px 12px 0 0}
+.reg-mhdr-title{font-size:14px;font-weight:600}
+.reg-close{background:none;border:none;color:#fff;font-size:22px;
+  cursor:pointer;padding:0 4px;line-height:1}
+.reg-toolbar{padding:10px 16px;background:#f5f7fa;border-bottom:1px solid var(--line);
+  display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.reg-mbody{padding:16px;overflow-y:auto;flex:1}
+.reg-mbtn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;
+  border:1px solid var(--line);border-radius:6px;background:#fff;
+  font:600 12px 'Segoe UI',sans-serif;color:var(--ink);cursor:pointer;
+  text-decoration:none;white-space:nowrap;transition:background .15s}
+.reg-mbtn:hover{background:#e2e8ec}
+.reg-mbtn-primary{background:#1f7a9c;color:#fff;border-color:#1f7a9c}
+.reg-mbtn-primary:hover{background:#186a87}
+.reg-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.reg-table th{background:#f0f3f5;padding:8px 10px;text-align:left;font-size:10.5px;
+  font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#31424f;
+  border-bottom:2px solid var(--line);white-space:nowrap}
+.reg-table td{padding:8px 10px;border-bottom:1px solid #eceff1;vertical-align:middle}
+.reg-table tr:last-child td{border-bottom:0}
+.reg-table tr:hover td{background:#fafbfc}
+/* шапка — кнопка справочника */
+.hd-reg-btn{color:#c8d8e4;text-decoration:none;font-size:12px;
+  border:1px solid #3a5060;border-radius:6px;padding:5px 11px;
+  display:inline-flex;align-items:center;gap:5px;transition:background .15s;
+  cursor:pointer;background:none;white-space:nowrap}
+.hd-reg-btn:hover{background:#253545}
 </style>
 </head>
 <body>
@@ -157,6 +217,9 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
       <div class="sub">v0.100</div>
     </div>
     <div class="hd-spacer"></div>
+    {% if companies %}
+    <button class="hd-reg-btn" onclick="openRegModal()">📁 Справочник РСО</button>
+    {% endif %}
     <div class="hd-user">
       <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
         {{ current_user.username }}
@@ -176,6 +239,13 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
 <main>
   <div class="top-bar">
     <h2>Предприятия{% if companies %} ({{ companies|length }}){% endif %}</h2>
+    {% if companies %}
+    <div class="co-search-wrap">
+      <span class="co-search-ico">🔍</span>
+      <input type="text" id="co-search" class="co-search"
+             placeholder="Поиск по названию или ИНН…" oninput="filterCompanies()">
+    </div>
+    {% endif %}
     <div class="top-bar-right">
       {% if companies %}
       <div class="view-toggle">
@@ -199,11 +269,13 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
     <div class="table-wrap"><table class="companies-table">
       <thead>
         <tr>
+          <th style="width:22px;padding:11px 6px"></th>
           <th class="col-name">Наименование предприятия</th>
           <th class="col-period">Период данных</th>
           <th class="col-files">Загрузок</th>
           <th class="col-closure">Закрытие периодов</th>
           <th class="col-profit">Фин. результат</th>
+          <th class="col-completeness" style="white-space:nowrap">Комплектность</th>
           <th class="col-action">Последняя загрузка</th>
           <th></th>
         </tr>
@@ -211,9 +283,14 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
       <tbody>
         {% for c in companies %}
         {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
-        <tr onclick="location.href='{{ dest }}'">
+        <tr onclick="location.href='{{ dest }}'"
+            data-name="{{ c.name|lower }}" data-inn="{{ c.inn|lower }}">
+          <td style="padding:14px 6px;text-align:center">
+            <span class="co-dot co-dot-{{ c.status_color }}"></span>
+          </td>
           <td class="col-name">
             <div class="company-name">{{ c.name }}</div>
+            {% if c.inn %}<div style="font-size:11px;color:var(--mut);margin-top:2px">ИНН {{ c.inn }}</div>{% endif %}
           </td>
           <td class="col-period">{{ c.last_period or '—' }}</td>
           <td class="col-files">{{ c.files_total }}</td>
@@ -233,6 +310,21 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
               <span class="badge badge-loss">Убыток</span>
             {% else %}
               <span class="badge badge-neutral">—</span>
+            {% endif %}
+          </td>
+          <td class="col-completeness">
+            {% if c.last_completeness %}
+              {% set cp = c.last_completeness %}
+              {% if cp.status == 'full' %}
+                <span class="comp-badge comp-full">✓ {{ cp.found }}/{{ cp.total }}</span>
+              {% elif cp.status == 'partial' %}
+                <span class="comp-badge comp-partial"
+                      title="Отсутствуют: {{ cp.missing|join(', ') }}">⚠ {{ cp.found }}/{{ cp.total }}</span>
+              {% else %}
+                <span class="comp-badge comp-none">✗ 0/{{ cp.total }}</span>
+              {% endif %}
+            {% else %}
+              <span class="comp-badge comp-na">—</span>
             {% endif %}
           </td>
           <td class="col-action" style="font-size:13px;color:var(--mut)">
@@ -271,8 +363,11 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
           {% set kpi_keys = ['dz_days','kz_dz','liquidity','debt_ebitda','rate','tax_burden','nvv_pct','cost_pct','comm_pct','adm_pct'] %}
           {% for c in companies %}
           {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html#rating' if c.has_dashboard else '/company/' ~ c.id %}
-          <tr onclick="location.href='{{ dest }}'">
-            <td class="td-name" title="{{ c.name }}">{{ c.name }}</td>
+          <tr onclick="location.href='{{ dest }}'"
+              data-name="{{ c.name|lower }}" data-inn="{{ c.inn|lower }}">
+            <td class="td-name" title="{{ c.name }}">
+              <span class="co-dot co-dot-{{ c.status_color }}" style="margin-right:7px"></span>{{ c.name }}
+            </td>
             {% if c.kpis %}
               {% for key in kpi_keys %}
               {% set sig = c.kpis.signals[key] %}
@@ -327,8 +422,91 @@ main{width:90%;max-width:1800px;margin:0 auto;padding:28px 0}
   </div>
   {% endif %}
 </main>
+
+<!-- ── МОДАЛ: Справочник РСО ── -->
+{% if companies %}
+<div class="reg-overlay" id="reg-modal" onclick="closeRegModal()">
+  <div class="reg-modal" onclick="event.stopPropagation()">
+    <div class="reg-mhdr">
+      <span class="reg-mhdr-title">📁 Справочник ресурсоснабжающих организаций</span>
+      <button class="reg-close" onclick="closeRegModal()">×</button>
+    </div>
+    <div class="reg-toolbar">
+      <a class="reg-mbtn reg-mbtn-primary" href="{{ url_for('company_registry_export') }}">
+        📥 Экспорт CSV
+      </a>
+      <span style="font-size:12px;color:var(--mut)">
+        {{ companies|length }} предприятий · Реквизиты редактируются на странице предприятия
+      </span>
+    </div>
+    <div class="reg-mbody">
+      <table class="reg-table">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Сокр. наим.</th>
+            <th>Полное наименование</th>
+            <th>ИНН</th>
+            <th>Юр. адрес</th>
+            <th>ФИО Руководителя</th>
+            <th>Тел.</th>
+            <th>ФИО Гл. бухгалтера</th>
+            <th>Тел.</th>
+            <th>Примечание</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in companies %}
+          <tr>
+            <td style="color:var(--mut)">{{ loop.index }}</td>
+            <td>
+              <span class="co-dot co-dot-{{ c.status_color }}" style="margin-right:6px"></span>
+              <strong>{{ c.name }}</strong>
+            </td>
+            <td style="max-width:180px">{{ c.full_name or '—' }}</td>
+            <td style="font-family:monospace">{{ c.inn or '—' }}</td>
+            <td style="max-width:160px;word-break:break-word;font-size:12px">{{ c.address or '—' }}</td>
+            <td>{{ c.director_name or '—' }}</td>
+            <td style="white-space:nowrap;font-size:12px">{{ c.director_phone or '—' }}</td>
+            <td>{{ c.accountant_name or '—' }}</td>
+            <td style="white-space:nowrap;font-size:12px">{{ c.accountant_phone or '—' }}</td>
+            <td style="max-width:120px;font-size:12px;color:var(--mut)">{{ c.note or '—' }}</td>
+            <td>
+              <a class="reg-mbtn" href="{{ url_for('company_detail', company_id=c.id) }}"
+                 style="padding:3px 9px;font-size:11px">✏️ Изменить</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <script>
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
+
+/* ── Поиск предприятий ── */
+function filterCompanies(){
+  var q=(document.getElementById('co-search')||{value:''}).value.toLowerCase().trim();
+  document.querySelectorAll('.companies-table tbody tr').forEach(function(tr){
+    if(!q){tr.style.display='';return;}
+    var name=(tr.dataset.name||'').toLowerCase();
+    var inn=(tr.dataset.inn||'').toLowerCase();
+    tr.style.display=(name.includes(q)||inn.includes(q))?'':'none';
+  });
+  document.querySelectorAll('.matrix-table tbody tr').forEach(function(tr){
+    if(!q){tr.style.display='';return;}
+    var name=(tr.dataset.name||'').toLowerCase();
+    var inn=(tr.dataset.inn||'').toLowerCase();
+    tr.style.display=(name.includes(q)||inn.includes(q))?'':'none';
+  });
+}
+/* ── Модал справочника ── */
+function openRegModal(){var m=document.getElementById('reg-modal');if(m)m.classList.add('show');}
+function closeRegModal(){var m=document.getElementById('reg-modal');if(m)m.classList.remove('show');}
 
 function switchView(v){
   var t=document.getElementById('view-table');

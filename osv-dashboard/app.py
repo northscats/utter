@@ -34,6 +34,9 @@ OUTPUT = os.path.join(BASE, 'output')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 
+# Обязательный набор счетов ОСВ (17 счетов) — для оценки комплектности
+REQUIRED_ACCOUNTS = [20, 26, 44, 50, 51, 52, 55, 60, 62, 66, 67, 68, 69, 70, 76, 90, 91]
+
 # Префикс пути, если приложение работает не в корне домена.
 # Задаётся через переменную окружения: SCRIPT_NAME=/osv
 # При развёртывании в корне оставьте переменную пустой или не задавайте её.
@@ -158,6 +161,36 @@ def render_dashboard(dataset, back_url='/'):
     return tpl
 
 
+def _compute_completeness(upload):
+    """Возвращает словарь с данными о комплектности счетов для upload."""
+    if upload is None:
+        return None
+    loaded = set(str(a) for a in upload.accounts_list)
+    required = set(str(a) for a in REQUIRED_ACCOUNTS)
+    found = len(loaded & required)
+    total = len(required)
+    missing = sorted(required - loaded, key=lambda x: int(x))
+    if found == total:
+        status = 'full'
+    elif found == 0:
+        status = 'none'
+    else:
+        status = 'partial'
+    return dict(found=found, total=total, missing=missing, status=status)
+
+
+def _compute_status_color(kpis):
+    """Вычисляет цвет статус-индикатора по данным KPI: green / yellow / red / grey."""
+    if kpis is None:
+        return 'grey'
+    score = kpis.get('score', 0)
+    if score >= 70:
+        return 'green'
+    elif score >= 40:
+        return 'yellow'
+    return 'red'
+
+
 def _save_kpi_cache(dataset, out_dir):
     """Вычисляет KPI из dataset и сохраняет kpi_cache.json рядом с дашбордом."""
     from builder import extract_kpis
@@ -195,6 +228,14 @@ def _company_summary(company):
     return dict(
         id=company.id,
         name=company.name,
+        inn=company.inn or '',
+        full_name=company.full_name or '',
+        address=company.address or '',
+        director_name=company.director_name or '',
+        director_phone=company.director_phone or '',
+        accountant_name=company.accountant_name or '',
+        accountant_phone=company.accountant_phone or '',
+        note=company.note or '',
         last_period=last.period_label if last else None,
         files_total=files_total,
         closure=last.closure_status if last else None,
@@ -202,6 +243,8 @@ def _company_summary(company):
         last_upload=(last.uploaded_at.strftime('%d.%m.%Y') if last else None),
         has_dashboard=os.path.isfile(dash_path),
         kpis=kpis,
+        status_color=_compute_status_color(kpis),
+        last_completeness=_compute_completeness(last),
     )
 
 
@@ -1112,7 +1155,30 @@ def company_detail(company_id):
     year = request.args.get('year', None, type=int)
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
+
+    # Комплектность счетов по каждой загрузке
+    uploads_with_completeness = [(u, _compute_completeness(u)) for u in uploads]
+
+    # Сводка по всем загрузкам
+    completeness_summary = None
+    if uploads:
+        full_count    = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'full')
+        partial_count = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'partial')
+        none_count    = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'none')
+        all_found     = [c['found'] for _, c in uploads_with_completeness if c]
+        avg_cov       = round(sum(all_found) / len(all_found), 1) if all_found else 0
+        completeness_summary = dict(
+            total=len(uploads),
+            full_count=full_count,
+            partial_count=partial_count,
+            none_count=none_count,
+            avg_coverage=avg_cov,
+            total_required=len(REQUIRED_ACCOUNTS),
+        )
+
     return render_template('company.html', company=company, uploads=uploads,
+                           uploads_with_completeness=uploads_with_completeness,
+                           completeness_summary=completeness_summary,
                            audit=None, error=None, discrepancy=[],
                            annual_coverage=_annual_coverage(company_id, year),
                            ai_summary=ai_summary,
@@ -1130,6 +1196,51 @@ def job_status(company_id, job_id):
         status=job['status'],
         error=job.get('error'),
         result=job.get('result'),
+    )
+
+
+@app.route('/company/<int:company_id>/details', methods=['POST'])
+@login_required
+def company_details(company_id):
+    """Сохраняет реквизиты предприятия (справочник РСО)."""
+    company = db.session.get(Company, company_id) or abort(404)
+    company.inn              = request.form.get('inn',              '').strip()[:20]
+    company.full_name        = request.form.get('full_name',        '').strip()
+    company.address          = request.form.get('address',          '').strip()
+    company.director_name    = request.form.get('director_name',    '').strip()
+    company.director_phone   = request.form.get('director_phone',   '').strip()
+    company.accountant_name  = request.form.get('accountant_name',  '').strip()
+    company.accountant_phone = request.form.get('accountant_phone', '').strip()
+    company.note             = request.form.get('note',             '').strip()
+    db.session.commit()
+    log_event('company_details_updated', {'company_id': company_id, 'inn': company.inn})
+    if _wants_json():
+        return jsonify(ok=True)
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
+@app.route('/company/registry/export')
+@login_required
+def company_registry_export():
+    """Выгрузка реестра предприятий в CSV (логируется в audit_log)."""
+    import io as _io
+    import csv as _csv
+    companies = Company.query.order_by(Company.name).all()
+    log_event('registry_export', {'count': len(companies)})
+    out = _io.StringIO()
+    w = _csv.writer(out, delimiter=';')
+    w.writerow(['№', 'Сокр. наименование', 'Полное наименование', 'ИНН', 'Юр. адрес',
+                'ФИО Руководителя', 'Тел. руководителя',
+                'ФИО Гл. бухгалтера', 'Тел. гл. бухгалтера', 'Примечание'])
+    for i, c in enumerate(companies, 1):
+        w.writerow([i, c.name, c.full_name or '', c.inn or '', c.address or '',
+                    c.director_name or '', c.director_phone or '',
+                    c.accountant_name or '', c.accountant_phone or '', c.note or ''])
+    csv_bytes = ('\ufeff' + out.getvalue()).encode('utf-8')
+    return Response(
+        csv_bytes,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="Реестр_РСО.csv"'},
     )
 
 
@@ -2295,6 +2406,26 @@ def init_db():
                     "WHERE id = (SELECT MIN(id) FROM users)"
                 ))
                 _conn2.commit()
+        except Exception:
+            pass
+        # Миграция: реквизиты предприятий (справочник РСО)
+        try:
+            from sqlalchemy import text as _text3
+            with db.engine.connect() as _conn3:
+                for _col, _def in [
+                    ("inn",              "VARCHAR(20)  DEFAULT ''"),
+                    ("full_name",        "TEXT         DEFAULT ''"),
+                    ("address",          "TEXT         DEFAULT ''"),
+                    ("director_name",    "VARCHAR(255) DEFAULT ''"),
+                    ("director_phone",   "VARCHAR(100) DEFAULT ''"),
+                    ("accountant_name",  "VARCHAR(255) DEFAULT ''"),
+                    ("accountant_phone", "VARCHAR(100) DEFAULT ''"),
+                    ("note",             "TEXT         DEFAULT ''"),
+                ]:
+                    _conn3.execute(_text3(
+                        f"ALTER TABLE companies ADD COLUMN IF NOT EXISTS {_col} {_def}"
+                    ))
+                _conn3.commit()
         except Exception:
             pass
         # Создаём admin, если пользователей нет

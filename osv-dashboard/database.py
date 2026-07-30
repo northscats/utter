@@ -76,6 +76,16 @@ class Company(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
+    # Реквизиты предприятия (справочник РСО)
+    inn              = db.Column(db.String(20),  default='')
+    full_name        = db.Column(db.Text,        default='')
+    address          = db.Column(db.Text,        default='')
+    director_name    = db.Column(db.String(255), default='')
+    director_phone   = db.Column(db.String(100), default='')
+    accountant_name  = db.Column(db.String(255), default='')
+    accountant_phone = db.Column(db.String(100), default='')
+    note             = db.Column(db.Text,        default='')
+
     uploads = db.relationship('Upload', backref='company', lazy=True,
                               order_by='Upload.uploaded_at.desc()')
 
