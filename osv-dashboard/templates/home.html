@@ -325,8 +325,8 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
         {% if current_user.is_admin %}
-        <a href="{{ url_for('users_list') }}">Пользователи</a>
-        <a href="{{ url_for('settings') }}">Настройки</a>
+        <a href="#" onclick="loadSystemPage('{{ url_for('users_list') }}');return false;">Пользователи</a>
+        <a href="#" onclick="loadSystemPage('{{ url_for('settings') }}');return false;">Настройки</a>
         {% endif %}
         <div class="hd-drop-sep"></div>
         <a href="{{ url_for('logout') }}">Выйти</a>
@@ -850,6 +850,29 @@ function loadIframe(src, openHref) {
   if (openHref !== undefined) { openBtn.href = openHref; openBtn.style.display = ''; }
   iframe.onload = function(){ loading.style.display = 'none'; iframe.style.display = 'block'; };
   iframe.src = src;
+}
+
+/* ── Системные страницы (настройки, пользователи) в центральном iframe ── */
+function loadSystemPage(url) {
+  // Закрываем дропдаун
+  var drop = document.getElementById('hd-uname');
+  if (drop) drop.classList.remove('open');
+  // Снимаем выделение с компании и прячем топбар
+  document.querySelectorAll('.sl-item').forEach(function(i){ i.classList.remove('active'); });
+  document.getElementById('sl-topbar').style.display = 'none';
+  currentCompanyId = null;
+  try { localStorage.removeItem('sl_company'); } catch(e){}
+  // Снимаем активный вид в навигации
+  document.querySelectorAll('.sl-nav-item').forEach(function(el){ el.classList.remove('active'); });
+  // Скрываем все панели и показываем iframe
+  hideAllPanels();
+  var iframe  = document.getElementById('sl-iframe');
+  var loading = document.getElementById('sl-loading');
+  var openBtn = document.getElementById('sl-open-btn');
+  openBtn.style.display = 'none';
+  loading.style.display = 'flex';
+  iframe.onload = function(){ loading.style.display = 'none'; iframe.style.display = 'block'; };
+  iframe.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'embedded=1';
 }
 
 /* ── КПЭ-карточки ── */

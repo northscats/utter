@@ -133,6 +133,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 </style>
 </head>
 <body>
+{% if not request.args.get('embedded') %}
 <div class="hd">
   <a class="hd-logo" href="{{ url_for('home') }}">
     <div class="hd-logo-icon">АР</div>
@@ -158,6 +159,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </div>
   </div>
 </div>
+{% endif %}
 
 <main>
   <div class="page-title">Настройки</div>
