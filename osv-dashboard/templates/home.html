@@ -41,19 +41,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 .hd-drop a:hover{background:#253545;color:#fff}
 .hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
 
-/* ══ TOOLBAR ══ */
-.toolbar{background:#fff;border-bottom:1px solid var(--line);padding:6px 14px;
-  display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;min-height:40px}
-.tb-title{font-size:12px;font-weight:700;color:#31424f;white-space:nowrap;margin-right:2px}
-
-.tb-sep{flex:1}
-.tb-search-wrap{position:relative}
-.tb-search{padding:5px 9px 5px 24px;border:1px solid var(--line);border-radius:6px;
-  font:12px 'Segoe UI',sans-serif;color:var(--ink);background:#fff;outline:none;
-  width:200px;transition:border-color .15s}
-.tb-search:focus{border-color:#7fb3d0}
-.tb-sico{position:absolute;left:8px;top:50%;transform:translateY(-50%);
-  font-size:11px;color:var(--mut);pointer-events:none}
 .btn-add{background:var(--water);color:#fff;border:0;border-radius:6px;
   padding:5px 13px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;
   text-decoration:none;display:inline-flex;align-items:center;gap:4px;
@@ -87,6 +74,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .sb-section-hdr .cnt{font-weight:400;color:#90a4ae;font-style:normal;text-transform:none;
   letter-spacing:0;font-size:10.5px}
+.sb-add{padding:2px 8px;font-size:13px;line-height:1;border-radius:4px;margin-left:auto}
 .sl-search-bar{padding:6px 8px;background:#f5f7fa;flex-shrink:0;border-bottom:1px solid var(--line)}
 .sl-search{width:100%;padding:5px 9px;border:1px solid #cfd8dc;border-radius:3px;
   font:12px 'Segoe UI',sans-serif;outline:none;transition:border-color .15s}
@@ -329,18 +317,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   </div>
 </div>
 
-<!-- ══ TOOLBAR ══ -->
-<div class="toolbar">
-  <span class="tb-title">Предприятия{% if companies %} ({{ companies|length }}){% endif %}</span>
-  {% if companies %}
-  <div class="tb-search-wrap">
-    <span class="tb-sico">🔍</span>
-    <input type="text" id="tb-search" class="tb-search" placeholder="Поиск по названию / ИНН…" oninput="filterAll()">
-  </div>
-  {% endif %}
-  <div class="tb-sep"></div>
-  <a class="btn-add" href="{{ url_for('company_new') }}">+ Добавить</a>
-</div>
 
 {% if companies %}
 <!-- ══ WORKSPACE: SPLIT VIEW ══ -->
@@ -357,6 +333,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
       <div class="sb-section-hdr sb-hide">
         <span>Предприятия</span>
         <span class="cnt" id="sl-cnt">{{ companies|length }}</span>
+        <a class="btn-add sb-add" href="{{ url_for('company_new') }}" title="Добавить предприятие">+</a>
       </div>
       <div class="sl-search-bar sb-hide">
         <input type="text" class="sl-search" id="sl-search"
@@ -642,9 +619,7 @@ function initHSplitter() {
    SEARCH
 ══════════════════════════════ */
 function filterAll() {
-  var q1 = (document.getElementById('tb-search') || {value:''}).value.toLowerCase().trim();
-  var q2 = (document.getElementById('sl-search') || {value:''}).value.toLowerCase().trim();
-  var q = q1 || q2;
+  var q = (document.getElementById('sl-search') || {value:''}).value.toLowerCase().trim();
   var vis = 0;
   document.querySelectorAll('.sl-item').forEach(function(el){
     var m = !q || (el.dataset.name||'').includes(q) || (el.dataset.inn||'').includes(q);
