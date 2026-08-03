@@ -648,7 +648,7 @@ function selectCompany(el) {
   try { localStorage.setItem('sl_company', currentCompanyId); } catch(e){}
 
   // Update topbar (не показываем в режиме history — там шапка внутри iframe)
-  document.getElementById('sl-topbar').style.display = (currentNavView === 'history' || currentNavView === 'kpi') ? 'none' : 'flex';
+  document.getElementById('sl-topbar').style.display = (currentNavView === 'history' || currentNavView === 'kpi' || currentNavView === 'cards') ? 'none' : 'flex';
   document.getElementById('sl-topbar-title').textContent = el.dataset.label;
   var inn = el.dataset.innDisplay;
   document.getElementById('sl-topbar-inn').textContent = inn ? 'ИНН ' + inn : '';
@@ -684,7 +684,7 @@ function setNavView(view, clickedEl) {
   if (clickedEl) clickedEl.classList.add('active');
   // Показываем/скрываем топбар в зависимости от вида
   if (currentCompanyId) {
-    var iframeView = view === 'history' || view === 'kpi';
+    var iframeView = view === 'history' || view === 'kpi' || view === 'cards';
     document.getElementById('sl-topbar').style.display = iframeView ? 'none' : 'flex';
   }
   renderNavView(view);
@@ -775,53 +775,23 @@ function loadSystemPage(url) {
 
 /* ── КПЭ-карточки ── */
 function renderCardsView(el) {
-  var panel = document.getElementById('sl-kpi-cards');
-  panel.style.display = 'block';
-  document.getElementById('sl-open-btn').style.display = 'none';
-
-  var kpisJson = el.dataset.kpis;
-  if (!kpisJson || kpisJson === 'null') {
-    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">КПЭ не рассчитаны — загрузите ОСВ-файлы и откройте страницу предприятия</div>';
+  // Открываем дашборд на вкладке «Рейтинг»
+  document.getElementById('sl-topbar').style.display = 'none';
+  if (!el.dataset.hasDash || el.dataset.hasDash !== '1') {
+    var panel = document.getElementById('sl-kpi-cards');
+    panel.style.display = 'block';
+    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">Дашборд не сформирован — загрузите ОСВ-файлы для этого предприятия</div>';
     return;
   }
-  var kpis;
-  try { kpis = JSON.parse(kpisJson); } catch(e) { panel.innerHTML = '<div class="sl-no-data">Ошибка данных</div>'; return; }
-
-  var score   = kpis.score   || 0;
-  var signals = kpis.signals || {};
-  var display = kpis.display || {};
-  var counts  = kpis.counts  || {green:0, yellow:0, red:0};
-  var sc      = score >= 70 ? '#27ae60' : score >= 40 ? '#f39c12' : '#e74c3c';
-
-  var html = '<div class="sl-kpi-score-row">' +
-    '<div class="sl-score-box">' +
-      '<div class="sl-score-num" style="color:' + sc + '">' + score + '</div>' +
-      '<div class="sl-score-bar"><div class="sl-score-fill" style="width:' + score + '%;background:' + sc + '"></div></div>' +
-      '<div class="sl-score-label">Интегральный рейтинг</div>' +
-    '</div>' +
-    '<div class="sl-score-counts">' +
-      '<div class="sl-sig-count sl-sig-green"><span>' + counts.green  + '</span>Норма</div>' +
-      '<div class="sl-sig-count sl-sig-yellow"><span>' + counts.yellow + '</span>Внимание</div>' +
-      '<div class="sl-sig-count sl-sig-red"><span>' + counts.red    + '</span>Критично</div>' +
-    '</div></div>' +
-    '<div class="kpi-cards-grid">';
-
-  Object.keys(KPI_META).forEach(function(key) {
-    var meta = KPI_META[key];
-    var sig  = signals[key] || 'na';
-    var val  = display[key] || '—';
-    var c    = SIG[sig] || SIG.na;
-    html += '<div class="kpi-c" style="--strip:' + c.border + '">' +
-      '<div class="kpi-c-top">' +
-        '<div class="kpi-c-name">' + meta.name + '</div>' +
-        '<span class="kpi-c-badge" style="color:' + c.badge + ';background:' + c.bgBadge + '">' + c.text + '</span>' +
-      '</div>' +
-      '<div class="kpi-c-value">' + val + '</div>' +
-      '<div class="kpi-c-desc">' + meta.desc + '</div>' +
-    '</div>';
-  });
-  html += '</div>';
-  panel.innerHTML = html;
+  var dash = el.dataset.dash;
+  // Если iframe уже показывает этот дашборд — просто переключаем вкладку
+  var iframe = document.getElementById('sl-iframe');
+  if (iframe.src && iframe.src.split('#')[0] === (location.origin + dash)) {
+    try { iframe.contentWindow.setMode('rating'); } catch(e) {}
+    iframe.style.display = 'block';
+  } else {
+    loadIframe(dash + '#rating', dash);
+  }
 }
 
 /* ── Алерты ── */
