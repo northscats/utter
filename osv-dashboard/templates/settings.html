@@ -140,8 +140,6 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     ГИС УЗТЭР · Анализ ФХД РСО
   </a>
   <div class="hd-menu">
-    <a class="hd-menu-btn" href="{{ url_for('home') }}">← Предприятия</a>
-    <span style="color:#3a5060;padding:0 6px;font-size:14px">›</span>
     <span style="color:#8fa3b1;font-size:12px">Настройки</span>
   </div>
   <div class="hd-right">
@@ -149,6 +147,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       {{ current_user.username }}
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
+        <a href="{{ url_for('home') }}">← Предприятия</a>
+        <div class="hd-drop-sep"></div>
         {% if current_user.is_admin %}
         <a href="{{ url_for('users_list') }}">Пользователи</a>
         <a href="{{ url_for('settings') }}">Настройки</a>
