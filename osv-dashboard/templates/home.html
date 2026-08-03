@@ -811,9 +811,12 @@ function renderNavView(view) {
   var el = document.getElementById('si-' + currentCompanyId);
   if (!el) { document.getElementById('sl-placeholder').style.display = 'flex'; return; }
 
-  if      (view === 'kpi')     renderDashView(el);
+  if (view === 'history') {
+    document.getElementById('sl-topbar').style.display = 'none';
+    loadIframe(el.dataset.detail + '?embedded=1', el.dataset.detail);
+  }
+  else if (view === 'kpi')     renderDashView(el);
   else if (view === 'cards')   renderCardsView(el);
-  else if (view === 'history') loadIframe(el.dataset.detail + '?embedded=1', el.dataset.detail);
   else if (view === 'alerts')  renderAlertsView(el);
   else if (view === 'summary') renderSummaryView(el);
 }
