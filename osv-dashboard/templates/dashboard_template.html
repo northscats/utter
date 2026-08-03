@@ -84,8 +84,12 @@ h2 .exp{font:400 12.5px/1.4 'Segoe UI',sans-serif;color:var(--mut);text-transfor
 .brief .foot{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px;color:var(--mut)}
 .brief .foot b{color:var(--ink2)}
 /* AI brief */
-.brief-hdr{display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap}
+.brief-hdr{display:flex;align-items:flex-start;gap:10px;justify-content:space-between;flex-wrap:wrap}
 .brief-hdr h2{margin-bottom:4px;flex:1}
+.brief-detail-btn{display:inline-flex;align-items:center;border:1px solid #b3cdd9;border-radius:6px;
+  padding:5px 13px;font:600 12px 'Segoe UI',sans-serif;background:#f0f6fa;color:#2a6580;
+  cursor:pointer;white-space:nowrap;transition:background .15s}
+.brief-detail-btn:hover{background:#dceef7}
 .ai-brief-btn{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:8px;
   padding:7px 15px;font:600 12.5px 'Segoe UI',sans-serif;cursor:pointer;
   background:var(--water);color:#fff;white-space:nowrap;flex-shrink:0;margin-top:2px;
@@ -234,33 +238,18 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 </style>
 </head>
 <body data-mode="exec">
-<header>
-  <div class="hd-top">
-    <div class="logo">
-      <div class="badge disp" id="hd-badge">—</div>
-      <div>
-        <h1 id="hd-title">Финансовая панель</h1>
-        <div class="sub disp">Финансовая панель · <span id="periodLabel"></span> · по данным ОСВ 1С</div>
-      </div>
-    </div>
-    <div class="hd-spacer"></div>
-
-    <div class="modes" role="tablist" aria-label="Режим просмотра">
-      <button id="mode-exec" class="on" onclick="setMode('exec')">Обзор</button>
-      <button id="mode-detail" onclick="setMode('detail')">Детально</button>
-      <button id="mode-rating" onclick="setMode('rating')">Рейтинг</button>
-    </div>
-  </div>
-  <div class="lamps">
-    <span class="cap disp">Закрытие месяца в учете:</span><span id="lampRow" style="display:contents"></span>
-  </div>
-</header>
-<div class="hazard" id="hazardBox"><div class="in" id="hazardText"></div></div>
-
-<div class="filters">
-  <span class="cap disp">Месяцы:</span>
+<!-- Скрытые элементы, на которые ссылается JS -->
+<div style="display:none">
+  <div id="hd-badge"></div>
+  <h1 id="hd-title"></h1>
+  <span id="periodLabel"></span>
+  <span id="lampRow"></span>
+  <div id="hazardBox"><div id="hazardText"></div></div>
   <span id="monthBtns"></span>
-  <span class="flt-note" id="flt-note">Фильтр действует на обороты (доходы, расходы, деньги). Задолженность и налоги показаны на конец периода.</span>
+  <span id="flt-note"></span>
+  <button id="mode-exec" class="on" onclick="setMode('exec')"></button>
+  <button id="mode-detail" onclick="setMode('detail')"></button>
+  <button id="mode-rating" onclick="setMode('rating')"></button>
 </div>
 
 <main>
@@ -269,6 +258,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
   <section class="brief" id="sect-brief">
     <div class="brief-hdr">
       <h2>Что происходит <span class="exp" id="brief-note"></span></h2>
+      <button class="brief-detail-btn" onclick="setMode('detail')">Детально ↓</button>
       <button class="ai-brief-btn" id="ai-brief-btn"
               onclick="requestAiBrief()" style="display:__AI_DISP__">✦ Резюме ИИ</button>
     </div>
