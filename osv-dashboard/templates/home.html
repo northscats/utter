@@ -754,7 +754,7 @@ function selectCompany(el) {
   try { localStorage.setItem('sl_company', currentCompanyId); } catch(e){}
 
   // Update topbar (не показываем в режиме history — там шапка внутри iframe)
-  document.getElementById('sl-topbar').style.display = currentNavView === 'history' ? 'none' : 'flex';
+  document.getElementById('sl-topbar').style.display = (currentNavView === 'history' || currentNavView === 'kpi') ? 'none' : 'flex';
   document.getElementById('sl-topbar-title').textContent = el.dataset.label;
   var inn = el.dataset.innDisplay;
   document.getElementById('sl-topbar-inn').textContent = inn ? 'ИНН ' + inn : '';
@@ -790,7 +790,8 @@ function setNavView(view, clickedEl) {
   if (clickedEl) clickedEl.classList.add('active');
   // Показываем/скрываем топбар в зависимости от вида
   if (currentCompanyId) {
-    document.getElementById('sl-topbar').style.display = view === 'history' ? 'none' : 'flex';
+    var iframeView = view === 'history' || view === 'kpi';
+    document.getElementById('sl-topbar').style.display = iframeView ? 'none' : 'flex';
   }
   renderNavView(view);
   try { localStorage.setItem('sl_nav', view); } catch(e){}
@@ -819,7 +820,10 @@ function renderNavView(view) {
     document.getElementById('sl-topbar').style.display = 'none';
     loadIframe(el.dataset.detail + '?embedded=1', el.dataset.detail);
   }
-  else if (view === 'kpi')     renderDashView(el);
+  else if (view === 'kpi') {
+    document.getElementById('sl-topbar').style.display = 'none';
+    renderDashView(el);
+  }
   else if (view === 'cards')   renderCardsView(el);
   else if (view === 'alerts')  renderAlertsView(el);
   else if (view === 'summary') renderSummaryView(el);
