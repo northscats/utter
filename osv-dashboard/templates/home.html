@@ -753,8 +753,8 @@ function selectCompany(el) {
   history.pushState({}, '', u.toString());
   try { localStorage.setItem('sl_company', currentCompanyId); } catch(e){}
 
-  // Update topbar
-  document.getElementById('sl-topbar').style.display = 'flex';
+  // Update topbar (не показываем в режиме history — там шапка внутри iframe)
+  document.getElementById('sl-topbar').style.display = currentNavView === 'history' ? 'none' : 'flex';
   document.getElementById('sl-topbar-title').textContent = el.dataset.label;
   var inn = el.dataset.innDisplay;
   document.getElementById('sl-topbar-inn').textContent = inn ? 'ИНН ' + inn : '';
@@ -788,6 +788,10 @@ function setNavView(view, clickedEl) {
   currentNavView = view;
   document.querySelectorAll('.sl-nav-item').forEach(function(el){ el.classList.remove('active'); });
   if (clickedEl) clickedEl.classList.add('active');
+  // Показываем/скрываем топбар в зависимости от вида
+  if (currentCompanyId) {
+    document.getElementById('sl-topbar').style.display = view === 'history' ? 'none' : 'flex';
+  }
   renderNavView(view);
   try { localStorage.setItem('sl_nav', view); } catch(e){}
 }
