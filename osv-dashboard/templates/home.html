@@ -813,7 +813,7 @@ function renderNavView(view) {
 
   if      (view === 'kpi')     renderDashView(el);
   else if (view === 'cards')   renderCardsView(el);
-  else if (view === 'history') loadIframe(el.dataset.detail, el.dataset.detail);
+  else if (view === 'history') loadIframe(el.dataset.detail + '?embedded=1', el.dataset.detail);
   else if (view === 'alerts')  renderAlertsView(el);
   else if (view === 'summary') renderSummaryView(el);
 }
