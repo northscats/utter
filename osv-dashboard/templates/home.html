@@ -325,8 +325,8 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
         {% if current_user.is_admin %}
-        <a href="#" onclick="loadSystemPage('{{ url_for('users_list') }}');return false;">Пользователи</a>
-        <a href="#" onclick="loadSystemPage('{{ url_for('settings') }}');return false;">Настройки</a>
+        <a href="{{ url_for('users_list') }}">Пользователи</a>
+        <a href="{{ url_for('settings') }}">Настройки</a>
         {% endif %}
         <div class="hd-drop-sep"></div>
         <a href="{{ url_for('logout') }}">Выйти</a>
