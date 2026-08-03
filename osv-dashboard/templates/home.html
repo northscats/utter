@@ -45,12 +45,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 .toolbar{background:#fff;border-bottom:1px solid var(--line);padding:6px 14px;
   display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;min-height:40px}
 .tb-title{font-size:12px;font-weight:700;color:#31424f;white-space:nowrap;margin-right:2px}
-.view-toggle{display:flex;background:#f0f3f5;border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.view-toggle button{background:none;border:none;padding:5px 13px;font:600 12px 'Segoe UI',sans-serif;
-  color:var(--mut);cursor:pointer;transition:background .12s,color .12s;white-space:nowrap;
-  display:flex;align-items:center;gap:4px}
-.view-toggle button.active{background:var(--water);color:#fff}
-.view-toggle button:not(:last-child){border-right:1px solid var(--line)}
+
 .tb-sep{flex:1}
 .tb-search-wrap{position:relative}
 .tb-search{padding:5px 9px 5px 24px;border:1px solid var(--line);border-radius:6px;
@@ -229,7 +224,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 .sl-sum-value{font-weight:600;color:var(--ink)}
 
 /* ══ TABLE VIEW ══ */
-#view-table{display:none;flex:1;padding:14px 18px;overflow-y:auto}
 .table-wrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:6px}
 .companies-table{width:100%;border-collapse:collapse;background:#fff}
 .companies-table thead th{background:#f5f7fa;font-size:11px;text-transform:uppercase;
@@ -339,16 +333,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 <div class="toolbar">
   <span class="tb-title">Предприятия{% if companies %} ({{ companies|length }}){% endif %}</span>
   {% if companies %}
-  <div class="view-toggle">
-    <button id="btn-split" class="active" onclick="switchTopView('split')">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="4" height="11" rx="1"/><rect x="7" y="1" width="5" height="11" rx="1"/></svg>
-      Аналитика
-    </button>
-    <button id="btn-table" onclick="switchTopView('table')">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1" y="1" width="11" height="11" rx="1.5"/><line x1="1" y1="5" x2="12" y2="5"/><line x1="1" y1="9" x2="12" y2="9"/><line x1="5" y1="5" x2="5" y2="13"/></svg>
-      Таблица
-    </button>
-  </div>
   <div class="tb-search-wrap">
     <span class="tb-sico">🔍</span>
     <input type="text" id="tb-search" class="tb-search" placeholder="Поиск по названию / ИНН…" oninput="filterAll()">
@@ -496,57 +480,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   </div>
 </div>
 
-<!-- ══ TABLE VIEW ══ -->
-<div id="view-table">
-  <div class="table-wrap"><table class="companies-table">
-    <thead>
-      <tr>
-        <th style="width:18px;padding:10px 7px"></th>
-        <th>Наименование предприятия</th>
-        <th>Период данных</th>
-        <th>Загрузок</th>
-        <th>Закрытие</th>
-        <th>Фин. результат</th>
-        <th>Комплектность</th>
-        <th>Загружено</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for c in companies %}
-      {% set dest = '/dashboard/' ~ c.id ~ '/dashboard_current.html' if c.has_dashboard else '/company/' ~ c.id %}
-      <tr onclick="location.href='{{ dest }}'" data-name="{{ c.name|lower }}" data-inn="{{ c.inn|lower }}">
-        <td style="padding:11px 7px;text-align:center"><span class="co-dot co-dot-{{ c.status_color }}"></span></td>
-        <td>
-          <div class="company-name">{{ c.name }}</div>
-          {% if c.inn %}<div style="font-size:10.5px;color:var(--mut);margin-top:1px">ИНН {{ c.inn }}</div>{% endif %}
-        </td>
-        <td style="white-space:nowrap">{{ c.last_period or '—' }}</td>
-        <td style="text-align:center">{{ c.files_total }}</td>
-        <td style="text-align:center">
-          {% if c.closure is none %}<span class="badge badge-none">нет данных</span>
-          {% elif c.closure %}<span class="badge badge-ok">✓ закрыт</span>
-          {% else %}<span class="badge badge-bad">✗ не закрыт</span>{% endif %}
-        </td>
-        <td>
-          {% if c.profit_sign == 'profit' %}<span class="badge badge-profit">Прибыль</span>
-          {% elif c.profit_sign == 'loss' %}<span class="badge badge-loss">Убыток</span>
-          {% else %}<span class="badge badge-neutral">—</span>{% endif %}
-        </td>
-        <td>
-          {% if c.last_completeness %}{% set cp = c.last_completeness %}
-            {% if cp.status == 'full' %}<span class="comp-badge comp-full">✓ {{ cp.found }}/{{ cp.total }}</span>
-            {% elif cp.status == 'partial' %}<span class="comp-badge comp-partial" title="Нет: {{ cp.missing|join(', ') }}">⚠ {{ cp.found }}/{{ cp.total }}</span>
-            {% else %}<span class="comp-badge comp-none">✗ 0/{{ cp.total }}</span>{% endif %}
-          {% else %}<span class="comp-badge comp-na">—</span>{% endif %}
-        </td>
-        <td style="font-size:12px;color:var(--mut);white-space:nowrap">{{ c.last_upload or '—' }}</td>
-        <td><a class="btn-open" href="{{ dest }}">Открыть →</a></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table></div>
-</div>
 
 {% else %}
 <div class="empty" style="margin:16px">
@@ -634,20 +567,6 @@ const SIG = {
 var currentCompanyId = null;
 var currentNavView   = 'kpi';
 
-/* ══════════════════════════════
-   TOP-LEVEL VIEW SWITCH
-══════════════════════════════ */
-function switchTopView(v) {
-  var split = document.getElementById('view-split');
-  var table = document.getElementById('view-table');
-  var bS = document.getElementById('btn-split');
-  var bT = document.getElementById('btn-table');
-  if (split) split.style.display = v === 'split' ? 'flex' : 'none';
-  if (table) table.style.display = v === 'table' ? 'block' : 'none';
-  if (bS) bS.classList.toggle('active', v === 'split');
-  if (bT) bT.classList.toggle('active', v === 'table');
-  try { localStorage.setItem('home_topview', v); } catch(e){}
-}
 
 /* ══════════════════════════════
    SIDEBAR: Collapse / Expand
@@ -1023,11 +942,6 @@ function closeRegModal() { var m=document.getElementById('reg-modal'); if(m) m.c
    INIT
 ══════════════════════════════ */
 (function(){
-  // Restore top view
-  var tv = '';
-  try { tv = localStorage.getItem('home_topview') || ''; } catch(e){}
-  switchTopView(tv === 'table' ? 'table' : 'split');
-
   // Init splitters
   initVSplitter();
   initHSplitter();
