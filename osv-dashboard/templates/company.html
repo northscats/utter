@@ -38,6 +38,8 @@ body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui
 .hd-drop a:hover{background:#253545;color:#fff}
 .hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
 main{max-width:960px;margin:0 auto;padding:28px 24px}
+body.embedded .hd{display:none}
+body.embedded main{padding-top:16px}
 .top-bar{display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}
 .top-bar h2{font-size:16px;font-weight:700;flex:1}
 .btn{border:0;border-radius:8px;padding:11px 22px;font:600 14px 'Segoe UI',sans-serif;
@@ -970,6 +972,7 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') closeDeleteModal();
 });
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
+if(window.self!==window.top){document.body.classList.add('embedded');}
 
 function requestAiSummary() {
   var btn     = document.getElementById('ai-btn');
