@@ -10,44 +10,33 @@
   --ok:#2e7d4f;--bad:#bf3222;--water:#1f7a9c;--warn:#c98a12}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif}
-header{background:var(--ink);color:#e8eef2;padding:0}
-.hd-top{display:flex;align-items:center;gap:16px;padding:14px 24px;flex-wrap:wrap}
-.hd-tl{background:#1e3040;border-top:1px solid #2e4558;padding:8px 24px;display:flex;
-  align-items:center;gap:10px;overflow-x:auto}
-.hd-tl .tl-row{flex-wrap:nowrap;gap:2px}
-.hd-tl .tl-cell{width:24px;height:28px}
-.hd-tl .tl-ok{background:#2e7d4f}
-.hd-tl .tl-missing{background:#5c1e18;border:1px solid #7a2a22;color:#e8a09a}
-.hd-tl .tl-future{background:#263545;border:1px solid #344d61;color:#5a7a90}
-.hd-tl .tl-cell.tl-today{outline:2px solid #7fb3d0;outline-offset:1px}
-.hd-tl .tl-day{font-size:9px;color:#c8d8e4}
-.hd-tl .tl-mon{font-size:8px;color:#8fa3b1}
-.hd-tl-legend{font-size:11px;color:#5a7a90;white-space:nowrap;display:flex;align-items:center;gap:8px;
-  border-left:1px solid #2e4558;padding-left:12px;margin-left:4px}
-.hd-back{color:#7fb3d0;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:6px;
-  border:1px solid #3a5060;border-radius:6px;padding:5px 12px;white-space:nowrap;transition:background .15s}
-.hd-back:hover{background:#253545}
-.hd-title h1{font-size:18px;letter-spacing:.03em}
-.hd-title .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px}
-.hd-spacer{flex:1}
-.hd-user{font-size:13px;color:#8fa3b1;display:flex;align-items:center;gap:14px}
-.hd-user strong{color:#c8d8e4}
-.hd-user a{color:#7fb3d0;text-decoration:none;font-size:12px;border:1px solid #3a5060;
-  display:inline-flex;align-items:center;gap:5px;
-  border-radius:6px;padding:4px 10px}
-.hd-uname{position:relative;color:#c8d8e4;font-size:13px;font-weight:600;cursor:pointer;
-  display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:7px;
+.hd{height:46px;background:linear-gradient(to bottom,#3a4a5c,#2c3e50);color:#fff;
+  display:flex;align-items:center;padding:0 16px;
+  box-shadow:0 2px 4px rgba(0,0,0,.2);z-index:100}
+.hd-logo{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;
+  margin-right:20px;white-space:nowrap;text-decoration:none;color:#fff}
+.hd-logo-icon{width:28px;height:28px;background:#f39c12;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;color:#2c3e50;
+  font-weight:900;font-size:12px;flex-shrink:0}
+.hd-menu{display:flex;gap:3px;flex:1;align-items:center}
+.hd-menu-btn{background:transparent;color:#e8eef5;border:1px solid transparent;
+  padding:5px 12px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;border-radius:3px;
+  display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;
+  text-decoration:none}
+.hd-menu-btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2)}
+.hd-right{display:flex;align-items:center;gap:10px;font-size:12px;margin-left:8px}
+.hd-uname{position:relative;color:#c8d8e4;font-size:12px;font-weight:600;cursor:pointer;
+  display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;
   user-select:none;border:1px solid #3a5060;transition:background .15s}
 .hd-uname:hover,.hd-uname.open{background:#253545}
 .hd-drop{display:none;position:absolute;right:0;top:calc(100% + 5px);
-  background:#1b2733;border:1px solid #3a5060;border-radius:8px;
+  background:#1b2733;border:1px solid #3a5060;border-radius:6px;
   min-width:130px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.45);overflow:hidden}
 .hd-uname.open .hd-drop{display:block}
-.hd-drop a{display:block;padding:10px 16px;color:#c8d8e4;font-size:13px;
+.hd-drop a{display:block;padding:9px 14px;color:#c8d8e4;font-size:12px;
   text-decoration:none;white-space:nowrap;border:0}
 .hd-drop a:hover{background:#253545;color:#fff}
-.hd-drop-sep{border-top:1px solid #3a5060;margin:4px 0}
+.hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
 main{max-width:960px;margin:0 auto;padding:28px 24px}
 .top-bar{display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap}
 .top-bar h2{font-size:16px;font-weight:700;flex:1}
@@ -274,31 +263,31 @@ tr:last-child td{border-bottom:0}
 </style>
 </head>
 <body>
-<header>
-  <div class="hd-top">
-    <a class="hd-back" href="{{ url_for('home') }}">← Все предприятия</a>
-    <div class="hd-title">
-      <h1>{{ company.name }}</h1>
-      <div class="sub">Рабочая страница предприятия</div>
-    </div>
-    <div class="hd-spacer"></div>
-    <div class="hd-user">
-      <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
-        {{ current_user.username }}
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l4 4 4-4"/></svg>
-        <div class="hd-drop">
-          <a href="{{ url_for('home') }}">← Главная</a>
-          {% if current_user.is_admin %}
-          <a href="{{ url_for('users_list') }}">Пользователи</a>
-          <a href="{{ url_for('settings') }}">Настройки</a>
-          {% endif %}
-          <div class="hd-drop-sep"></div>
-          <a href="{{ url_for('logout') }}">Выйти</a>
-        </div>
+<div class="hd">
+  <a class="hd-logo" href="{{ url_for('home') }}">
+    <div class="hd-logo-icon">АР</div>
+    ГИС УЗТЭР · Анализ ФХД РСО
+  </a>
+  <div class="hd-menu">
+    <a class="hd-menu-btn" href="{{ url_for('home') }}">← Предприятия</a>
+    <span style="color:#3a5060;padding:0 6px;font-size:14px">›</span>
+    <span style="color:#8fa3b1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px">{{ company.name }}</span>
+  </div>
+  <div class="hd-right">
+    <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
+      {{ current_user.username }}
+      <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
+      <div class="hd-drop">
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('users_list') }}">Пользователи</a>
+        <a href="{{ url_for('settings') }}">Настройки</a>
+        {% endif %}
+        <div class="hd-drop-sep"></div>
+        <a href="{{ url_for('logout') }}">Выйти</a>
       </div>
     </div>
   </div>
-</header>
+</div>
 <main>
 
   {% if error %}<div class="err">{{ error }}</div>{% endif %}
