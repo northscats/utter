@@ -2218,6 +2218,7 @@ def settings():
             ai_model   = request.form.get('ai_model', '').strip()
             ai_active  = request.form.get('ai_is_active') == '1'
             ai_default = request.form.get('ai_is_default') == '1'
+            ai_local   = request.form.get('ai_is_local') == '1'
             if ai_name and ai_url and ai_model:
                 if ai_default:
                     AiProvider.query.update({'is_default': False})
@@ -2228,6 +2229,7 @@ def settings():
                     model=ai_model,
                     is_active=ai_active,
                     is_default=ai_default,
+                    is_local=ai_local,
                 )
                 db.session.add(prov)
                 db.session.commit()
@@ -2252,6 +2254,7 @@ def settings():
                 if ai_key_raw:                          # пустое поле → ключ не перезаписывается
                     prov.api_key = encrypt_value(ai_key_raw)
                 prov.is_active = ai_active
+                prov.is_local = request.form.get('ai_is_local') == '1'
                 if ai_default and not prov.is_default:
                     AiProvider.query.update({'is_default': False})
                 prov.is_default = ai_default
@@ -2390,6 +2393,31 @@ def users_set_role(user_id):
 def init_db():
     with app.app_context():
         db.create_all()
+        # Миграция: новые колонки парсера документов и ИИ-провайдера.
+        # Диалектобезопасно: колонки добавляются только если их нет
+        # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
+        from sqlalchemy import inspect as _inspect_docs, text as _text_docs
+        _insp = _inspect_docs(db.engine)
+
+        def _add_missing(table, columns):
+            existing = {c['name'] for c in _insp.get_columns(table)}
+            with db.engine.connect() as _cd:
+                for _col, _def in columns:
+                    if _col in existing:
+                        continue
+                    _cd.execute(_text_docs(
+                        f'ALTER TABLE {table} ADD COLUMN {_col} {_def}'))
+                    app.logger.info('migration: %s.%s added', table, _col)
+                _cd.commit()
+
+        _add_missing('ai_providers',
+                     [('is_local', "BOOLEAN NOT NULL DEFAULT FALSE")])
+        _add_missing('doc_packages', [
+            ('analysis_status', "VARCHAR(20) NOT NULL DEFAULT 'none'"),
+            ('analysis_error',  "TEXT DEFAULT ''"),
+            ('analysis_total',  "INTEGER DEFAULT 0"),
+            ('analysis_done',   "INTEGER DEFAULT 0"),
+        ])
         # Универсальный парсер документов: зависшие после рестарта пакеты → error
         try:
             from doc_pipeline import recover_stale_packages

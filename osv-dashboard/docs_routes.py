@@ -17,6 +17,14 @@ from doc_pipeline import (PackageValidationError, get_unrouted_catalog,
 
 docs_bp = Blueprint('docs', __name__, url_prefix='/docs')
 
+
+@docs_bp.route('/')
+@login_required
+def docs_ui():
+    """Страница проверки документов (минимальный интерфейс)."""
+    from flask import render_template
+    return render_template('docs_check.html')
+
 RULE_TYPES = ('filename', 'keyword', 'extension')
 
 
@@ -209,7 +217,11 @@ def _package_dict(p):
                 error_text=p.error_text or '',
                 files_total=p.files_total, files_done=p.files_done,
                 created_at=p.created_at.strftime('%d.%m.%Y %H:%M'),
-                zip_filename=p.zip_filename)
+                zip_filename=p.zip_filename,
+                analysis_status=p.analysis_status or 'none',
+                analysis_error=p.analysis_error or '',
+                analysis_total=p.analysis_total or 0,
+                analysis_done=p.analysis_done or 0)
 
 
 @docs_bp.route('/packages')
@@ -360,3 +372,157 @@ def page_image(file_id, page_num):
     if not real.startswith(storage_root + os.sep) or not os.path.isfile(real):
         abort(404)
     return send_file(real, mimetype='image/png')
+
+
+# ---------------------------------------------------------------------------
+# ИИ-проверка по правилам каталогов
+# ---------------------------------------------------------------------------
+@docs_bp.route('/packages/<int:pkg_id>/analyze', methods=['POST'])
+@login_required
+def package_analyze(pkg_id):
+    """Запуск фоновой ИИ-проверки всех готовых файлов пакета."""
+    from doc_analysis import ProviderNotLocalError, analyze_package, get_local_provider
+
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    if pkg.status != 'done':
+        return jsonify(error='Пакет ещё не обработан — дождитесь завершения'), 400
+    if pkg.analysis_status == 'running':
+        return jsonify(error='Проверка уже выполняется'), 409
+
+    # ИБ: проверяем локальность провайдера ДО запуска фоновой работы
+    try:
+        get_local_provider()
+    except ProviderNotLocalError as pe:
+        return jsonify(error=str(pe)), 400
+
+    pkg.analysis_status = 'running'
+    pkg.analysis_error = ''
+    pkg.analysis_total = 0
+    pkg.analysis_done = 0
+    db.session.commit()
+
+    app_obj = current_app._get_current_object()
+    threading.Thread(target=analyze_package, args=(app_obj, pkg.id),
+                     daemon=True).start()
+    return jsonify(_package_dict(pkg)), 202
+
+
+def _results_for_package(pkg):
+    """Сводка результатов проверки: файл → каталог → правила → статусы."""
+    import json as _json
+    from database import DocCheckResult
+
+    out = []
+    for f in pkg.files:
+        rows = []
+        for r in f.check_results:
+            try:
+                det = _json.loads(r.details or '{}')
+            except ValueError:
+                det = {'raw': r.details}
+            rows.append(dict(
+                rule_id=r.check_rule_id,
+                rule_name=r.check_rule.name if r.check_rule else '—',
+                status=r.status,
+                details=det,
+            ))
+        out.append(dict(
+            file_id=f.id, orig_name=f.orig_name, file_status=f.status,
+            catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
+            results=rows,
+        ))
+    return out
+
+
+@docs_bp.route('/packages/<int:pkg_id>/results')
+@login_required
+def package_results(pkg_id):
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    d = _package_dict(pkg)
+    d['files'] = _results_for_package(pkg)
+    return jsonify(d)
+
+
+_STATUS_LABELS = {
+    'ok': 'ОК',
+    'violation': 'Нарушение',
+    'not_found': 'Не найдено',
+    'error': 'Ошибка проверки',
+}
+
+
+def _xlsx_safe(value):
+    """Защита от formula injection: строки, начинающиеся с =, +, -, @,
+    Excel трактует как формулы — префиксируем апострофом."""
+    s = str(value if value is not None else '')
+    if s[:1] in ('=', '+', '-', '@'):
+        return "'" + s
+    return s
+
+
+@docs_bp.route('/packages/<int:pkg_id>/export')
+@login_required
+def package_export(pkg_id):
+    """Экспорт результатов проверки пакета в XLSX."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    rows = _results_for_package(pkg)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Результаты проверки'
+
+    headers = ['Файл', 'Каталог', 'Правило проверки', 'Статус', 'Детали']
+    ws.append(headers)
+    hdr_fill = PatternFill('solid', fgColor='1F4E79')
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = hdr_fill
+
+    status_fills = {
+        'ok':        PatternFill('solid', fgColor='C6EFCE'),
+        'violation': PatternFill('solid', fgColor='FFC7CE'),
+        'not_found': PatternFill('solid', fgColor='FFEB9C'),
+        'error':     PatternFill('solid', fgColor='D9D9D9'),
+    }
+
+    for f in rows:
+        cat_name = f['catalog']['name'] if f['catalog'] else '—'
+        if not f['results']:
+            ws.append([_xlsx_safe(f['orig_name']), _xlsx_safe(cat_name), '—', '—',
+                       'Правила проверки для каталога не настроены'
+                       if f['file_status'] == 'ready' else
+                       f'Файл не обработан ({f["file_status"]})'])
+            continue
+        for r in f['results']:
+            det = r['details']
+            det_text = '; '.join(det.get('notes') or []) or det.get('error', '') \
+                       or det.get('raw', '') or ''
+            ws.append([_xlsx_safe(f['orig_name']), _xlsx_safe(cat_name),
+                       _xlsx_safe(r['rule_name']),
+                       _STATUS_LABELS.get(r['status'], r['status']),
+                       _xlsx_safe(det_text)])
+            fill = status_fills.get(r['status'])
+            if fill:
+                ws.cell(row=ws.max_row, column=4).fill = fill
+
+    widths = [45, 25, 35, 18, 80]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+        for row in ws.iter_rows(min_col=i, max_col=i):
+            for cell in row:
+                cell.alignment = Alignment(vertical='top', wrap_text=(i == 5))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_title = (pkg.title or f'package_{pkg.id}')[:60]
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'Проверка_{safe_title}.xlsx',
+    )

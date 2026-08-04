@@ -139,6 +139,9 @@ class AiProvider(db.Model):
     model      = db.Column(db.String(200), default='')
     is_active  = db.Column(db.Boolean, nullable=False, default=True)
     is_default = db.Column(db.Boolean, nullable=False, default=False)
+    # ИБ: локальный (внутренний) провайдер. Документы пакетов проверки
+    # разрешено отправлять ТОЛЬКО локальным провайдерам.
+    is_local   = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
@@ -218,6 +221,12 @@ class DocPackage(db.Model):
     files_done   = db.Column(db.Integer, default=0)
     zip_filename = db.Column(db.String(500), default='')
 
+    # ИИ-проверка: none | running | done | error
+    analysis_status = db.Column(db.String(20), nullable=False, default='none')
+    analysis_error  = db.Column(db.Text, default='')
+    analysis_total  = db.Column(db.Integer, default=0)   # файлов к проверке
+    analysis_done   = db.Column(db.Integer, default=0)
+
     files = db.relationship('DocFile', backref='package', lazy=True,
                             cascade='all, delete-orphan')
 
@@ -270,7 +279,10 @@ class DocCheckResult(db.Model):
     details    = db.Column(db.Text, default='')     # JSON с деталями от ИИ
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
-    file       = db.relationship('DocFile', backref='check_results', lazy=True)
+    file       = db.relationship(
+        'DocFile',
+        backref=db.backref('check_results', cascade='all, delete-orphan', lazy=True),
+        lazy=True)
     check_rule = db.relationship('DocCheckRule', lazy=True)
 
 

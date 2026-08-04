@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка документов — ГИС УЗТЭР</title>
+<style>
+  :root { --line:#dde4ea; --blue:#1c4f8a; }
+  * { box-sizing:border-box; }
+  body { font-family:'Segoe UI',Arial,sans-serif; margin:0; background:#f2f5f8; color:#26333d; }
+  header { background:var(--blue); color:#fff; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; }
+  header a { color:#cfe2f7; text-decoration:none; font-size:14px; }
+  main { max-width:1100px; margin:24px auto; padding:0 16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin-bottom:18px; }
+  h3 { margin:0 0 10px; font-size:16px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { border-bottom:1px solid var(--line); padding:7px 8px; text-align:left; vertical-align:top; }
+  th { background:#f7fafc; font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:#5b6b78; }
+  .btn { display:inline-block; border:0; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; text-decoration:none; }
+  .btn-primary { background:var(--blue); color:#fff; }
+  .btn-sm { padding:4px 10px; font-size:12px; }
+  .b { display:inline-block; border-radius:10px; padding:2px 9px; font-size:12px; }
+  .b-ok { background:#e4f5e6; color:#1c7a2d; } .b-viol { background:#fde4e4; color:#b3261e; }
+  .b-nf { background:#fdf3d7; color:#8a6d0b; } .b-err,.b-error { background:#eee; color:#555; }
+  .b-run { background:#e3f0ff; color:var(--blue); } .b-done { background:#e4f5e6; color:#1c7a2d; }
+  .muted { color:#748291; font-size:12px; }
+  #msg { font-size:13px; margin-left:10px; }
+</style>
+</head>
+<body>
+<header>
+  <div style="font-weight:700">Проверка документов</div>
+  <a href="{{ url_for('home') }}">← Вернуться на главную</a>
+</header>
+<main>
+  <div class="card">
+    <h3>Загрузка пакета документов (ZIP)</h3>
+    <p class="muted">Файлы архива автоматически распределяются по каталогам согласно правилам,
+      затем каждый файл можно проверить по правилам его каталога с помощью локального ИИ.</p>
+    <form id="upload-form">
+      <input type="file" name="zipfile" accept=".zip" required>
+      <input type="text" name="title" placeholder="Название пакета (необязательно)" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px">
+      <button class="btn btn-primary" type="submit">Загрузить</button>
+      <span id="msg"></span>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Пакеты</h3>
+    <table>
+      <thead><tr><th>Пакет</th><th>Обработка</th><th>ИИ-проверка</th><th style="width:280px">Действия</th></tr></thead>
+      <tbody id="pkg-rows"><tr><td colspan="4" class="muted">Загрузка…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="results-card" style="display:none">
+    <h3 id="results-title">Результаты проверки</h3>
+    <table>
+      <thead><tr><th>Файл</th><th>Каталог</th><th>Правило</th><th>Статус</th><th>Детали</th></tr></thead>
+      <tbody id="res-rows"></tbody>
+    </table>
+  </div>
+</main>
+<script>
+let CSRF = '';
+const STATUS_L = { ok:['ОК','b-ok'], violation:['Нарушение','b-viol'],
+                   not_found:['Не найдено','b-nf'], error:['Ошибка','b-err'] };
+const AN_L = { none:['—',''], running:['выполняется','b-run'],
+               done:['завершена','b-done'], error:['ошибка','b-viol'] };
+
+async function getCsrf() {
+  const r = await fetch('/api/auth/csrf');
+  CSRF = (await r.json()).csrf_token;
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
+
+async function loadPackages() {
+  const r = await fetch('/docs/packages');
+  const pkgs = await r.json();
+  const tb = document.getElementById('pkg-rows');
+  if (!pkgs.length) { tb.innerHTML = '<tr><td colspan="4" class="muted">Пакетов пока нет</td></tr>'; return; }
+  tb.innerHTML = pkgs.map(p => {
+    const an = AN_L[p.analysis_status] || [p.analysis_status,''];
+    const proc = p.status === 'done' ? `готов (${p.files_done}/${p.files_total})`
+               : p.status === 'error' ? `ошибка: ${esc(p.error_text)}`
+               : `${p.status} (${p.files_done}/${p.files_total})`;
+    const anTxt = p.analysis_status === 'running' ? `${an[0]} (${p.analysis_done}/${p.analysis_total})`
+                : p.analysis_status === 'error' ? `${an[0]}: ${esc(p.analysis_error)}` : an[0];
+    const canAnalyze = p.status === 'done' && p.analysis_status !== 'running';
+    return `<tr>
+      <td><b>${esc(p.title)}</b><div class="muted">${esc(p.created_at)}</div></td>
+      <td>${proc}</td>
+      <td><span class="b ${an[1]}">${anTxt}</span></td>
+      <td>
+        ${canAnalyze ? `<button class="btn btn-primary btn-sm" data-act="analyze" data-id="${p.id}">Запустить проверку</button>` : ''}
+        ${p.analysis_status === 'done' ? `<button class="btn btn-sm" style="background:#e8eef4" data-act="results" data-id="${p.id}">Результаты</button>
+        <a class="btn btn-sm" style="background:#e8eef4" href="/docs/packages/${p.id}/export">Скачать XLSX</a>` : ''}
+      </td></tr>`;
+  }).join('');
+  // Названия пакетов и заголовки — только через data-атрибуты и esc():
+  // никакой интерполяции пользовательских строк в JS-контекст (XSS).
+  window._pkgTitles = Object.fromEntries(pkgs.map(p => [p.id, p.title]));
+  if (pkgs.some(p => ['pending','processing'].includes(p.status) || p.analysis_status === 'running'))
+    setTimeout(loadPackages, 2500);
+}
+
+async function analyze(id) {
+  const r = await fetch(`/docs/packages/${id}/analyze`, { method:'POST', headers:{'X-CSRFToken':CSRF} });
+  if (!r.ok) { const e = await r.json().catch(()=>({})); alert(e.error || 'Не удалось запустить проверку'); }
+  loadPackages();
+}
+
+async function showResults(id) {
+  const r = await fetch(`/docs/packages/${id}/results`);
+  const d = await r.json();
+  document.getElementById('results-card').style.display = '';
+  document.getElementById('results-title').textContent =
+      `Результаты проверки: ${d.title || ''}`;
+  const rows = [];
+  for (const f of d.files) {
+    const cat = f.catalog ? f.catalog.name : '—';
+    if (!f.results.length) {
+      rows.push(`<tr><td>${esc(f.orig_name)}</td><td>${esc(cat)}</td><td class="muted" colspan="3">${
+        f.file_status === 'ready' ? 'Правила проверки для каталога не настроены' : 'Файл не обработан'}</td></tr>`);
+      continue;
+    }
+    for (const res of f.results) {
+      const st = STATUS_L[res.status] || [res.status,''];
+      const det = (res.details.notes || []).join('; ') || res.details.error || '';
+      rows.push(`<tr><td>${esc(f.orig_name)}</td><td>${esc(cat)}</td><td>${esc(res.rule_name)}</td>
+        <td><span class="b ${st[1]}">${st[0]}</span></td><td>${esc(det)}</td></tr>`);
+    }
+  }
+  document.getElementById('res-rows').innerHTML = rows.join('');
+  document.getElementById('results-card').scrollIntoView({behavior:'smooth'});
+}
+
+document.getElementById('upload-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  document.getElementById('msg').textContent = 'Загрузка…';
+  const r = await fetch('/docs/packages', { method:'POST', body:fd, headers:{'X-CSRFToken':CSRF} });
+  const d = await r.json().catch(()=>({}));
+  document.getElementById('msg').textContent = r.ok ? 'Пакет загружен, обработка запущена' : (d.error || d.error_text || 'Ошибка загрузки');
+  if (r.ok) e.target.reset();
+  loadPackages();
+});
+
+document.getElementById('pkg-rows').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id, 10);
+  if (btn.dataset.act === 'analyze') analyze(id);
+  else if (btn.dataset.act === 'results') showResults(id);
+});
+
+getCsrf().then(loadPackages);
+</script>
+</body>
+</html>

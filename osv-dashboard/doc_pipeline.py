@@ -54,9 +54,15 @@ def recover_stale_packages():
         pkg.status = 'error'
         pkg.error_text = ('Обработка прервана перезапуском сервера. '
                           'Загрузите архив повторно.')
-    if stale:
+    stale_an = DocPackage.query.filter_by(analysis_status='running').all()
+    for pkg in stale_an:
+        pkg.analysis_status = 'error'
+        pkg.analysis_error = ('Проверка прервана перезапуском сервера. '
+                              'Запустите проверку повторно.')
+    if stale or stale_an:
         db.session.commit()
-        logger.warning('recover_stale_packages: помечено %d пакетов', len(stale))
+        logger.warning('recover_stale_packages: обработка=%d, проверка=%d',
+                       len(stale), len(stale_an))
 
 
 # ---------------------------------------------------------------------------

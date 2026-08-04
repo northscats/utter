@@ -1,17 +1,27 @@
 # -*- coding: utf-8 -*-
-"""Интеграционный тест бэкенда /docs/* (flask test_client, без сети)."""
+"""Интеграционный тест бэкенда /docs/* (flask test_client, без сети).
+
+Изолированная среда: временная SQLite-БД и временное хранилище файлов —
+тест НЕ трогает рабочую базу и uploads/.
+"""
 import io
 import json
 import os
 import sys
+import tempfile
 import time
 import zipfile
+
+_TMP = tempfile.mkdtemp(prefix='docs_api_test_')
+os.environ['DATABASE_URL'] = f'sqlite:///{_TMP}/test.db'
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db
 from database import User, db
 
+app.config['DOCS_STORAGE'] = os.path.join(_TMP, 'docs')
+os.makedirs(app.config['DOCS_STORAGE'], exist_ok=True)
 init_db()
 
 app.config['WTF_CSRF_ENABLED'] = False  # тестируем логику, не CSRF
@@ -152,4 +162,7 @@ other = files.get('прочий документ.txt')
 r = client.post(f"/docs/files/{other['id']}/set-catalog", json=dict(catalog_id=cat_id))
 check('ручное перемещение', r.status_code == 200)
 
+# Очистка временной среды
+import shutil
+shutil.rmtree(_TMP, ignore_errors=True)
 print('\nВСЕ ТЕСТЫ ПРОЙДЕНЫ')
