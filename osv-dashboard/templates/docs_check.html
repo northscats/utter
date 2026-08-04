@@ -138,6 +138,9 @@ textarea{resize:vertical}
 .ws-batch{padding:6px 10px;border-bottom:1px solid var(--line);background:#fff8e6;
   display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:600;flex-shrink:0;flex-wrap:wrap}
 .ws-files-list{overflow-y:auto}
+.ws-cat-hdr{cursor:pointer;user-select:none}
+.ws-cat-hdr .cat-caret{color:#b0bec5;font-size:9px;width:10px;flex-shrink:0}
+.ws-cat-hdr:hover .cat-caret{color:#c8780a}
 .ws-cat-hdr{padding:7px 10px 4px;font-size:10px;font-weight:700;text-transform:uppercase;
   letter-spacing:.06em;color:#90a4ae;background:#fafbfc;border-bottom:1px solid #f0f3f5;
   display:flex;align-items:center;gap:6px}
@@ -525,6 +528,8 @@ const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 let CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let currentPkgId = null, pkgPollTimer = null, pdPollTimer = null;
 let wsFileId = null, wsPage = 1, wsFile = null, wsResults = null;
+let collapsedCats = new Set();
+try { collapsedCats = new Set(JSON.parse(localStorage.getItem('docs.collapsedCats') || '[]')); } catch (e) {}
 let markButtons = [], catalogsCache = [], analysisTemplates = [];
 let selectedIds = new Set();            // пакетный выбор файлов
 let hiddenFtypes = new Set();           // скрытые типы находок (легенда)
@@ -861,8 +866,11 @@ async function renderPackage(autoselect) {
     Object.keys(groups).sort((a,b)=>a.localeCompare(b,'ru')).map(g => {
       const grp = groups[g];
       const catId = grp.cat ? grp.cat.id : '';
-      return `<div class="ws-cat-hdr" data-cat-drop="${catId}">${esc(g)}
+      const isCollapsed = collapsedCats.has(g);
+      return `<div class="ws-cat-hdr" data-cat-drop="${catId}" data-cat-key="${esc(g)}" title="Свернуть/развернуть">
+          <span class="cat-caret">${isCollapsed ? '▸' : '▾'}</span>${esc(g)}
           <span class="muted" style="font-weight:400;text-transform:none">(${grp.files.length})</span></div>` +
+        `<div class="ws-cat-files" ${isCollapsed ? 'style="display:none"' : ''}>` +
         grp.files.map(f => {
           const a = aggStatus(f);
           return `<div class="file-item ${f.file_id===wsFileId?'active':''}" data-file="${f.file_id}"
@@ -875,7 +883,7 @@ async function renderPackage(autoselect) {
             <span class="fi-an">${anIcon(f)}</span>
             ${f.approved ? '<span class="fi-ok" title="Согласовано">✓</span>' : ''}
           </div>`;
-        }).join('');
+        }).join('') + '</div>';
     }).join('') || '<div class="empty-block">Файлы ещё обрабатываются…</div>';
   renderBatchBar();
 
@@ -1188,6 +1196,18 @@ function renderAiResults() {
 
 /* ── Обработчики рабочего экрана ── */
 document.getElementById('ws-files-list').addEventListener('click', e => {
+  const hdr = e.target.closest('.ws-cat-hdr');
+  if (hdr) {
+    const key = hdr.dataset.catKey;
+    if (collapsedCats.has(key)) collapsedCats.delete(key); else collapsedCats.add(key);
+    localStorage.setItem('docs.collapsedCats', JSON.stringify([...collapsedCats]));
+    const box = hdr.nextElementSibling;
+    if (box && box.classList.contains('ws-cat-files'))
+      box.style.display = collapsedCats.has(key) ? 'none' : '';
+    const caret = hdr.querySelector('.cat-caret');
+    if (caret) caret.textContent = collapsedCats.has(key) ? '▸' : '▾';
+    return;
+  }
   const cb = e.target.closest('[data-cb]');
   if (cb) {
     const id = parseInt(cb.dataset.cb, 10);
