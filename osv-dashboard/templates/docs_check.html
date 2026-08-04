@@ -303,6 +303,12 @@ const RULE_TYPES = { extension:'Расширение', keyword:'Имя соде�
 function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block';
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 3200); }
+function toastHint(m, linkLabel, linkHref){
+  const t=document.getElementById('toast');
+  t.innerHTML = esc(m) + (linkLabel ? ` — <a href="${esc(linkHref)}" style="color:#f39c12;text-decoration:underline">${esc(linkLabel)}</a>` : '');
+  t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 6000);
+}
 async function getCsrf(){ /* токен уже встроен в страницу из Jinja2 */ }
 async function api(url, opts={}) {
   opts.headers = Object.assign({'X-CSRFToken': CSRF}, opts.headers||{});
@@ -400,7 +406,7 @@ async function loadPackages() {
       <td><span class="b ${an[1]}">${anTxt}</span></td>
       <td>
         <button class="btn btn-grey btn-sm" data-act="open" data-id="${p.id}">Файлы</button>
-        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}">▶ Проверка</button>` : ''}
+        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}" title="Запустить ИИ-проверку (требуется локальный ИИ-провайдер)">🤖 ИИ-проверка</button>` : ''}
         ${p.analysis_status === 'done' ? `<a class="btn btn-grey btn-sm" href="/docs/packages/${p.id}/export">📥 XLSX</a>` : ''}
         ${p.status !== 'processing' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${p.id}">✕</button>` : ''}
       </td></tr>`;
@@ -415,7 +421,12 @@ document.getElementById('pkg-rows').addEventListener('click', async e => {
   if (el.dataset.act === 'open') openPackage(id);
   else if (el.dataset.act === 'analyze') {
     try { await api(`/docs/packages/${id}/analyze`, {method:'POST'}); toast('ИИ-проверка запущена'); }
-    catch(err) { toast(err.message); }
+    catch(err) {
+      const msg = err.message || '';
+      if (msg.includes('провайдер') || msg.includes('Провайдер')) {
+        toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
+      } else { toast(msg); }
+    }
     loadPackages();
   } else if (el.dataset.act === 'del') {
     if (!confirm('Удалить пакет со всеми файлами и результатами?')) return;
