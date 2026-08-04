@@ -246,6 +246,9 @@ class DocFile(db.Model):
     error_text  = db.Column(db.Text, default='')
     pages_count = db.Column(db.Integer, default=0)
     created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Согласование файла пользователем
+    approved    = db.Column(db.Boolean, nullable=False, default=False)
+    approved_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     catalog = db.relationship('DocCatalog', backref='files', lazy=True)
     pages   = db.relationship('DocFilePage', backref='file', lazy=True,

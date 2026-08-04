@@ -306,6 +306,7 @@ def package_detail(pkg_id):
         files.append(dict(
             id=f.id, orig_name=f.orig_name, status=f.status,
             error_text=f.error_text or '', pages_count=f.pages_count,
+            approved=bool(f.approved),
             catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
         ))
     d = _package_dict(pkg)
@@ -339,11 +340,29 @@ def file_detail(file_id):
     return jsonify(
         id=f.id, orig_name=f.orig_name, status=f.status,
         error_text=f.error_text or '', pages_count=f.pages_count,
+        approved=bool(f.approved),
         catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
         pages=[dict(page_num=p.page_num, text=p.text or '',
                     has_image=bool(p.image_path), ocr_used=p.ocr_used)
                for p in pages],
     )
+
+
+@docs_bp.route('/files/<int:file_id>/approve', methods=['POST'])
+@login_required
+def file_approve(file_id):
+    """Согласование / отмена согласования файла."""
+    from database import utcnow
+    f = _file_access(db.session.get(DocFile, file_id) or abort(404))
+    data = request.get_json(silent=True) or {}
+    approved = data.get('approved', True)
+    if not isinstance(approved, bool):
+        return jsonify(error='approved должен быть булевым значением'), 400
+    f.approved = approved
+    f.approved_at = utcnow() if approved else None
+    db.session.commit()
+    return jsonify(ok=True, approved=f.approved,
+                   approved_at=f.approved_at.isoformat() if f.approved_at else None)
 
 
 @docs_bp.route('/files/<int:file_id>/set-catalog', methods=['POST'])
@@ -429,7 +448,7 @@ def _results_for_package(pkg):
             ))
         out.append(dict(
             file_id=f.id, orig_name=f.orig_name, file_status=f.status,
-            pages_count=f.pages_count,
+            pages_count=f.pages_count, approved=bool(f.approved),
             catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
             results=rows,
         ))

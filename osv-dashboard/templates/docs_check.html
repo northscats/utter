@@ -121,29 +121,57 @@ textarea{resize:vertical}
 .cat-cnt{font-size:11px;color:#90a4ae}
 .sys-badge{background:#f5f7fa;color:#78909c;border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:700}
 
-/* package layout: left catalog panel + right files */
-.pkg-layout{display:grid;grid-template-columns:200px 1fr;gap:12px;align-items:start}
-@media(max-width:820px){.pkg-layout{grid-template-columns:1fr}}
-.cat-panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;position:sticky;top:8px}
-.cat-panel-hdr{padding:9px 12px;font-size:10.5px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.07em;color:#546e7a;background:#f5f7fa;border-bottom:1px solid var(--line)}
-.cat-nav-item{display:flex;align-items:center;justify-content:space-between;
-  padding:8px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid #f0f3f5;transition:background .12s}
-.cat-nav-item:last-child{border-bottom:0}
-.cat-nav-item:hover{background:#f7f9fa}
-.cat-nav-item.active{background:#fff3d6;font-weight:700;color:#c8780a}
-.cat-nav-cnt{font-size:11px;color:#90a4ae;font-weight:400}
-.cat-nav-item.active .cat-nav-cnt{color:#c8780a}
+/* ── Рабочий экран пакета: файлы | просмотр | миниатюры ── */
+.ws{display:grid;grid-template-columns:250px minmax(0,1fr) 120px;gap:12px;align-items:start}
+@media(max-width:980px){.ws{grid-template-columns:220px minmax(0,1fr)}.ws-thumbs{display:none}}
+@media(max-width:760px){.ws{grid-template-columns:1fr}}
+.ws-files{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
+  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
+.ws-files-hdr{padding:9px 12px;font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.07em;color:#546e7a;background:#f5f7fa;border-bottom:1px solid var(--line);flex-shrink:0}
+.ws-files-list{overflow-y:auto}
+.ws-cat-hdr{padding:7px 12px 4px;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:#90a4ae;background:#fafbfc;border-bottom:1px solid #f0f3f5}
+.file-item{display:flex;align-items:center;gap:7px;padding:8px 12px;cursor:pointer;
+  font-size:12px;border-bottom:1px solid #f0f3f5;transition:background .12s;line-height:1.35}
+.file-item:hover{background:#f7f9fa}
+.file-item.active{background:#fff3d6;font-weight:700;color:#c8780a}
+.file-item .fi-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-item .fi-ok{color:var(--ok);flex-shrink:0;font-weight:900}
+.file-item .fi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.fi-dot.d-ok{background:var(--ok)}.fi-dot.d-viol{background:var(--bad)}
+.fi-dot.d-nf{background:var(--warn)}.fi-dot.d-err{background:#90a4ae}.fi-dot.d-none{background:#d5dce4}
 
-/* file view */
-.fileview{display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,420px);gap:14px}
-@media(max-width:900px){.fileview{grid-template-columns:1fr}}
-.page-card{border:1px solid var(--line);border-radius:6px;margin-bottom:12px;overflow:hidden;background:#fff}
-.page-card .page-hd{background:#f5f7fa;padding:6px 12px;font-size:11px;font-weight:700;
-  color:#546e7a;display:flex;justify-content:space-between}
-.page-card img{width:100%;display:block;border-top:1px solid #edf0f3}
-.page-card .ptext{padding:10px 12px;font-size:12px;color:#455a64;white-space:pre-wrap;
-  max-height:180px;overflow-y:auto;border-top:1px solid #edf0f3;background:#fcfdfe}
+/* центр: просмотрщик */
+.ws-viewer{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.ws-actions{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);
+  background:#f9fafb;flex-wrap:wrap}
+.ws-actions .fname{font-weight:700;font-size:13px;flex:1;min-width:140px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.btn-approved{background:#e8f5e9;color:#2e7d32;border:1px solid #b7dfb9}
+.btn-approved:hover{background:#dcefdd}
+.ws-stage{background:#66707c;padding:14px;display:flex;align-items:center;justify-content:center;min-height:340px}
+.ws-stage img{max-width:100%;max-height:calc(100vh - 260px);box-shadow:0 3px 14px rgba(0,0,0,.4);
+  background:#fff;display:block}
+.ws-pager{display:flex;align-items:center;justify-content:center;gap:14px;padding:9px;
+  border-top:1px solid var(--line);background:#f9fafb;font-size:12.5px;font-weight:600}
+.ws-text{padding:0 14px 12px;border-top:1px solid #edf0f3}
+.ws-text summary{cursor:pointer;font-size:11.5px;font-weight:700;color:#546e7a;padding:9px 0 5px}
+.ws-text pre{font:12px/1.5 'Segoe UI',sans-serif;white-space:pre-wrap;color:#455a64;
+  max-height:200px;overflow-y:auto;background:#fcfdfe;border:1px solid #edf0f3;border-radius:5px;padding:9px 11px}
+
+/* право: лента миниатюр */
+.ws-thumbs{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
+  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
+.ws-thumbs-hdr{padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:#90a4ae;background:#f5f7fa;border-bottom:1px solid var(--line);flex-shrink:0}
+.ws-thumbs-list{overflow-y:auto;padding:8px}
+.thumb{border:2px solid transparent;border-radius:4px;cursor:pointer;margin-bottom:8px;
+  overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15);transition:border-color .12s}
+.thumb:hover{border-color:#b8c6d2}
+.thumb.active{border-color:var(--amber)}
+.thumb img{width:100%;display:block}
+.thumb .t-num{text-align:center;font-size:10px;color:#78909c;padding:2px 0;background:#f5f7fa}
 .res-item{border:1px solid var(--line);border-left:4px solid #b0bec5;border-radius:5px;
   padding:10px 12px;margin-bottom:8px;background:#fff}
 .res-item.s-ok{border-left-color:var(--ok)}
@@ -234,56 +262,51 @@ textarea{resize:vertical}
     </div>
   </div>
 
-  <!-- ══ ЭКРАН: ПАКЕТ (файлы + результаты) ══ -->
+  <!-- ══ ЭКРАН: ПАКЕТ — рабочая область (файлы | просмотр | миниатюры) ══ -->
   <div id="view-package" style="display:none">
     <div class="crumb">
       <a data-nav="packages">← Пакеты</a><span class="sep">/</span>
       <b id="pd-title"></b>
       <span id="pd-badges"></span>
       <span style="margin-left:auto;display:flex;gap:8px">
-        <button class="btn btn-amber btn-sm" id="pd-analyze" style="display:none" title="Запустить ИИ-проверку (требуется локальный ИИ-провайдер)">🤖 ИИ-проверка</button>
+        <button class="btn btn-amber btn-sm" id="pd-analyze" style="display:none" title="Запустить ИИ-проверку файлов пакета (требуется локальный ИИ-провайдер)">▶ Запустить анализ</button>
         <a class="btn btn-grey btn-sm" id="pd-export" style="display:none">📥 Экспорт XLSX</a>
       </span>
     </div>
-    <div class="pkg-layout">
-      <!-- Левая панель: каталоги -->
-      <div>
-        <div class="cat-panel">
-          <div class="cat-panel-hdr">Каталоги</div>
-          <div id="pd-cats"></div>
-        </div>
+    <div class="ws">
+      <!-- Левая панель: файлы пакета -->
+      <div class="ws-files">
+        <div class="ws-files-hdr">Файлы пакета <span id="ws-files-cnt" class="muted"></span></div>
+        <div class="ws-files-list" id="ws-files-list"></div>
       </div>
-      <!-- Правая панель: файлы -->
-      <div class="card" style="min-width:0">
-        <div class="chips" id="pd-chips" style="margin-bottom:10px"></div>
-        <div style="overflow-x:auto">
-        <table>
-          <thead><tr><th>Файл</th><th id="pd-th-cat">Каталог</th><th>Стр.</th><th>Статус</th><th>Результат ИИ</th><th></th></tr></thead>
-          <tbody id="pd-rows"></tbody>
-        </table>
+      <!-- Центр: постраничный просмотр -->
+      <div style="min-width:0">
+        <div class="ws-viewer" id="ws-viewer" style="display:none">
+          <div class="ws-actions">
+            <span class="fname" id="ws-fname"></span>
+            <select id="ws-catalog" title="Каталог файла" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif;max-width:160px"></select>
+            <button class="btn btn-sm" id="ws-approve"></button>
+          </div>
+          <div class="ws-stage" id="ws-stage"></div>
+          <div class="ws-pager" id="ws-pager" style="display:none">
+            <button class="btn btn-grey btn-sm" id="ws-prev">← Пред.</button>
+            <span id="ws-page-lbl"></span>
+            <button class="btn btn-grey btn-sm" id="ws-next">След. →</button>
+          </div>
+          <div class="ws-text" id="ws-text-wrap" style="display:none">
+            <details><summary>Извлечённый текст страницы</summary><pre id="ws-text"></pre></details>
+          </div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ ЭКРАН: ФАЙЛ (страницы + результаты ИИ) ══ -->
-  <div id="view-file" style="display:none">
-    <div class="crumb">
-      <a data-nav="packages">← Пакеты</a><span class="sep">/</span>
-      <a id="fv-back-pkg"></a><span class="sep">/</span>
-      <b id="fv-name"></b>
-      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <span class="muted">Каталог:</span>
-        <select id="fv-catalog" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12.5px 'Segoe UI',sans-serif"></select>
-      </span>
-    </div>
-    <div id="fv-layout">
-      <div id="fv-pages"></div>
-      <div id="fv-ai-panel" style="display:none">
-        <div class="card" style="position:sticky;top:10px">
+        <div class="card" id="ws-empty"><div class="empty-block">Выберите файл в списке слева</div></div>
+        <div class="card" id="ws-ai" style="display:none;margin-top:12px">
           <h3>Результаты ИИ-проверки</h3>
-          <div id="fv-results"></div>
+          <div id="ws-ai-body"></div>
         </div>
+      </div>
+      <!-- Правая лента миниатюр -->
+      <div class="ws-thumbs" id="ws-thumbs" style="visibility:hidden">
+        <div class="ws-thumbs-hdr">Страницы</div>
+        <div class="ws-thumbs-list" id="ws-thumbs-list"></div>
       </div>
     </div>
   </div>
@@ -313,8 +336,8 @@ textarea{resize:vertical}
 'use strict';
 const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 let CSRF = document.querySelector('meta[name="csrf-token"]').content;
-let currentPkgId = null, currentFileId = null, pkgPollTimer = null, pdPollTimer = null;
-let pdFilter = 'all', pdCatFilter = 'all';
+let currentPkgId = null, pkgPollTimer = null, pdPollTimer = null;
+let wsFileId = null, wsPage = 1, wsFile = null, wsResults = null;
 
 const STATUS_L = { ok:['ОК','b-ok'], violation:['Нарушение','b-viol'],
                    not_found:['Не найдено','b-nf'], error:['Ошибка','b-err'] };
@@ -345,7 +368,7 @@ async function api(url, opts={}) {
 
 /* ══ Навигация между экранами ══ */
 function show(view) {
-  ['packages','package','file','catalogs'].forEach(v => {
+  ['packages','package','catalogs'].forEach(v => {
     const el = document.getElementById('view-' + v);
     if (el) el.style.display = v === view ? '' : 'none';
   });
@@ -399,7 +422,9 @@ document.getElementById('btn-upload').addEventListener('click', () => {
       msg.textContent = ''; toast('Пакет загружен, обработка запущена');
       zipFile = null; zipInput.value = ''; document.getElementById('drop-file').textContent = '';
       document.getElementById('pkg-title').value = '';
-      loadPackages();
+      btn.disabled = true;
+      // Как в исходном проекте: сразу открываем рабочий экран пакета
+      if (d.id) openPackage(d.id); else loadPackages();
     } else { msg.textContent = d.error || d.error_text || 'Ошибка загрузки'; btn.disabled = false; }
   };
   xhr.onerror = () => { prog.style.display='none'; msg.textContent='Сбой сети'; btn.disabled=false; };
@@ -430,8 +455,8 @@ async function loadPackages() {
         <div class="muted">${esc(p.created_at)}</div></td>
       <td>${proc}${aiLine}</td>
       <td>
-        <button class="btn btn-grey btn-sm" data-act="open" data-id="${p.id}">Файлы</button>
-        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}" title="Запустить ИИ-проверку (требуется локальный ИИ-провайдер)">🤖 ИИ-проверка</button>` : ''}
+        <button class="btn btn-grey btn-sm" data-act="open" data-id="${p.id}">Открыть</button>
+        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}" title="Запустить ИИ-проверку (требуется локальный ИИ-провайдер)">▶ Анализ</button>` : ''}
         ${p.analysis_status === 'done' ? `<a class="btn btn-grey btn-sm" href="/docs/packages/${p.id}/export">📥 XLSX</a>` : ''}
         ${p.status !== 'processing' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${p.id}">✕</button>` : ''}
       </td></tr>`;
@@ -461,188 +486,243 @@ document.getElementById('pkg-rows').addEventListener('click', async e => {
   }
 });
 
-/* ══ ЭКРАН ПАКЕТА ══ */
+/* ══ РАБОЧИЙ ЭКРАН ПАКЕТА (файлы | просмотр | миниатюры) ══ */
 async function openPackage(id) {
-  currentPkgId = id; pdFilter = 'all'; pdCatFilter = 'all';
+  currentPkgId = id; wsFileId = null; wsPage = 1; wsFile = null; wsResults = null;
+  document.getElementById('ws-viewer').style.display = 'none';
+  document.getElementById('ws-empty').style.display = '';
+  document.getElementById('ws-ai').style.display = 'none';
+  document.getElementById('ws-thumbs').style.visibility = 'hidden';
   show('package');
-  await renderPackage();
+  await renderPackage(true);
 }
-async function renderPackage() {
+
+// агрегированный статус файла: violation > error > not_found > ok
+function aggStatus(f) {
+  if (!f.results || !f.results.length) return null;
+  const st = f.results.map(r => r.status);
+  return st.includes('violation') ? 'violation' : st.includes('error') ? 'error'
+       : st.includes('not_found') ? 'not_found' : 'ok';
+}
+
+async function renderPackage(autoselect) {
   if (pdPollTimer) { clearTimeout(pdPollTimer); pdPollTimer = null; }
   if (document.getElementById('view-package').style.display === 'none') return;
   let d;
   try { d = await api(`/docs/packages/${currentPkgId}/results`); }
   catch(e) { toast(e.message); show('packages'); loadPackages(); return; }
+  wsResults = d;
 
   document.getElementById('pd-title').textContent = d.title;
+  const stB = d.status==='done' ? ['готов','b-done'] : d.status==='error' ? ['ошибка','b-viol']
+            : ['обработка ' + d.files_done + '/' + d.files_total, 'b-run'];
   const an = AN_L[d.analysis_status] || [d.analysis_status,'b-err'];
   const anTxt = d.analysis_status === 'running' ? `${an[0]} (${d.analysis_done}/${d.analysis_total})` : an[0];
   document.getElementById('pd-badges').innerHTML =
-    `<span class="b ${d.status==='done'?'b-done':d.status==='error'?'b-viol':'b-run'}">${esc(d.status)}</span>`;
+    `<span class="b ${stB[1]}">${esc(stB[0])}</span>` +
+    (d.analysis_status !== 'none' ? ` <span class="b ${an[1]}">ИИ: ${anTxt}</span>` : '');
   const btnA = document.getElementById('pd-analyze');
   btnA.style.display = (d.status === 'done' && d.analysis_status !== 'running') ? '' : 'none';
   const btnE = document.getElementById('pd-export');
   btnE.style.display = d.analysis_status === 'done' ? '' : 'none';
   btnE.href = `/docs/packages/${currentPkgId}/export`;
 
-  // агрегированный статус файла: violation > error > not_found > ok
-  const agg = f => {
-    if (!f.results.length) return null;
-    const st = f.results.map(r => r.status);
-    return st.includes('violation') ? 'violation' : st.includes('error') ? 'error'
-         : st.includes('not_found') ? 'not_found' : 'ok';
-  };
-
-  // ── Левая панель: каталоги с подсчётом файлов ──
-  const catCounts = {};
+  // ── Левая панель: файлы, сгруппированные по каталогам ──
+  document.getElementById('ws-files-cnt').textContent = `(${d.files.length})`;
+  const groups = {};
   d.files.forEach(f => {
-    const k = f.catalog ? f.catalog.name : '—';
-    catCounts[k] = (catCounts[k] || 0) + 1;
+    const k = f.catalog ? f.catalog.name : 'Без каталога';
+    (groups[k] = groups[k] || []).push(f);
   });
-  const catEntries = [['all', 'Все файлы', d.files.length],
-    ...Object.entries(catCounts).sort((a,b) => a[0].localeCompare(b[0], 'ru'))
-             .map(([k,v]) => [k, k, v])];
-  document.getElementById('pd-cats').innerHTML = catEntries.map(([key, label, cnt]) =>
-    `<div class="cat-nav-item ${pdCatFilter===key?'active':''}" data-catf="${esc(key)}">
-       <span>${esc(label)}</span><span class="cat-nav-cnt">${cnt}</span>
-     </div>`).join('');
+  const dotCls = { ok:'d-ok', violation:'d-viol', not_found:'d-nf', error:'d-err' };
+  document.getElementById('ws-files-list').innerHTML =
+    Object.keys(groups).sort((a,b)=>a.localeCompare(b,'ru')).map(g =>
+      `<div class="ws-cat-hdr">${esc(g)}</div>` +
+      groups[g].map(f => {
+        const a = aggStatus(f);
+        return `<div class="file-item ${f.file_id===wsFileId?'active':''}" data-file="${f.file_id}" title="${esc(f.orig_name)}">
+          <span class="fi-dot ${a ? dotCls[a] : 'd-none'}" title="${a ? (STATUS_L[a]||[a])[0] : 'ИИ-проверка не выполнялась'}"></span>
+          <span class="fi-name">${esc(f.orig_name)}</span>
+          ${f.approved ? '<span class="fi-ok" title="Согласовано">✓</span>' : ''}
+        </div>`;
+      }).join('')
+    ).join('') || '<div class="empty-block">Файлы ещё обрабатываются…</div>';
 
-  // ── Фильтр-чипы по результату ИИ (только если анализ выполнялся) ──
-  const hasAi = d.files.some(f => f.results.length);
-  const chipsEl = document.getElementById('pd-chips');
-  if (hasAi) {
-    const visCounts = {all:0, ok:0, violation:0, not_found:0, error:0, none:0};
-    d.files.filter(f => pdCatFilter === 'all' || (f.catalog ? f.catalog.name : '—') === pdCatFilter)
-           .forEach(f => { const a = agg(f); visCounts['all']++; visCounts[a ?? 'none']++; });
-    const chipDefs = [['all','Все'],['violation','Нарушения'],['not_found','Не найдено'],
-                      ['ok','ОК'],['error','Ошибки'],['none','Без проверки']];
-    chipsEl.style.display = '';
-    chipsEl.innerHTML = chipDefs
-      .filter(([k]) => k === 'all' || visCounts[k] > 0)
-      .map(([k,l]) => `<button class="chip ${pdFilter===k?'active':''}" data-filter="${k}">${l} · ${visCounts[k]}</button>`)
-      .join('');
-  } else {
-    chipsEl.style.display = 'none';
-    pdFilter = 'all';
-  }
-
-  // ── Колонка «Каталог» скрывается при выборе конкретного каталога ──
-  document.getElementById('pd-th-cat').style.display = pdCatFilter === 'all' ? '' : 'none';
-
-  // ── Строки файлов ──
-  const rows = [];
-  for (const f of d.files) {
-    const catName = f.catalog ? f.catalog.name : '—';
-    if (pdCatFilter !== 'all' && catName !== pdCatFilter) continue;
-    const a = agg(f);
-    if (pdFilter !== 'all' && (a === null ? 'none' : a) !== pdFilter) continue;
-    const fs = FSTAT_L[f.file_status] || [f.file_status,'b-err'];
-    let resHtml;
-    if (!f.results.length) {
-      resHtml = `<span class="muted">${f.file_status === 'ready' ? '—' : '—'}</span>`;
-    } else {
-      resHtml = f.results.map(r => {
-        const st = STATUS_L[r.status] || [r.status,'b-err'];
-        return `<div style="margin:2px 0"><span class="b ${st[1]}">${st[0]}</span> ${esc(r.rule_name)}</div>`;
-      }).join('');
+  // автовыбор первого готового файла
+  if (autoselect && !wsFileId) {
+    const first = d.files.find(f => f.file_status === 'ready') || d.files[0];
+    if (first) selectFile(first.file_id);
+  } else if (wsFileId) {
+    renderAiResults(); // обновить результаты/согласование без сброса страницы
+    const cur = d.files.find(f => f.file_id === wsFileId);
+    if (cur) {
+      renderApproveBtn(cur.approved);
+      // файл дообработался в фоне — подтянуть страницы
+      if (cur.file_status === 'ready' && wsFile && wsFile.status !== 'ready') selectFile(wsFileId);
     }
-    const catCell = pdCatFilter === 'all'
-      ? `<td style="${document.getElementById('pd-th-cat').style.display==='none'?'display:none':''}">` + esc(catName) + '</td>'
-      : '';
-    rows.push(`<tr>
-      <td><a style="color:var(--water);font-weight:600;cursor:pointer" data-file="${f.file_id}">${esc(f.orig_name)}</a></td>
-      ${catCell}
-      <td class="muted">${f.pages_count ?? ''}</td>
-      <td><span class="b ${fs[1]}">${fs[0]}</span></td>
-      <td>${resHtml}</td>
-      <td><button class="btn btn-grey btn-sm" data-file="${f.file_id}">Открыть</button></td></tr>`);
   }
-  document.getElementById('pd-rows').innerHTML = rows.join('') ||
-    '<tr><td colspan="6" class="muted">Нет файлов по выбранному фильтру</td></tr>';
 
   if (['pending','processing'].includes(d.status) || d.analysis_status === 'running')
-    pdPollTimer = setTimeout(renderPackage, 2500);
+    pdPollTimer = setTimeout(() => renderPackage(!wsFileId), 2500);
 }
-document.getElementById('pd-cats').addEventListener('click', e => {
-  const c = e.target.closest('[data-catf]');
-  if (c) { pdCatFilter = c.dataset.catf; pdFilter = 'all'; renderPackage(); }
-});
-document.getElementById('pd-chips').addEventListener('click', e => {
-  const c = e.target.closest('[data-filter]');
-  if (c) { pdFilter = c.dataset.filter; renderPackage(); }
-});
-document.getElementById('pd-rows').addEventListener('click', e => {
-  const el = e.target.closest('[data-file]');
-  if (el) openFile(parseInt(el.dataset.file, 10));
-});
-document.getElementById('pd-analyze').addEventListener('click', async () => {
-  try { await api(`/docs/packages/${currentPkgId}/analyze`, {method:'POST'}); toast('ИИ-проверка запущена'); }
-  catch(err) { toast(err.message); }
-  renderPackage();
-});
 
-/* ══ ЭКРАН ФАЙЛА ══ */
-async function openFile(fileId) {
-  currentFileId = fileId;
-  show('file');
-  let f, res;
-  try {
-    [f, res] = await Promise.all([
-      api(`/docs/files/${fileId}`),
-      api(`/docs/packages/${currentPkgId}/results`),
-    ]);
-  } catch(e) { toast(e.message); return; }
-  document.getElementById('fv-name').textContent = f.orig_name;
-  const back = document.getElementById('fv-back-pkg');
-  back.textContent = res.title; back.onclick = () => openPackage(currentPkgId);
+/* ── Выбор файла ── */
+let wsSelectSeq = 0; // токен против гонки при быстром переключении файлов
+async function selectFile(fileId) {
+  const seq = ++wsSelectSeq;
+  wsFileId = fileId; wsPage = 1;
+  document.querySelectorAll('#ws-files-list .file-item').forEach(el =>
+    el.classList.toggle('active', parseInt(el.dataset.file,10) === fileId));
+  let f;
+  try { f = await api(`/docs/files/${fileId}`); }
+  catch(e) { toast(e.message); return; }
+  if (seq !== wsSelectSeq) return; // пользователь уже кликнул другой файл
+  wsFile = f;
+
+  document.getElementById('ws-empty').style.display = 'none';
+  document.getElementById('ws-viewer').style.display = '';
+  document.getElementById('ws-fname').textContent = f.orig_name;
+  renderApproveBtn(f.approved);
 
   // селектор каталога
   let cats = [];
   try { cats = await api('/docs/catalogs'); } catch(e){}
-  const sel = document.getElementById('fv-catalog');
+  if (seq !== wsSelectSeq) return; // за время запроса выбрали другой файл
+  const sel = document.getElementById('ws-catalog');
+  sel.dataset.fileId = fileId;
   sel.innerHTML = '<option value="">— без каталога —</option>' + cats.map(c =>
     `<option value="${c.id}" ${f.catalog && f.catalog.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
-  sel.onchange = async () => {
-    try {
-      await api(`/docs/files/${fileId}/set-catalog`, {method:'POST', json:{catalog_id: sel.value ? parseInt(sel.value,10) : null}});
-      toast('Каталог изменён — перезапустите проверку пакета');
-    } catch(err) { toast(err.message); }
-  };
 
-  // страницы
-  const pagesEl = document.getElementById('fv-pages');
-  if (f.status === 'error') {
-    pagesEl.innerHTML = `<div class="card"><div class="empty-block">⚠ Файл не обработан: ${esc(f.error_text)}</div></div>`;
-  } else if (!f.pages.length) {
-    pagesEl.innerHTML = '<div class="card"><div class="empty-block">Страницы не извлечены</div></div>';
+  // миниатюры
+  const thumbsEl = document.getElementById('ws-thumbs');
+  const imgPages = f.pages.filter(p => p.has_image);
+  if (imgPages.length) {
+    thumbsEl.style.visibility = '';
+    document.getElementById('ws-thumbs-list').innerHTML = imgPages.map(p =>
+      `<div class="thumb ${p.page_num===wsPage?'active':''}" data-page="${p.page_num}">
+         <img loading="lazy" src="/docs/files/${fileId}/pages/${p.page_num}/image" alt="Стр. ${p.page_num}">
+         <div class="t-num">${p.page_num}</div>
+       </div>`).join('');
   } else {
-    pagesEl.innerHTML = f.pages.map(p => `
-      <div class="page-card">
-        <div class="page-hd"><span>Страница ${p.page_num}${p.ocr_used ? ' · OCR' : ''}</span></div>
-        ${p.has_image ? `<img loading="lazy" src="/docs/files/${fileId}/pages/${p.page_num}/image" alt="Страница ${p.page_num}">` : ''}
-        ${p.text ? `<div class="ptext">${esc(p.text)}</div>` : ''}
-      </div>`).join('');
+    thumbsEl.style.visibility = 'hidden';
   }
 
-  // результаты ИИ этого файла — панель показывается только если есть данные
-  const fr = (res.files || []).find(x => x.file_id === fileId);
-  const hasResults = fr && fr.results.length > 0;
-  const fvLayout = document.getElementById('fv-layout');
-  const fvAiPanel = document.getElementById('fv-ai-panel');
-  fvLayout.className = hasResults ? 'fileview' : '';
-  fvAiPanel.style.display = hasResults ? '' : 'none';
-  if (hasResults) {
-    document.getElementById('fv-results').innerHTML = fr.results.map(r => {
-      const st = STATUS_L[r.status] || [r.status,'b-err'];
-      const det = (r.details.notes || []).join('; ') || r.details.error || r.details.raw || '';
-      return `<div class="res-item s-${esc(r.status)}">
-        <div class="res-hd"><span class="res-name">${esc(r.rule_name)}</span>
-          <span class="b ${st[1]}">${st[0]}</span></div>
-        ${det ? `<div class="res-det">${esc(det)}</div>` : ''}
-      </div>`;
-    }).join('');
-  }
+  renderPage();
+  renderAiResults();
 }
+
+function renderApproveBtn(approved) {
+  const b = document.getElementById('ws-approve');
+  if (approved) { b.className = 'btn btn-sm btn-approved'; b.textContent = '✓ Согласовано'; }
+  else { b.className = 'btn btn-sm btn-primary'; b.textContent = 'Согласовать'; }
+}
+
+/* ── Отрисовка текущей страницы + пейджер ── */
+function renderPage() {
+  const f = wsFile;
+  const stage = document.getElementById('ws-stage');
+  const pager = document.getElementById('ws-pager');
+  const txtWrap = document.getElementById('ws-text-wrap');
+  if (!f) return;
+  if (f.status === 'error') {
+    stage.innerHTML = `<div class="empty-block" style="color:#fff">⚠ Файл не обработан: ${esc(f.error_text)}</div>`;
+    pager.style.display = 'none'; txtWrap.style.display = 'none'; return;
+  }
+  if (!f.pages.length) {
+    stage.innerHTML = `<div class="empty-block" style="color:#fff">${f.status === 'ready' ? 'Страницы не извлечены' : 'Файл обрабатывается…'}</div>`;
+    pager.style.display = 'none'; txtWrap.style.display = 'none'; return;
+  }
+  const total = f.pages.length;
+  wsPage = Math.min(Math.max(1, wsPage), total);
+  const p = f.pages.find(x => x.page_num === wsPage) || f.pages[wsPage - 1];
+  stage.innerHTML = p && p.has_image
+    ? `<img src="/docs/files/${f.id}/pages/${p.page_num}/image" alt="Страница ${p.page_num}">`
+    : `<div class="empty-block" style="color:#fff">Изображение страницы недоступно</div>`;
+  pager.style.display = total > 0 ? '' : 'none';
+  document.getElementById('ws-page-lbl').textContent =
+    `Страница ${wsPage} из ${total}` + (p && p.ocr_used ? ' · OCR' : '');
+  document.getElementById('ws-prev').disabled = wsPage <= 1;
+  document.getElementById('ws-next').disabled = wsPage >= total;
+  if (p && p.text) {
+    txtWrap.style.display = '';
+    document.getElementById('ws-text').textContent = p.text;
+  } else txtWrap.style.display = 'none';
+  document.querySelectorAll('#ws-thumbs-list .thumb').forEach(t => {
+    const act = parseInt(t.dataset.page,10) === wsPage;
+    t.classList.toggle('active', act);
+    if (act) t.scrollIntoView({block:'nearest'});
+  });
+}
+
+/* ── Результаты ИИ выбранного файла ── */
+function renderAiResults() {
+  const box = document.getElementById('ws-ai');
+  if (!wsResults || !wsFileId) { box.style.display = 'none'; return; }
+  const fr = (wsResults.files || []).find(x => x.file_id === wsFileId);
+  if (!fr || !fr.results.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  document.getElementById('ws-ai-body').innerHTML = fr.results.map(r => {
+    const st = STATUS_L[r.status] || [r.status,'b-err'];
+    const det = (r.details.notes || []).join('; ') || r.details.error || r.details.raw || '';
+    return `<div class="res-item s-${esc(r.status)}">
+      <div class="res-hd"><span class="res-name">${esc(r.rule_name)}</span>
+        <span class="b ${st[1]}">${st[0]}</span></div>
+      ${det ? `<div class="res-det">${esc(det)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ── Обработчики рабочего экрана ── */
+document.getElementById('ws-files-list').addEventListener('click', e => {
+  const el = e.target.closest('[data-file]');
+  if (el) selectFile(parseInt(el.dataset.file, 10));
+});
+document.getElementById('ws-thumbs-list').addEventListener('click', e => {
+  const t = e.target.closest('[data-page]');
+  if (t) { wsPage = parseInt(t.dataset.page, 10); renderPage(); }
+});
+document.getElementById('ws-prev').addEventListener('click', () => { wsPage--; renderPage(); });
+document.getElementById('ws-next').addEventListener('click', () => { wsPage++; renderPage(); });
+document.addEventListener('keydown', e => {
+  if (document.getElementById('view-package').style.display === 'none' || !wsFile) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'ArrowLeft' && wsPage > 1) { wsPage--; renderPage(); }
+  else if (e.key === 'ArrowRight' && wsFile.pages && wsPage < wsFile.pages.length) { wsPage++; renderPage(); }
+});
+document.getElementById('ws-approve').addEventListener('click', async () => {
+  if (!wsFileId) return;
+  const cur = (wsResults?.files || []).find(x => x.file_id === wsFileId);
+  const newVal = !(cur ? cur.approved : wsFile?.approved);
+  try {
+    const r = await api(`/docs/files/${wsFileId}/approve`, {method:'POST', json:{approved:newVal}});
+    if (cur) cur.approved = r.approved;
+    if (wsFile) wsFile.approved = r.approved;
+    renderApproveBtn(r.approved);
+    toast(r.approved ? 'Файл согласован' : 'Согласование отменено');
+    renderPackage(false); // обновить галочку в списке файлов
+  } catch(err) { toast(err.message); }
+});
+document.getElementById('ws-catalog').addEventListener('change', async e => {
+  // каталог применяется к файлу, для которого селектор был построен
+  const fid = parseInt(e.target.dataset.fileId || '', 10);
+  if (!fid || fid !== wsFileId) return;
+  const v = e.target.value;
+  try {
+    await api(`/docs/files/${fid}/set-catalog`, {method:'POST', json:{catalog_id: v ? parseInt(v,10) : null}});
+    toast('Каталог изменён — перезапустите анализ пакета');
+    renderPackage(false);
+  } catch(err) { toast(err.message); }
+});
+document.getElementById('pd-analyze').addEventListener('click', async () => {
+  try { await api(`/docs/packages/${currentPkgId}/analyze`, {method:'POST'}); toast('ИИ-анализ запущен'); }
+  catch(err) {
+    const msg = err.message || '';
+    if (msg.includes('провайдер') || msg.includes('Провайдер')) {
+      toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
+    } else toast(msg);
+  }
+  renderPackage(false);
+});
 
 /* ══ КАТАЛОГИ (админ) ══ */
 async function loadCatalogs() {

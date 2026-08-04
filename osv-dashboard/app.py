@@ -2412,6 +2412,10 @@ def init_db():
 
         _add_missing('ai_providers',
                      [('is_local', "BOOLEAN NOT NULL DEFAULT FALSE")])
+        _add_missing('doc_files', [
+            ('approved',    "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ('approved_at', "TIMESTAMP WITH TIME ZONE"),
+        ])
         _add_missing('doc_packages', [
             ('analysis_status', "VARCHAR(20) NOT NULL DEFAULT 'none'"),
             ('analysis_error',  "TEXT DEFAULT ''"),
