@@ -117,16 +117,16 @@ textarea{resize:vertical}
 .sys-badge{background:#f5f7fa;color:#78909c;border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:700}
 
 /* ── Рабочий экран пакета: файлы | просмотр | миниатюры ── */
-.ws{display:flex;gap:0;align-items:stretch}
+.ws{display:flex;gap:0;align-items:stretch;height:calc(100vh - 80px)}
 .ws-files{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
-  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;
+  height:100%;display:flex;flex-direction:column;
   flex:0 0 auto;width:280px;min-width:200px;max-width:640px}
 .ws-resizer{flex:0 0 10px;cursor:col-resize;position:relative}
 .ws-resizer::after{content:'';position:absolute;left:4px;top:0;bottom:0;width:2px;background:transparent;transition:background .15s}
 .ws-resizer:hover::after,.ws-resizer.drag::after{background:var(--amber)}
-.ws-center{flex:1 1 auto;min-width:0}
+.ws-center{flex:1 1 auto;min-width:0;min-height:0;height:100%;display:flex;flex-direction:column}
 .ws-thumbs{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
-  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;
+  height:100%;display:flex;flex-direction:column;
   flex:0 0 auto;width:120px;min-width:72px;max-width:320px}
 @media(max-width:900px){.ws-thumbs,.ws-resizer.r2{display:none}}
 
@@ -159,7 +159,11 @@ textarea{resize:vertical}
 .fi-an .spin{width:10px;height:10px;border-width:2px}
 
 /* центр: просмотрщик */
-.ws-viewer{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
+.ws-viewer{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0;
+  flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.ws-viewer>*{flex:0 0 auto}
+#ws-ai{flex:0 0 auto;max-height:38vh;overflow-y:auto}
+#ws-empty{flex:0 0 auto}
 .ws-actions{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);
   background:#f9fafb;flex-wrap:wrap}
 .ws-actions .fname{font-weight:700;font-size:13px;flex:1;min-width:140px;overflow:hidden;
@@ -176,10 +180,19 @@ textarea{resize:vertical}
 .leg.off{color:#b0bec5;text-decoration:line-through;background:#f5f7fa}
 .leg.off .sw{background:#cfd8dc !important}
 
-.ws-stage-wrap{position:relative}
-.ws-stage{background:#66707c;padding:14px;display:flex;align-items:center;justify-content:center;min-height:340px}
-.ws-stage img{max-width:100%;max-height:calc(100vh - 300px);box-shadow:0 3px 14px rgba(0,0,0,.4);
-  background:#fff;display:block}
+.ws-stage-wrap{position:relative;flex:1 1 auto !important;min-height:120px;display:flex}
+.ws-stage{background:#66707c;padding:14px;display:flex;flex:1;min-width:0;min-height:0;overflow:auto}
+.ws-stage>*{margin:auto}
+.ws-stage img{box-shadow:0 3px 14px rgba(0,0,0,.4);background:#fff;display:block;flex-shrink:0}
+
+/* панель масштаба */
+.zoom-bar{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);
+  border-radius:6px;background:#fff;padding:1px;flex-shrink:0}
+.zoom-bar button{border:none;background:transparent;cursor:pointer;border-radius:4px;
+  font:700 12px 'Segoe UI',sans-serif;color:#546e7a;padding:4px 7px;line-height:1;transition:background .12s}
+.zoom-bar button:hover{background:#eef2f5}
+.zoom-bar button.on{background:#fff3d6;color:#c8780a}
+.zoom-bar #zm-lbl{min-width:44px;text-align:center;font-weight:600;font-size:11.5px}
 .ws-overlay{position:absolute;inset:0;background:rgba(44,62,80,.72);display:flex;
   flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#fff;
   font-size:12.5px;font-weight:600;text-align:center;padding:20px}
@@ -188,7 +201,8 @@ textarea{resize:vertical}
 .ws-overlay.err{background:rgba(120,30,30,.82)}
 
 /* находки текущей страницы */
-.ws-findings{padding:8px 14px;border-bottom:1px solid #edf0f3;display:flex;flex-direction:column;gap:5px;background:#fcfdfe}
+.ws-findings{padding:8px 14px;border-bottom:1px solid #edf0f3;display:flex;flex-direction:column;gap:5px;background:#fcfdfe;
+  max-height:22vh;overflow-y:auto}
 .find-chip{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;
   border-left:3px solid #ccc;padding:3px 8px;background:#fff;border-radius:0 4px 4px 0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .find-chip b{flex-shrink:0}
@@ -383,6 +397,13 @@ textarea{resize:vertical}
         <div class="ws-viewer" id="ws-viewer" style="display:none">
           <div class="ws-actions">
             <span class="fname" id="ws-fname" title=""></span>
+            <span class="zoom-bar" title="Масштаб">
+              <button id="zm-out" title="Уменьшить">−</button>
+              <button id="zm-lbl" title="Сбросить масштаб (вписать по высоте)">—</button>
+              <button id="zm-in" title="Увеличить">+</button>
+              <button id="zm-fw" title="Вписать по ширине">⭤</button>
+              <button id="zm-fh" title="Вписать по высоте">⭥</button>
+            </span>
             <select id="ws-catalog" title="Каталог файла" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif;max-width:160px"></select>
             <button class="btn btn-sm" id="ws-approve"></button>
           </div>
@@ -583,6 +604,7 @@ function setupResizer(rzId, panelId, storeKey, min, max, invert) {
       let w = invert ? startW - (ev.clientX - startX) : startW + (ev.clientX - startX);
       w = Math.min(max, Math.max(min, w));
       panel.style.width = w + 'px';
+      if (typeof applyZoom === 'function' && zoomMode !== 'manual') applyZoom();
     };
     const up = () => {
       rz.classList.remove('drag');
@@ -596,6 +618,55 @@ function setupResizer(rzId, panelId, storeKey, min, max, invert) {
 }
 setupResizer('ws-rz1', 'ws-files', 'docs.filesW', 200, 640, false);
 setupResizer('ws-rz2', 'ws-thumbs', 'docs.thumbsW', 72, 320, true);
+
+/* ── Масштаб просмотра (как в PDF-читалках) ── */
+const ZMIN = 25, ZMAX = 400, ZSTEP = 15;
+let zoomMode = localStorage.getItem('docs.zoomMode') || 'fit-h';
+if (!['fit-h','fit-w','manual'].includes(zoomMode)) zoomMode = 'fit-h';
+let zoomLevel = 100;
+function stageImg() { return document.querySelector('#ws-stage img'); }
+function applyZoom() {
+  const img = stageImg();
+  if (!img || !img.naturalWidth) { setZoomLbl(null); return; }
+  const stage = document.getElementById('ws-stage');
+  const availW = Math.max(60, stage.clientWidth - 28);
+  const availH = Math.max(60, stage.clientHeight - 28);
+  let w;
+  if (zoomMode === 'fit-w') w = availW;
+  else if (zoomMode === 'fit-h') w = Math.min(availH * img.naturalWidth / img.naturalHeight, availW);
+  else w = img.naturalWidth * zoomLevel / 100;
+  w = Math.max(40, Math.round(w));
+  img.style.width = w + 'px';
+  img.style.height = 'auto';
+  setZoomLbl(Math.round(w / img.naturalWidth * 100));
+}
+function setZoomLbl(pct) {
+  const el = document.getElementById('zm-lbl');
+  if (el) el.textContent = pct ? pct + '%' : '—';
+  document.getElementById('zm-fw').classList.toggle('on', zoomMode === 'fit-w');
+  document.getElementById('zm-fh').classList.toggle('on', zoomMode === 'fit-h');
+}
+function setZoomMode(m) { zoomMode = m; localStorage.setItem('docs.zoomMode', m); applyZoom(); }
+function zoomBy(delta) {
+  const img = stageImg();
+  if (!img || !img.naturalWidth) return;
+  const cur = img.getBoundingClientRect().width / img.naturalWidth * 100;
+  zoomLevel = Math.min(ZMAX, Math.max(ZMIN, Math.round(cur + delta)));
+  zoomMode = 'manual';
+  localStorage.setItem('docs.zoomMode', 'manual');
+  applyZoom();
+}
+document.getElementById('zm-in').addEventListener('click', () => zoomBy(ZSTEP));
+document.getElementById('zm-out').addEventListener('click', () => zoomBy(-ZSTEP));
+document.getElementById('zm-fw').addEventListener('click', () => setZoomMode('fit-w'));
+document.getElementById('zm-fh').addEventListener('click', () => setZoomMode('fit-h'));
+document.getElementById('zm-lbl').addEventListener('click', () => setZoomMode('fit-h'));
+document.getElementById('ws-stage').addEventListener('wheel', e => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? ZSTEP : -ZSTEP);
+}, { passive: false });
+window.addEventListener('resize', () => { if (zoomMode !== 'manual') applyZoom(); });
 
 /* ══ ЗАГРУЗКА ZIP (маленькие — одним запросом, большие — чанками по 5 МБ) ══ */
 const CHUNK = 5 * 1024 * 1024;
@@ -1031,6 +1102,9 @@ function renderPage() {
   stage.innerHTML = p && p.has_image
     ? `<img src="/docs/files/${f.id}/pages/${p.page_num}/image" alt="Страница ${p.page_num}">`
     : `<div class="empty-block" style="color:#fff">Изображение страницы недоступно</div>`;
+  const im = stageImg();
+  if (im) { im.addEventListener('load', applyZoom); if (im.complete) applyZoom(); }
+  else setZoomLbl(null);
   pager.style.display = total > 0 ? '' : 'none';
   document.getElementById('ws-page-lbl').textContent =
     `Страница ${wsPage} из ${total}` + (p && p.ocr_used ? ' · OCR' : '');
@@ -1137,6 +1211,8 @@ document.addEventListener('keydown', e => {
   if (document.querySelector('.modal-bg.open')) return;
   if (e.key === 'ArrowLeft' && wsPage > 1) { wsPage--; renderPage(); }
   else if (e.key === 'ArrowRight' && wsFile.pages && wsPage < wsFile.pages.length) { wsPage++; renderPage(); }
+  else if (e.key === '+' || e.key === '=') { zoomBy(ZSTEP); }
+  else if (e.key === '-') { zoomBy(-ZSTEP); }
 });
 document.getElementById('ws-approve').addEventListener('click', async () => {
   if (!wsFileId) return;
