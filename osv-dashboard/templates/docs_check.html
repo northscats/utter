@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
 <title>Проверка документов — ГИС УЗТЭР</title>
 <style>
 :root{
@@ -12,17 +13,33 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:13px/1.5 'Segoe UI',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
 
-/* header (скрывается в embedded) */
+/* header */
 .hd{height:46px;background:linear-gradient(to bottom,#3a4a5c,#2c3e50);color:#fff;
   display:flex;align-items:center;padding:0 16px;gap:12px;
   box-shadow:0 2px 4px rgba(0,0,0,.2)}
 .hd-logo{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;
-  color:#fff;text-decoration:none;white-space:nowrap}
+  color:#fff;text-decoration:none;white-space:nowrap;margin-right:20px}
 .hd-logo-icon{width:28px;height:28px;background:var(--amber);border-radius:4px;
-  display:flex;align-items:center;justify-content:center;color:#2c3e50;font-weight:900;font-size:12px}
-.hd a.back{color:#7fb3d0;font-size:12px;text-decoration:none;border:1px solid #3a5060;
-  border-radius:4px;padding:3px 10px;margin-left:auto}
-.hd a.back:hover{background:#253545}
+  display:flex;align-items:center;justify-content:center;color:#2c3e50;font-weight:900;font-size:12px;flex-shrink:0}
+.hd-menu{display:flex;gap:3px;flex:1;align-items:center}
+.hd-menu-btn{background:transparent;color:#e8eef5;border:1px solid transparent;
+  padding:5px 12px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;border-radius:3px;
+  display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;
+  text-decoration:none}
+.hd-menu-btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2)}
+.hd-right{display:flex;align-items:center;gap:10px;font-size:12px;margin-left:8px}
+.hd-uname{position:relative;color:#c8d8e4;font-size:12px;font-weight:600;cursor:pointer;
+  display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;
+  user-select:none;border:1px solid #3a5060;transition:background .15s}
+.hd-uname:hover,.hd-uname.open{background:#253545}
+.hd-drop{display:none;position:absolute;right:0;top:calc(100% + 5px);
+  background:#1b2733;border:1px solid #3a5060;border-radius:6px;
+  min-width:140px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.45);overflow:hidden}
+.hd-uname.open .hd-drop{display:block}
+.hd-drop a{display:block;padding:9px 14px;color:#c8d8e4;font-size:12px;
+  text-decoration:none;white-space:nowrap}
+.hd-drop a:hover{background:#253545;color:#fff}
+.hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
 
 main{max-width:1240px;margin:0 auto;padding:16px 20px 40px}
 
@@ -139,14 +156,29 @@ textarea{resize:vertical}
 </style>
 </head>
 <body>
-{% if not request.args.get('embedded') %}
 <div class="hd">
   <a class="hd-logo" href="{{ url_for('home') }}">
-    <div class="hd-logo-icon">АР</div> ГИС УЗТЭР · Проверка документов
+    <div class="hd-logo-icon">АР</div>
+    ГИС УЗТЭР · Проверка документов
   </a>
-  <a class="back" href="{{ url_for('home') }}">← Предприятия</a>
+  <div class="hd-menu">
+    <a class="hd-menu-btn" href="{{ url_for('home') }}">← Главная</a>
+  </div>
+  <div class="hd-right">
+    <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">
+      {{ current_user.username }}
+      <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
+      <div class="hd-drop">
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('users_list') }}">Пользователи</a>
+        <a href="{{ url_for('settings') }}">Настройки</a>
+        <div class="hd-drop-sep"></div>
+        {% endif %}
+        <a href="{{ url_for('logout') }}">Выйти</a>
+      </div>
+    </div>
+  </div>
 </div>
-{% endif %}
 
 <main>
   <div class="tabs">
@@ -256,7 +288,7 @@ textarea{resize:vertical}
 <script>
 'use strict';
 const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
-let CSRF = '{{ csrf_token }}';
+let CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let currentPkgId = null, currentFileId = null, pkgPollTimer = null, pdPollTimer = null;
 let pdFilter = 'all';
 
