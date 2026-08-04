@@ -23,7 +23,8 @@ docs_bp = Blueprint('docs', __name__, url_prefix='/docs')
 def docs_ui():
     """Страница проверки документов (минимальный интерфейс)."""
     from flask import render_template
-    return render_template('docs_check.html')
+    from flask_wtf.csrf import generate_csrf
+    return render_template('docs_check.html', csrf_token=generate_csrf())
 
 RULE_TYPES = ('filename', 'keyword', 'extension')
 

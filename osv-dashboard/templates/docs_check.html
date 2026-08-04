@@ -256,7 +256,7 @@ textarea{resize:vertical}
 <script>
 'use strict';
 const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
-let CSRF = '';
+let CSRF = '{{ csrf_token }}';
 let currentPkgId = null, currentFileId = null, pkgPollTimer = null, pdPollTimer = null;
 let pdFilter = 'all';
 
@@ -271,7 +271,7 @@ const RULE_TYPES = { extension:'Расширение', keyword:'Имя соде�
 function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block';
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 3200); }
-async function getCsrf(){ CSRF = (await (await fetch('/api/auth/csrf')).json()).csrf_token; }
+async function getCsrf(){ /* токен уже встроен в страницу из Jinja2 */ }
 async function api(url, opts={}) {
   opts.headers = Object.assign({'X-CSRFToken': CSRF}, opts.headers||{});
   if (opts.json) { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(opts.json); delete opts.json; }
