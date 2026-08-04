@@ -31,8 +31,10 @@ from builder import build_dataset
 BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOADS = os.path.join(BASE, 'uploads')
 OUTPUT = os.path.join(BASE, 'output')
+DOCS_STORAGE = os.path.join(BASE, 'uploads', 'docs')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
+os.makedirs(DOCS_STORAGE, exist_ok=True)
 
 # Обязательный набор счетов ОСВ (17 счетов) — для оценки комплектности
 REQUIRED_ACCOUNTS = [20, 26, 44, 50, 51, 52, 55, 60, 62, 66, 67, 68, 69, 70, 76, 90, 91]
@@ -44,7 +46,9 @@ SCRIPT_NAME = os.environ.get('SCRIPT_NAME', '').rstrip('/')
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-change-me')
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 МБ
+# 200 МБ: покрывает ZIP-пакеты документов (до 100 МБ на файл внутри архива
+# + служебные данные ZIP); лимиты распакованного содержимого — в doc_pipeline.py
+app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 app.config['WTF_CSRF_TIME_LIMIT'] = None   # токен живёт до истечения сессии
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
@@ -60,6 +64,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 csrf = CSRFProtect(app)
+
+# --- Универсальный парсер документов (/docs/*) ---
+app.config['DOCS_STORAGE'] = DOCS_STORAGE
+from docs_routes import docs_bp
+app.register_blueprint(docs_bp)
 
 # ---------------------------------------------------------------------------
 # Шифрование значений в БД (Fernet / AES-128-CBC)
@@ -2381,6 +2390,12 @@ def users_set_role(user_id):
 def init_db():
     with app.app_context():
         db.create_all()
+        # Универсальный парсер документов: зависшие после рестарта пакеты → error
+        try:
+            from doc_pipeline import recover_stale_packages
+            recover_stale_packages()
+        except Exception as _rexc:
+            app.logger.warning(f'recover_stale_packages failed: {_rexc}')
         # Миграция: добавляем новые колонки если отсутствуют
         try:
             from sqlalchemy import text as _text

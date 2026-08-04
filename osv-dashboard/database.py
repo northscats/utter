@@ -157,6 +157,123 @@ class AiSummary(db.Model):
     generated_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
+# ---------------------------------------------------------------------------
+# Универсальный парсер документов: каталоги, правила, пакеты, файлы, страницы
+# ---------------------------------------------------------------------------
+class DocCatalog(db.Model):
+    """Каталог документов — файлы раскладываются по каталогам по правилам."""
+    __tablename__ = 'doc_catalogs'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, default='')
+    sort_order  = db.Column(db.Integer, default=0)
+    is_system   = db.Column(db.Boolean, nullable=False, default=False)  # «Не распределено»
+    created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    routing_rules = db.relationship('DocRoutingRule', backref='catalog', lazy=True,
+                                    cascade='all, delete-orphan')
+    check_rules   = db.relationship('DocCheckRule', backref='catalog', lazy=True,
+                                    cascade='all, delete-orphan')
+
+
+class DocRoutingRule(db.Model):
+    """Правило маршрутизации файла в каталог."""
+    __tablename__ = 'doc_routing_rules'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    catalog_id = db.Column(db.Integer, db.ForeignKey('doc_catalogs.id'), nullable=False)
+    rule_type  = db.Column(db.String(20), nullable=False)  # 'filename' | 'keyword' | 'extension'
+    pattern    = db.Column(db.String(500), nullable=False) # маска имени / ключевое слово / расширение
+    priority   = db.Column(db.Integer, default=0)          # меньше = проверяется раньше
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class DocCheckRule(db.Model):
+    """Правило проверки документов каталога (используется ИИ-анализом)."""
+    __tablename__ = 'doc_check_rules'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    catalog_id  = db.Column(db.Integer, db.ForeignKey('doc_catalogs.id'), nullable=False)
+    name        = db.Column(db.String(255), nullable=False)   # «Наличие печати»
+    prompt_text = db.Column(db.Text, nullable=False)          # что именно проверять
+    is_active   = db.Column(db.Boolean, nullable=False, default=True)
+    created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class DocPackage(db.Model):
+    """Загруженный пакет документов (один ZIP = один пакет).
+    Статус хранится в БД — переживает перезапуск сервера."""
+    __tablename__ = 'doc_packages'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    title       = db.Column(db.String(255), default='')
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    # pending | processing | done | error
+    status       = db.Column(db.String(20), nullable=False, default='pending')
+    error_text   = db.Column(db.Text, default='')
+    files_total  = db.Column(db.Integer, default=0)
+    files_done   = db.Column(db.Integer, default=0)
+    zip_filename = db.Column(db.String(500), default='')
+
+    files = db.relationship('DocFile', backref='package', lazy=True,
+                            cascade='all, delete-orphan')
+
+
+class DocFile(db.Model):
+    """Файл внутри пакета."""
+    __tablename__ = 'doc_files'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    package_id  = db.Column(db.Integer, db.ForeignKey('doc_packages.id'), nullable=False)
+    catalog_id  = db.Column(db.Integer, db.ForeignKey('doc_catalogs.id'), nullable=True)
+    orig_name   = db.Column(db.String(500), nullable=False)   # имя из архива
+    stored_path = db.Column(db.String(1000), default='')      # путь на диске (санитизированный)
+    pdf_path    = db.Column(db.String(1000), default='')      # сконвертированный PDF
+    # pending | routed | converting | ready | error
+    status      = db.Column(db.String(20), nullable=False, default='pending')
+    error_text  = db.Column(db.Text, default='')
+    pages_count = db.Column(db.Integer, default=0)
+    created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    catalog = db.relationship('DocCatalog', backref='files', lazy=True)
+    pages   = db.relationship('DocFilePage', backref='file', lazy=True,
+                              cascade='all, delete-orphan')
+
+
+class DocFilePage(db.Model):
+    """Страница файла: извлечённый текст + путь к изображению."""
+    __tablename__ = 'doc_file_pages'
+    __table_args__ = (
+        db.UniqueConstraint('file_id', 'page_num', name='uq_docpage_file_num'),
+    )
+
+    id         = db.Column(db.Integer, primary_key=True)
+    file_id    = db.Column(db.Integer, db.ForeignKey('doc_files.id'), nullable=False)
+    page_num   = db.Column(db.Integer, nullable=False)        # 1-based
+    text       = db.Column(db.Text, default='')
+    image_path = db.Column(db.String(1000), default='')
+    ocr_used   = db.Column(db.Boolean, default=False)
+
+
+class DocCheckResult(db.Model):
+    """Результат проверки файла по правилу каталога (заполняется ИИ-анализом)."""
+    __tablename__ = 'doc_check_results'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    file_id       = db.Column(db.Integer, db.ForeignKey('doc_files.id'), nullable=False)
+    check_rule_id = db.Column(db.Integer, db.ForeignKey('doc_check_rules.id'), nullable=True)
+    # ok | violation | not_found | error
+    status     = db.Column(db.String(20), nullable=False, default='not_found')
+    details    = db.Column(db.Text, default='')     # JSON с деталями от ИИ
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    file       = db.relationship('DocFile', backref='check_results', lazy=True)
+    check_rule = db.relationship('DocCheckRule', lazy=True)
+
+
 class DailyRow(db.Model):
     """Суточные данные из ZIP-архивов: один счёт, один день."""
     __tablename__ = 'daily_rows'

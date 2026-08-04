@@ -21,10 +21,8 @@ with app.app_context():
 PY
 
 echo "[entrypoint] Запуск gunicorn на порту ${PORT:-8080}..."
-exec gunicorn \
-  --bind "0.0.0.0:${PORT:-8080}" \
-  --workers "${GUNICORN_WORKERS:-2}" \
-  --timeout 120 \
-  --access-logfile - \
-  --error-logfile - \
-  app:app
+# ВАЖНО: строго один worker (задан в gunicorn.conf.py).
+# Архитектура опирается на внутрипроцессные фоновые потоки и семафор
+# (IMAP-цикл, обработка пакетов документов) — несколько worker'ов
+# нарушили бы сериализацию обработки и видимость статусов.
+exec gunicorn -c gunicorn.conf.py app:app
