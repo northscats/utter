@@ -405,6 +405,9 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
         <div class="sl-nav-item" data-nav="summary" onclick="setNavView('summary',this)">
           <span class="ico">📄</span><span>Сводная</span>
         </div>
+        <div class="sl-nav-item" data-nav="docs" onclick="openDocsCheck(this)">
+          <span class="ico">📑</span><span>Проверка документов</span>
+        </div>
       </div>
     </div>
   </div>
@@ -638,6 +641,13 @@ function filterAll() {
    COMPANY SELECTION
 ══════════════════════════════ */
 function selectCompany(el) {
+  // Выход из раздела «Проверка документов» при выборе предприятия
+  if (currentNavView === 'docs') {
+    currentNavView = 'kpi';
+    document.querySelectorAll('.sl-nav-item').forEach(function(x){
+      x.classList.toggle('active', x.dataset.nav === 'kpi');
+    });
+  }
   currentCompanyId = el.dataset.id;
   document.querySelectorAll('.sl-item.active').forEach(function(x){ x.classList.remove('active'); });
   el.classList.add('active');
@@ -771,6 +781,23 @@ function loadSystemPage(url) {
   loading.style.display = 'flex';
   iframe.onload = function(){ loading.style.display = 'none'; iframe.style.display = 'block'; };
   iframe.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'embedded=1';
+}
+
+/* ── Проверка документов (раздел в центральном iframe) ── */
+function openDocsCheck(clickedEl) {
+  currentNavView = 'docs';
+  document.querySelectorAll('.sl-nav-item').forEach(function(el){ el.classList.remove('active'); });
+  if (clickedEl) clickedEl.classList.add('active');
+  document.querySelectorAll('.sl-item').forEach(function(i){ i.classList.remove('active'); });
+  document.getElementById('sl-topbar').style.display = 'none';
+  hideAllPanels();
+  var iframe  = document.getElementById('sl-iframe');
+  var loading = document.getElementById('sl-loading');
+  document.getElementById('sl-open-btn').style.display = 'none';
+  loading.style.display = 'flex';
+  iframe.onload = function(){ loading.style.display = 'none'; iframe.style.display = 'block'; };
+  iframe.src = '/docs/?embedded=1';
+  try { localStorage.setItem('sl_nav', 'docs'); } catch(e){}
 }
 
 /* ── КПЭ-карточки ── */
@@ -908,11 +935,14 @@ function closeRegModal() { var m=document.getElementById('reg-modal'); if(m) m.c
     el.classList.toggle('active', el.dataset.nav === nav);
   });
 
-  // Restore selected company
+  // Restore selected company / раздел документов
   var params = new URLSearchParams(location.search);
   var cid = params.get('company');
   if (!cid) { try { cid = localStorage.getItem('sl_company'); } catch(e){} }
-  if (cid) {
+  if (nav === 'docs' && !params.get('company')) {
+    var dnav = document.querySelector('.sl-nav-item[data-nav="docs"]');
+    if (dnav) openDocsCheck(dnav);
+  } else if (cid) {
     var el = document.getElementById('si-' + cid);
     if (el) { selectCompany(el); el.scrollIntoView({ block: 'nearest' }); }
   }

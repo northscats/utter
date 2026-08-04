@@ -5,155 +5,644 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Проверка документов — ГИС УЗТЭР</title>
 <style>
-  :root { --line:#dde4ea; --blue:#1c4f8a; }
-  * { box-sizing:border-box; }
-  body { font-family:'Segoe UI',Arial,sans-serif; margin:0; background:#f2f5f8; color:#26333d; }
-  header { background:var(--blue); color:#fff; padding:14px 24px; display:flex; justify-content:space-between; align-items:center; }
-  header a { color:#cfe2f7; text-decoration:none; font-size:14px; }
-  main { max-width:1100px; margin:24px auto; padding:0 16px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin-bottom:18px; }
-  h3 { margin:0 0 10px; font-size:16px; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th,td { border-bottom:1px solid var(--line); padding:7px 8px; text-align:left; vertical-align:top; }
-  th { background:#f7fafc; font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:#5b6b78; }
-  .btn { display:inline-block; border:0; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; text-decoration:none; }
-  .btn-primary { background:var(--blue); color:#fff; }
-  .btn-sm { padding:4px 10px; font-size:12px; }
-  .b { display:inline-block; border-radius:10px; padding:2px 9px; font-size:12px; }
-  .b-ok { background:#e4f5e6; color:#1c7a2d; } .b-viol { background:#fde4e4; color:#b3261e; }
-  .b-nf { background:#fdf3d7; color:#8a6d0b; } .b-err,.b-error { background:#eee; color:#555; }
-  .b-run { background:#e3f0ff; color:var(--blue); } .b-done { background:#e4f5e6; color:#1c7a2d; }
-  .muted { color:#748291; font-size:12px; }
-  #msg { font-size:13px; margin-left:10px; }
+:root{
+  --ink:#2c3e50;--mut:#546e7a;--paper:#eef1f5;--panel:#fff;--line:#d5dce4;
+  --ok:#27ae60;--bad:#e74c3c;--water:#1f7a9c;--warn:#f39c12;--amber:#f39c12;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px/1.5 'Segoe UI',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
+
+/* header (скрывается в embedded) */
+.hd{height:46px;background:linear-gradient(to bottom,#3a4a5c,#2c3e50);color:#fff;
+  display:flex;align-items:center;padding:0 16px;gap:12px;
+  box-shadow:0 2px 4px rgba(0,0,0,.2)}
+.hd-logo{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;
+  color:#fff;text-decoration:none;white-space:nowrap}
+.hd-logo-icon{width:28px;height:28px;background:var(--amber);border-radius:4px;
+  display:flex;align-items:center;justify-content:center;color:#2c3e50;font-weight:900;font-size:12px}
+.hd a.back{color:#7fb3d0;font-size:12px;text-decoration:none;border:1px solid #3a5060;
+  border-radius:4px;padding:3px 10px;margin-left:auto}
+.hd a.back:hover{background:#253545}
+
+main{max-width:1240px;margin:0 auto;padding:16px 20px 40px}
+
+/* tabs */
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:14px}
+.tab{border:0;background:transparent;padding:8px 16px;font:600 13px 'Segoe UI',sans-serif;
+  color:var(--mut);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+.tab:hover{color:var(--ink)}
+.tab.active{color:#c8780a;border-bottom-color:var(--amber)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:16px 18px;margin-bottom:14px}
+.card h3{font-size:14px;font-weight:700;margin-bottom:4px}
+.card .desc{font-size:12px;color:var(--mut);margin-bottom:12px}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12.5px;background:#fff}
+th{background:#f5f7fa;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+  color:#31424f;padding:9px 11px;text-align:left;border-bottom:2px solid var(--line);
+  font-weight:700;white-space:nowrap}
+td{padding:9px 11px;border-bottom:1px solid #edf0f3;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:#fafbfc}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:4px;border:0;border-radius:5px;
+  padding:6px 14px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;
+  text-decoration:none;white-space:nowrap;transition:background .15s;color:var(--ink)}
+.btn-primary{background:var(--water);color:#fff}
+.btn-primary:hover{background:#186a87}
+.btn-amber{background:var(--amber);color:#fff}
+.btn-amber:hover{background:#e67e22}
+.btn-grey{background:#f5f7fa;border:1px solid var(--line)}
+.btn-grey:hover{background:#e2e8ec}
+.btn-danger{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
+.btn-danger:hover{background:#f7d0cb}
+.btn-sm{padding:4px 10px;font-size:11.5px}
+.btn:disabled{opacity:.55;cursor:default}
+
+/* badges */
+.b{display:inline-block;border-radius:10px;padding:2px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+.b-ok{background:#e8f5e9;color:#2e7d32}
+.b-viol{background:#ffebee;color:#c62828}
+.b-nf{background:#fff8e1;color:#8a6d0b}
+.b-err{background:#eceff1;color:#546e7a}
+.b-run{background:#e3f0ff;color:#1c4f8a}
+.b-done{background:#e8f5e9;color:#2e7d32}
+.muted{color:#90a4ae;font-size:12px}
+.mono{font-family:monospace;background:#f0f3f5;padding:1px 6px;border-radius:4px;font-size:12px}
+
+/* upload dropzone */
+.drop{border:2px dashed #b8c6d2;border-radius:8px;padding:26px 16px;text-align:center;
+  color:var(--mut);cursor:pointer;transition:all .15s;background:#fafcfd}
+.drop:hover,.drop.over{border-color:var(--amber);background:#fffaf0;color:#c8780a}
+.drop .ico{font-size:30px;opacity:.6;margin-bottom:4px}
+.upload-row{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
+.upload-row input[type=text]{flex:1;min-width:220px;border:1px solid var(--line);
+  border-radius:5px;padding:7px 10px;font:13px 'Segoe UI',sans-serif}
+progress{width:160px;height:8px}
+
+/* filter chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:3px 12px;
+  font:600 11.5px 'Segoe UI',sans-serif;color:var(--mut);cursor:pointer}
+.chip.active{background:#fff3d6;border-color:var(--amber);color:#c8780a}
+
+/* forms */
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:end}
+.fgrid label{font-size:10.5px;color:var(--mut);display:block;margin-bottom:3px;
+  text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+.fgrid input,.fgrid select,.fgrid textarea{width:100%;border:1px solid var(--line);
+  border-radius:5px;padding:7px 10px;font:13px 'Segoe UI',sans-serif;background:#fff}
+.fgrid input:focus,.fgrid select:focus,.fgrid textarea:focus{outline:0;border-color:var(--water)}
+textarea{resize:vertical}
+
+/* catalog blocks */
+.cat-hdr{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cat-hdr h3{margin:0}
+.cat-cnt{font-size:11px;color:#90a4ae}
+.sys-badge{background:#f5f7fa;color:#78909c;border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:700}
+
+/* file view */
+.fileview{display:grid;grid-template-columns:minmax(320px,1fr) minmax(300px,420px);gap:14px}
+@media(max-width:900px){.fileview{grid-template-columns:1fr}}
+.page-card{border:1px solid var(--line);border-radius:6px;margin-bottom:12px;overflow:hidden;background:#fff}
+.page-card .page-hd{background:#f5f7fa;padding:6px 12px;font-size:11px;font-weight:700;
+  color:#546e7a;display:flex;justify-content:space-between}
+.page-card img{width:100%;display:block;border-top:1px solid #edf0f3}
+.page-card .ptext{padding:10px 12px;font-size:12px;color:#455a64;white-space:pre-wrap;
+  max-height:180px;overflow-y:auto;border-top:1px solid #edf0f3;background:#fcfdfe}
+.res-item{border:1px solid var(--line);border-left:4px solid #b0bec5;border-radius:5px;
+  padding:10px 12px;margin-bottom:8px;background:#fff}
+.res-item.s-ok{border-left-color:var(--ok)}
+.res-item.s-violation{border-left-color:var(--bad)}
+.res-item.s-not_found{border-left-color:var(--warn)}
+.res-hd{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+.res-name{font-weight:700;font-size:12.5px}
+.res-det{font-size:11.5px;color:#607080;line-height:1.45}
+
+.crumb{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12.5px;flex-wrap:wrap}
+.crumb a{color:var(--water);text-decoration:none;cursor:pointer;font-weight:600}
+.crumb a:hover{text-decoration:underline}
+.crumb .sep{color:#b0bec5}
+
+.empty-block{text-align:center;padding:36px 16px;color:var(--mut);font-size:13px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #b8cdd8;
+  border-top-color:var(--water);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#2c3e50;
+  color:#fff;padding:9px 18px;border-radius:6px;font-size:12.5px;display:none;z-index:999;
+  box-shadow:0 4px 16px rgba(0,0,0,.3)}
+::-webkit-scrollbar{width:7px;height:7px}
+::-webkit-scrollbar-thumb{background:#b0bec5;border-radius:4px}
 </style>
 </head>
 <body>
-<header>
-  <div style="font-weight:700">Проверка документов</div>
-  <a href="{{ url_for('home') }}">← Вернуться на главную</a>
-</header>
+{% if not request.args.get('embedded') %}
+<div class="hd">
+  <a class="hd-logo" href="{{ url_for('home') }}">
+    <div class="hd-logo-icon">АР</div> ГИС УЗТЭР · Проверка документов
+  </a>
+  <a class="back" href="{{ url_for('home') }}">← Предприятия</a>
+</div>
+{% endif %}
+
 <main>
-  <div class="card">
-    <h3>Загрузка пакета документов (ZIP)</h3>
-    <p class="muted">Файлы архива автоматически распределяются по каталогам согласно правилам,
-      затем каждый файл можно проверить по правилам его каталога с помощью локального ИИ.</p>
-    <form id="upload-form">
-      <input type="file" name="zipfile" accept=".zip" required>
-      <input type="text" name="title" placeholder="Название пакета (необязательно)" style="padding:6px 10px;border:1px solid var(--line);border-radius:6px">
-      <button class="btn btn-primary" type="submit">Загрузить</button>
-      <span id="msg"></span>
-    </form>
+  <div class="tabs">
+    <button class="tab active" data-tab="packages">📦 Пакеты документов</button>
+    {% if current_user.is_admin %}
+    <button class="tab" data-tab="catalogs">🗂️ Каталоги и правила</button>
+    {% endif %}
   </div>
 
-  <div class="card">
-    <h3>Пакеты</h3>
-    <table>
-      <thead><tr><th>Пакет</th><th>Обработка</th><th>ИИ-проверка</th><th style="width:280px">Действия</th></tr></thead>
-      <tbody id="pkg-rows"><tr><td colspan="4" class="muted">Загрузка…</td></tr></tbody>
-    </table>
+  <!-- ══ ЭКРАН: ПАКЕТЫ ══ -->
+  <div id="view-packages">
+    <div class="card">
+      <h3>Загрузка пакета документов</h3>
+      <p class="desc">ZIP-архив с документами. Файлы автоматически распределяются по каталогам
+        согласно правилам маршрутизации, затем проверяются локальным ИИ по правилам каталога.</p>
+      <div class="drop" id="drop">
+        <div class="ico">📤</div>
+        <div><b>Перетащите ZIP-архив сюда</b> или нажмите, чтобы выбрать файл</div>
+        <div class="muted" id="drop-file"></div>
+      </div>
+      <input type="file" id="zip-input" accept=".zip" style="display:none">
+      <div class="upload-row">
+        <input type="text" id="pkg-title" placeholder="Название пакета (необязательно)">
+        <button class="btn btn-primary" id="btn-upload" disabled>Загрузить пакет</button>
+        <progress id="up-progress" max="100" value="0" style="display:none"></progress>
+        <span id="up-msg" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Пакеты</h3>
+      <p class="desc">История загрузок. Обработка и ИИ-проверка выполняются в фоне — статус обновляется автоматически.</p>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Пакет</th><th>Обработка</th><th>ИИ-проверка</th><th style="width:340px">Действия</th></tr></thead>
+        <tbody id="pkg-rows"><tr><td colspan="4" class="muted"><span class="spin"></span> Загрузка…</td></tr></tbody>
+      </table>
+      </div>
+    </div>
   </div>
 
-  <div class="card" id="results-card" style="display:none">
-    <h3 id="results-title">Результаты проверки</h3>
-    <table>
-      <thead><tr><th>Файл</th><th>Каталог</th><th>Правило</th><th>Статус</th><th>Детали</th></tr></thead>
-      <tbody id="res-rows"></tbody>
-    </table>
+  <!-- ══ ЭКРАН: ПАКЕТ (файлы + результаты) ══ -->
+  <div id="view-package" style="display:none">
+    <div class="crumb">
+      <a data-nav="packages">← Пакеты</a><span class="sep">/</span>
+      <b id="pd-title"></b>
+      <span id="pd-badges"></span>
+      <span style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-amber btn-sm" id="pd-analyze" style="display:none">▶ Запустить проверку</button>
+        <a class="btn btn-grey btn-sm" id="pd-export" style="display:none">📥 Экспорт XLSX</a>
+      </span>
+    </div>
+    <div class="card">
+      <div class="chips" id="pd-chips"></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Файл</th><th>Каталог</th><th>Стр.</th><th>Статус файла</th><th>Результат проверки</th><th></th></tr></thead>
+        <tbody id="pd-rows"></tbody>
+      </table>
+      </div>
+    </div>
   </div>
+
+  <!-- ══ ЭКРАН: ФАЙЛ (страницы + результаты ИИ) ══ -->
+  <div id="view-file" style="display:none">
+    <div class="crumb">
+      <a data-nav="packages">← Пакеты</a><span class="sep">/</span>
+      <a id="fv-back-pkg"></a><span class="sep">/</span>
+      <b id="fv-name"></b>
+      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <span class="muted">Каталог:</span>
+        <select id="fv-catalog" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12.5px 'Segoe UI',sans-serif"></select>
+      </span>
+    </div>
+    <div class="fileview">
+      <div id="fv-pages"></div>
+      <div>
+        <div class="card" style="position:sticky;top:10px">
+          <h3>Результаты ИИ-проверки</h3>
+          <div id="fv-results"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ ЭКРАН: КАТАЛОГИ (админ) ══ -->
+  {% if current_user.is_admin %}
+  <div id="view-catalogs" style="display:none">
+    <div class="card">
+      <h3>Новый каталог</h3>
+      <p class="desc">Каталог — это тип документов (например, «Договоры», «Акты»). Для каждого
+        каталога настраиваются правила маршрутизации (какие файлы в него попадают)
+        и правила проверки (что проверяет ИИ).</p>
+      <div class="fgrid" style="grid-template-columns:1fr 2fr auto">
+        <div><label>Название</label><input id="nc-name" placeholder="Договоры"></div>
+        <div><label>Описание</label><input id="nc-desc" placeholder="необязательно"></div>
+        <div><button class="btn btn-primary" id="nc-add">+ Создать</button></div>
+      </div>
+    </div>
+    <div id="cat-list"><div class="muted" style="padding:12px"><span class="spin"></span> Загрузка…</div></div>
+  </div>
+  {% endif %}
 </main>
+
+<div id="toast"></div>
+
 <script>
+'use strict';
+const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 let CSRF = '';
+let currentPkgId = null, currentFileId = null, pkgPollTimer = null, pdPollTimer = null;
+let pdFilter = 'all';
+
 const STATUS_L = { ok:['ОК','b-ok'], violation:['Нарушение','b-viol'],
                    not_found:['Не найдено','b-nf'], error:['Ошибка','b-err'] };
-const AN_L = { none:['—',''], running:['выполняется','b-run'],
+const AN_L = { none:['не запускалась','b-err'], running:['выполняется','b-run'],
                done:['завершена','b-done'], error:['ошибка','b-viol'] };
+const FSTAT_L = { pending:['в очереди','b-err'], processing:['обработка','b-run'],
+                  ready:['готов','b-done'], error:['ошибка','b-viol'] };
+const RULE_TYPES = { extension:'Расширение', keyword:'Имя содержит', filename:'Маска имени' };
 
-async function getCsrf() {
-  const r = await fetch('/api/auth/csrf');
-  CSRF = (await r.json()).csrf_token;
-}
 function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 3200); }
+async function getCsrf(){ CSRF = (await (await fetch('/api/auth/csrf')).json()).csrf_token; }
+async function api(url, opts={}) {
+  opts.headers = Object.assign({'X-CSRFToken': CSRF}, opts.headers||{});
+  if (opts.json) { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(opts.json); delete opts.json; }
+  const r = await fetch(url, opts);
+  let d = {}; try { d = await r.json(); } catch(e){}
+  if (!r.ok) throw new Error(d.error || d.error_text || ('Ошибка ' + r.status));
+  return d;
+}
 
+/* ══ Навигация между экранами ══ */
+function show(view) {
+  ['packages','package','file','catalogs'].forEach(v => {
+    const el = document.getElementById('view-' + v);
+    if (el) el.style.display = v === view ? '' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
+    t.dataset.tab === (view === 'catalogs' ? 'catalogs' : 'packages')));
+  if (view !== 'package' && pdPollTimer) { clearTimeout(pdPollTimer); pdPollTimer = null; }
+}
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  show(t.dataset.tab);
+  if (t.dataset.tab === 'catalogs') loadCatalogs();
+  else loadPackages();
+}));
+document.body.addEventListener('click', e => {
+  const nav = e.target.closest('[data-nav]');
+  if (nav) { show(nav.dataset.nav); if (nav.dataset.nav==='packages') loadPackages(); }
+});
+
+/* ══ ЗАГРУЗКА ZIP ══ */
+const drop = document.getElementById('drop'), zipInput = document.getElementById('zip-input');
+let zipFile = null;
+drop.addEventListener('click', () => zipInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files.length) setZip(e.dataTransfer.files[0]);
+});
+zipInput.addEventListener('change', () => { if (zipInput.files.length) setZip(zipInput.files[0]); });
+function setZip(f) {
+  if (!f.name.toLowerCase().endsWith('.zip')) { toast('Нужен ZIP-архив'); return; }
+  zipFile = f;
+  document.getElementById('drop-file').textContent = `${f.name} (${(f.size/1048576).toFixed(1)} МБ)`;
+  document.getElementById('btn-upload').disabled = false;
+}
+document.getElementById('btn-upload').addEventListener('click', () => {
+  if (!zipFile) return;
+  const fd = new FormData();
+  fd.append('zipfile', zipFile);
+  fd.append('title', document.getElementById('pkg-title').value);
+  const prog = document.getElementById('up-progress'), msg = document.getElementById('up-msg');
+  const btn = document.getElementById('btn-upload');
+  btn.disabled = true; prog.style.display = ''; prog.value = 0; msg.textContent = 'Загрузка…';
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/docs/packages');
+  xhr.setRequestHeader('X-CSRFToken', CSRF);
+  xhr.upload.onprogress = e => { if (e.lengthComputable) prog.value = e.loaded / e.total * 100; };
+  xhr.onload = () => {
+    prog.style.display = 'none';
+    let d = {}; try { d = JSON.parse(xhr.responseText); } catch(e){}
+    if (xhr.status >= 200 && xhr.status < 300) {
+      msg.textContent = ''; toast('Пакет загружен, обработка запущена');
+      zipFile = null; zipInput.value = ''; document.getElementById('drop-file').textContent = '';
+      document.getElementById('pkg-title').value = '';
+      loadPackages();
+    } else { msg.textContent = d.error || d.error_text || 'Ошибка загрузки'; btn.disabled = false; }
+  };
+  xhr.onerror = () => { prog.style.display='none'; msg.textContent='Сбой сети'; btn.disabled=false; };
+  xhr.send(fd);
+});
+
+/* ══ СПИСОК ПАКЕТОВ ══ */
 async function loadPackages() {
-  const r = await fetch('/docs/packages');
-  const pkgs = await r.json();
+  if (pkgPollTimer) { clearTimeout(pkgPollTimer); pkgPollTimer = null; }
+  let pkgs;
+  try { pkgs = await api('/docs/packages'); }
+  catch(e) { document.getElementById('pkg-rows').innerHTML =
+      `<tr><td colspan="4" class="muted">${esc(e.message)}</td></tr>`; return; }
   const tb = document.getElementById('pkg-rows');
-  if (!pkgs.length) { tb.innerHTML = '<tr><td colspan="4" class="muted">Пакетов пока нет</td></tr>'; return; }
+  if (!pkgs.length) { tb.innerHTML = '<tr><td colspan="4" class="muted">Пакетов пока нет — загрузите первый ZIP-архив выше</td></tr>'; return; }
   tb.innerHTML = pkgs.map(p => {
-    const an = AN_L[p.analysis_status] || [p.analysis_status,''];
-    const proc = p.status === 'done' ? `готов (${p.files_done}/${p.files_total})`
-               : p.status === 'error' ? `ошибка: ${esc(p.error_text)}`
-               : `${p.status} (${p.files_done}/${p.files_total})`;
+    const an = AN_L[p.analysis_status] || [p.analysis_status,'b-err'];
+    const proc = p.status === 'done' ? `<span class="b b-done">готов</span> <span class="muted">${p.files_done}/${p.files_total} файлов</span>`
+               : p.status === 'error' ? `<span class="b b-viol">ошибка</span> <span class="muted">${esc(p.error_text)}</span>`
+               : `<span class="b b-run">${esc(p.status)}</span> <span class="muted">${p.files_done}/${p.files_total}</span>`;
     const anTxt = p.analysis_status === 'running' ? `${an[0]} (${p.analysis_done}/${p.analysis_total})`
                 : p.analysis_status === 'error' ? `${an[0]}: ${esc(p.analysis_error)}` : an[0];
     const canAnalyze = p.status === 'done' && p.analysis_status !== 'running';
     return `<tr>
-      <td><b>${esc(p.title)}</b><div class="muted">${esc(p.created_at)}</div></td>
+      <td><a style="color:var(--water);font-weight:700;cursor:pointer" data-act="open" data-id="${p.id}">${esc(p.title)}</a>
+        <div class="muted">${esc(p.created_at)}</div></td>
       <td>${proc}</td>
       <td><span class="b ${an[1]}">${anTxt}</span></td>
       <td>
-        ${canAnalyze ? `<button class="btn btn-primary btn-sm" data-act="analyze" data-id="${p.id}">Запустить проверку</button>` : ''}
-        ${p.analysis_status === 'done' ? `<button class="btn btn-sm" style="background:#e8eef4" data-act="results" data-id="${p.id}">Результаты</button>
-        <a class="btn btn-sm" style="background:#e8eef4" href="/docs/packages/${p.id}/export">Скачать XLSX</a>` : ''}
+        <button class="btn btn-grey btn-sm" data-act="open" data-id="${p.id}">Файлы</button>
+        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}">▶ Проверка</button>` : ''}
+        ${p.analysis_status === 'done' ? `<a class="btn btn-grey btn-sm" href="/docs/packages/${p.id}/export">📥 XLSX</a>` : ''}
+        ${p.status !== 'processing' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${p.id}">✕</button>` : ''}
       </td></tr>`;
   }).join('');
-  // Названия пакетов и заголовки — только через data-атрибуты и esc():
-  // никакой интерполяции пользовательских строк в JS-контекст (XSS).
-  window._pkgTitles = Object.fromEntries(pkgs.map(p => [p.id, p.title]));
   if (pkgs.some(p => ['pending','processing'].includes(p.status) || p.analysis_status === 'running'))
-    setTimeout(loadPackages, 2500);
+    pkgPollTimer = setTimeout(loadPackages, 2500);
 }
+document.getElementById('pkg-rows').addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const id = parseInt(el.dataset.id, 10);
+  if (el.dataset.act === 'open') openPackage(id);
+  else if (el.dataset.act === 'analyze') {
+    try { await api(`/docs/packages/${id}/analyze`, {method:'POST'}); toast('ИИ-проверка запущена'); }
+    catch(err) { toast(err.message); }
+    loadPackages();
+  } else if (el.dataset.act === 'del') {
+    if (!confirm('Удалить пакет со всеми файлами и результатами?')) return;
+    try { await api(`/docs/packages/${id}`, {method:'DELETE'}); toast('Пакет удалён'); }
+    catch(err) { toast(err.message); }
+    loadPackages();
+  }
+});
 
-async function analyze(id) {
-  const r = await fetch(`/docs/packages/${id}/analyze`, { method:'POST', headers:{'X-CSRFToken':CSRF} });
-  if (!r.ok) { const e = await r.json().catch(()=>({})); alert(e.error || 'Не удалось запустить проверку'); }
-  loadPackages();
+/* ══ ЭКРАН ПАКЕТА ══ */
+async function openPackage(id) {
+  currentPkgId = id; pdFilter = 'all';
+  show('package');
+  await renderPackage();
 }
+async function renderPackage() {
+  if (pdPollTimer) { clearTimeout(pdPollTimer); pdPollTimer = null; }
+  if (document.getElementById('view-package').style.display === 'none') return;
+  let d;
+  try { d = await api(`/docs/packages/${currentPkgId}/results`); }
+  catch(e) { toast(e.message); show('packages'); loadPackages(); return; }
 
-async function showResults(id) {
-  const r = await fetch(`/docs/packages/${id}/results`);
-  const d = await r.json();
-  document.getElementById('results-card').style.display = '';
-  document.getElementById('results-title').textContent =
-      `Результаты проверки: ${d.title || ''}`;
+  document.getElementById('pd-title').textContent = d.title;
+  const an = AN_L[d.analysis_status] || [d.analysis_status,'b-err'];
+  const anTxt = d.analysis_status === 'running' ? `${an[0]} (${d.analysis_done}/${d.analysis_total})` : an[0];
+  document.getElementById('pd-badges').innerHTML =
+    `<span class="b ${d.status==='done'?'b-done':d.status==='error'?'b-viol':'b-run'}">обработка: ${esc(d.status)}</span>
+     <span class="b ${an[1]}">ИИ: ${anTxt}</span>`;
+  const btnA = document.getElementById('pd-analyze');
+  btnA.style.display = (d.status === 'done' && d.analysis_status !== 'running') ? '' : 'none';
+  const btnE = document.getElementById('pd-export');
+  btnE.style.display = d.analysis_status === 'done' ? '' : 'none';
+  btnE.href = `/docs/packages/${currentPkgId}/export`;
+
+  // агрегированный статус файла: violation > error > not_found > ok
+  const agg = f => {
+    if (!f.results.length) return null;
+    const st = f.results.map(r => r.status);
+    return st.includes('violation') ? 'violation' : st.includes('error') ? 'error'
+         : st.includes('not_found') ? 'not_found' : 'ok';
+  };
+  const counts = {all: d.files.length, ok:0, violation:0, not_found:0, error:0, none:0};
+  d.files.forEach(f => { const a = agg(f); counts[a === null ? 'none' : a]++; });
+  const chipDefs = [['all','Все'],['violation','Нарушения'],['not_found','Не найдено'],
+                    ['ok','ОК'],['error','Ошибки'],['none','Без проверки']];
+  document.getElementById('pd-chips').innerHTML = chipDefs
+    .filter(([k]) => k === 'all' || counts[k] > 0)
+    .map(([k,l]) => `<button class="chip ${pdFilter===k?'active':''}" data-filter="${k}">${l} · ${counts[k]}</button>`)
+    .join('');
+
   const rows = [];
   for (const f of d.files) {
+    const a = agg(f);
+    if (pdFilter !== 'all' && (a === null ? 'none' : a) !== pdFilter) continue;
     const cat = f.catalog ? f.catalog.name : '—';
+    const fs = FSTAT_L[f.file_status] || [f.file_status,'b-err'];
+    let resHtml;
     if (!f.results.length) {
-      rows.push(`<tr><td>${esc(f.orig_name)}</td><td>${esc(cat)}</td><td class="muted" colspan="3">${
-        f.file_status === 'ready' ? 'Правила проверки для каталога не настроены' : 'Файл не обработан'}</td></tr>`);
-      continue;
+      resHtml = `<span class="muted">${f.file_status === 'ready' ? 'проверка не выполнялась' : '—'}</span>`;
+    } else {
+      resHtml = f.results.map(r => {
+        const st = STATUS_L[r.status] || [r.status,'b-err'];
+        return `<div style="margin:2px 0"><span class="b ${st[1]}">${st[0]}</span> ${esc(r.rule_name)}</div>`;
+      }).join('');
     }
-    for (const res of f.results) {
-      const st = STATUS_L[res.status] || [res.status,''];
-      const det = (res.details.notes || []).join('; ') || res.details.error || '';
-      rows.push(`<tr><td>${esc(f.orig_name)}</td><td>${esc(cat)}</td><td>${esc(res.rule_name)}</td>
-        <td><span class="b ${st[1]}">${st[0]}</span></td><td>${esc(det)}</td></tr>`);
-    }
+    rows.push(`<tr>
+      <td><a style="color:var(--water);font-weight:600;cursor:pointer" data-file="${f.file_id}">${esc(f.orig_name)}</a></td>
+      <td>${esc(cat)}</td>
+      <td class="muted">${f.pages_count ?? ''}</td>
+      <td><span class="b ${fs[1]}">${fs[0]}</span></td>
+      <td>${resHtml}</td>
+      <td><button class="btn btn-grey btn-sm" data-file="${f.file_id}">Открыть</button></td></tr>`);
   }
-  document.getElementById('res-rows').innerHTML = rows.join('');
-  document.getElementById('results-card').scrollIntoView({behavior:'smooth'});
+  document.getElementById('pd-rows').innerHTML = rows.join('') ||
+    '<tr><td colspan="6" class="muted">Нет файлов по выбранному фильтру</td></tr>';
+
+  if (['pending','processing'].includes(d.status) || d.analysis_status === 'running')
+    pdPollTimer = setTimeout(renderPackage, 2500);
+}
+document.getElementById('pd-chips').addEventListener('click', e => {
+  const c = e.target.closest('[data-filter]');
+  if (c) { pdFilter = c.dataset.filter; renderPackage(); }
+});
+document.getElementById('pd-rows').addEventListener('click', e => {
+  const el = e.target.closest('[data-file]');
+  if (el) openFile(parseInt(el.dataset.file, 10));
+});
+document.getElementById('pd-analyze').addEventListener('click', async () => {
+  try { await api(`/docs/packages/${currentPkgId}/analyze`, {method:'POST'}); toast('ИИ-проверка запущена'); }
+  catch(err) { toast(err.message); }
+  renderPackage();
+});
+
+/* ══ ЭКРАН ФАЙЛА ══ */
+async function openFile(fileId) {
+  currentFileId = fileId;
+  show('file');
+  let f, res;
+  try {
+    [f, res] = await Promise.all([
+      api(`/docs/files/${fileId}`),
+      api(`/docs/packages/${currentPkgId}/results`),
+    ]);
+  } catch(e) { toast(e.message); return; }
+  document.getElementById('fv-name').textContent = f.orig_name;
+  const back = document.getElementById('fv-back-pkg');
+  back.textContent = res.title; back.onclick = () => openPackage(currentPkgId);
+
+  // селектор каталога
+  let cats = [];
+  try { cats = await api('/docs/catalogs'); } catch(e){}
+  const sel = document.getElementById('fv-catalog');
+  sel.innerHTML = '<option value="">— без каталога —</option>' + cats.map(c =>
+    `<option value="${c.id}" ${f.catalog && f.catalog.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  sel.onchange = async () => {
+    try {
+      await api(`/docs/files/${fileId}/set-catalog`, {method:'POST', json:{catalog_id: sel.value ? parseInt(sel.value,10) : null}});
+      toast('Каталог изменён — перезапустите проверку пакета');
+    } catch(err) { toast(err.message); }
+  };
+
+  // страницы
+  const pagesEl = document.getElementById('fv-pages');
+  if (f.status === 'error') {
+    pagesEl.innerHTML = `<div class="card"><div class="empty-block">⚠ Файл не обработан: ${esc(f.error_text)}</div></div>`;
+  } else if (!f.pages.length) {
+    pagesEl.innerHTML = '<div class="card"><div class="empty-block">Страницы не извлечены</div></div>';
+  } else {
+    pagesEl.innerHTML = f.pages.map(p => `
+      <div class="page-card">
+        <div class="page-hd"><span>Страница ${p.page_num}${p.ocr_used ? ' · OCR' : ''}</span></div>
+        ${p.has_image ? `<img loading="lazy" src="/docs/files/${fileId}/pages/${p.page_num}/image" alt="Страница ${p.page_num}">` : ''}
+        ${p.text ? `<div class="ptext">${esc(p.text)}</div>` : ''}
+      </div>`).join('');
+  }
+
+  // результаты ИИ этого файла
+  const fr = (res.files || []).find(x => x.file_id === fileId);
+  const resEl = document.getElementById('fv-results');
+  if (!fr || !fr.results.length) {
+    resEl.innerHTML = '<div class="empty-block">Проверка по этому файлу ещё не выполнялась</div>';
+  } else {
+    resEl.innerHTML = fr.results.map(r => {
+      const st = STATUS_L[r.status] || [r.status,'b-err'];
+      const det = (r.details.notes || []).join('; ') || r.details.error || r.details.raw || '';
+      return `<div class="res-item s-${esc(r.status)}">
+        <div class="res-hd"><span class="res-name">${esc(r.rule_name)}</span>
+          <span class="b ${st[1]}">${st[0]}</span></div>
+        ${det ? `<div class="res-det">${esc(det)}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
 }
 
-document.getElementById('upload-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  document.getElementById('msg').textContent = 'Загрузка…';
-  const r = await fetch('/docs/packages', { method:'POST', body:fd, headers:{'X-CSRFToken':CSRF} });
-  const d = await r.json().catch(()=>({}));
-  document.getElementById('msg').textContent = r.ok ? 'Пакет загружен, обработка запущена' : (d.error || d.error_text || 'Ошибка загрузки');
-  if (r.ok) e.target.reset();
-  loadPackages();
-});
+/* ══ КАТАЛОГИ (админ) ══ */
+async function loadCatalogs() {
+  if (!IS_ADMIN) return;
+  let cats;
+  try { cats = await api('/docs/catalogs?with_rules=1'); }
+  catch(e) { document.getElementById('cat-list').innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  document.getElementById('cat-list').innerHTML = cats.map(c => `
+    <div class="card" data-cat="${c.id}">
+      <div class="cat-hdr">
+        <h3>🗂️ ${esc(c.name)}</h3>
+        ${c.is_system ? '<span class="sys-badge">системный</span>' : ''}
+        <span class="cat-cnt">${c.files_count} файлов</span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          ${!c.is_system ? `<button class="btn btn-grey btn-sm" data-act="rename" data-id="${c.id}">✏️ Переименовать</button>
+          <button class="btn btn-danger btn-sm" data-act="delcat" data-id="${c.id}">Удалить</button>` : ''}
+        </span>
+      </div>
+      ${c.description ? `<div class="muted" style="margin-top:2px">${esc(c.description)}</div>` : ''}
 
-document.getElementById('pkg-rows').addEventListener('click', e => {
-  const btn = e.target.closest('button[data-act]');
-  if (!btn) return;
-  const id = parseInt(btn.dataset.id, 10);
-  if (btn.dataset.act === 'analyze') analyze(id);
-  else if (btn.dataset.act === 'results') showResults(id);
-});
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px" class="cat-cols">
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#546e7a;margin-bottom:6px">Правила маршрутизации</div>
+          ${(c.routing_rules || []).map(r => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed #eceff1">
+              <span class="muted">${RULE_TYPES[r.rule_type] || esc(r.rule_type)}:</span>
+              <span class="mono">${esc(r.pattern)}</span>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto;padding:1px 7px" data-act="delroute" data-id="${r.id}">✕</button>
+            </div>`).join('') || '<div class="muted">Нет правил — файлы попадают сюда только вручную</div>'}
+          ${!c.is_system ? `
+          <div class="fgrid" style="grid-template-columns:1fr 1fr auto;margin-top:8px">
+            <div><label>Тип</label><select data-rr="type" data-cat="${c.id}">
+              <option value="extension">Расширение</option>
+              <option value="keyword">Имя содержит</option>
+              <option value="filename">Маска имени</option></select></div>
+            <div><label>Шаблон</label><input data-rr="pattern" data-cat="${c.id}" placeholder="pdf / договор / *акт*.pdf"></div>
+            <div><button class="btn btn-grey btn-sm" data-act="addroute" data-id="${c.id}" style="height:31px">+ Добавить</button></div>
+          </div>` : ''}
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#546e7a;margin-bottom:6px">Правила ИИ-проверки</div>
+          ${(c.check_rules || []).map(r => `
+            <div style="padding:5px 0;border-bottom:1px dashed #eceff1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <b style="font-size:12.5px">${esc(r.name)}</b>
+                ${!r.is_active ? '<span class="b b-err">выкл</span>' : ''}
+                <button class="btn btn-danger btn-sm" style="margin-left:auto;padding:1px 7px" data-act="delcheck" data-id="${r.id}">✕</button>
+              </div>
+              <div class="muted" style="font-size:11.5px">${esc(r.prompt_text)}</div>
+            </div>`).join('') || '<div class="muted">Нет правил — файлы каталога не проверяются</div>'}
+          <div class="fgrid" style="grid-template-columns:1fr;margin-top:8px">
+            <div><label>Название</label><input data-cr="name" data-cat="${c.id}" placeholder="Наличие печати"></div>
+            <div><label>Вопрос для ИИ</label><textarea rows="2" data-cr="prompt" data-cat="${c.id}" placeholder="Есть ли на документе отметка о печати организации?"></textarea></div>
+            <div><button class="btn btn-grey btn-sm" data-act="addcheck" data-id="${c.id}">+ Добавить правило проверки</button></div>
+          </div>
+        </div>
+      </div>
+    </div>`).join('') || '<div class="card"><div class="empty-block">Каталогов нет</div></div>';
+}
 
+if (IS_ADMIN) {
+  document.getElementById('nc-add').addEventListener('click', async () => {
+    const name = document.getElementById('nc-name').value.trim();
+    if (!name) { toast('Укажите название каталога'); return; }
+    try {
+      await api('/docs/catalogs', {method:'POST', json:{name, description: document.getElementById('nc-desc').value.trim()}});
+      document.getElementById('nc-name').value = ''; document.getElementById('nc-desc').value = '';
+      toast('Каталог создан'); loadCatalogs();
+    } catch(e) { toast(e.message); }
+  });
+
+  document.getElementById('cat-list').addEventListener('click', async e => {
+    const el = e.target.closest('[data-act]');
+    if (!el) return;
+    const id = parseInt(el.dataset.id, 10);
+    try {
+      if (el.dataset.act === 'delcat') {
+        if (!confirm('Удалить каталог? Файлы останутся без каталога.')) return;
+        await api(`/docs/catalogs/${id}`, {method:'DELETE'}); toast('Каталог удалён');
+      } else if (el.dataset.act === 'rename') {
+        const card = el.closest('[data-cat]');
+        const cur = card.querySelector('h3').textContent.replace('🗂️ ','');
+        const name = prompt('Новое название каталога:', cur);
+        if (!name || !name.trim()) return;
+        await api(`/docs/catalogs/${id}`, {method:'PUT', json:{name: name.trim()}});
+      } else if (el.dataset.act === 'delroute') {
+        await api(`/docs/routing-rules/${id}`, {method:'DELETE'});
+      } else if (el.dataset.act === 'delcheck') {
+        await api(`/docs/check-rules/${id}`, {method:'DELETE'});
+      } else if (el.dataset.act === 'addroute') {
+        const type = document.querySelector(`[data-rr="type"][data-cat="${id}"]`).value;
+        const pattern = document.querySelector(`[data-rr="pattern"][data-cat="${id}"]`).value.trim();
+        if (!pattern) { toast('Укажите шаблон'); return; }
+        await api(`/docs/catalogs/${id}/routing-rules`, {method:'POST', json:{rule_type:type, pattern}});
+      } else if (el.dataset.act === 'addcheck') {
+        const name = document.querySelector(`[data-cr="name"][data-cat="${id}"]`).value.trim();
+        const prompt_text = document.querySelector(`[data-cr="prompt"][data-cat="${id}"]`).value.trim();
+        if (!name || !prompt_text) { toast('Заполните название и вопрос'); return; }
+        await api(`/docs/catalogs/${id}/check-rules`, {method:'POST', json:{name, prompt_text}});
+      } else return;
+      loadCatalogs();
+    } catch(err) { toast(err.message); }
+  });
+}
+
+/* ══ INIT ══ */
 getCsrf().then(loadPackages);
 </script>
 </body>

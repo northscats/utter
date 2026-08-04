@@ -428,6 +428,7 @@ def _results_for_package(pkg):
             ))
         out.append(dict(
             file_id=f.id, orig_name=f.orig_name, file_status=f.status,
+            pages_count=f.pages_count,
             catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
             results=rows,
         ))
