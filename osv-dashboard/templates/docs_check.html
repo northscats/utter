@@ -9,6 +9,7 @@
 :root{
   --ink:#2c3e50;--mut:#546e7a;--paper:#eef1f5;--panel:#fff;--line:#d5dce4;
   --ok:#27ae60;--bad:#e74c3c;--water:#1f7a9c;--warn:#f39c12;--amber:#f39c12;
+  --f-date:#22c55e;--f-sig:#3b82f6;--f-seal:#e74c3c;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:13px/1.5 'Segoe UI',system-ui,sans-serif;color:var(--ink);background:var(--paper)}
@@ -41,7 +42,7 @@ body{font:13px/1.5 'Segoe UI',system-ui,sans-serif;color:var(--ink);background:v
 .hd-drop a:hover{background:#253545;color:#fff}
 .hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
 
-main{max-width:1240px;margin:0 auto;padding:16px 20px 40px}
+main{max-width:1400px;margin:0 auto;padding:16px 20px 40px}
 
 /* tabs */
 .tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:14px}
@@ -100,12 +101,6 @@ tbody tr:hover td{background:#fafbfc}
   border-radius:5px;padding:7px 10px;font:13px 'Segoe UI',sans-serif}
 progress{width:160px;height:8px}
 
-/* filter chips */
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
-.chip{border:1px solid var(--line);background:#fff;border-radius:14px;padding:3px 12px;
-  font:600 11.5px 'Segoe UI',sans-serif;color:var(--mut);cursor:pointer}
-.chip.active{background:#fff3d6;border-color:var(--amber);color:#c8780a}
-
 /* forms */
 .fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;align-items:end}
 .fgrid label{font-size:10.5px;color:var(--mut);display:block;margin-bottom:3px;
@@ -122,25 +117,46 @@ textarea{resize:vertical}
 .sys-badge{background:#f5f7fa;color:#78909c;border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:700}
 
 /* ── Рабочий экран пакета: файлы | просмотр | миниатюры ── */
-.ws{display:grid;grid-template-columns:250px minmax(0,1fr) 120px;gap:12px;align-items:start}
-@media(max-width:980px){.ws{grid-template-columns:220px minmax(0,1fr)}.ws-thumbs{display:none}}
-@media(max-width:760px){.ws{grid-template-columns:1fr}}
+.ws{display:flex;gap:0;align-items:stretch}
 .ws-files{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
-  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
-.ws-files-hdr{padding:9px 12px;font-size:10.5px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.07em;color:#546e7a;background:#f5f7fa;border-bottom:1px solid var(--line);flex-shrink:0}
+  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;
+  flex:0 0 auto;width:280px;min-width:200px;max-width:640px}
+.ws-resizer{flex:0 0 10px;cursor:col-resize;position:relative}
+.ws-resizer::after{content:'';position:absolute;left:4px;top:0;bottom:0;width:2px;background:transparent;transition:background .15s}
+.ws-resizer:hover::after,.ws-resizer.drag::after{background:var(--amber)}
+.ws-center{flex:1 1 auto;min-width:0}
+.ws-thumbs{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
+  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column;
+  flex:0 0 auto;width:120px;min-width:72px;max-width:320px}
+@media(max-width:900px){.ws-thumbs,.ws-resizer.r2{display:none}}
+
+.ws-files-hdr{padding:8px 10px;font-size:10.5px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.07em;color:#546e7a;background:#f5f7fa;border-bottom:1px solid var(--line);
+  flex-shrink:0;display:flex;align-items:center;gap:6px}
+.ws-files-tools{padding:6px 10px;border-bottom:1px solid var(--line);display:flex;gap:6px;
+  flex-wrap:wrap;background:#fafbfc;flex-shrink:0}
+.ws-batch{padding:6px 10px;border-bottom:1px solid var(--line);background:#fff8e6;
+  display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:600;flex-shrink:0;flex-wrap:wrap}
 .ws-files-list{overflow-y:auto}
-.ws-cat-hdr{padding:7px 12px 4px;font-size:10px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.06em;color:#90a4ae;background:#fafbfc;border-bottom:1px solid #f0f3f5}
-.file-item{display:flex;align-items:center;gap:7px;padding:8px 12px;cursor:pointer;
+.ws-cat-hdr{padding:7px 10px 4px;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:#90a4ae;background:#fafbfc;border-bottom:1px solid #f0f3f5;
+  display:flex;align-items:center;gap:6px}
+.ws-cat-hdr.dragover{background:#fff3d6;color:#c8780a;outline:2px dashed var(--amber);outline-offset:-2px}
+.file-item{display:flex;align-items:center;gap:6px;padding:7px 8px 7px 6px;cursor:pointer;
   font-size:12px;border-bottom:1px solid #f0f3f5;transition:background .12s;line-height:1.35}
 .file-item:hover{background:#f7f9fa}
 .file-item.active{background:#fff3d6;font-weight:700;color:#c8780a}
+.file-item.dragging{opacity:.45}
+.file-item .fi-cb{flex-shrink:0;margin:0}
+.file-item .fi-grip{flex-shrink:0;color:#c3cdd6;cursor:grab;font-size:11px;user-select:none}
+.file-item .fi-type{flex-shrink:0;font-size:12px;width:15px;text-align:center}
 .file-item .fi-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-item .fi-ok{color:var(--ok);flex-shrink:0;font-weight:900}
 .file-item .fi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .fi-dot.d-ok{background:var(--ok)}.fi-dot.d-viol{background:var(--bad)}
 .fi-dot.d-nf{background:var(--warn)}.fi-dot.d-err{background:#90a4ae}.fi-dot.d-none{background:#d5dce4}
+.fi-an{flex-shrink:0;font-size:11px;width:14px;text-align:center}
+.fi-an .spin{width:10px;height:10px;border-width:2px}
 
 /* центр: просмотрщик */
 .ws-viewer{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;min-width:0}
@@ -150,28 +166,64 @@ textarea{resize:vertical}
   text-overflow:ellipsis;white-space:nowrap}
 .btn-approved{background:#e8f5e9;color:#2e7d32;border:1px solid #b7dfb9}
 .btn-approved:hover{background:#dcefdd}
+
+/* легенда находок */
+.ws-legend{display:flex;gap:8px;align-items:center;padding:7px 14px;border-bottom:1px solid var(--line);
+  background:#fff;flex-wrap:wrap}
+.leg{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:12px;
+  padding:2px 10px;font-size:11px;font-weight:700;cursor:pointer;user-select:none;transition:all .12s}
+.leg .sw{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.leg.off{color:#b0bec5;text-decoration:line-through;background:#f5f7fa}
+.leg.off .sw{background:#cfd8dc !important}
+
+.ws-stage-wrap{position:relative}
 .ws-stage{background:#66707c;padding:14px;display:flex;align-items:center;justify-content:center;min-height:340px}
-.ws-stage img{max-width:100%;max-height:calc(100vh - 260px);box-shadow:0 3px 14px rgba(0,0,0,.4);
+.ws-stage img{max-width:100%;max-height:calc(100vh - 300px);box-shadow:0 3px 14px rgba(0,0,0,.4);
   background:#fff;display:block}
+.ws-overlay{position:absolute;inset:0;background:rgba(44,62,80,.72);display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#fff;
+  font-size:12.5px;font-weight:600;text-align:center;padding:20px}
+.ws-overlay .obar{width:240px;height:8px;background:rgba(255,255,255,.25);border-radius:4px;overflow:hidden}
+.ws-overlay .obar>div{height:100%;background:var(--amber);transition:width .4s}
+.ws-overlay.err{background:rgba(120,30,30,.82)}
+
+/* находки текущей страницы */
+.ws-findings{padding:8px 14px;border-bottom:1px solid #edf0f3;display:flex;flex-direction:column;gap:5px;background:#fcfdfe}
+.find-chip{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;
+  border-left:3px solid #ccc;padding:3px 8px;background:#fff;border-radius:0 4px 4px 0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.find-chip b{flex-shrink:0}
+.find-chip .q{color:#607080;font-style:italic}
+
 .ws-pager{display:flex;align-items:center;justify-content:center;gap:14px;padding:9px;
   border-top:1px solid var(--line);background:#f9fafb;font-size:12.5px;font-weight:600}
+
+/* кнопки отметок */
+.ws-marks{display:flex;align-items:center;gap:6px;padding:8px 14px;border-top:1px solid #edf0f3;
+  background:#fff;flex-wrap:wrap;font-size:11.5px}
+.mark-btn{border:1px solid var(--line);background:#f8fafb;border-radius:12px;padding:3px 11px;
+  font:600 11px 'Segoe UI',sans-serif;color:var(--mut);cursor:pointer;transition:all .12s}
+.mark-btn:hover{border-color:#b8c6d2}
+.mark-btn.on{background:var(--water);border-color:var(--water);color:#fff}
+
 .ws-text{padding:0 14px 12px;border-top:1px solid #edf0f3}
 .ws-text summary{cursor:pointer;font-size:11.5px;font-weight:700;color:#546e7a;padding:9px 0 5px}
 .ws-text pre{font:12px/1.5 'Segoe UI',sans-serif;white-space:pre-wrap;color:#455a64;
   max-height:200px;overflow-y:auto;background:#fcfdfe;border:1px solid #edf0f3;border-radius:5px;padding:9px 11px}
 
 /* право: лента миниатюр */
-.ws-thumbs{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden;
-  position:sticky;top:8px;max-height:calc(100vh - 80px);display:flex;flex-direction:column}
 .ws-thumbs-hdr{padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;
   letter-spacing:.06em;color:#90a4ae;background:#f5f7fa;border-bottom:1px solid var(--line);flex-shrink:0}
 .ws-thumbs-list{overflow-y:auto;padding:8px}
 .thumb{border:2px solid transparent;border-radius:4px;cursor:pointer;margin-bottom:8px;
-  overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15);transition:border-color .12s}
+  overflow:hidden;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.15);transition:border-color .12s;position:relative}
 .thumb:hover{border-color:#b8c6d2}
 .thumb.active{border-color:var(--amber)}
 .thumb img{width:100%;display:block}
 .thumb .t-num{text-align:center;font-size:10px;color:#78909c;padding:2px 0;background:#f5f7fa}
+.thumb .t-dots{position:absolute;top:3px;left:3px;display:flex;gap:3px}
+.thumb .t-marks{position:absolute;bottom:18px;left:3px;display:flex;gap:3px}
+.t-dot{width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 1px #fff}
+
 .res-item{border:1px solid var(--line);border-left:4px solid #b0bec5;border-radius:5px;
   padding:10px 12px;margin-bottom:8px;background:#fff}
 .res-item.s-ok{border-left-color:var(--ok)}
@@ -191,10 +243,26 @@ textarea{resize:vertical}
   border-top-color:var(--water);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#2c3e50;
-  color:#fff;padding:9px 18px;border-radius:6px;font-size:12.5px;display:none;z-index:999;
+  color:#fff;padding:9px 18px;border-radius:6px;font-size:12.5px;display:none;z-index:1200;
   box-shadow:0 4px 16px rgba(0,0,0,.3)}
 ::-webkit-scrollbar{width:7px;height:7px}
 ::-webkit-scrollbar-thumb{background:#b0bec5;border-radius:4px}
+
+/* модальные окна и поповеры */
+.modal-bg{position:fixed;inset:0;background:rgba(30,40,50,.55);z-index:1000;display:none;
+  align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+.modal-bg.open{display:flex}
+.modal{background:#fff;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.35);
+  width:100%;max-width:760px;padding:18px 20px}
+.modal.narrow{max-width:520px}
+.modal h3{font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.modal h3 .x{margin-left:auto;cursor:pointer;border:0;background:transparent;font-size:16px;color:#90a4ae}
+.pop{position:absolute;z-index:900;background:#fff;border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 8px 28px rgba(0,0,0,.2);padding:14px;min-width:270px;display:none}
+.pop.open{display:block}
+.pop label.ck{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 0;cursor:pointer}
+.pop .sec{font-size:10.5px;font-weight:700;text-transform:uppercase;color:#90a4ae;margin:8px 0 3px}
+.rep-sec td{background:#eef3f9 !important;font-weight:700}
 </style>
 </head>
 <body>
@@ -235,7 +303,8 @@ textarea{resize:vertical}
     <div class="card">
       <h3>Загрузка пакета документов</h3>
       <p class="desc">ZIP-архив с документами. Файлы автоматически распределяются по каталогам
-        согласно правилам маршрутизации, затем проверяются локальным ИИ по правилам каталога.</p>
+        согласно правилам маршрутизации, затем проверяются локальным ИИ по правилам каталога.
+        Большие архивы загружаются по частям.</p>
       <div class="drop" id="drop">
         <div class="ico">📤</div>
         <div><b>Перетащите ZIP-архив сюда</b> или нажмите, чтобы выбрать файл</div>
@@ -268,31 +337,67 @@ textarea{resize:vertical}
       <a data-nav="packages">← Пакеты</a><span class="sep">/</span>
       <b id="pd-title"></b>
       <span id="pd-badges"></span>
-      <span style="margin-left:auto;display:flex;gap:8px">
-        <button class="btn btn-amber btn-sm" id="pd-analyze" style="display:none" title="Запустить ИИ-проверку файлов пакета (требуется локальный ИИ-провайдер)">▶ Запустить анализ</button>
+      <span style="margin-left:auto;display:flex;gap:8px;position:relative">
+        <button class="btn btn-amber btn-sm" id="pd-analyze" style="display:none">▶ Запустить анализ</button>
+        <button class="btn btn-grey btn-sm" id="pd-analyze-opts" style="display:none" title="Параметры анализа">⚙</button>
+        <button class="btn btn-grey btn-sm" id="pd-report">📊 Отчёт</button>
         <a class="btn btn-grey btn-sm" id="pd-export" style="display:none">📥 Экспорт XLSX</a>
+        <!-- поповер параметров анализа -->
+        <div class="pop" id="an-pop" style="right:0;top:34px">
+          <div class="sec">Искать на страницах</div>
+          <label class="ck"><input type="checkbox" id="an-dates" checked><span class="sw" style="width:9px;height:9px;border-radius:2px;background:var(--f-date);display:inline-block"></span> Даты</label>
+          <label class="ck"><input type="checkbox" id="an-sigs" checked><span class="sw" style="width:9px;height:9px;border-radius:2px;background:var(--f-sig);display:inline-block"></span> Подписи</label>
+          <label class="ck"><input type="checkbox" id="an-seals" checked><span class="sw" style="width:9px;height:9px;border-radius:2px;background:var(--f-seal);display:inline-block"></span> Печати</label>
+          <div class="sec">Параметры</div>
+          <label class="ck"><input type="checkbox" id="an-skip"> Пропускать уже проверенные</label>
+          <div class="sec">Шаблон анализа</div>
+          <select id="an-template" style="width:100%;border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif">
+            <option value="">По умолчанию</option>
+          </select>
+          <div class="muted" style="margin-top:6px;font-size:10.5px">OCR применяется автоматически при обработке сканов.</div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button class="btn btn-primary btn-sm" id="an-run" style="flex:1">▶ Запустить</button>
+            <button class="btn btn-grey btn-sm" id="an-templates-btn" title="Управление шаблонами" style="display:none">Шаблоны…</button>
+          </div>
+        </div>
       </span>
     </div>
-    <div class="ws">
+    <div class="ws" id="ws">
       <!-- Левая панель: файлы пакета -->
-      <div class="ws-files">
-        <div class="ws-files-hdr">Файлы пакета <span id="ws-files-cnt" class="muted"></span></div>
+      <div class="ws-files" id="ws-files">
+        <div class="ws-files-hdr">Файлы <span id="ws-files-cnt" class="muted"></span></div>
+        <div class="ws-files-tools">
+          <button class="btn btn-grey btn-sm" id="ws-routeall" title="Распределить нераспределённые файлы по правилам">⇄ Распределить</button>
+          <button class="btn btn-grey btn-sm" id="ws-marks-manage" style="display:none" title="Кнопки отметок">🏷 Кнопки</button>
+        </div>
+        <div class="ws-batch" id="ws-batch">
+          <span id="ws-batch-cnt"></span>
+          <button class="btn btn-grey btn-sm" id="ws-batch-clear">Снять</button>
+          <button class="btn btn-amber btn-sm" id="ws-batch-analyze">▶ Анализ</button>
+        </div>
         <div class="ws-files-list" id="ws-files-list"></div>
       </div>
+      <div class="ws-resizer r1" id="ws-rz1" title="Потяните, чтобы изменить ширину"></div>
       <!-- Центр: постраничный просмотр -->
-      <div style="min-width:0">
+      <div class="ws-center">
         <div class="ws-viewer" id="ws-viewer" style="display:none">
           <div class="ws-actions">
-            <span class="fname" id="ws-fname"></span>
+            <span class="fname" id="ws-fname" title=""></span>
             <select id="ws-catalog" title="Каталог файла" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif;max-width:160px"></select>
             <button class="btn btn-sm" id="ws-approve"></button>
           </div>
-          <div class="ws-stage" id="ws-stage"></div>
+          <div class="ws-legend" id="ws-legend" style="display:none"></div>
+          <div class="ws-stage-wrap">
+            <div class="ws-stage" id="ws-stage"></div>
+            <div class="ws-overlay" id="ws-an-overlay" style="display:none"></div>
+          </div>
+          <div class="ws-findings" id="ws-findings" style="display:none"></div>
           <div class="ws-pager" id="ws-pager" style="display:none">
             <button class="btn btn-grey btn-sm" id="ws-prev">← Пред.</button>
             <span id="ws-page-lbl"></span>
             <button class="btn btn-grey btn-sm" id="ws-next">След. →</button>
           </div>
+          <div class="ws-marks" id="ws-marks" style="display:none"></div>
           <div class="ws-text" id="ws-text-wrap" style="display:none">
             <details><summary>Извлечённый текст страницы</summary><pre id="ws-text"></pre></details>
           </div>
@@ -303,6 +408,7 @@ textarea{resize:vertical}
           <div id="ws-ai-body"></div>
         </div>
       </div>
+      <div class="ws-resizer r2" id="ws-rz2" title="Потяните, чтобы изменить ширину"></div>
       <!-- Правая лента миниатюр -->
       <div class="ws-thumbs" id="ws-thumbs" style="visibility:hidden">
         <div class="ws-thumbs-hdr">Страницы</div>
@@ -318,7 +424,7 @@ textarea{resize:vertical}
       <h3>Новый каталог</h3>
       <p class="desc">Каталог — это тип документов (например, «Договоры», «Акты»). Для каждого
         каталога настраиваются правила маршрутизации (какие файлы в него попадают)
-        и правила проверки (что проверяет ИИ).</p>
+        и правила проверки (что проверяет ИИ). Срабатывает первое совпадение правил.</p>
       <div class="fgrid" style="grid-template-columns:1fr 2fr auto">
         <div><label>Название</label><input id="nc-name" placeholder="Договоры"></div>
         <div><label>Описание</label><input id="nc-desc" placeholder="необязательно"></div>
@@ -330,6 +436,66 @@ textarea{resize:vertical}
   {% endif %}
 </main>
 
+<!-- ══ Модал: отчёт ══ -->
+<div class="modal-bg" id="rep-modal">
+  <div class="modal">
+    <h3>📊 Отчёт по пакету <span id="rep-title" class="muted"></span>
+      <button class="x" data-close="rep-modal">✕</button></h3>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <select id="rep-catalog" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif">
+        <option value="">Все каталоги</option>
+      </select>
+      <span id="rep-summary" class="muted"></span>
+      <a class="btn btn-primary btn-sm" id="rep-xlsx" style="margin-left:auto">📥 Скачать XLSX</a>
+    </div>
+    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+      <table>
+        <thead><tr><th>№</th><th>Файл</th><th>Согл.</th><th title="Печати">🔴</th>
+          <th title="Подписи">🔵</th><th title="Даты">🟢</th><th>Отметки</th><th>Анализ</th></tr></thead>
+        <tbody id="rep-rows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Модал: кнопки отметок (админ) ══ -->
+<div class="modal-bg" id="mk-modal">
+  <div class="modal narrow">
+    <h3>🏷 Кнопки ручных отметок <button class="x" data-close="mk-modal">✕</button></h3>
+    <p class="desc">Кнопки показываются под страницей документа. Отметка ставится на конкретную
+      страницу. Глобальные кнопки видны для всех файлов, кнопки каталога — только для его файлов.</p>
+    <div id="mk-list" style="margin-bottom:12px"></div>
+    <div class="fgrid" style="grid-template-columns:2fr 1fr auto">
+      <div><label>Название</label><input id="mk-label" placeholder="Нет подписи"></div>
+      <div><label>Область</label><select id="mk-catalog"><option value="">Глобальная</option></select></div>
+      <div><button class="btn btn-primary btn-sm" id="mk-add" style="height:31px">+ Добавить</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Модал: шаблоны анализа (админ) ══ -->
+<div class="modal-bg" id="tpl-modal">
+  <div class="modal">
+    <h3>⚙ Шаблоны анализа <button class="x" data-close="tpl-modal">✕</button></h3>
+    <p class="desc">Шаблон задаёт дополнительный системный промпт и набор искомых реквизитов.
+      Выбирается в параметрах перед запуском анализа.</p>
+    <div id="tpl-list" style="margin-bottom:14px"></div>
+    <div style="border-top:1px solid var(--line);padding-top:12px">
+      <div class="fgrid" style="grid-template-columns:1fr">
+        <div><label>Название</label><input id="tpl-name" placeholder="Проверка договоров"></div>
+        <div><label>Дополнительный системный промпт</label>
+          <textarea id="tpl-prompt" rows="3" placeholder="Особые указания для ИИ (необязательно)"></textarea></div>
+      </div>
+      <div style="display:flex;gap:14px;margin:8px 0">
+        <label class="ck" style="display:flex;gap:5px;font-size:12px;align-items:center"><input type="checkbox" id="tpl-dates" checked> Даты</label>
+        <label class="ck" style="display:flex;gap:5px;font-size:12px;align-items:center"><input type="checkbox" id="tpl-sigs" checked> Подписи</label>
+        <label class="ck" style="display:flex;gap:5px;font-size:12px;align-items:center"><input type="checkbox" id="tpl-seals" checked> Печати</label>
+      </div>
+      <button class="btn btn-primary btn-sm" id="tpl-add">+ Создать шаблон</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -338,14 +504,24 @@ const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 let CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let currentPkgId = null, pkgPollTimer = null, pdPollTimer = null;
 let wsFileId = null, wsPage = 1, wsFile = null, wsResults = null;
+let markButtons = [], catalogsCache = [], analysisTemplates = [];
+let selectedIds = new Set();            // пакетный выбор файлов
+let hiddenFtypes = new Set();           // скрытые типы находок (легенда)
 
 const STATUS_L = { ok:['ОК','b-ok'], violation:['Нарушение','b-viol'],
                    not_found:['Не найдено','b-nf'], error:['Ошибка','b-err'] };
 const AN_L = { none:['не запускалась','b-err'], running:['выполняется','b-run'],
                done:['завершена','b-done'], error:['ошибка','b-viol'] };
-const FSTAT_L = { pending:['в очереди','b-err'], processing:['обработка','b-run'],
-                  ready:['готов','b-done'], error:['ошибка','b-viol'] };
-const RULE_TYPES = { extension:'Расширение', keyword:'Имя содержит', filename:'Маска имени' };
+const RULE_TYPES = { extension:'Расширение', keyword:'Имя содержит',
+                     filename:'Маска имени', has_artifact:'Находки содержат' };
+const FTYPES = {
+  date:      { label:'Даты',    single:'Дата',    color:'var(--f-date)' },
+  signature: { label:'Подписи', single:'Подпись', color:'var(--f-sig)'  },
+  seal:      { label:'Печати',  single:'Печать',  color:'var(--f-seal)' },
+};
+const FILE_ICONS = { doc:'📝', docx:'📝', rtf:'📝', odt:'📝',
+  xls:'📊', xlsx:'📊', ods:'📊', pdf:'📄', png:'🖼', jpg:'🖼', jpeg:'🖼',
+  tif:'🖼', tiff:'🖼', bmp:'🖼', txt:'📃' };
 
 function esc(s){ const d=document.createElement('div'); d.textContent=s??''; return d.innerHTML; }
 function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.style.display='block';
@@ -356,7 +532,6 @@ function toastHint(m, linkLabel, linkHref){
   t.style.display='block';
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 6000);
 }
-async function getCsrf(){ /* токен уже встроен в страницу из Jinja2 */ }
 async function api(url, opts={}) {
   opts.headers = Object.assign({'X-CSRFToken': CSRF}, opts.headers||{});
   if (opts.json) { opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(opts.json); delete opts.json; }
@@ -365,6 +540,15 @@ async function api(url, opts={}) {
   if (!r.ok) throw new Error(d.error || d.error_text || ('Ошибка ' + r.status));
   return d;
 }
+function fileIcon(name){
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  return FILE_ICONS[ext] || '📄';
+}
+function closeModals(){ document.querySelectorAll('.modal-bg').forEach(m=>m.classList.remove('open')); }
+document.querySelectorAll('[data-close]').forEach(b =>
+  b.addEventListener('click', () => document.getElementById(b.dataset.close).classList.remove('open')));
+document.querySelectorAll('.modal-bg').forEach(m =>
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
 
 /* ══ Навигация между экранами ══ */
 function show(view) {
@@ -386,7 +570,35 @@ document.body.addEventListener('click', e => {
   if (nav) { show(nav.dataset.nav); if (nav.dataset.nav==='packages') loadPackages(); }
 });
 
-/* ══ ЗАГРУЗКА ZIP ══ */
+/* ══ Изменяемая ширина панелей (localStorage) ══ */
+function setupResizer(rzId, panelId, storeKey, min, max, invert) {
+  const rz = document.getElementById(rzId), panel = document.getElementById(panelId);
+  const saved = parseInt(localStorage.getItem(storeKey) || '', 10);
+  if (saved >= min && saved <= max) panel.style.width = saved + 'px';
+  rz.addEventListener('mousedown', e => {
+    e.preventDefault();
+    rz.classList.add('drag');
+    const startX = e.clientX, startW = panel.getBoundingClientRect().width;
+    const move = ev => {
+      let w = invert ? startW - (ev.clientX - startX) : startW + (ev.clientX - startX);
+      w = Math.min(max, Math.max(min, w));
+      panel.style.width = w + 'px';
+    };
+    const up = () => {
+      rz.classList.remove('drag');
+      localStorage.setItem(storeKey, Math.round(panel.getBoundingClientRect().width));
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+}
+setupResizer('ws-rz1', 'ws-files', 'docs.filesW', 200, 640, false);
+setupResizer('ws-rz2', 'ws-thumbs', 'docs.thumbsW', 72, 320, true);
+
+/* ══ ЗАГРУЗКА ZIP (маленькие — одним запросом, большие — чанками по 5 МБ) ══ */
+const CHUNK = 5 * 1024 * 1024;
 const drop = document.getElementById('drop'), zipInput = document.getElementById('zip-input');
 let zipFile = null;
 drop.addEventListener('click', () => zipInput.click());
@@ -403,14 +615,44 @@ function setZip(f) {
   document.getElementById('drop-file').textContent = `${f.name} (${(f.size/1048576).toFixed(1)} МБ)`;
   document.getElementById('btn-upload').disabled = false;
 }
-document.getElementById('btn-upload').addEventListener('click', () => {
+function uploadDone(d) {
+  const msg = document.getElementById('up-msg');
+  msg.textContent = ''; toast('Пакет загружен, обработка запущена');
+  zipFile = null; zipInput.value = ''; document.getElementById('drop-file').textContent = '';
+  document.getElementById('pkg-title').value = '';
+  document.getElementById('btn-upload').disabled = true;
+  if (d && d.id) openPackage(d.id); else loadPackages();
+}
+async function uploadChunked(f) {
+  const prog = document.getElementById('up-progress'), msg = document.getElementById('up-msg');
+  const { token } = await api('/docs/uploads/init', {method:'POST'});
+  let sent = 0;
+  while (sent < f.size) {
+    const blob = f.slice(sent, sent + CHUNK);
+    const r = await fetch(`/docs/uploads/${token}/chunk`, {
+      method:'POST', headers:{'X-CSRFToken': CSRF, 'Content-Type':'application/octet-stream'},
+      body: blob });
+    if (!r.ok) { let d={}; try{d=await r.json();}catch(e){} throw new Error(d.error || 'Сбой загрузки фрагмента'); }
+    sent += blob.size;
+    prog.value = sent / f.size * 100;
+    msg.textContent = `Загрузка… ${(sent/1048576).toFixed(0)}/${(f.size/1048576).toFixed(0)} МБ`;
+  }
+  return api(`/docs/uploads/${token}/finalize`, {method:'POST',
+    json:{ filename: f.name, title: document.getElementById('pkg-title').value }});
+}
+document.getElementById('btn-upload').addEventListener('click', async () => {
   if (!zipFile) return;
-  const fd = new FormData();
-  fd.append('zipfile', zipFile);
-  fd.append('title', document.getElementById('pkg-title').value);
   const prog = document.getElementById('up-progress'), msg = document.getElementById('up-msg');
   const btn = document.getElementById('btn-upload');
   btn.disabled = true; prog.style.display = ''; prog.value = 0; msg.textContent = 'Загрузка…';
+  if (zipFile.size > CHUNK) {
+    try { const d = await uploadChunked(zipFile); prog.style.display = 'none'; uploadDone(d); }
+    catch(e) { prog.style.display = 'none'; msg.textContent = e.message; btn.disabled = false; }
+    return;
+  }
+  const fd = new FormData();
+  fd.append('zipfile', zipFile);
+  fd.append('title', document.getElementById('pkg-title').value);
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/docs/packages');
   xhr.setRequestHeader('X-CSRFToken', CSRF);
@@ -418,14 +660,8 @@ document.getElementById('btn-upload').addEventListener('click', () => {
   xhr.onload = () => {
     prog.style.display = 'none';
     let d = {}; try { d = JSON.parse(xhr.responseText); } catch(e){}
-    if (xhr.status >= 200 && xhr.status < 300) {
-      msg.textContent = ''; toast('Пакет загружен, обработка запущена');
-      zipFile = null; zipInput.value = ''; document.getElementById('drop-file').textContent = '';
-      document.getElementById('pkg-title').value = '';
-      btn.disabled = true;
-      // Как в исходном проекте: сразу открываем рабочий экран пакета
-      if (d.id) openPackage(d.id); else loadPackages();
-    } else { msg.textContent = d.error || d.error_text || 'Ошибка загрузки'; btn.disabled = false; }
+    if (xhr.status >= 200 && xhr.status < 300) uploadDone(d);
+    else { msg.textContent = d.error || d.error_text || 'Ошибка загрузки'; btn.disabled = false; }
   };
   xhr.onerror = () => { prog.style.display='none'; msg.textContent='Сбой сети'; btn.disabled=false; };
   xhr.send(fd);
@@ -449,15 +685,13 @@ async function loadPackages() {
                 : p.analysis_status === 'error' ? `${an[0]}: ${esc(p.analysis_error)}` : an[0];
     const aiLine = p.analysis_status !== 'none'
       ? `<div style="margin-top:3px"><span class="muted" style="font-size:11px">ИИ:</span> <span class="b ${an[1]}" style="font-size:11px">${anTxt}</span></div>` : '';
-    const canAnalyze = p.status === 'done' && p.analysis_status !== 'running';
     return `<tr>
       <td><a style="color:var(--water);font-weight:700;cursor:pointer" data-act="open" data-id="${p.id}">${esc(p.title)}</a>
         <div class="muted">${esc(p.created_at)}</div></td>
       <td>${proc}${aiLine}</td>
       <td>
         <button class="btn btn-grey btn-sm" data-act="open" data-id="${p.id}">Открыть</button>
-        ${canAnalyze ? `<button class="btn btn-amber btn-sm" data-act="analyze" data-id="${p.id}" title="Запустить ИИ-проверку (требуется локальный ИИ-провайдер)">▶ Анализ</button>` : ''}
-        ${p.analysis_status === 'done' ? `<a class="btn btn-grey btn-sm" href="/docs/packages/${p.id}/export">📥 XLSX</a>` : ''}
+        ${p.analysis_status === 'done' ? `<a class="btn btn-grey btn-sm" href="/docs/report/export?package_id=${p.id}">📥 XLSX</a>` : ''}
         ${p.status !== 'processing' ? `<button class="btn btn-danger btn-sm" data-act="del" data-id="${p.id}">✕</button>` : ''}
       </td></tr>`;
   }).join('');
@@ -469,16 +703,7 @@ document.getElementById('pkg-rows').addEventListener('click', async e => {
   if (!el) return;
   const id = parseInt(el.dataset.id, 10);
   if (el.dataset.act === 'open') openPackage(id);
-  else if (el.dataset.act === 'analyze') {
-    try { await api(`/docs/packages/${id}/analyze`, {method:'POST'}); toast('ИИ-проверка запущена'); }
-    catch(err) {
-      const msg = err.message || '';
-      if (msg.includes('провайдер') || msg.includes('Провайдер')) {
-        toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
-      } else { toast(msg); }
-    }
-    loadPackages();
-  } else if (el.dataset.act === 'del') {
+  else if (el.dataset.act === 'del') {
     if (!confirm('Удалить пакет со всеми файлами и результатами?')) return;
     try { await api(`/docs/packages/${id}`, {method:'DELETE'}); toast('Пакет удалён'); }
     catch(err) { toast(err.message); }
@@ -486,15 +711,33 @@ document.getElementById('pkg-rows').addEventListener('click', async e => {
   }
 });
 
-/* ══ РАБОЧИЙ ЭКРАН ПАКЕТА (файлы | просмотр | миниатюры) ══ */
+/* ══ РАБОЧИЙ ЭКРАН ПАКЕТА ══ */
 async function openPackage(id) {
   currentPkgId = id; wsFileId = null; wsPage = 1; wsFile = null; wsResults = null;
+  selectedIds = new Set(); hiddenFtypes = new Set();
   document.getElementById('ws-viewer').style.display = 'none';
   document.getElementById('ws-empty').style.display = '';
   document.getElementById('ws-ai').style.display = 'none';
   document.getElementById('ws-thumbs').style.visibility = 'hidden';
   show('package');
+  loadMarkButtons(); loadTemplates();
+  try { catalogsCache = await api('/docs/catalogs'); } catch(e){ catalogsCache = []; }
   await renderPackage(true);
+}
+
+async function loadMarkButtons() {
+  try { markButtons = await api('/docs/mark-buttons'); } catch(e){ markButtons = []; }
+  document.getElementById('ws-marks-manage').style.display = IS_ADMIN ? '' : 'none';
+  renderMarksBar();
+}
+async function loadTemplates() {
+  try { analysisTemplates = await api('/docs/analysis-templates'); } catch(e){ analysisTemplates = []; }
+  const sel = document.getElementById('an-template');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">По умолчанию</option>' + analysisTemplates.map(t =>
+    `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  sel.value = cur;
+  document.getElementById('an-templates-btn').style.display = IS_ADMIN ? '' : 'none';
 }
 
 // агрегированный статус файла: violation > error > not_found > ok
@@ -503,6 +746,12 @@ function aggStatus(f) {
   const st = f.results.map(r => r.status);
   return st.includes('violation') ? 'violation' : st.includes('error') ? 'error'
        : st.includes('not_found') ? 'not_found' : 'ok';
+}
+function anIcon(f) {
+  if (f.analysis_status === 'processing') return '<span class="spin"></span>';
+  if (f.analysis_status === 'done') return '<span title="Анализ завершён" style="color:var(--f-sig)">✨</span>';
+  if (f.analysis_status === 'error') return '<span title="Ошибка анализа" style="color:var(--bad)">✖</span>';
+  return '';
 }
 
 async function renderPackage(autoselect) {
@@ -521,44 +770,58 @@ async function renderPackage(autoselect) {
   document.getElementById('pd-badges').innerHTML =
     `<span class="b ${stB[1]}">${esc(stB[0])}</span>` +
     (d.analysis_status !== 'none' ? ` <span class="b ${an[1]}">ИИ: ${anTxt}</span>` : '');
-  const btnA = document.getElementById('pd-analyze');
-  btnA.style.display = (d.status === 'done' && d.analysis_status !== 'running') ? '' : 'none';
+  const canAn = d.status === 'done' && d.analysis_status !== 'running';
+  document.getElementById('pd-analyze').style.display = canAn ? '' : 'none';
+  document.getElementById('pd-analyze-opts').style.display = canAn ? '' : 'none';
   const btnE = document.getElementById('pd-export');
   btnE.style.display = d.analysis_status === 'done' ? '' : 'none';
-  btnE.href = `/docs/packages/${currentPkgId}/export`;
+  btnE.href = `/docs/report/export?package_id=${currentPkgId}`;
 
   // ── Левая панель: файлы, сгруппированные по каталогам ──
   document.getElementById('ws-files-cnt').textContent = `(${d.files.length})`;
   const groups = {};
   d.files.forEach(f => {
     const k = f.catalog ? f.catalog.name : 'Без каталога';
-    (groups[k] = groups[k] || []).push(f);
+    (groups[k] = groups[k] || {cat: f.catalog, files: []});
+    groups[k].files.push(f);
   });
   const dotCls = { ok:'d-ok', violation:'d-viol', not_found:'d-nf', error:'d-err' };
   document.getElementById('ws-files-list').innerHTML =
-    Object.keys(groups).sort((a,b)=>a.localeCompare(b,'ru')).map(g =>
-      `<div class="ws-cat-hdr">${esc(g)}</div>` +
-      groups[g].map(f => {
-        const a = aggStatus(f);
-        return `<div class="file-item ${f.file_id===wsFileId?'active':''}" data-file="${f.file_id}" title="${esc(f.orig_name)}">
-          <span class="fi-dot ${a ? dotCls[a] : 'd-none'}" title="${a ? (STATUS_L[a]||[a])[0] : 'ИИ-проверка не выполнялась'}"></span>
-          <span class="fi-name">${esc(f.orig_name)}</span>
-          ${f.approved ? '<span class="fi-ok" title="Согласовано">✓</span>' : ''}
-        </div>`;
-      }).join('')
-    ).join('') || '<div class="empty-block">Файлы ещё обрабатываются…</div>';
+    Object.keys(groups).sort((a,b)=>a.localeCompare(b,'ru')).map(g => {
+      const grp = groups[g];
+      const catId = grp.cat ? grp.cat.id : '';
+      return `<div class="ws-cat-hdr" data-cat-drop="${catId}">${esc(g)}
+          <span class="muted" style="font-weight:400;text-transform:none">(${grp.files.length})</span></div>` +
+        grp.files.map(f => {
+          const a = aggStatus(f);
+          return `<div class="file-item ${f.file_id===wsFileId?'active':''}" data-file="${f.file_id}"
+              draggable="true" title="${esc(f.orig_name)}">
+            <input type="checkbox" class="fi-cb" data-cb="${f.file_id}" ${selectedIds.has(f.file_id)?'checked':''}>
+            <span class="fi-grip" title="Перетащите в другой каталог">⋮⋮</span>
+            <span class="fi-type">${fileIcon(f.orig_name)}</span>
+            <span class="fi-dot ${a ? dotCls[a] : 'd-none'}" title="${a ? (STATUS_L[a]||[a])[0] : 'ИИ-проверка не выполнялась'}"></span>
+            <span class="fi-name">${esc(f.orig_name)}</span>
+            <span class="fi-an">${anIcon(f)}</span>
+            ${f.approved ? '<span class="fi-ok" title="Согласовано">✓</span>' : ''}
+          </div>`;
+        }).join('');
+    }).join('') || '<div class="empty-block">Файлы ещё обрабатываются…</div>';
+  renderBatchBar();
 
   // автовыбор первого готового файла
   if (autoselect && !wsFileId) {
     const first = d.files.find(f => f.file_status === 'ready') || d.files[0];
     if (first) selectFile(first.file_id);
   } else if (wsFileId) {
-    renderAiResults(); // обновить результаты/согласование без сброса страницы
+    renderAiResults();
     const cur = d.files.find(f => f.file_id === wsFileId);
     if (cur) {
       renderApproveBtn(cur.approved);
-      // файл дообработался в фоне — подтянуть страницы
-      if (cur.file_status === 'ready' && wsFile && wsFile.status !== 'ready') selectFile(wsFileId);
+      renderAnalysisOverlay(cur);
+      // файл дообработался/доанализировался в фоне — подтянуть данные
+      if ((cur.file_status === 'ready' && wsFile && wsFile.status !== 'ready') ||
+          (cur.analysis_status === 'done' && wsFile && wsFile.analysis_status !== 'done'))
+        selectFile(wsFileId, true);
     }
   }
 
@@ -566,11 +829,73 @@ async function renderPackage(autoselect) {
     pdPollTimer = setTimeout(() => renderPackage(!wsFileId), 2500);
 }
 
+/* ── Пакетный выбор ── */
+function renderBatchBar() {
+  const bar = document.getElementById('ws-batch');
+  if (!selectedIds.size) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('ws-batch-cnt').textContent = `Выбрано: ${selectedIds.size}`;
+}
+document.getElementById('ws-batch-clear').addEventListener('click', () => {
+  selectedIds.clear();
+  document.querySelectorAll('#ws-files-list .fi-cb').forEach(c => c.checked = false);
+  renderBatchBar();
+});
+document.getElementById('ws-batch-analyze').addEventListener('click', () => runAnalysis([...selectedIds]));
+
+/* ── Drag&drop файлов между каталогами ── */
+let draggedFileId = null;
+document.getElementById('ws-files-list').addEventListener('dragstart', e => {
+  const item = e.target.closest('[data-file]');
+  if (!item) return;
+  draggedFileId = parseInt(item.dataset.file, 10);
+  item.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+});
+document.getElementById('ws-files-list').addEventListener('dragend', e => {
+  const item = e.target.closest('[data-file]');
+  if (item) item.classList.remove('dragging');
+  document.querySelectorAll('.ws-cat-hdr.dragover').forEach(h => h.classList.remove('dragover'));
+  draggedFileId = null;
+});
+document.getElementById('ws-files-list').addEventListener('dragover', e => {
+  const hdr = e.target.closest('[data-cat-drop]');
+  if (hdr && draggedFileId) { e.preventDefault(); hdr.classList.add('dragover'); }
+});
+document.getElementById('ws-files-list').addEventListener('dragleave', e => {
+  const hdr = e.target.closest('[data-cat-drop]');
+  if (hdr) hdr.classList.remove('dragover');
+});
+document.getElementById('ws-files-list').addEventListener('drop', async e => {
+  const hdr = e.target.closest('[data-cat-drop]');
+  if (!hdr || !draggedFileId) return;
+  e.preventDefault();
+  hdr.classList.remove('dragover');
+  const catId = parseInt(hdr.dataset.catDrop, 10);
+  if (!catId) { toast('В эту группу переместить нельзя'); return; }
+  try {
+    await api(`/docs/files/${draggedFileId}/set-catalog`, {method:'POST', json:{catalog_id: catId}});
+    toast('Файл перемещён');
+    renderPackage(false);
+    if (draggedFileId === wsFileId) selectFile(wsFileId, true);
+  } catch(err) { toast(err.message); }
+});
+
+/* ── Распределить все ── */
+document.getElementById('ws-routeall').addEventListener('click', async () => {
+  try {
+    const r = await api(`/docs/packages/${currentPkgId}/route-all`, {method:'POST'});
+    toast(r.routed ? `Распределено файлов: ${r.routed}` : 'Нет файлов, подходящих под правила');
+    renderPackage(false);
+  } catch(err) { toast(err.message); }
+});
+
 /* ── Выбор файла ── */
 let wsSelectSeq = 0; // токен против гонки при быстром переключении файлов
-async function selectFile(fileId) {
+async function selectFile(fileId, keepPage) {
   const seq = ++wsSelectSeq;
-  wsFileId = fileId; wsPage = 1;
+  wsFileId = fileId;
+  if (!keepPage) wsPage = 1;
   document.querySelectorAll('#ws-files-list .file-item').forEach(el =>
     el.classList.toggle('active', parseInt(el.dataset.file,10) === fileId));
   let f;
@@ -581,34 +906,23 @@ async function selectFile(fileId) {
 
   document.getElementById('ws-empty').style.display = 'none';
   document.getElementById('ws-viewer').style.display = '';
-  document.getElementById('ws-fname').textContent = f.orig_name;
+  const fn = document.getElementById('ws-fname');
+  fn.textContent = f.orig_name; fn.title = f.orig_name;
   renderApproveBtn(f.approved);
 
   // селектор каталога
-  let cats = [];
-  try { cats = await api('/docs/catalogs'); } catch(e){}
-  if (seq !== wsSelectSeq) return; // за время запроса выбрали другой файл
   const sel = document.getElementById('ws-catalog');
   sel.dataset.fileId = fileId;
-  sel.innerHTML = '<option value="">— без каталога —</option>' + cats.map(c =>
+  sel.innerHTML = '<option value="">— без каталога —</option>' + catalogsCache.map(c =>
     `<option value="${c.id}" ${f.catalog && f.catalog.id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
 
-  // миниатюры
-  const thumbsEl = document.getElementById('ws-thumbs');
-  const imgPages = f.pages.filter(p => p.has_image);
-  if (imgPages.length) {
-    thumbsEl.style.visibility = '';
-    document.getElementById('ws-thumbs-list').innerHTML = imgPages.map(p =>
-      `<div class="thumb ${p.page_num===wsPage?'active':''}" data-page="${p.page_num}">
-         <img loading="lazy" src="/docs/files/${fileId}/pages/${p.page_num}/image" alt="Стр. ${p.page_num}">
-         <div class="t-num">${p.page_num}</div>
-       </div>`).join('');
-  } else {
-    thumbsEl.style.visibility = 'hidden';
-  }
-
+  renderLegend();
+  renderThumbs();
   renderPage();
   renderAiResults();
+  renderMarksBar();
+  const cur = (wsResults?.files || []).find(x => x.file_id === fileId);
+  renderAnalysisOverlay(cur);
 }
 
 function renderApproveBtn(approved) {
@@ -617,7 +931,84 @@ function renderApproveBtn(approved) {
   else { b.className = 'btn btn-sm btn-primary'; b.textContent = 'Согласовать'; }
 }
 
-/* ── Отрисовка текущей страницы + пейджер ── */
+/* ── Легенда находок (бейджи Даты/Подписи/Печати) ── */
+function renderLegend() {
+  const box = document.getElementById('ws-legend');
+  const f = wsFile;
+  if (!f || !f.findings || !f.findings.length) { box.style.display = 'none'; return; }
+  const counts = {};
+  f.findings.forEach(x => counts[x.type] = (counts[x.type] || 0) + 1);
+  const types = Object.keys(FTYPES).filter(t => counts[t]);
+  if (!types.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = '<span class="muted" style="font-size:10.5px;font-weight:700;text-transform:uppercase">Находки ИИ:</span>' +
+    types.map(t => `<span class="leg ${hiddenFtypes.has(t)?'off':''}" data-ftype="${t}"
+        title="Нажмите, чтобы скрыть/показать">
+      <span class="sw" style="background:${FTYPES[t].color}"></span>
+      ${FTYPES[t].label} · ${counts[t]}</span>`).join('');
+}
+document.getElementById('ws-legend').addEventListener('click', e => {
+  const leg = e.target.closest('[data-ftype]');
+  if (!leg) return;
+  const t = leg.dataset.ftype;
+  if (hiddenFtypes.has(t)) hiddenFtypes.delete(t); else hiddenFtypes.add(t);
+  renderLegend(); renderThumbs(); renderFindings();
+});
+
+/* ── Миниатюры (с точками находок и отметок) ── */
+function renderThumbs() {
+  const f = wsFile;
+  const thumbsEl = document.getElementById('ws-thumbs');
+  if (!f) { thumbsEl.style.visibility = 'hidden'; return; }
+  const imgPages = f.pages.filter(p => p.has_image);
+  if (!imgPages.length) { thumbsEl.style.visibility = 'hidden'; return; }
+  const findByPage = {}, marksByPage = {};
+  (f.findings || []).forEach(x => {
+    if (hiddenFtypes.has(x.type)) return;
+    (findByPage[x.page] = findByPage[x.page] || new Set()).add(x.type);
+  });
+  (f.marks || []).forEach(m => marksByPage[m.page] = (marksByPage[m.page] || 0) + 1);
+  thumbsEl.style.visibility = '';
+  document.getElementById('ws-thumbs-list').innerHTML = imgPages.map(p => {
+    const fd = [...(findByPage[p.page_num] || [])];
+    const dots = fd.map(t => `<span class="t-dot" style="background:${FTYPES[t].color}" title="${FTYPES[t].label}"></span>`).join('');
+    const mk = marksByPage[p.page_num]
+      ? `<span class="t-dot" style="background:#8e44ad" title="Отметок: ${marksByPage[p.page_num]}"></span>` : '';
+    return `<div class="thumb ${p.page_num===wsPage?'active':''}" data-page="${p.page_num}">
+       <img loading="lazy" src="/docs/files/${f.id}/pages/${p.page_num}/image" alt="Стр. ${p.page_num}">
+       ${dots ? `<div class="t-dots">${dots}</div>` : ''}
+       ${mk ? `<div class="t-marks">${mk}</div>` : ''}
+       <div class="t-num">${p.page_num}</div>
+     </div>`;
+  }).join('');
+}
+
+/* ── Оверлей прогресса/ошибки анализа ── */
+function renderAnalysisOverlay(resFile) {
+  const ov = document.getElementById('ws-an-overlay');
+  const pkg = wsResults;
+  if (!pkg || !resFile) { ov.style.display = 'none'; return; }
+  if (resFile.analysis_status === 'processing' ||
+      (pkg.analysis_status === 'running' && resFile.analysis_status === 'processing')) {
+    const pct = pkg.analysis_total ? Math.round(pkg.analysis_done / pkg.analysis_total * 100) : 0;
+    ov.className = 'ws-overlay';
+    ov.innerHTML = `<div><span class="spin" style="border-color:#fff3;border-top-color:#fff"></span>
+        ИИ-анализ выполняется…</div>
+      <div class="obar"><div style="width:${pct}%"></div></div>
+      <div style="font-weight:400;font-size:11.5px">Файлов проверено: ${pkg.analysis_done} из ${pkg.analysis_total}</div>`;
+    ov.style.display = '';
+  } else if (resFile.analysis_status === 'error') {
+    const err = (resFile.results || []).map(r => r.details && r.details.error).filter(Boolean)[0]
+      || pkg.analysis_error || 'Анализ файла завершился ошибкой';
+    ov.className = 'ws-overlay err';
+    ov.innerHTML = `<div>⚠ Ошибка анализа</div>
+      <div style="font-weight:400;font-size:11.5px;max-width:420px">${esc(err)}</div>
+      <button class="btn btn-grey btn-sm" onclick="this.parentElement.style.display='none'">Скрыть</button>`;
+    ov.style.display = '';
+  } else ov.style.display = 'none';
+}
+
+/* ── Отрисовка текущей страницы + пейджер + находки + отметки ── */
 function renderPage() {
   const f = wsFile;
   const stage = document.getElementById('ws-stage');
@@ -626,11 +1017,13 @@ function renderPage() {
   if (!f) return;
   if (f.status === 'error') {
     stage.innerHTML = `<div class="empty-block" style="color:#fff">⚠ Файл не обработан: ${esc(f.error_text)}</div>`;
-    pager.style.display = 'none'; txtWrap.style.display = 'none'; return;
+    pager.style.display = 'none'; txtWrap.style.display = 'none';
+    document.getElementById('ws-findings').style.display='none'; return;
   }
   if (!f.pages.length) {
     stage.innerHTML = `<div class="empty-block" style="color:#fff">${f.status === 'ready' ? 'Страницы не извлечены' : 'Файл обрабатывается…'}</div>`;
-    pager.style.display = 'none'; txtWrap.style.display = 'none'; return;
+    pager.style.display = 'none'; txtWrap.style.display = 'none';
+    document.getElementById('ws-findings').style.display='none'; return;
   }
   const total = f.pages.length;
   wsPage = Math.min(Math.max(1, wsPage), total);
@@ -652,7 +1045,54 @@ function renderPage() {
     t.classList.toggle('active', act);
     if (act) t.scrollIntoView({block:'nearest'});
   });
+  renderFindings();
+  renderMarksBar();
 }
+
+/* ── Находки текущей страницы ── */
+function renderFindings() {
+  const box = document.getElementById('ws-findings');
+  const f = wsFile;
+  if (!f || !f.findings) { box.style.display = 'none'; return; }
+  const items = f.findings.filter(x => x.page === wsPage && !hiddenFtypes.has(x.type));
+  if (!items.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = items.map(x => {
+    const ft = FTYPES[x.type] || {label:x.type, color:'#999'};
+    return `<div class="find-chip" style="border-left-color:${ft.color}">
+      <b style="color:${ft.color}">${ft.single || ft.label}</b>
+      <span>${x.quote ? `<span class="q">«${esc(x.quote)}»</span> ` : ''}${esc(x.description || '')}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ── Кнопки ручных отметок ── */
+function renderMarksBar() {
+  const bar = document.getElementById('ws-marks');
+  const f = wsFile;
+  if (!f || !f.pages || !f.pages.length) { bar.style.display = 'none'; return; }
+  const catId = f.catalog ? f.catalog.id : null;
+  const btns = markButtons.filter(b => !b.catalog || (catId && b.catalog.id === catId));
+  if (!btns.length) { bar.style.display = 'none'; return; }
+  bar.style.display = '';
+  const active = new Set((f.marks || []).filter(m => m.page === wsPage).map(m => m.button_key));
+  bar.innerHTML = `<span class="muted" style="font-weight:700">Стр. ${wsPage}:</span>` +
+    btns.map(b => `<button class="mark-btn ${active.has(b.key)?'on':''}" data-mark="${esc(b.key)}">
+      ${active.has(b.key)?'✓ ':''}${esc(b.label)}</button>`).join('');
+}
+document.getElementById('ws-marks').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-mark]');
+  if (!btn || !wsFileId) return;
+  try {
+    const r = await api(`/docs/files/${wsFileId}/marks/toggle`, {method:'POST',
+      json:{button_key: btn.dataset.mark, page: wsPage}});
+    if (wsFile) {
+      if (r.active) wsFile.marks.push({page: wsPage, button_key: btn.dataset.mark});
+      else wsFile.marks = wsFile.marks.filter(m => !(m.page === wsPage && m.button_key === btn.dataset.mark));
+    }
+    renderMarksBar(); renderThumbs();
+  } catch(err) { toast(err.message); }
+});
 
 /* ── Результаты ИИ выбранного файла ── */
 function renderAiResults() {
@@ -674,6 +1114,14 @@ function renderAiResults() {
 
 /* ── Обработчики рабочего экрана ── */
 document.getElementById('ws-files-list').addEventListener('click', e => {
+  const cb = e.target.closest('[data-cb]');
+  if (cb) {
+    const id = parseInt(cb.dataset.cb, 10);
+    if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+    renderBatchBar();
+    e.stopPropagation();
+    return;
+  }
   const el = e.target.closest('[data-file]');
   if (el) selectFile(parseInt(el.dataset.file, 10));
 });
@@ -686,6 +1134,7 @@ document.getElementById('ws-next').addEventListener('click', () => { wsPage++; r
 document.addEventListener('keydown', e => {
   if (document.getElementById('view-package').style.display === 'none' || !wsFile) return;
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (document.querySelector('.modal-bg.open')) return;
   if (e.key === 'ArrowLeft' && wsPage > 1) { wsPage--; renderPage(); }
   else if (e.key === 'ArrowRight' && wsFile.pages && wsPage < wsFile.pages.length) { wsPage++; renderPage(); }
 });
@@ -699,11 +1148,10 @@ document.getElementById('ws-approve').addEventListener('click', async () => {
     if (wsFile) wsFile.approved = r.approved;
     renderApproveBtn(r.approved);
     toast(r.approved ? 'Файл согласован' : 'Согласование отменено');
-    renderPackage(false); // обновить галочку в списке файлов
+    renderPackage(false);
   } catch(err) { toast(err.message); }
 });
 document.getElementById('ws-catalog').addEventListener('change', async e => {
-  // каталог применяется к файлу, для которого селектор был построен
   const fid = parseInt(e.target.dataset.fileId || '', 10);
   if (!fid || fid !== wsFileId) return;
   const v = e.target.value;
@@ -713,15 +1161,168 @@ document.getElementById('ws-catalog').addEventListener('change', async e => {
     renderPackage(false);
   } catch(err) { toast(err.message); }
 });
-document.getElementById('pd-analyze').addEventListener('click', async () => {
-  try { await api(`/docs/packages/${currentPkgId}/analyze`, {method:'POST'}); toast('ИИ-анализ запущен'); }
-  catch(err) {
+
+/* ── Запуск анализа (с параметрами) ── */
+function analysisOptions(fileIds) {
+  const o = {
+    find_dates: document.getElementById('an-dates').checked,
+    find_signatures: document.getElementById('an-sigs').checked,
+    find_seals: document.getElementById('an-seals').checked,
+    skip_analyzed: document.getElementById('an-skip').checked,
+  };
+  const tpl = document.getElementById('an-template').value;
+  if (tpl) o.template_id = parseInt(tpl, 10);
+  if (fileIds && fileIds.length) o.file_ids = fileIds;
+  return o;
+}
+async function runAnalysis(fileIds) {
+  document.getElementById('an-pop').classList.remove('open');
+  try {
+    await api(`/docs/packages/${currentPkgId}/analyze`, {method:'POST', json: analysisOptions(fileIds)});
+    toast(fileIds && fileIds.length ? `ИИ-анализ запущен (файлов: ${fileIds.length})` : 'ИИ-анализ запущен');
+    selectedIds.clear(); renderBatchBar();
+  } catch(err) {
     const msg = err.message || '';
     if (msg.includes('провайдер') || msg.includes('Провайдер')) {
       toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
     } else toast(msg);
   }
   renderPackage(false);
+}
+document.getElementById('pd-analyze').addEventListener('click', () => runAnalysis(null));
+document.getElementById('pd-analyze-opts').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('an-pop').classList.toggle('open');
+});
+document.getElementById('an-run').addEventListener('click', () =>
+  runAnalysis(selectedIds.size ? [...selectedIds] : null));
+document.getElementById('an-pop').addEventListener('click', e => e.stopPropagation());
+document.addEventListener('click', () => document.getElementById('an-pop').classList.remove('open'));
+
+/* ── Отчёт ── */
+async function openReport() {
+  const catSel = document.getElementById('rep-catalog');
+  catSel.innerHTML = '<option value="">Все каталоги</option>' + catalogsCache.map(c =>
+    `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  document.getElementById('rep-modal').classList.add('open');
+  await loadReport();
+}
+async function loadReport() {
+  const catId = document.getElementById('rep-catalog').value;
+  const qs = `package_id=${currentPkgId}` + (catId ? `&catalog_id=${catId}` : '');
+  let d;
+  try { d = await api(`/docs/report?${qs}`); }
+  catch(e) { toast(e.message); return; }
+  document.getElementById('rep-title').textContent = d.package.title;
+  document.getElementById('rep-summary').textContent =
+    `Файлов: ${d.total} · согласовано: ${d.approved}` +
+    (d.seal_total ? ` · печатей: ${d.seal_total}` : '') +
+    (d.signature_total ? ` · подписей: ${d.signature_total}` : '') +
+    (d.date_total ? ` · дат: ${d.date_total}` : '');
+  document.getElementById('rep-xlsx').href = `/docs/report/export?${qs}`;
+  const byCat = {};
+  d.rows.forEach(r => (byCat[r.catalog] = byCat[r.catalog] || []).push(r));
+  const anL = { none:'—', processing:'выполняется', done:'завершён', error:'ошибка' };
+  let n = 0;
+  document.getElementById('rep-rows').innerHTML = Object.keys(byCat).sort((a,b)=>a.localeCompare(b,'ru'))
+    .map(cat => {
+      const rows = byCat[cat];
+      return `<tr class="rep-sec"><td colspan="8">${esc(cat)} — файлов: ${rows.length},
+          согласовано: ${rows.filter(r=>r.approved).length}</td></tr>` +
+        rows.map(r => {
+          n++;
+          const marks = r.marks.map(m => `<span class="b b-nf" style="font-size:10px">${esc(m.label)} · стр.${m.page}</span>`).join(' ');
+          return `<tr><td>${n}</td>
+            <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.filename)}">${esc(r.filename)}</td>
+            <td>${r.approved ? '<span style="color:var(--ok);font-weight:900">✓</span>' : '—'}</td>
+            <td>${r.seal_count || '—'}</td><td>${r.signature_count || '—'}</td><td>${r.date_count || '—'}</td>
+            <td>${marks || '—'}</td><td class="muted">${anL[r.analysis_status] || r.analysis_status}</td></tr>`;
+        }).join('');
+    }).join('') || '<tr><td colspan="8" class="muted">Нет файлов</td></tr>';
+}
+document.getElementById('pd-report').addEventListener('click', openReport);
+document.getElementById('rep-catalog').addEventListener('change', loadReport);
+
+/* ── Управление кнопками отметок (админ) ── */
+function renderMarkButtonsList() {
+  document.getElementById('mk-list').innerHTML = markButtons.map(b => `
+    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed #eceff1">
+      <b style="font-size:12.5px">${esc(b.label)}</b>
+      <span class="muted">${b.catalog ? 'каталог: ' + esc(b.catalog.name) : 'глобальная'}</span>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto;padding:1px 7px" data-mkdel="${b.id}">✕</button>
+    </div>`).join('') || '<div class="muted">Кнопок пока нет</div>';
+}
+document.getElementById('ws-marks-manage').addEventListener('click', () => {
+  renderMarkButtonsList();
+  const sel = document.getElementById('mk-catalog');
+  sel.innerHTML = '<option value="">Глобальная</option>' + catalogsCache.map(c =>
+    `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  document.getElementById('mk-modal').classList.add('open');
+});
+document.getElementById('mk-add').addEventListener('click', async () => {
+  const label = document.getElementById('mk-label').value.trim();
+  if (!label) { toast('Укажите название кнопки'); return; }
+  const cat = document.getElementById('mk-catalog').value;
+  try {
+    await api('/docs/mark-buttons', {method:'POST',
+      json:{label, catalog_id: cat ? parseInt(cat,10) : null}});
+    document.getElementById('mk-label').value = '';
+    await loadMarkButtons(); renderMarkButtonsList();
+    toast('Кнопка добавлена');
+  } catch(e) { toast(e.message); }
+});
+document.getElementById('mk-list').addEventListener('click', async e => {
+  const b = e.target.closest('[data-mkdel]');
+  if (!b) return;
+  if (!confirm('Удалить кнопку и все её отметки?')) return;
+  try {
+    await api(`/docs/mark-buttons/${b.dataset.mkdel}`, {method:'DELETE'});
+    await loadMarkButtons(); renderMarkButtonsList();
+    if (wsFileId) selectFile(wsFileId, true);
+  } catch(err) { toast(err.message); }
+});
+
+/* ── Управление шаблонами анализа (админ) ── */
+function renderTplList() {
+  document.getElementById('tpl-list').innerHTML = analysisTemplates.map(t => `
+    <div style="padding:6px 0;border-bottom:1px dashed #eceff1">
+      <div style="display:flex;align-items:center;gap:8px">
+        <b style="font-size:12.5px">${esc(t.name)}</b>
+        <span class="muted" style="font-size:10.5px">
+          ${[t.find_dates&&'даты', t.find_signatures&&'подписи', t.find_seals&&'печати'].filter(Boolean).join(' · ') || 'без находок'}</span>
+        <button class="btn btn-danger btn-sm" style="margin-left:auto;padding:1px 7px" data-tpldel="${t.id}">✕</button>
+      </div>
+      ${t.system_prompt ? `<div class="muted" style="font-size:11px;white-space:pre-wrap">${esc(t.system_prompt)}</div>` : ''}
+    </div>`).join('') || '<div class="muted">Шаблонов пока нет</div>';
+}
+document.getElementById('an-templates-btn').addEventListener('click', () => {
+  document.getElementById('an-pop').classList.remove('open');
+  renderTplList();
+  document.getElementById('tpl-modal').classList.add('open');
+});
+document.getElementById('tpl-add').addEventListener('click', async () => {
+  const name = document.getElementById('tpl-name').value.trim();
+  if (!name) { toast('Укажите название шаблона'); return; }
+  try {
+    await api('/docs/analysis-templates', {method:'POST', json:{
+      name, system_prompt: document.getElementById('tpl-prompt').value,
+      find_dates: document.getElementById('tpl-dates').checked,
+      find_signatures: document.getElementById('tpl-sigs').checked,
+      find_seals: document.getElementById('tpl-seals').checked}});
+    document.getElementById('tpl-name').value = '';
+    document.getElementById('tpl-prompt').value = '';
+    await loadTemplates(); renderTplList();
+    toast('Шаблон создан');
+  } catch(e) { toast(e.message); }
+});
+document.getElementById('tpl-list').addEventListener('click', async e => {
+  const b = e.target.closest('[data-tpldel]');
+  if (!b) return;
+  if (!confirm('Удалить шаблон?')) return;
+  try {
+    await api(`/docs/analysis-templates/${b.dataset.tpldel}`, {method:'DELETE'});
+    await loadTemplates(); renderTplList();
+  } catch(err) { toast(err.message); }
 });
 
 /* ══ КАТАЛОГИ (админ) ══ */
@@ -730,6 +1331,7 @@ async function loadCatalogs() {
   let cats;
   try { cats = await api('/docs/catalogs?with_rules=1'); }
   catch(e) { document.getElementById('cat-list').innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+  catalogsCache = cats;
   document.getElementById('cat-list').innerHTML = cats.map(c => `
     <div class="card" data-cat="${c.id}">
       <div class="cat-hdr">
@@ -745,7 +1347,7 @@ async function loadCatalogs() {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px" class="cat-cols">
         <div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#546e7a;margin-bottom:6px">Правила маршрутизации</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#546e7a;margin-bottom:6px">Правила маршрутизации <span class="muted" style="text-transform:none;font-weight:400">(срабатывает первое совпадение)</span></div>
           ${(c.routing_rules || []).map(r => `
             <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dashed #eceff1">
               <span class="muted">${RULE_TYPES[r.rule_type] || esc(r.rule_type)}:</span>
@@ -757,8 +1359,9 @@ async function loadCatalogs() {
             <div><label>Тип</label><select data-rr="type" data-cat="${c.id}">
               <option value="extension">Расширение</option>
               <option value="keyword">Имя содержит</option>
-              <option value="filename">Маска имени</option></select></div>
-            <div><label>Шаблон</label><input data-rr="pattern" data-cat="${c.id}" placeholder="pdf / договор / *акт*.pdf"></div>
+              <option value="filename">Маска имени</option>
+              <option value="has_artifact">Находки содержат</option></select></div>
+            <div><label>Шаблон</label><input data-rr="pattern" data-cat="${c.id}" placeholder="pdf / договор / *акт*.pdf / подпись печать"></div>
             <div><button class="btn btn-grey btn-sm" data-act="addroute" data-id="${c.id}" style="height:31px">+ Добавить</button></div>
           </div>` : ''}
         </div>
@@ -829,7 +1432,7 @@ if (IS_ADMIN) {
 }
 
 /* ══ INIT ══ */
-getCsrf().then(loadPackages);
+loadPackages();
 </script>
 </body>
 </html>

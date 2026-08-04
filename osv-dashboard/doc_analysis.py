@@ -14,8 +14,9 @@ import threading
 import time
 
 from ai_client import call_ai_provider
-from database import (AiProvider, DocCheckResult, DocCheckRule, DocFile,
-                      DocFilePage, DocPackage, db)
+from database import (AiProvider, AnalysisTemplate, DocCheckResult,
+                      DocCheckRule, DocFile, DocFilePage, DocFinding,
+                      DocPackage, db)
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,18 @@ def get_local_provider() -> AiProvider:
     return provider
 
 
-def build_prompt(rules: list, pages: list) -> list:
-    """Собирает messages для ИИ из правил каталога и текста страниц.
+# Типы находок и их русские названия (для промпта)
+FINDING_TYPES = ('date', 'signature', 'seal')
+_FINDING_RU = {'date': 'даты подписания/составления документа',
+               'signature': 'подписи (упоминания «подпись», ФИО с должностью у подписи, м.п./роспись)',
+               'seal': 'печати и штампы (упоминания «м.п.», «печать», оттиски)'}
 
-    Промпт формируется динамически — правила задаёт администратор.
+
+def build_prompt(rules: list, pages: list, find_types=(), system_extra='') -> list:
+    """Собирает messages для ИИ: правила каталога + поиск находок.
+
+    Промпт формируется динамически — правила задаёт администратор,
+    типы находок (даты/подписи/печати) выбираются при запуске анализа.
     """
     rules_lines = []
     for i, rule in enumerate(rules, 1):
@@ -70,32 +79,60 @@ def build_prompt(rules: list, pages: list) -> list:
         text = (p.text or '')[:MAX_CHARS_PER_PAGE]
         pages_lines.append(f'--- Страница {p.page_num} ---\n{text or "(текст не извлечён)"}')
 
-    system_msg = (
-        'Ты эксперт по проверке документов. Тебе даны правила проверки и текст '
-        'страниц документа. Для КАЖДОГО правила определи статус:\n'
-        '  "ok" — требование выполнено (найдено подтверждение);\n'
-        '  "violation" — требование нарушено (найдено противоречие);\n'
-        '  "not_found" — на этих страницах нет информации для вывода.\n'
-        'Ответь СТРОГО валидным JSON-массивом без пояснений, формат:\n'
-        '[{"rule_id": <число>, "status": "ok|violation|not_found", '
-        '"details": "<краткое обоснование на русском>"}]'
-    )
-    user_msg = ('ПРАВИЛА ПРОВЕРКИ:\n' + '\n'.join(rules_lines)
-                + '\n\nТЕКСТ ДОКУМЕНТА:\n' + '\n\n'.join(pages_lines))
+    parts = ['Ты эксперт по проверке документов. Тебе дан текст страниц документа.']
+    if rules:
+        parts.append(
+            'Для КАЖДОГО правила проверки определи статус:\n'
+            '  "ok" — требование выполнено (найдено подтверждение);\n'
+            '  "violation" — требование нарушено (найдено противоречие);\n'
+            '  "not_found" — на этих страницах нет информации для вывода.')
+    if find_types:
+        ft_lines = '\n'.join(f'  "{t}" — {_FINDING_RU[t]}'
+                             for t in find_types if t in _FINDING_RU)
+        parts.append('Также найди на страницах реквизиты следующих типов:\n' + ft_lines +
+                     '\nДля каждой находки укажи тип, номер страницы, короткую цитату '
+                     'из текста (quote) и краткое пояснение (description).')
+    parts.append(
+        'Ответь СТРОГО валидным JSON-объектом без пояснений, формат:\n'
+        '{"rules": [{"rule_id": <число>, "status": "ok|violation|not_found", '
+        '"details": "<краткое обоснование на русском>"}], '
+        '"findings": [{"type": "date|signature|seal", "page": <число>, '
+        '"quote": "<цитата>", "description": "<пояснение>"}]}')
+    if system_extra:
+        parts.append('Дополнительные указания администратора:\n' + system_extra.strip())
+    system_msg = '\n'.join(parts)
+
+    user_parts = []
+    if rules:
+        user_parts.append('ПРАВИЛА ПРОВЕРКИ:\n' + '\n'.join(rules_lines))
+    user_parts.append('ТЕКСТ ДОКУМЕНТА:\n' + '\n\n'.join(pages_lines))
     return [{'role': 'system', 'content': system_msg},
-            {'role': 'user', 'content': user_msg}]
+            {'role': 'user', 'content': '\n\n'.join(user_parts)}]
 
 
-def _parse_ai_json(content: str) -> list:
-    """Лениво извлекает JSON-массив из ответа ИИ."""
+def _parse_ai_json(content: str) -> dict:
+    """Лениво извлекает JSON-объект (или массив правил) из ответа ИИ.
+
+    Возвращает dict {"rules": [...], "findings": [...]}."""
+    m = re.search(r'\{[\s\S]*\}', content)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, dict):
+                return {'rules': data.get('rules') if isinstance(data.get('rules'), list) else [],
+                        'findings': data.get('findings') if isinstance(data.get('findings'), list) else []}
+        except json.JSONDecodeError:
+            pass
+    # Обратная совместимость: некоторые модели вернут просто массив правил
     m = re.search(r'\[[\s\S]*\]', content)
-    if not m:
-        return []
-    try:
-        data = json.loads(m.group(0))
-        return data if isinstance(data, list) else []
-    except json.JSONDecodeError:
-        return []
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, list):
+                return {'rules': data, 'findings': []}
+        except json.JSONDecodeError:
+            pass
+    return {'rules': [], 'findings': []}
 
 
 def _call_with_retry(provider, api_key, messages) -> dict:
@@ -127,32 +164,37 @@ def _call_with_retry(provider, api_key, messages) -> dict:
 _STATUS_RANK = {'violation': 3, 'ok': 2, 'not_found': 1}
 
 
-def analyze_file(df: DocFile, provider, api_key) -> None:
-    """Проверяет один файл по активным правилам его каталога.
+def analyze_file(df: DocFile, provider, api_key, find_types=(),
+                 system_extra='') -> None:
+    """Проверяет один файл: правила каталога + поиск находок.
 
-    Результаты (по одному DocCheckResult на правило) перезаписываются.
+    Результаты (по одному DocCheckResult на правило) и находки перезаписываются.
     """
     rules = [r for r in (df.catalog.check_rules if df.catalog else [])
              if r.is_active]
-    if not rules:
-        return
-
     pages = (DocFilePage.query.filter_by(file_id=df.id)
              .order_by(DocFilePage.page_num).all())
-    if not pages:
+    if not pages or (not rules and not find_types):
+        df.analysis_status = 'done'
+        db.session.commit()
         return
 
-    # Перезапуск проверки: старые результаты файла удаляем
+    # Перезапуск проверки: старые результаты и находки файла удаляем
     DocCheckResult.query.filter_by(file_id=df.id).delete()
+    DocFinding.query.filter_by(file_id=df.id).delete()
 
     # Агрегация: violation > ok > not_found по всем chunk'ам
     agg: dict = {r.id: {'status': 'not_found', 'details': []} for r in rules}
+    max_page = pages[-1].page_num
 
     for i in range(0, len(pages), PAGES_PER_CHUNK):
         chunk = pages[i:i + PAGES_PER_CHUNK]
-        messages = build_prompt(rules, chunk)
+        messages = build_prompt(rules, chunk, find_types, system_extra)
         result = _call_with_retry(provider, api_key, messages)
-        for item in _parse_ai_json(result['content']):
+        parsed = _parse_ai_json(result['content'])
+        for item in parsed['rules']:
+            if not isinstance(item, dict):
+                continue
             rid = item.get('rule_id')
             status = item.get('status')
             if rid not in agg or status not in _STATUS_RANK:
@@ -165,6 +207,23 @@ def analyze_file(df: DocFile, provider, api_key) -> None:
                 pages_lbl = f'стр. {chunk[0].page_num}–{chunk[-1].page_num}' \
                     if len(chunk) > 1 else f'стр. {chunk[0].page_num}'
                 cur['details'].append(f'[{pages_lbl}] {det}')
+        chunk_pages = {p.page_num for p in chunk}
+        for item in parsed['findings']:
+            if not isinstance(item, dict):
+                continue
+            ftype = item.get('type')
+            if ftype not in find_types:
+                continue
+            try:
+                page = int(item.get('page') or chunk[0].page_num)
+            except (TypeError, ValueError):
+                page = chunk[0].page_num
+            if page not in chunk_pages:
+                page = min(max(1, page), max_page)
+            db.session.add(DocFinding(
+                file_id=df.id, page_num=page, ftype=ftype,
+                snippet=str(item.get('quote') or '')[:1000],
+                description=str(item.get('description') or '')[:1000]))
 
     for rule in rules:
         a = agg[rule.id]
@@ -174,11 +233,18 @@ def analyze_file(df: DocFile, provider, api_key) -> None:
             status=a['status'],
             details=json.dumps({'notes': a['details']}, ensure_ascii=False),
         ))
+    df.analysis_status = 'done'
     db.session.commit()
 
 
-def analyze_package(app, package_id: int) -> None:
-    """Фоновая проверка всех готовых файлов пакета. Статус — в БД."""
+DEFAULT_OPTIONS = dict(find_dates=True, find_signatures=True, find_seals=True,
+                       skip_analyzed=False, template_id=None, file_ids=None)
+
+
+def analyze_package(app, package_id: int, options: dict | None = None) -> None:
+    """Фоновая проверка файлов пакета (все или подмножество). Статус — в БД."""
+    opts = dict(DEFAULT_OPTIONS)
+    opts.update(options or {})
     with _ANALYZE_SEMAPHORE, app.app_context():
         pkg = db.session.get(DocPackage, package_id)
         if pkg is None:
@@ -188,14 +254,36 @@ def analyze_package(app, package_id: int) -> None:
             from app import decrypt_value
             api_key = decrypt_value(provider.api_key) if provider.api_key else ''
 
+            # Шаблон анализа: системный промпт + типы находок
+            system_extra = ''
+            find_types = tuple(t for t, k in
+                               (('date', 'find_dates'), ('signature', 'find_signatures'),
+                                ('seal', 'find_seals')) if opts.get(k))
+            if opts.get('template_id'):
+                tpl = db.session.get(AnalysisTemplate, opts['template_id'])
+                if tpl is not None:
+                    system_extra = tpl.system_prompt or ''
+                    find_types = tuple(t for t, on in
+                                       (('date', tpl.find_dates),
+                                        ('signature', tpl.find_signatures),
+                                        ('seal', tpl.find_seals)) if on)
+
             files = [f for f in pkg.files if f.status == 'ready']
+            if opts.get('file_ids'):
+                wanted = set(opts['file_ids'])
+                files = [f for f in files if f.id in wanted]
+            if opts.get('skip_analyzed'):
+                files = [f for f in files if f.analysis_status != 'done']
+
+            for f in files:
+                f.analysis_status = 'processing'
             pkg.analysis_total = len(files)
             pkg.analysis_done = 0
             db.session.commit()
 
             for df in files:
                 try:
-                    analyze_file(df, provider, api_key)
+                    analyze_file(df, provider, api_key, find_types, system_extra)
                 except Exception as exc:
                     logger.exception('analysis failed for file %s', df.id)
                     db.session.rollback()
@@ -205,6 +293,9 @@ def analyze_package(app, package_id: int) -> None:
                         file_id=df.id, check_rule_id=None, status='error',
                         details=json.dumps({'error': str(exc)[:500]},
                                            ensure_ascii=False)))
+                    df2 = db.session.get(DocFile, df.id)
+                    if df2 is not None:
+                        df2.analysis_status = 'error'
                 finally:
                     pkg.analysis_done += 1
                     db.session.commit()

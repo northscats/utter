@@ -2415,6 +2415,7 @@ def init_db():
         _add_missing('doc_files', [
             ('approved',    "BOOLEAN NOT NULL DEFAULT FALSE"),
             ('approved_at', "TIMESTAMP WITH TIME ZONE"),
+            ('analysis_status', "VARCHAR(20) NOT NULL DEFAULT 'none'"),
         ])
         _add_missing('doc_packages', [
             ('analysis_status', "VARCHAR(20) NOT NULL DEFAULT 'none'"),

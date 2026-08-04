@@ -250,9 +250,16 @@ class DocFile(db.Model):
     approved    = db.Column(db.Boolean, nullable=False, default=False)
     approved_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
+    # ИИ-анализ файла: none | processing | done | error
+    analysis_status = db.Column(db.String(20), nullable=False, default='none')
+
     catalog = db.relationship('DocCatalog', backref='files', lazy=True)
     pages   = db.relationship('DocFilePage', backref='file', lazy=True,
                               cascade='all, delete-orphan')
+    findings = db.relationship('DocFinding', backref='file', lazy=True,
+                               cascade='all, delete-orphan')
+    marks    = db.relationship('DocFileMark', backref='file', lazy=True,
+                               cascade='all, delete-orphan')
 
 
 class DocFilePage(db.Model):
@@ -287,6 +294,63 @@ class DocCheckResult(db.Model):
         backref=db.backref('check_results', cascade='all, delete-orphan', lazy=True),
         lazy=True)
     check_rule = db.relationship('DocCheckRule', lazy=True)
+
+
+class DocFinding(db.Model):
+    """Находка ИИ на странице файла: дата / подпись / печать."""
+    __tablename__ = 'doc_findings'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    file_id     = db.Column(db.Integer, db.ForeignKey('doc_files.id'), nullable=False)
+    page_num    = db.Column(db.Integer, nullable=False, default=1)
+    ftype       = db.Column(db.String(20), nullable=False)  # 'date'|'signature'|'seal'
+    snippet     = db.Column(db.Text, default='')            # цитата из текста
+    description = db.Column(db.Text, default='')            # пояснение ИИ
+    created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class DocMarkButton(db.Model):
+    """Настраиваемая кнопка ручной отметки (например «Нет подписи»).
+
+    catalog_id = NULL — глобальная кнопка, иначе действует для файлов каталога."""
+    __tablename__ = 'doc_mark_buttons'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    key        = db.Column(db.String(100), nullable=False, unique=True)
+    label      = db.Column(db.String(255), nullable=False)
+    catalog_id = db.Column(db.Integer, db.ForeignKey('doc_catalogs.id'), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    catalog = db.relationship('DocCatalog', lazy=True)
+
+
+class DocFileMark(db.Model):
+    """Ручная отметка пользователя на странице файла."""
+    __tablename__ = 'doc_file_marks'
+    __table_args__ = (
+        db.UniqueConstraint('file_id', 'page_num', 'button_key',
+                            name='uq_docmark_file_page_key'),
+    )
+
+    id         = db.Column(db.Integer, primary_key=True)
+    file_id    = db.Column(db.Integer, db.ForeignKey('doc_files.id'), nullable=False)
+    page_num   = db.Column(db.Integer, nullable=False, default=1)
+    button_key = db.Column(db.String(100), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class AnalysisTemplate(db.Model):
+    """Шаблон параметров ИИ-анализа (системный промпт + типы находок)."""
+    __tablename__ = 'doc_analysis_templates'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    name            = db.Column(db.String(255), nullable=False)
+    system_prompt   = db.Column(db.Text, default='')
+    find_dates      = db.Column(db.Boolean, nullable=False, default=True)
+    find_signatures = db.Column(db.Boolean, nullable=False, default=True)
+    find_seals      = db.Column(db.Boolean, nullable=False, default=True)
+    created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
 class DailyRow(db.Model):

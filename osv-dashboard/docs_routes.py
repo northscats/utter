@@ -10,7 +10,8 @@ import time
 from flask import Blueprint, abort, current_app, jsonify, request, send_file
 from flask_login import current_user, login_required
 
-from database import (DocCatalog, DocCheckRule, DocFile, DocFilePage,
+from database import (AnalysisTemplate, DocCatalog, DocCheckRule, DocFile,
+                      DocFileMark, DocFilePage, DocFinding, DocMarkButton,
                       DocPackage, DocRoutingRule, db)
 from doc_pipeline import (PackageValidationError, get_unrouted_catalog,
                           process_package, validate_zip)
@@ -26,7 +27,7 @@ def docs_ui():
     from flask_wtf.csrf import generate_csrf
     return render_template('docs_check.html', csrf_token=generate_csrf())
 
-RULE_TYPES = ('filename', 'keyword', 'extension')
+RULE_TYPES = ('filename', 'keyword', 'extension', 'has_artifact')
 
 
 def _admin_required():
@@ -341,10 +342,16 @@ def file_detail(file_id):
         id=f.id, orig_name=f.orig_name, status=f.status,
         error_text=f.error_text or '', pages_count=f.pages_count,
         approved=bool(f.approved),
+        analysis_status=f.analysis_status or 'none',
         catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
         pages=[dict(page_num=p.page_num, text=p.text or '',
                     has_image=bool(p.image_path), ocr_used=p.ocr_used)
                for p in pages],
+        findings=[dict(id=fi.id, page=fi.page_num, type=fi.ftype,
+                       quote=fi.snippet or '', description=fi.description or '')
+                  for fi in sorted(f.findings, key=lambda x: (x.page_num, x.id))],
+        marks=[dict(id=m.id, page=m.page_num, button_key=m.button_key)
+               for m in sorted(f.marks, key=lambda x: (x.page_num, x.id))],
     )
 
 
@@ -400,7 +407,12 @@ def page_image(file_id, page_num):
 @docs_bp.route('/packages/<int:pkg_id>/analyze', methods=['POST'])
 @login_required
 def package_analyze(pkg_id):
-    """Запуск фоновой ИИ-проверки всех готовых файлов пакета."""
+    """Запуск фоновой ИИ-проверки файлов пакета (всех или подмножества).
+
+    Параметры (JSON, все необязательны): find_dates, find_signatures,
+    find_seals (bool), skip_analyzed (bool), template_id (int),
+    file_ids (list[int]) — только выбранные файлы.
+    """
     from doc_analysis import ProviderNotLocalError, analyze_package, get_local_provider
 
     pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
@@ -408,6 +420,33 @@ def package_analyze(pkg_id):
         return jsonify(error='Пакет ещё не обработан — дождитесь завершения'), 400
     if pkg.analysis_status == 'running':
         return jsonify(error='Проверка уже выполняется'), 409
+
+    data = request.get_json(silent=True) or {}
+    options = {}
+    for k in ('find_dates', 'find_signatures', 'find_seals', 'skip_analyzed'):
+        if k in data:
+            if not isinstance(data[k], bool):
+                return jsonify(error=f'{k} должен быть булевым значением'), 400
+            options[k] = data[k]
+    if data.get('template_id') is not None:
+        try:
+            tid = int(data['template_id'])
+        except (TypeError, ValueError):
+            return jsonify(error='template_id должен быть числом'), 400
+        if db.session.get(AnalysisTemplate, tid) is None:
+            return jsonify(error='Шаблон анализа не найден'), 404
+        options['template_id'] = tid
+    if data.get('file_ids'):
+        if not isinstance(data['file_ids'], list):
+            return jsonify(error='file_ids должен быть списком'), 400
+        try:
+            ids = {int(x) for x in data['file_ids']}
+        except (TypeError, ValueError):
+            return jsonify(error='file_ids должен содержать числа'), 400
+        own = {f.id for f in pkg.files}
+        options['file_ids'] = list(ids & own)
+        if not options['file_ids']:
+            return jsonify(error='Указанные файлы не найдены в пакете'), 400
 
     # ИБ: проверяем локальность провайдера ДО запуска фоновой работы
     try:
@@ -422,7 +461,7 @@ def package_analyze(pkg_id):
     db.session.commit()
 
     app_obj = current_app._get_current_object()
-    threading.Thread(target=analyze_package, args=(app_obj, pkg.id),
+    threading.Thread(target=analyze_package, args=(app_obj, pkg.id, options),
                      daemon=True).start()
     return jsonify(_package_dict(pkg)), 202
 
@@ -446,11 +485,18 @@ def _results_for_package(pkg):
                 status=r.status,
                 details=det,
             ))
+        fcounts = {'date': 0, 'signature': 0, 'seal': 0}
+        for fi in f.findings:
+            if fi.ftype in fcounts:
+                fcounts[fi.ftype] += 1
         out.append(dict(
             file_id=f.id, orig_name=f.orig_name, file_status=f.status,
             pages_count=f.pages_count, approved=bool(f.approved),
+            analysis_status=f.analysis_status or 'none',
             catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
             results=rows,
+            findings_count=fcounts,
+            marks=[dict(page=m.page_num, button_key=m.button_key) for m in f.marks],
         ))
     return out
 
@@ -547,3 +593,427 @@ def package_export(pkg_id):
         as_attachment=True,
         download_name=f'Проверка_{safe_title}.xlsx',
     )
+
+
+# ---------------------------------------------------------------------------
+# Кнопки ручных отметок
+# ---------------------------------------------------------------------------
+def _slug_key(label: str) -> str:
+    """Ключ кнопки из названия: транслитерация + нормализация."""
+    tr = {'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh',
+          'з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o',
+          'п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'h','ц':'c',
+          'ч':'ch','ш':'sh','щ':'sch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu',
+          'я':'ya'}
+    out = []
+    for ch in (label or '').lower():
+        if ch in tr:
+            out.append(tr[ch])
+        elif ch.isalnum() and ch.isascii():
+            out.append(ch)
+        else:
+            out.append('_')
+    key = '_'.join(x for x in ''.join(out).split('_') if x)
+    return key[:80] or 'btn'
+
+
+def _mark_button_dict(b):
+    return dict(id=b.id, key=b.key, label=b.label,
+                catalog=dict(id=b.catalog.id, name=b.catalog.name)
+                if b.catalog else None)
+
+
+@docs_bp.route('/mark-buttons')
+@login_required
+def mark_buttons_list():
+    btns = DocMarkButton.query.order_by(DocMarkButton.id).all()
+    return jsonify([_mark_button_dict(b) for b in btns])
+
+
+@docs_bp.route('/mark-buttons', methods=['POST'])
+@login_required
+def mark_button_create():
+    _admin_required()
+    data = request.get_json(silent=True) or {}
+    label = (data.get('label') or '').strip()
+    if not label:
+        return jsonify(error='Название кнопки обязательно'), 400
+    catalog_id = None
+    if data.get('catalog_id') is not None:
+        cat = db.session.get(DocCatalog, int(data['catalog_id'] or 0))
+        if cat is None:
+            return jsonify(error='Каталог не найден'), 404
+        catalog_id = cat.id
+    key = base = _slug_key(label)
+    n = 1
+    while DocMarkButton.query.filter_by(key=key).first() is not None:
+        n += 1
+        key = f'{base}_{n}'
+    btn = DocMarkButton(key=key, label=label[:255], catalog_id=catalog_id)
+    db.session.add(btn)
+    db.session.commit()
+    return jsonify(_mark_button_dict(btn)), 201
+
+
+@docs_bp.route('/mark-buttons/<int:btn_id>', methods=['DELETE'])
+@login_required
+def mark_button_delete(btn_id):
+    _admin_required()
+    btn = db.session.get(DocMarkButton, btn_id) or abort(404)
+    # Отметки, сделанные этой кнопкой, удаляем вместе с ней
+    DocFileMark.query.filter_by(button_key=btn.key).delete()
+    db.session.delete(btn)
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@docs_bp.route('/files/<int:file_id>/marks/toggle', methods=['POST'])
+@login_required
+def file_mark_toggle(file_id):
+    """Поставить/снять ручную отметку на странице файла."""
+    f = _file_access(db.session.get(DocFile, file_id) or abort(404))
+    data = request.get_json(silent=True) or {}
+    button_key = (data.get('button_key') or '').strip()
+    if not button_key or DocMarkButton.query.filter_by(key=button_key).first() is None:
+        return jsonify(error='Кнопка отметки не найдена'), 404
+    try:
+        page = int(data.get('page') or 0)
+    except (TypeError, ValueError):
+        return jsonify(error='page должен быть числом'), 400
+    if page < 1 or (f.pages_count and page > f.pages_count):
+        return jsonify(error='Недопустимый номер страницы'), 400
+    existing = DocFileMark.query.filter_by(
+        file_id=f.id, page_num=page, button_key=button_key).first()
+    if existing is not None:
+        db.session.delete(existing)
+        db.session.commit()
+        return jsonify(ok=True, active=False)
+    db.session.add(DocFileMark(file_id=f.id, page_num=page,
+                               button_key=button_key,
+                               created_by=current_user.id))
+    db.session.commit()
+    return jsonify(ok=True, active=True)
+
+
+# ---------------------------------------------------------------------------
+# Шаблоны анализа
+# ---------------------------------------------------------------------------
+def _template_dict(t):
+    return dict(id=t.id, name=t.name, system_prompt=t.system_prompt or '',
+                find_dates=t.find_dates, find_signatures=t.find_signatures,
+                find_seals=t.find_seals)
+
+
+@docs_bp.route('/analysis-templates')
+@login_required
+def templates_list():
+    tpls = AnalysisTemplate.query.order_by(AnalysisTemplate.id).all()
+    return jsonify([_template_dict(t) for t in tpls])
+
+
+@docs_bp.route('/analysis-templates', methods=['POST'])
+@login_required
+def template_create():
+    _admin_required()
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify(error='Название шаблона обязательно'), 400
+    tpl = AnalysisTemplate(
+        name=name[:255],
+        system_prompt=(data.get('system_prompt') or '')[:10000],
+        find_dates=bool(data.get('find_dates', True)),
+        find_signatures=bool(data.get('find_signatures', True)),
+        find_seals=bool(data.get('find_seals', True)))
+    db.session.add(tpl)
+    db.session.commit()
+    return jsonify(_template_dict(tpl)), 201
+
+
+@docs_bp.route('/analysis-templates/<int:tpl_id>', methods=['PUT'])
+@login_required
+def template_update(tpl_id):
+    _admin_required()
+    tpl = db.session.get(AnalysisTemplate, tpl_id) or abort(404)
+    data = request.get_json(silent=True) or {}
+    if 'name' in data and (data['name'] or '').strip():
+        tpl.name = data['name'].strip()[:255]
+    if 'system_prompt' in data:
+        tpl.system_prompt = (data['system_prompt'] or '')[:10000]
+    for k in ('find_dates', 'find_signatures', 'find_seals'):
+        if k in data:
+            setattr(tpl, k, bool(data[k]))
+    db.session.commit()
+    return jsonify(_template_dict(tpl))
+
+
+@docs_bp.route('/analysis-templates/<int:tpl_id>', methods=['DELETE'])
+@login_required
+def template_delete(tpl_id):
+    _admin_required()
+    tpl = db.session.get(AnalysisTemplate, tpl_id) or abort(404)
+    db.session.delete(tpl)
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Дораспределение файлов по правилам
+# ---------------------------------------------------------------------------
+@docs_bp.route('/packages/<int:pkg_id>/route-all', methods=['POST'])
+@login_required
+def package_route_all(pkg_id):
+    """Повторно распределяет файлы пакета по правилам маршрутизации.
+
+    Работают и правила по находкам анализа (has_artifact) — после ИИ-проверки.
+    Перемещаются только файлы из системного каталога «Не распределено»."""
+    from doc_pipeline import get_unrouted_catalog, route_file
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    unrouted = get_unrouted_catalog()
+    routed = 0
+    for f in pkg.files:
+        if f.catalog_id != unrouted.id:
+            continue
+        cat = route_file(f.orig_name, f)
+        if cat is not None:
+            f.catalog_id = cat.id
+            routed += 1
+    db.session.commit()
+    return jsonify(ok=True, routed=routed)
+
+
+# ---------------------------------------------------------------------------
+# Отчёт (JSON + XLSX) — по пакету, каталогу или файлу
+# ---------------------------------------------------------------------------
+def _report_rows(pkg, catalog_id=None, file_id=None):
+    """Строки отчёта: файл, каталог, согласование, счётчики находок, отметки."""
+    btn_labels = {b.key: b.label for b in DocMarkButton.query.all()}
+    rows = []
+    for f in sorted(pkg.files, key=lambda x: ((x.catalog.name if x.catalog else ''), x.orig_name)):
+        if catalog_id is not None and f.catalog_id != catalog_id:
+            continue
+        if file_id is not None and f.id != file_id:
+            continue
+        counts = {'date': 0, 'signature': 0, 'seal': 0}
+        for fi in f.findings:
+            if fi.ftype in counts:
+                counts[fi.ftype] += 1
+        rows.append(dict(
+            file_id=f.id, filename=f.orig_name,
+            catalog=f.catalog.name if f.catalog else '—',
+            approved=bool(f.approved),
+            approved_at=f.approved_at.isoformat() if f.approved_at else None,
+            date_count=counts['date'], signature_count=counts['signature'],
+            seal_count=counts['seal'],
+            analysis_status=f.analysis_status or 'none',
+            file_status=f.status,
+            marks=[dict(page=m.page_num,
+                        label=btn_labels.get(m.button_key, m.button_key))
+                   for m in sorted(f.marks, key=lambda x: (x.page_num, x.id))],
+        ))
+    return rows
+
+
+@docs_bp.route('/report')
+@login_required
+def report_json():
+    pkg_id = request.args.get('package_id', type=int)
+    if not pkg_id:
+        return jsonify(error='package_id обязателен'), 400
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    rows = _report_rows(pkg,
+                        catalog_id=request.args.get('catalog_id', type=int),
+                        file_id=request.args.get('file_id', type=int))
+    return jsonify(
+        package=dict(id=pkg.id, title=pkg.title),
+        total=len(rows),
+        approved=sum(1 for r in rows if r['approved']),
+        seal_total=sum(r['seal_count'] for r in rows),
+        signature_total=sum(r['signature_count'] for r in rows),
+        date_total=sum(r['date_count'] for r in rows),
+        rows=rows)
+
+
+_AN_FILE_LABELS = {'none': '—', 'processing': 'выполняется',
+                   'done': 'завершён', 'error': 'ошибка'}
+
+
+@docs_bp.route('/report/export')
+@login_required
+def report_export():
+    """XLSX-отчёт: файлы, согласование, находки, отметки, итоги по каталогам."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    pkg_id = request.args.get('package_id', type=int)
+    if not pkg_id:
+        abort(400)
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    rows = _report_rows(pkg,
+                        catalog_id=request.args.get('catalog_id', type=int),
+                        file_id=request.args.get('file_id', type=int))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Отчёт'
+    headers = ['№', 'Файл', 'Каталог', 'Согласован', 'Печатей', 'Подписей',
+               'Дат', 'Отметки', 'Статус анализа']
+    ws.append(headers)
+    hdr_fill = PatternFill('solid', fgColor='1F4E79')
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = hdr_fill
+
+    sec_fill = PatternFill('solid', fgColor='DCE6F1')
+    # Группировка по каталогам с промежуточными итогами
+    by_cat = {}
+    for r in rows:
+        by_cat.setdefault(r['catalog'], []).append(r)
+    n = 0
+    for cat_name in sorted(by_cat):
+        crows = by_cat[cat_name]
+        ws.append([f'{cat_name} — файлов: {len(crows)}, '
+                   f'согласовано: {sum(1 for x in crows if x["approved"])}'])
+        ws.merge_cells(start_row=ws.max_row, start_column=1,
+                       end_row=ws.max_row, end_column=len(headers))
+        ws.cell(row=ws.max_row, column=1).fill = sec_fill
+        ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+        for r in crows:
+            n += 1
+            marks_txt = '; '.join(f'{m["label"]} (стр. {m["page"]})'
+                                  for m in r['marks'])
+            ws.append([n, _xlsx_safe(r['filename']), _xlsx_safe(r['catalog']),
+                       'Да' if r['approved'] else 'Нет',
+                       r['seal_count'], r['signature_count'], r['date_count'],
+                       _xlsx_safe(marks_txt),
+                       _AN_FILE_LABELS.get(r['analysis_status'],
+                                           r['analysis_status'])])
+    ws.append([])
+    ws.append(['Итого', f'файлов: {len(rows)}', '',
+               f'{sum(1 for r in rows if r["approved"])}/{len(rows)}',
+               sum(r['seal_count'] for r in rows),
+               sum(r['signature_count'] for r in rows),
+               sum(r['date_count'] for r in rows), '', ''])
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
+
+    widths = [5, 45, 22, 12, 10, 10, 8, 45, 16]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+        for row in ws.iter_rows(min_col=i, max_col=i):
+            for cell in row:
+                cell.alignment = Alignment(vertical='top', wrap_text=(i in (2, 8)))
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe_title = (pkg.title or f'package_{pkg.id}')[:60]
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'Отчёт_{safe_title}.xlsx')
+
+
+# ---------------------------------------------------------------------------
+# Чанковая загрузка больших ZIP (init → chunk → finalize)
+# ---------------------------------------------------------------------------
+MAX_UPLOAD_CHUNKS = 200          # 200 × 5 МБ = 1 ГБ максимум
+CHUNK_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _upload_tmp_dir():
+    d = os.path.join(current_app.config['DOCS_STORAGE'], '_uploads')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+@docs_bp.route('/uploads/init', methods=['POST'])
+@login_required
+def upload_init():
+    import secrets
+    token = secrets.token_urlsafe(24)
+    path = os.path.join(_upload_tmp_dir(), f'{current_user.id}_{token}.part')
+    open(path, 'wb').close()
+    return jsonify(token=token)
+
+
+def _upload_part_path(token: str) -> str:
+    """Путь part-файла: токен валидируется, привязан к пользователю."""
+    import re as _re
+    if not _re.fullmatch(r'[A-Za-z0-9_-]{16,64}', token or ''):
+        abort(400)
+    return os.path.join(_upload_tmp_dir(), f'{current_user.id}_{token}.part')
+
+
+@docs_bp.route('/uploads/<token>/chunk', methods=['POST'])
+@login_required
+def upload_chunk(token):
+    path = _upload_part_path(token)
+    if not os.path.isfile(path):
+        return jsonify(error='Загрузка не найдена или устарела'), 404
+    chunk = request.get_data()
+    if not chunk:
+        return jsonify(error='Пустой фрагмент'), 400
+    if len(chunk) > CHUNK_MAX_BYTES:
+        return jsonify(error='Фрагмент больше 8 МБ'), 400
+    if os.path.getsize(path) + len(chunk) > MAX_UPLOAD_CHUNKS * CHUNK_MAX_BYTES:
+        os.remove(path)
+        return jsonify(error='Превышен максимальный размер загрузки'), 400
+    with open(path, 'ab') as fh:
+        fh.write(chunk)
+    return jsonify(ok=True, size=os.path.getsize(path))
+
+
+@docs_bp.route('/uploads/<token>/finalize', methods=['POST'])
+@login_required
+def upload_finalize(token):
+    """Завершает чанковую загрузку и создаёт пакет (как package_create)."""
+    import shutil
+    path = _upload_part_path(token)
+    if not os.path.isfile(path) or os.path.getsize(path) == 0:
+        return jsonify(error='Загрузка не найдена или пуста'), 404
+    data = request.get_json(silent=True) or {}
+    filename = os.path.basename((data.get('filename') or 'archive.zip'))
+    if not filename.lower().endswith('.zip'):
+        os.remove(path)
+        return jsonify(error='Ожидается ZIP-архив (.zip)'), 400
+
+    storage_root = current_app.config['DOCS_STORAGE']
+    ts = time.strftime('%Y%m%d_%H%M%S')
+    pkg = DocPackage(
+        title=(data.get('title') or '').strip()[:255]
+              or os.path.splitext(filename)[0][:255],
+        uploaded_by=current_user.id,
+        zip_filename=filename[:500],
+        status='pending')
+    db.session.add(pkg)
+    db.session.commit()
+
+    pkg_dir = os.path.join(storage_root, str(pkg.id))
+    zip_path = os.path.join(pkg_dir, f'archive_{ts}.zip')
+    try:
+        os.makedirs(pkg_dir, exist_ok=True)
+        shutil.move(path, zip_path)
+        validate_zip(zip_path)
+    except PackageValidationError as ve:
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+        pkg.status = 'error'
+        pkg.error_text = str(ve)
+        db.session.commit()
+        return jsonify(_package_dict(pkg)), 400
+    except Exception:
+        shutil.rmtree(pkg_dir, ignore_errors=True)
+        if os.path.isfile(path):
+            os.remove(path)
+        pkg.status = 'error'
+        pkg.error_text = 'Не удалось сохранить архив'
+        db.session.commit()
+        return jsonify(error='Не удалось сохранить архив'), 500
+
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=process_package,
+        args=(app_obj, pkg.id, zip_path, storage_root),
+        daemon=True, name=f'docpkg-{pkg.id}').start()
+    return jsonify(_package_dict(pkg)), 201

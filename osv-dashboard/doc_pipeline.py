@@ -59,7 +59,10 @@ def recover_stale_packages():
         pkg.analysis_status = 'error'
         pkg.analysis_error = ('Проверка прервана перезапуском сервера. '
                               'Запустите проверку повторно.')
-    if stale or stale_an:
+    stale_files = DocFile.query.filter_by(analysis_status='processing').all()
+    for f in stale_files:
+        f.analysis_status = 'error'
+    if stale or stale_an or stale_files:
         db.session.commit()
         logger.warning('recover_stale_packages: обработка=%d, проверка=%d',
                        len(stale), len(stale_an))
@@ -165,8 +168,13 @@ def get_unrouted_catalog() -> DocCatalog:
     return cat
 
 
-def route_file(orig_name: str) -> DocCatalog | None:
-    """Подбирает каталог для файла по правилам. None — не распределён."""
+def route_file(orig_name: str, doc_file: DocFile | None = None) -> DocCatalog | None:
+    """Подбирает каталог для файла по правилам. None — не распределён.
+
+    Срабатывает первое совпадение (priority, id). Тип «has_artifact»
+    сравнивает ключевые слова с находками ИИ — работает только когда
+    передан doc_file с выполненным анализом (кнопка «Распределить все»).
+    """
     name_lower = orig_name.lower()
     ext = os.path.splitext(name_lower)[1].lstrip('.')
     rules = (DocRoutingRule.query
@@ -174,6 +182,7 @@ def route_file(orig_name: str) -> DocCatalog | None:
              .filter(DocCatalog.is_system.is_(False))
              .order_by(DocRoutingRule.priority, DocRoutingRule.id)
              .all())
+    findings_text = None
     for rule in rules:
         pattern = (rule.pattern or '').strip().lower()
         if not pattern:
@@ -187,6 +196,14 @@ def route_file(orig_name: str) -> DocCatalog | None:
                 return rule.catalog
         elif rule.rule_type == 'extension':
             if ext == pattern.lstrip('.'):
+                return rule.catalog
+        elif rule.rule_type == 'has_artifact' and doc_file is not None:
+            if findings_text is None:
+                findings_text = ' '.join(
+                    f'{f.snippet or ""} {f.description or ""}'
+                    for f in doc_file.findings).lower()
+            words = [w for w in pattern.split() if w]
+            if findings_text and words and any(w in findings_text for w in words):
                 return rule.catalog
     return None
 
