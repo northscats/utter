@@ -168,12 +168,17 @@ def get_unrouted_catalog() -> DocCatalog:
     return cat
 
 
+def _norm_text(s: str) -> str:
+    """Нижний регистр + схлопывание любых пробелов/переносов в один пробел."""
+    return ' '.join((s or '').lower().split())
+
+
 def route_file(orig_name: str, doc_file: DocFile | None = None) -> DocCatalog | None:
     """Подбирает каталог для файла по правилам. None — не распределён.
 
     Срабатывает первое совпадение (priority, id). Тип «has_artifact»
-    сравнивает ключевые слова с находками ИИ — работает только когда
-    передан doc_file с выполненным анализом (кнопка «Распределить все»).
+    ищет целую фразу в извлечённом тексте страниц (OCR) и находках ИИ —
+    работает, когда передан doc_file с извлечёнными страницами.
     """
     name_lower = orig_name.lower()
     ext = os.path.splitext(name_lower)[1].lstrip('.')
@@ -199,11 +204,12 @@ def route_file(orig_name: str, doc_file: DocFile | None = None) -> DocCatalog | 
                 return rule.catalog
         elif rule.rule_type == 'has_artifact' and doc_file is not None:
             if findings_text is None:
-                findings_text = ' '.join(
-                    f'{f.snippet or ""} {f.description or ""}'
-                    for f in doc_file.findings).lower()
-            words = [w for w in pattern.split() if w]
-            if findings_text and words and any(w in findings_text for w in words):
+                parts = [f'{p.text or ""}' for p in doc_file.pages]
+                parts += [f'{f.snippet or ""} {f.description or ""}'
+                          for f in doc_file.findings]
+                findings_text = _norm_text(' '.join(parts))
+            phrase = _norm_text(pattern)
+            if findings_text and phrase and phrase in findings_text:
                 return rule.catalog
     return None
 
@@ -308,6 +314,13 @@ def process_package(app, package_id: int, zip_path: str, storage_root: str):
                         ))
                     df.pages_count = n_pages
                     df.status = 'ready'
+                    # Дораспределение по тексту: текст уже извлечён,
+                    # правила «Текст содержит» теперь могут сработать
+                    if df.catalog_id in (None, unrouted.id):
+                        db.session.flush()
+                        cat2 = route_file(df.orig_name, df)
+                        if cat2 is not None:
+                            df.catalog_id = cat2.id
                 except Exception as exc:
                     logger.exception('processing failed for file %s', df.orig_name)
                     df.status = 'error'

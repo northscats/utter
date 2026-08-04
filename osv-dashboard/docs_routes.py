@@ -765,14 +765,15 @@ def template_delete(tpl_id):
 def package_route_all(pkg_id):
     """Повторно распределяет файлы пакета по правилам маршрутизации.
 
-    Работают и правила по находкам анализа (has_artifact) — после ИИ-проверки.
-    Перемещаются только файлы из системного каталога «Не распределено»."""
+    Работают и правила по тексту документа (has_artifact) — фраза ищется
+    в извлечённом OCR-тексте страниц. Перемещаются файлы из системного
+    каталога «Не распределено» и файлы вовсе без каталога."""
     from doc_pipeline import get_unrouted_catalog, route_file
     pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
     unrouted = get_unrouted_catalog()
     routed = 0
     for f in pkg.files:
-        if f.catalog_id != unrouted.id:
+        if f.catalog_id not in (None, unrouted.id):
             continue
         cat = route_file(f.orig_name, f)
         if cat is not None:

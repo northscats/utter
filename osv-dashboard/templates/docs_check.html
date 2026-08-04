@@ -534,7 +534,7 @@ const STATUS_L = { ok:['ОК','b-ok'], violation:['Нарушение','b-viol']
 const AN_L = { none:['не запускалась','b-err'], running:['выполняется','b-run'],
                done:['завершена','b-done'], error:['ошибка','b-viol'] };
 const RULE_TYPES = { extension:'Расширение', keyword:'Имя содержит',
-                     filename:'Маска имени', has_artifact:'Находки содержат' };
+                     filename:'Маска имени', has_artifact:'Текст содержит' };
 const FTYPES = {
   date:      { label:'Даты',    single:'Дата',    color:'var(--f-date)' },
   signature: { label:'Подписи', single:'Подпись', color:'var(--f-sig)'  },
@@ -1436,7 +1436,7 @@ async function loadCatalogs() {
               <option value="extension">Расширение</option>
               <option value="keyword">Имя содержит</option>
               <option value="filename">Маска имени</option>
-              <option value="has_artifact">Находки содержат</option></select></div>
+              <option value="has_artifact">Текст содержит</option></select></div>
             <div><label>Шаблон</label><input data-rr="pattern" data-cat="${c.id}" placeholder="pdf / договор / *акт*.pdf / подпись печать"></div>
             <div><button class="btn btn-grey btn-sm" data-act="addroute" data-id="${c.id}" style="height:31px">+ Добавить</button></div>
           </div>` : ''}
