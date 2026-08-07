@@ -119,7 +119,7 @@ const _OSV_GROUPS=[
 ];
 function _osvFW(n){return n===1?'файл':n<=4?'файла':'файлов';}
 function _osvExtractAcc(name){
-  var m=name.match(/(?:по\s+счет[уё]?|счет[уё]?)\s+(\d{2,3}(?:\.\d{1,2})?)/i);
+  var m=name.match(/(?:^|[^а-яё])сч(?:[её]т[уё]?)?\.?[\s_]*(\d{2,3}(?:\.\d{1,2})?)/i);
   return m?m[1].split('.')[0]:null;
 }
 function _osvRenderPanel(files,panelId){
@@ -148,7 +148,7 @@ function _osvRenderPanel(files,panelId){
   h+='</div>';
   if(missCrit===0){h+='<div class="osv-summary osv-summary-ok">✓ Все обязательные ведомости прикреплены</div>';}
   else{var s=missCrit===1?'ой':'ых',t=missCrit===1?'и':'ей';h+='<div class="osv-summary osv-summary-warn">⚠ Не хватает '+missCrit+' обязательн'+s+' ведомост'+t+' — дашборд будет неполным</div>';}
-  if(unrec.length){h+='<div class="osv-unrecognized">Не распознаны ('+unrec.length+'): '+unrec.join(', ')+'</div>';}
+  if(unrec.length){h+='<div class="osv-unrecognized">Не распознаны ('+unrec.length+'): '+unrec.join(', ')+'<br><span style="opacity:.75">Это предварительная оценка по именам файлов — при загрузке счёт определяется по содержимому ведомости.</span></div>';}
   panel.innerHTML=h;panel.style.display='';
 }
 
