@@ -52,8 +52,15 @@ def _num(v):
 # ---------------------------------------------------------------- backends
 def _read_xls(path):
     """-> list[(label, outline_level, [6 чисел])]"""
+    import io
     import xlrd
-    book = xlrd.open_workbook(path, formatting_info=True)
+    log = io.StringIO()  # глушим предупреждения xlrd о CODEPAGE
+    book = xlrd.open_workbook(path, formatting_info=True, logfile=log)
+    # 1С нередко выгружает .xls без записи CODEPAGE: xlrd берёт iso-8859-1,
+    # и русский текст превращается в кракозябры. Такие файлы фактически cp1251.
+    if book.codepage is None:
+        book = xlrd.open_workbook(path, formatting_info=True,
+                                  encoding_override='cp1251', logfile=log)
     sh = book.sheet_by_index(0)
     rows = []
     for r in range(sh.nrows):
@@ -96,16 +103,33 @@ def extract_org_name(path):
     Ищет в первых 15 строках паттерн «Организация: <название>».
     Возвращает строку или None (None — пользователь вводит вручную).
     """
+    def _clean(s):
+        # снимаем только парные внешние кавычки, чтобы не ломать
+        # названия вида: Предприятие "Название"
+        s = s.strip()
+        for a, b in (('"', '"'), ("'", "'"), ('\u00ab', '\u00bb')):
+            if len(s) > 1 and s.startswith(a) and s.endswith(b):
+                s = s[1:-1].strip()
+        return s
+
     try:
         rows = read_rows(path)
         for label, _, _ in rows[:15]:
             s = str(label or '').strip()
             m = RE_ORG.match(s)
             if m:
-                name = m.group(1).strip().strip('"\'')
-                name = name.strip('\u00ab\u00bb')  # кавычки-ёлочки
+                name = _clean(m.group(1))
                 if name:
                     return name
+        # Фолбэк: в типовой шапке 1С название организации — строка
+        # непосредственно перед «Оборотно-сальдовая ведомость…»
+        prev = ''
+        for label, _, _ in rows[:15]:
+            s = str(label or '').strip()
+            if s.lower().startswith('оборотно-сальдовая ведомость') and prev:
+                return _clean(prev)
+            if s:
+                prev = s
     except Exception:
         pass
     return None

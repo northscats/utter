@@ -119,7 +119,8 @@ const _OSV_GROUPS=[
 ];
 function _osvFW(n){return n===1?'файл':n<=4?'файла':'файлов';}
 function _osvExtractAcc(name){
-  var m=name.match(/(?:^|[^а-яё])сч(?:[её]т[уё]?)?\.?[\s_]*(\d{2,3}(?:\.\d{1,2})?)/i);
+  var m=name.match(/(?:^|[^а-яё])сч(?:[её]т[уё]?)?\.?[\s_]*(\d{2,3}(?:\.\d{1,2})?)/i)
+       ||name.match(/(?:^|[^0-9а-яё])(\d{2,3}(?:\.\d{1,2})?)[\s_]*сч(?:[её]т)?/i);
   return m?m[1].split('.')[0]:null;
 }
 function _osvRenderPanel(files,panelId){
