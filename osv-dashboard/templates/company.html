@@ -400,6 +400,7 @@ tr:last-child td{border-bottom:0}
     <div class="ab-dash-seg">
       <a class="ab-btn ab-btn-dash"
          href="{{ url_for('dashboard', company_id=company.id, name='dashboard_current.html') }}"
+         onclick="return handleDashClick(this, {{ company.id }})"
          title="Обновлён {{ current_dash.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="16" height="14" rx="2"/><path d="M6 8h8M6 12h5"/>
@@ -1013,6 +1014,17 @@ function requestAiSummary() {
       btn.innerHTML = 'Сформировать заключение';
     })
     .finally(function() { btn.disabled = false; });
+}
+/* ═══ Открыть дашборд: оставаться в контексте home.html ═══ */
+function handleDashClick(link, companyId) {
+  if (window !== window.top) {
+    /* Страница открыта в iframe (embedded) — загружаем дашборд в тот же iframe */
+    try { window.parent.loadIframe(link.href, link.href); } catch(e) {}
+    return false;
+  }
+  /* Страница открыта напрямую — редиректим на home с выбранным предприятием */
+  window.location.href = '/home?company=' + companyId;
+  return false;
 }
 </script>
 </body>

@@ -1453,5 +1453,19 @@ function _dmBindSliders(){
     </div>
   </div>
 </div>
+<script>
+/* ═══ Навигация из iframe: переводим top-фрейм, а не iframe ═══ */
+(function(){
+  if (window === window.top) return;          // standalone — ничего не делаем
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll('a.hd-back').forEach(function(a){
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        window.top.location.href = a.href;   // навигация в главном окне
+      });
+    });
+  });
+})();
+</script>
 </body>
 </html>

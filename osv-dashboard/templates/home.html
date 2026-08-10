@@ -421,7 +421,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
       <span class="sl-topbar-inn" id="sl-topbar-inn"></span>
       <div class="sl-tb-spacer"></div>
       <a class="sl-tb-btn" id="sl-open-btn" href="#" onclick="loadIframe(this.href);return false;">↗ открыть</a>
-      <a class="sl-tb-btn" id="sl-detail-btn" href="#">📋 реквизиты</a>
+      <button class="sl-tb-btn" id="sl-detail-btn" onclick="openDetailInFrame()">📋 реквизиты</button>
     </div>
 
     <!-- Content area -->
@@ -502,7 +502,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
             <td>{{ c.accountant_name or '—' }}</td>
             <td style="white-space:nowrap;font-size:11px">{{ c.accountant_phone or '—' }}</td>
             <td style="max-width:110px;font-size:11px;color:var(--mut)">{{ c.note or '—' }}</td>
-            <td><a class="reg-mbtn" href="{{ url_for('company_detail', company_id=c.id) }}" style="padding:2px 8px;font-size:11px">✏️</a></td>
+            <td><button class="reg-mbtn" onclick="openCompanyFromRegistry({{ c.id }})" style="padding:2px 8px;font-size:11px;border:0;cursor:pointer;background:#fff">✏️</button></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -876,6 +876,31 @@ function renderSummaryView(el) {
     '</div>';
 
   panel.innerHTML = html;
+}
+
+/* ══════════════════════════════
+   DETAIL IN FRAME
+══════════════════════════════ */
+function openDetailInFrame() {
+  if (!currentCompanyId) return;
+  var el = document.getElementById('si-' + currentCompanyId);
+  if (!el) return;
+  setNavView('history', document.querySelector('[data-nav="history"]'));
+}
+
+function openCompanyFromRegistry(companyId) {
+  closeRegModal();
+  var el = document.getElementById('si-' + companyId);
+  if (el) {
+    selectCompany(el);
+    el.scrollIntoView({ block: 'nearest' });
+  }
+  setNavView('history', document.querySelector('[data-nav="history"]'));
+}
+
+function selectCompanyById(id) {
+  var el = document.getElementById('si-' + id);
+  if (el) { selectCompany(el); el.scrollIntoView({ block: 'nearest' }); }
 }
 
 /* ══════════════════════════════

@@ -1510,13 +1510,17 @@ def dashboard(company_id, name):
     with open(fpath, encoding='utf-8') as f:
         html = f.read()
     # Гарантируем наличие кнопки "Все предприятия" независимо от даты генерации файла
-    if 'href="/"' not in html:
+    back_href = f'/home?company={company_id}'
+    if 'hd-back' not in html:
         html = html.replace(
             '<a class="hd-back"',
-            '<a class="hd-back" href="/">☰ Все предприятия</a>'
+            f'<a class="hd-back" href="{back_href}">☰ Все предприятия</a>'
             '\n    <a class="hd-back"',
             1,
         )
+    else:
+        # Обновляем ссылку "Все предприятия" если она уже вставлена с href="/"
+        html = html.replace('href="/">☰ Все предприятия', f'href="{back_href}">☰ Все предприятия', 1)
     # Вставляем CSRF-токен, company_id и флаг AI прямо в уже собранный HTML
     ai_ok = AiProvider.query.filter_by(is_active=True).first() is not None
     html = html.replace("'__CSRF__'",   f"'{generate_csrf()}'",    1)
