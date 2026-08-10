@@ -3,15 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Вход — ГИС УЗТЭР. Модуль: Анализ ФХД РСО</title>
+<title>Вход — ГИС МО «Управление задолженностью за ТЭР»</title>
 <style>
-:root{--ink:#1b2733;--mut:#6b7a86;--paper:#e9edf0;--panel:#fff;--line:#d3dade;--bad:#bf3222;--water:#1f7a9c}
+:root{--blue:#003f8a;--blue-mid:#1a6ec8;--ink:#0a1828;--mut:#6a8aaa;--paper:#f4f6f9;--panel:#fff;--line:#d0d8e4;--water:#1f7a9c}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui,sans-serif;
   min-height:100vh;display:flex;flex-direction:column}
-header{background:var(--ink);color:#e8eef2;padding:16px 24px}
-header h1{font-size:18px;letter-spacing:.03em}
-header .sub{font-size:12px;color:#8fa3b1;letter-spacing:.12em;text-transform:uppercase}
+ .top-stripe{height:5px;background:linear-gradient(90deg,var(--blue) 0%,var(--blue-mid) 60%,#2ca4e8 100%);flex-shrink:0}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:18px 56px;
+  display:flex;align-items:center;gap:16px;flex-shrink:0}
+.logo-box{width:42px;height:42px;border-radius:11px;background:var(--blue);display:flex;
+  align-items:center;justify-content:center;box-shadow:0 3px 12px rgba(0,63,138,.22);flex-shrink:0}
+.logo-name{font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.01em}
+.logo-sub{font-size:11px;color:var(--mut);margin-top:1px}
 main{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 16px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:36px 40px;
   width:100%;max-width:400px;box-shadow:0 2px 12px rgba(0,0,0,.07)}
@@ -30,9 +34,18 @@ input:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
 </style>
 </head>
 <body>
+<div class="top-stripe"></div>
 <header>
-  <h1>ГИС УЗТЭР. Модуль: Анализ ФХД РСО</h1>
-  <div class="sub">Генератор финансовой панели из выгрузок 1С · v0.100</div>
+  <div class="logo-box">
+    <svg width="22" height="22" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <path d="M24 26 L21 33 H24 L22 40 L30 31 H27 L29 26 Z" fill="#6dd8ff"/>
+      <path d="M24 8 L21 15 H24 L22 22 L30 13 H27 L29 8 Z" fill="white" opacity=".85"/>
+    </svg>
+  </div>
+  <div>
+    <div class="logo-name">ГИС УЗТЭР</div>
+    <div class="logo-sub">Московская область</div>
+  </div>
 </header>
 <main>
   <div class="card">
