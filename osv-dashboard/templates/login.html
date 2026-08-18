@@ -24,6 +24,7 @@ header{background:var(--panel);border-bottom:1px solid var(--line);padding:18px 
 .logo-box{width:42px;height:42px;border-radius:11px;background:var(--blue);display:flex;align-items:center;justify-content:center;box-shadow:0 3px 12px rgba(0,63,138,.22);flex-shrink:0}
 .logo-name{font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.01em}
 .logo-sub{font-size:11px;color:var(--mut);margin-top:1px}
+.hd-spacer{flex:1}
 
 /* Main */
 main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 48px 48px;position:relative;z-index:1}
@@ -77,12 +78,6 @@ footer{background:var(--panel);border-top:1px solid var(--line);padding:15px 56p
 <div class="top-stripe"></div>
 
 <header>
-  <a class="hd-back" href="/">
-    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13 16l-6-6 6-6"/>
-    </svg>
-    Главная
-  </a>
   <div class="logo-box">
     <svg width="22" height="22" viewBox="0 0 48 48" fill="none" aria-hidden="true">
       <path d="M24 26 L21 33 H24 L22 40 L30 31 H27 L29 26 Z" fill="#6dd8ff"/>
@@ -93,6 +88,13 @@ footer{background:var(--panel);border-top:1px solid var(--line);padding:15px 56p
     <div class="logo-name">ГИС УЗТЭР</div>
     <div class="logo-sub">Московская область</div>
   </div>
+  <div class="hd-spacer"></div>
+  <a class="hd-back" href="/">
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13 16l-6-6 6-6"/>
+    </svg>
+    Главная
+  </a>
 </header>
 
 <main>
