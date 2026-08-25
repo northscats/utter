@@ -1,0 +1,9 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "iMc-vi7v9-_veRTH5qH4y"
+uri = "file://deliverables/functional_description_gis_uzter.docx"
+type = "word_document"
+title = "Функциональное описание ГИС УЗТЭР"
+description = "Подробный документ в формате DOCX: назначение системы, роли, финансовый модуль, дашборды, ИИ, проверка документов, интеграции, безопасность, сценарии и ограничения."
