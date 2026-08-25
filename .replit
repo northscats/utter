@@ -26,4 +26,3 @@ packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp
 
 [userenv.shared]
 ENCRYPTION_KEY = "bDy8qWKNCy1e9xiTEkLnXQj3quVvmffN92WvHFHXC-o="
-INITIAL_ADMIN_PASSWORD = "admin123admin"
