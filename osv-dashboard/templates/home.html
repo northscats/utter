@@ -369,11 +369,14 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
           </div>
           {% if c.last_completeness %}{% set cp = c.last_completeness %}
             {% if cp.status == 'full' %}
-              <span class="comp-badge comp-full">✓{{ cp.found }}</span>
+              <span class="comp-badge comp-full"
+                    title="Получены все обязательные ОСВ: {{ cp.found }} из {{ cp.total }}">✓{{ cp.found }}/{{ cp.total }}</span>
             {% elif cp.status == 'partial' %}
-              <span class="comp-badge comp-partial" title="Нет: {{ cp.missing|join(', ') }}">⚠{{ cp.found }}</span>
+              <span class="comp-badge comp-partial"
+                    title="Получено обязательных ОСВ: {{ cp.found }} из {{ cp.total }}. Отсутствуют счета: {{ cp.missing|join(', ') }}">⚠{{ cp.found }}/{{ cp.total }}</span>
             {% else %}
-              <span class="comp-badge comp-none">✗0</span>
+              <span class="comp-badge comp-none"
+                    title="Обязательные ОСВ не получены. Требуются счета: {{ cp.missing|join(', ') }}">✗0/{{ cp.total }}</span>
             {% endif %}
           {% endif %}
         </div>

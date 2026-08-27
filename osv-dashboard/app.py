@@ -174,7 +174,12 @@ def _compute_completeness(upload):
     """Возвращает словарь с данными о комплектности счетов для upload."""
     if upload is None:
         return None
-    loaded = set(str(a) for a in upload.accounts_list)
+    return _compute_completeness_from_accounts(upload.accounts_list)
+
+
+def _compute_completeness_from_accounts(accounts):
+    """Оценивает комплектность по совокупному набору номеров счетов."""
+    loaded = set(str(a) for a in accounts)
     required = set(str(a) for a in REQUIRED_ACCOUNTS)
     found = len(loaded & required)
     total = len(required)
@@ -186,6 +191,16 @@ def _compute_completeness(upload):
     else:
         status = 'partial'
     return dict(found=found, total=total, missing=missing, status=status)
+
+
+def _compute_company_completeness(uploads):
+    """Комплектность предприятия по всем принятым загрузкам, а не последней."""
+    loaded = set()
+    for upload in uploads:
+        loaded.update(str(a) for a in upload.accounts_list)
+    if not uploads:
+        return None
+    return _compute_completeness_from_accounts(loaded)
 
 
 def _compute_status_color(kpis):
@@ -253,7 +268,7 @@ def _company_summary(company):
         has_dashboard=os.path.isfile(dash_path),
         kpis=kpis,
         status_color=_compute_status_color(kpis),
-        last_completeness=_compute_completeness(last),
+        last_completeness=_compute_company_completeness(uploads),
     )
 
 
