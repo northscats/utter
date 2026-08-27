@@ -107,8 +107,14 @@ tr:last-child td{border-bottom:0}
 .ai-btn:hover{background:#186a87}
 .ai-btn:disabled{opacity:.5;cursor:default}
 .ai-content{margin-top:16px;padding:16px 18px;background:#f7f9fa;border-radius:8px;
-  border:1px solid var(--line);font-size:14px;line-height:1.75;white-space:pre-wrap;
+  border:1px solid var(--line);font-size:14px;line-height:1.65;
   color:var(--ink)}
+.ai-content h4{font-size:14px;margin:16px 0 7px;color:#243746}
+.ai-content h4:first-child{margin-top:0}
+.ai-content p{margin:0 0 10px}
+.ai-content p:last-child{margin-bottom:0}
+.ai-content ul,.ai-content ol{margin:0 0 12px;padding-left:22px}
+.ai-content li{margin:4px 0}
 .ai-meta{margin-top:8px;font-size:12px;color:var(--mut)}
 .ai-err-msg{margin-top:12px;background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;
   border-radius:7px;padding:10px 14px;font-size:13px}
@@ -1032,7 +1038,7 @@ function requestAiSummary() {
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (d.ok) {
-        content.textContent = d.content;
+        renderAiContent(content, d.content);
         content.style.display = 'block';
         meta.innerHTML = 'Сформировано: ' + d.meta.generated_at +
           ' &middot; ' + d.meta.provider +
@@ -1053,6 +1059,63 @@ function requestAiSummary() {
     })
     .finally(function() { btn.disabled = false; });
 }
+
+function escapeAiHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatAiInline(value) {
+  return escapeAiHtml(value).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+function renderAiContent(element, raw) {
+  if (!element) return;
+  const lines = String(raw || '').replace(/\r\n?/g, '\n').split('\n');
+  let html = '', listType = '';
+  function closeList() {
+    if (listType) html += '</' + listType + '>';
+    listType = '';
+  }
+  lines.forEach(function(line) {
+    const text = line.trim();
+    if (!text) { closeList(); return; }
+    let match = text.match(/^#{1,4}\s+(.+)$/);
+    if (!match) match = text.match(/^\*\*(.+)\*\*$/);
+    if (match) {
+      closeList();
+      html += '<h4>' + formatAiInline(match[1]) + '</h4>';
+      return;
+    }
+    const numbered = text.match(/^\d+[.)]\s+(.+)$/);
+    const bullet = text.match(/^[-•]\s+(.+)$/);
+    if (numbered || bullet) {
+      const wanted = numbered ? 'ol' : 'ul';
+      if (listType !== wanted) {
+        closeList();
+        listType = wanted;
+        html += '<' + wanted + '>';
+      }
+      html += '<li>' + formatAiInline((numbered || bullet)[1]) + '</li>';
+      return;
+    }
+    closeList();
+    html += '<p>' + formatAiInline(text) + '</p>';
+  });
+  closeList();
+  element.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const existing = document.getElementById('ai-content');
+  if (existing && existing.textContent.trim()) {
+    renderAiContent(existing, existing.textContent);
+  }
+});
 /* ═══ Открыть дашборд: оставаться в контексте home.html ═══ */
 function handleDashClick(link, companyId) {
   if (window !== window.top) {

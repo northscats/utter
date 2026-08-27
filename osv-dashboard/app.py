@@ -1436,9 +1436,15 @@ def company_ai_summary(company_id):
         if latest.profit_value:
             v = f'{latest.profit_value:,.2f}'.replace(',', ' ')
             lines.append(f'Сумма финансового результата: {v} руб.')
-        accs = latest.accounts_list
-        if accs:
-            lines.append(f'Загруженные счета ОСВ: {", ".join(accs)}')
+        all_accounts = set()
+        for upload in uploads:
+            all_accounts.update(str(acc) for acc in upload.accounts_list)
+        if all_accounts:
+            sorted_accounts = sorted(
+                all_accounts,
+                key=lambda acc: (int(acc) if acc.isdigit() else 9999, acc))
+            lines.append(
+                f'Загруженные счета ОСВ: {", ".join(sorted_accounts)}')
 
     lines.append(f'Покрытие данными: {cov["total_months_ok"]}/{cov["total_months_past"]} '
                  f'мес. ({cov["months_coverage_pct"]}%)')
@@ -1456,9 +1462,21 @@ def company_ai_summary(company_id):
     system_msg = (
         'Ты финансовый аналитик, специализирующийся на анализе данных '
         'оборотно-сальдовых ведомостей (ОСВ) организаций жилищно-коммунального '
-        'хозяйства России. Дай краткое профессиональное заключение (3–5 абзацев) '
-        'по предоставленным данным. Укажи ключевые риски и сильные стороны. '
-        'Отвечай строго на русском языке.'
+        'хозяйства России. Сформируй краткое профессиональное заключение строго '
+        'на русском языке и в Markdown по структуре:\n'
+        '### Общая оценка\n'
+        'Один краткий абзац, не более 4 предложений.\n'
+        '### Ключевые риски\n'
+        'Маркированный список из 1–3 коротких пунктов.\n'
+        '### Сильные стороны\n'
+        'Маркированный список из 1–3 коротких пунктов; если данных недостаточно, '
+        'прямо укажи это.\n'
+        '### Рекомендации\n'
+        'Маркированный список из 2–3 конкретных действий.\n'
+        'Общий объём ответа — не более 1400 знаков с пробелами. '
+        'Не используй таблицы и HTML. Не придумывай отсутствующие показатели, '
+        'причины или суммы. Отделяй установленные факты от предположений. '
+        'Если данных недостаточно для вывода, явно напиши об ограничении.'
     )
     user_msg = '\n'.join(lines)
 
@@ -1473,7 +1491,7 @@ def company_ai_summary(company_id):
                 {'role': 'user',   'content': user_msg},
             ],
             temperature=0.3,
-            max_tokens=1500,
+            max_tokens=2200,
             enable_thinking=False,
             timeout=90,
         )
