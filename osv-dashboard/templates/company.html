@@ -521,6 +521,18 @@ tr:last-child td{border-bottom:0}
         Будут удалены все загруженные файлы, суточные данные,
         история и дашборд. Действие необратимо.
       </p>
+      <label for="del-company-name"
+             style="display:block;font-size:12px;color:var(--mut);margin-bottom:6px">
+        Для подтверждения введите название предприятия:
+        <strong style="color:var(--ink)">{{ company.name }}</strong>
+      </label>
+      <input id="del-company-name" type="text" autocomplete="off"
+             placeholder="Введите название полностью"
+             oninput="updateDeleteButton()"
+             style="width:100%;border:1px solid var(--line);border-radius:8px;padding:10px 12px;
+                    font:14px 'Segoe UI',sans-serif;margin-bottom:8px;outline:none">
+      <div id="del-name-error"
+           style="min-height:18px;color:#bf3222;font-size:12px;margin-bottom:12px"></div>
       <div style="display:flex;gap:10px;justify-content:center">
         <button onclick="closeDeleteModal()"
                 style="background:#f0f3f5;color:var(--ink);border:1px solid var(--line);
@@ -530,6 +542,7 @@ tr:last-child td{border-bottom:0}
         </button>
         <form method="post" action="{{ url_for('company_delete', company_id=company.id) }}" style="margin:0">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="confirmation_name" id="del-confirmation-name">
           <button id="del-confirm" type="submit" disabled
                   style="background:#bf3222;color:#fff;border:0;border-radius:8px;
                          padding:10px 22px;font:600 14px 'Segoe UI',sans-serif;
@@ -944,11 +957,32 @@ function saveReq() {
 
 // --- Модалка удаления ---
 let _delTimer = null;
+let _delWaitFinished = false;
+const _delExpectedName = {{ company.name | tojson }};
+
+function updateDeleteButton() {
+  const input = document.getElementById('del-company-name');
+  const hidden = document.getElementById('del-confirmation-name');
+  const btn = document.getElementById('del-confirm');
+  const error = document.getElementById('del-name-error');
+  const matches = input.value.trim() === _delExpectedName;
+  hidden.value = input.value.trim();
+  error.textContent = input.value && !matches ? 'Название не совпадает' : '';
+  btn.disabled = !(_delWaitFinished && matches);
+  btn.style.opacity = btn.disabled ? '.45' : '1';
+  btn.style.cursor = btn.disabled ? 'not-allowed' : 'pointer';
+}
+
 function openDeleteModal() {
   const overlay = document.getElementById('del-overlay');
   const btn     = document.getElementById('del-confirm');
   const counter = document.getElementById('del-timer');
+  const input   = document.getElementById('del-company-name');
   overlay.style.display = 'flex';
+  input.value = '';
+  document.getElementById('del-confirmation-name').value = '';
+  document.getElementById('del-name-error').textContent = '';
+  _delWaitFinished = false;
   btn.disabled  = true;
   btn.style.opacity  = '.45';
   btn.style.cursor   = 'not-allowed';
@@ -959,16 +993,17 @@ function openDeleteModal() {
     counter.textContent = sec;
     if (sec <= 0) {
       clearInterval(_delTimer);
-      btn.disabled = false;
-      btn.style.opacity = '1';
-      btn.style.cursor  = 'pointer';
-      btn.innerHTML = 'Да, уверен';
+      _delWaitFinished = true;
+      btn.innerHTML = 'Да, удалить';
+      updateDeleteButton();
     }
   }, 1000);
+  setTimeout(function(){ input.focus(); }, 50);
 }
 function closeDeleteModal() {
   document.getElementById('del-overlay').style.display = 'none';
   clearInterval(_delTimer);
+  _delWaitFinished = false;
 }
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') closeDeleteModal();
