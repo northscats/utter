@@ -474,8 +474,7 @@ textarea{resize:vertical}
     </div>
     <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
       <table>
-        <thead><tr><th>№</th><th>Файл</th><th>Согл.</th><th title="Печати">🔴</th>
-          <th title="Подписи">🔵</th><th title="Даты">🟢</th><th>Отметки</th><th>Анализ</th></tr></thead>
+        <thead><tr><th>№</th><th>Файл</th><th>Согл.</th><th>Отметки</th><th>Анализ</th></tr></thead>
         <tbody id="rep-rows"></tbody>
       </table>
     </div>
@@ -1311,10 +1310,7 @@ async function loadReport() {
   catch(e) { toast(e.message); return; }
   document.getElementById('rep-title').textContent = d.package.title;
   document.getElementById('rep-summary').textContent =
-    `Файлов: ${d.total} · согласовано: ${d.approved}` +
-    (d.seal_total ? ` · печатей: ${d.seal_total}` : '') +
-    (d.signature_total ? ` · подписей: ${d.signature_total}` : '') +
-    (d.date_total ? ` · дат: ${d.date_total}` : '');
+    `Файлов: ${d.total} · согласовано: ${d.approved}`;
   document.getElementById('rep-xlsx').href = `/docs/report/export?${qs}`;
   const byCat = {};
   d.rows.forEach(r => (byCat[r.catalog] = byCat[r.catalog] || []).push(r));
@@ -1323,7 +1319,7 @@ async function loadReport() {
   document.getElementById('rep-rows').innerHTML = Object.keys(byCat).sort((a,b)=>a.localeCompare(b,'ru'))
     .map(cat => {
       const rows = byCat[cat];
-      return `<tr class="rep-sec"><td colspan="8">${esc(cat)} — файлов: ${rows.length},
+      return `<tr class="rep-sec"><td colspan="5">${esc(cat)} — файлов: ${rows.length},
           согласовано: ${rows.filter(r=>r.approved).length}</td></tr>` +
         rows.map(r => {
           n++;
@@ -1331,10 +1327,9 @@ async function loadReport() {
           return `<tr><td>${n}</td>
             <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.filename)}">${esc(r.filename)}</td>
             <td>${r.approved ? '<span style="color:var(--ok);font-weight:900">✓</span>' : '—'}</td>
-            <td>${r.seal_count || '—'}</td><td>${r.signature_count || '—'}</td><td>${r.date_count || '—'}</td>
             <td>${marks || '—'}</td><td class="muted">${anL[r.analysis_status] || r.analysis_status}</td></tr>`;
         }).join('');
-    }).join('') || '<tr><td colspan="8" class="muted">Нет файлов</td></tr>';
+    }).join('') || '<tr><td colspan="5" class="muted">Нет файлов</td></tr>';
 }
 document.getElementById('pd-report').addEventListener('click', openReport);
 document.getElementById('rep-catalog').addEventListener('change', loadReport);

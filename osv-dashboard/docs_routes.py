@@ -787,7 +787,7 @@ def package_route_all(pkg_id):
 # Отчёт (JSON + XLSX) — по пакету, каталогу или файлу
 # ---------------------------------------------------------------------------
 def _report_rows(pkg, catalog_id=None, file_id=None):
-    """Строки отчёта: файл, каталог, согласование, счётчики находок, отметки."""
+    """Строки отчёта: файл, каталог, согласование и ручные отметки."""
     btn_labels = {b.key: b.label for b in DocMarkButton.query.all()}
     rows = []
     for f in sorted(pkg.files, key=lambda x: ((x.catalog.name if x.catalog else ''), x.orig_name)):
@@ -795,17 +795,11 @@ def _report_rows(pkg, catalog_id=None, file_id=None):
             continue
         if file_id is not None and f.id != file_id:
             continue
-        counts = {'date': 0, 'signature': 0, 'seal': 0}
-        for fi in f.findings:
-            if fi.ftype in counts:
-                counts[fi.ftype] += 1
         rows.append(dict(
             file_id=f.id, filename=f.orig_name,
             catalog=f.catalog.name if f.catalog else '—',
             approved=bool(f.approved),
             approved_at=f.approved_at.isoformat() if f.approved_at else None,
-            date_count=counts['date'], signature_count=counts['signature'],
-            seal_count=counts['seal'],
             analysis_status=f.analysis_status or 'none',
             file_status=f.status,
             marks=[dict(page=m.page_num,
@@ -829,9 +823,6 @@ def report_json():
         package=dict(id=pkg.id, title=pkg.title),
         total=len(rows),
         approved=sum(1 for r in rows if r['approved']),
-        seal_total=sum(r['seal_count'] for r in rows),
-        signature_total=sum(r['signature_count'] for r in rows),
-        date_total=sum(r['date_count'] for r in rows),
         rows=rows)
 
 
@@ -842,7 +833,7 @@ _AN_FILE_LABELS = {'none': '—', 'processing': 'выполняется',
 @docs_bp.route('/report/export')
 @login_required
 def report_export():
-    """XLSX-отчёт: файлы, согласование, находки, отметки, итоги по каталогам."""
+    """XLSX-отчёт: файлы, согласование, отметки и итоги по каталогам."""
     import io
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -858,8 +849,8 @@ def report_export():
     wb = Workbook()
     ws = wb.active
     ws.title = 'Отчёт'
-    headers = ['№', 'Файл', 'Каталог', 'Согласован', 'Печатей', 'Подписей',
-               'Дат', 'Отметки', 'Статус анализа']
+    headers = ['№', 'Файл', 'Каталог', 'Согласован',
+               'Отметки', 'Статус анализа']
     ws.append(headers)
     hdr_fill = PatternFill('solid', fgColor='1F4E79')
     for cell in ws[1]:
@@ -886,19 +877,16 @@ def report_export():
                                   for m in r['marks'])
             ws.append([n, _xlsx_safe(r['filename']), _xlsx_safe(r['catalog']),
                        'Да' if r['approved'] else 'Нет',
-                       r['seal_count'], r['signature_count'], r['date_count'],
                        _xlsx_safe(marks_txt),
                        _AN_FILE_LABELS.get(r['analysis_status'],
                                            r['analysis_status'])])
     ws.append([])
     ws.append(['Итого', f'файлов: {len(rows)}', '',
                f'{sum(1 for r in rows if r["approved"])}/{len(rows)}',
-               sum(r['seal_count'] for r in rows),
-               sum(r['signature_count'] for r in rows),
-               sum(r['date_count'] for r in rows), '', ''])
+               '', ''])
     ws.cell(row=ws.max_row, column=1).font = Font(bold=True)
 
-    widths = [5, 45, 22, 12, 10, 10, 8, 45, 16]
+    widths = [5, 45, 22, 12, 45, 16]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
         for row in ws.iter_rows(min_col=i, max_col=i):
