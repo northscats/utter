@@ -1013,25 +1013,6 @@ document.addEventListener('keydown', function(e){
 });
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
 
-function renderAiMarkdown(element, text) {
-  // Поддерживаем безопасное базовое Markdown-форматирование ответа ИИ.
-  // Сначала экранируем весь текст, затем разрешаем только **жирный текст**.
-  var escaped = String(text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-  element.innerHTML = escaped.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-}
-
-(function formatSavedAiSummary() {
-  var content = document.getElementById('ai-content');
-  if (content && content.textContent) {
-    renderAiMarkdown(content, content.textContent);
-  }
-})();
-
 function requestAiSummary() {
   var btn     = document.getElementById('ai-btn');
   var content = document.getElementById('ai-content');
@@ -1051,7 +1032,7 @@ function requestAiSummary() {
     .then(function(r){ return r.json(); })
     .then(function(d) {
       if (d.ok) {
-        renderAiMarkdown(content, d.content);
+        content.textContent = d.content;
         content.style.display = 'block';
         meta.innerHTML = 'Сформировано: ' + d.meta.generated_at +
           ' &middot; ' + d.meta.provider +
