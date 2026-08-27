@@ -1334,9 +1334,27 @@ function requestAiBrief(){
       const sect=document.getElementById('sect-brief');
       if(b.is_loss) sect.classList.remove('profit'); else sect.classList.add('profit');
       document.getElementById('brief-lead').textContent=b.lead||'';
-      document.getElementById('brief-points').innerHTML=(b.points||[]).map((p,i)=>
-        `<li><span class="n">${i+1}</span><span>${p}</span></li>`).join('');
-      document.getElementById('brief-foot').innerHTML=b.foot||'';
+      const pointsEl=document.getElementById('brief-points');
+      pointsEl.replaceChildren();
+      (b.points||[]).forEach((point,i)=>{
+        const li=document.createElement('li');
+        const num=document.createElement('span');
+        num.className='n';
+        num.textContent=String(i+1);
+        const text=document.createElement('span');
+        const value=String(point||'');
+        const topic=value.match(/^([^.!?]{1,80}[.!?])\s*(.*)$/);
+        if(topic){
+          const strong=document.createElement('b');
+          strong.textContent=topic[1]+' ';
+          text.append(strong,document.createTextNode(topic[2]));
+        }else{
+          text.textContent=value;
+        }
+        li.append(num,text);
+        pointsEl.append(li);
+      });
+      document.getElementById('brief-foot').textContent=b.foot||'';
       btn.innerHTML='✦ Обновить';
     } else {
       errEl.textContent=d.error||'Ошибка при генерации резюме';

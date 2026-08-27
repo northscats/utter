@@ -2245,16 +2245,20 @@ def ai_brief():
         'По приведённым финансовым данным сформируй блок «Что происходит». '
         'Верни ТОЛЬКО валидный JSON без пояснений:\n'
         '{\n'
-        '  "lead": "Одно предложение — главный вывод (чистый текст, без HTML)",\n'
+        '  "lead": "Одно короткое предложение — главный вывод",\n'
         '  "points": [\n'
-        '    "<b>Тема.</b> Факт с цифрами, используй <span class=\\"bad\\">−X млн ₽</span> и <span class=\\"ok\\">+X млн ₽</span> для выделения",\n'
+        '    "Тема. Краткий факт с цифрами",\n'
         '    "..."\n'
         '  ],\n'
-        '  "foot": "<b>Приоритеты:</b> пункт1; пункт2.",\n'
+        '  "foot": "Приоритеты: пункт 1; пункт 2.",\n'
         '  "is_loss": true\n'
         '}\n'
-        'Правила: 4–6 пунктов; каждый начинается с <b>Тема.</b>; '
-        'is_loss=true если основная деятельность убыточна; только русский язык.'
+        'Правила: ровно 4–6 коротких пунктов; каждый начинается с короткого '
+        'содержательного заголовка и точки, например «Ликвидность. Денежные '
+        'средства...». Не пиши буквальное слово «Тема»; '
+        'общий объём текста во всех полях не более 1800 знаков; не используй '
+        'Markdown или HTML; is_loss=true, если основная деятельность убыточна; '
+        'только русский язык. Обязательно закрой все строки, массив и объект JSON.'
     )
 
     try:
@@ -2267,7 +2271,7 @@ def ai_brief():
                 {'role': 'user',   'content': '\n'.join(lines)},
             ],
             temperature=0.25,
-            max_tokens=1200,
+            max_tokens=2400,
             enable_thinking=False,
             timeout=60,
         )
@@ -2288,19 +2292,41 @@ def ai_brief():
             json_str = m2.group(0)
 
     try:
-        brief_data = _json.loads(json_str)
-        # Нормализуем обязательные поля
-        brief_data.setdefault('lead', '')
-        brief_data.setdefault('points', [])
-        brief_data.setdefault('foot', '')
-        brief_data.setdefault('is_loss', is_loss)
-    except Exception:
+        raw_brief = _json.loads(json_str)
+        if not isinstance(raw_brief, dict):
+            raise ValueError('ответ не является JSON-объектом')
+        lead = raw_brief.get('lead', '')
+        points = raw_brief.get('points', [])
+        foot = raw_brief.get('foot', '')
+        if not isinstance(lead, str) or not isinstance(foot, str):
+            raise ValueError('lead и foot должны быть строками')
+        if not isinstance(points, list) or not all(
+                isinstance(point, str) for point in points):
+            raise ValueError('points должен быть массивом строк')
+        if not points:
+            raise ValueError('массив points пуст')
+
+        # Модель не управляет HTML в браузере: оставляем только чистый текст.
+        def _plain(value, limit):
+            value = _re.sub(r'<[^>]*>', '', value or '')
+            return ' '.join(value.split())[:limit]
+
         brief_data = {
-            'lead': content[:200],
-            'points': [f'<b>Заключение.</b> {content[:600]}'],
-            'foot': '',
-            'is_loss': is_loss,
+            'lead': _plain(lead, 500),
+            'points': [_plain(point, 700) for point in points[:6] if point.strip()],
+            'foot': _plain(foot, 500),
+            'is_loss': bool(raw_brief.get('is_loss', is_loss)),
         }
+        if not brief_data['points']:
+            raise ValueError('после нормализации массив points пуст')
+    except Exception as exc:
+        app.logger.warning(
+            'AI brief returned invalid JSON: %s; response prefix=%r',
+            exc, content[:200])
+        return jsonify(
+            ok=False,
+            error='ИИ вернул неполный ответ. Нажмите «Обновить» ещё раз.',
+        ), 502
 
     return jsonify(ok=True, brief=brief_data)
 
