@@ -412,6 +412,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
     """
     import imaplib, email, ssl, fnmatch, tempfile, shutil as _shutil
     from email.header import decode_header as _dh
+    from email.utils import getaddresses as _getaddresses
 
     def _decode(val):
         if val is None:
@@ -442,11 +443,22 @@ def _do_imap_sync(uploader_id: int) -> dict:
     rules = EmailRule.query.order_by(EmailRule.id).all()
 
     def _match_rule(rule, sender, subject):
-        if rule.sender_pattern and not fnmatch.fnmatch(
-                sender.lower(), rule.sender_pattern.lower()):
-            return False
+        if rule.sender_pattern:
+            pattern = rule.sender_pattern.strip().lower()
+            # Заголовок From обычно имеет вид «Имя <user@example.com>».
+            # Правила администраторы задают как чистый адрес, поэтому
+            # сопоставляем и полный заголовок, и извлечённые email-адреса.
+            sender_candidates = [sender.strip().lower()]
+            sender_candidates.extend(
+                address.strip().lower()
+                for _name, address in _getaddresses([sender])
+                if address
+            )
+            if not any(fnmatch.fnmatch(candidate, pattern)
+                       for candidate in sender_candidates):
+                return False
         if rule.subject_pattern and not fnmatch.fnmatch(
-                subject.lower(), rule.subject_pattern.lower()):
+                subject.strip().lower(), rule.subject_pattern.strip().lower()):
             return False
         return True
 
@@ -484,7 +496,9 @@ def _do_imap_sync(uploader_id: int) -> dict:
                         break
 
                 if matched_company_id is None:
-                    M.store(uid, '+FLAGS', '\\Seen')
+                    # Не помечаем письмо прочитанным: после исправления или
+                    # добавления правила маршрутизации его можно обработать
+                    # повторно без пересылки.
                     continue
 
                 stats['emails_matched'] += 1
@@ -518,73 +532,177 @@ def _do_imap_sync(uploader_id: int) -> dict:
                     ext = os.path.splitext(path)[1].lower()
                     try:
                         if ext == '.zip':
-                            successes, errors_zip = parse_zip(path)
-                            for e in errors_zip:
-                                stats['errors'].append(f"{os.path.basename(path)}: {e['error']}")
-                            for item in successes:
-                                dt  = item['date']
-                                acc = item['parsed']['acc']
-                                top = item['parsed']['top']
-                                row = DailyRow.query.filter_by(
-                                    company_id=company_id, date=dt, acc=acc).first()
-                                if row is None:
-                                    row = DailyRow(company_id=company_id, date=dt, acc=acc)
-                                    db.session.add(row)
-                                row.snd = top['snd']; row.snk = top['snk']
-                                row.obd = top['obd']; row.obk = top['obk']
-                                row.skd = top['skd']; row.skk = top['skk']
+                            ok, validation_error = _validate_upload(
+                                path, os.path.basename(path))
+                            if not ok:
+                                raise ValueError(validation_error)
+
+                            # ZIP может содержать как суточные, так и обычные
+                            # периодические ОСВ, в том числе во вложенных папках.
+                            # После проверки безопасности извлекаем только XLS/XLSX.
+                            import zipfile as _zipfile
+                            extracted_dir = os.path.join(
+                                msg_tmp, f'archive_{len(stats["errors"])}')
+                            os.makedirs(extracted_dir, exist_ok=True)
+                            extracted_xls = []
+                            with _zipfile.ZipFile(path, 'r') as zf:
+                                for index, info in enumerate(zf.infolist()):
+                                    if info.is_dir():
+                                        continue
+                                    inner_name = info.filename.replace('\\', '/')
+                                    if not inner_name.lower().endswith(('.xls', '.xlsx')):
+                                        continue
+                                    # Имена выравниваем в один временный каталог:
+                                    # вложенная структура для разбора ОСВ не нужна.
+                                    base_name = os.path.basename(inner_name)
+                                    target = os.path.join(
+                                        extracted_dir, f'{index:04d}_{base_name}')
+                                    with zf.open(info, 'r') as src, open(target, 'wb') as dst:
+                                        _shutil.copyfileobj(src, dst)
+                                    extracted_xls.append(target)
+
+                            if not extracted_xls:
+                                raise ValueError(
+                                    'в архиве не найдено файлов .xls или .xlsx')
+
+                            daily_xls = [p for p in extracted_xls if _is_daily_xls(p)]
+                            monthly_xls = [p for p in extracted_xls
+                                           if p not in daily_xls]
+                            imported_count = 0
+
+                            if daily_xls:
+                                imported_count += _upsert_daily_rows(
+                                    company_id, daily_xls)
+
+                            if monthly_xls:
+                                save_dir = os.path.join(
+                                    UPLOADS, str(company_id), ts)
+                                os.makedirs(save_dir, exist_ok=True)
+                                saved_monthly = []
+                                for source_path in monthly_xls:
+                                    # Убираем технический индекс из временного имени.
+                                    saved_name = os.path.basename(source_path).split(
+                                        '_', 1)[-1]
+                                    destination = os.path.join(save_dir, saved_name)
+                                    _shutil.copy2(source_path, destination)
+                                    saved_monthly.append(destination)
+                                parsed_monthly, parse_audit = parse_many(saved_monthly)
+                                for audit_item in parse_audit:
+                                    if not audit_item.get('ok'):
+                                        stats['errors'].append(
+                                            f'{os.path.basename(path)}: '
+                                            f'{audit_item.get("file", "файл")}: '
+                                            f'{audit_item.get("status", "ошибка разбора")}')
+                                imported_count += len(parsed_monthly)
+
                             db.session.commit()
-                            if successes:
-                                _co = db.session.get(Company, company_id)
-                                _rebuild_dashboard_with_daily(
-                                    company_id,
-                                    company_name=_co.name if _co else '')
-                                stats['companies_updated'].add(company_id)
-                                _dates_z = sorted({it['date'] for it in successes})
-                                _MRU_Z = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
-                                          7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
-                                _d0, _d1 = _dates_z[0], _dates_z[-1]
-                                _zlbl = (f'{_d0.day} {_MRU_Z[_d0.month]}'
-                                         if _d0 == _d1
-                                         else f'{_d0.strftime("%d.%m")}–{_d1.strftime("%d.%m")}')
-                                _up = Upload(
-                                    company_id=company_id,
-                                    uploaded_by=uploader_id,
-                                    period_label=_zlbl,
-                                    accounts_loaded=json.dumps(
-                                        sorted({it['parsed']['acc'] for it in successes})),
-                                    closure_status=None, profit_sign='neutral',
-                                    files_count=len(successes),
-                                    dashboard_file='dashboard_current.html',
-                                    source='auto_imap',
-                                )
-                                db.session.add(_up)
-                                db.session.commit()
-                            stats['files_processed'] += 1
+                            if imported_count == 0:
+                                raise ValueError(
+                                    'ни один Excel-файл в архиве не удалось разобрать как ОСВ')
+
+                            _co = db.session.get(Company, company_id)
+                            dataset, rebuild_audit = _rebuild_dashboard_with_daily(
+                                company_id,
+                                company_name=_co.name if _co else '')
+                            if dataset is None:
+                                detail = (rebuild_audit[-1].get('status')
+                                          if rebuild_audit else 'нет данных')
+                                raise ValueError(
+                                    f'не удалось перестроить дашборд: {detail}')
+                            html_content = render_dashboard(
+                                dataset, back_url=f'/company/{company_id}')
+                            out_dir = os.path.join(OUTPUT, str(company_id))
+                            os.makedirs(out_dir, exist_ok=True)
+                            with open(os.path.join(
+                                    out_dir, 'dashboard_current.html'),
+                                    'w', encoding='utf-8') as fh:
+                                fh.write(html_content)
+                            _save_kpi_cache(dataset, out_dir)
+                            stats['companies_updated'].add(company_id)
+
+                            brief = dataset.get('brief', {})
+                            lead = brief.get('lead', '')
+                            head = brief.get('head', '')
+                            _up = Upload(
+                                company_id=company_id,
+                                uploaded_by=uploader_id,
+                                period_label=dataset.get('period_label', ''),
+                                accounts_loaded=json.dumps(
+                                    sorted(dataset.get('accounts', {}).keys())),
+                                closure_status=(
+                                    'закрыт' in head.lower() if head else None),
+                                profit_sign=(
+                                    'loss' if 'убыток' in lead.lower() else
+                                    'profit' if 'прибыль' in lead.lower() else
+                                    'neutral'),
+                                files_count=len(extracted_xls),
+                                dashboard_file='dashboard_current.html',
+                                source='auto_imap',
+                            )
+                            db.session.add(_up)
+                            db.session.commit()
+                            stats['files_processed'] += len(extracted_xls)
                         else:  # XLS / XLSX
-                            if _is_daily_xls(path):
+                            is_daily = _is_daily_xls(path)
+                            if is_daily:
                                 save_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
                             else:
                                 save_dir = os.path.join(UPLOADS, str(company_id), ts)
                             os.makedirs(save_dir, exist_ok=True)
                             dest = os.path.join(save_dir, os.path.basename(path))
                             _shutil.copy2(path, dest)
-                            _upsert_daily_rows(company_id, [dest])
+
+                            if is_daily:
+                                imported = _upsert_daily_rows(company_id, [dest])
+                                if imported == 0:
+                                    raise ValueError(
+                                        'не удалось разобрать суточную ОСВ')
+                                from osvparser import parse_osv as _parse_osv
+                                loaded_accounts = [_parse_osv(dest)['acc']]
+                            else:
+                                parsed_file, parse_audit = parse_many([dest])
+                                if not parsed_file:
+                                    detail = (parse_audit[-1].get('status')
+                                              if parse_audit else
+                                              'неизвестная ошибка разбора')
+                                    raise ValueError(
+                                        f'не удалось разобрать ОСВ: {detail}')
+                                loaded_accounts = sorted(parsed_file.keys())
+
                             db.session.commit()
                             _co = db.session.get(Company, company_id)
-                            _rebuild_dashboard_with_daily(
+                            dataset, rebuild_audit = _rebuild_dashboard_with_daily(
                                 company_id,
                                 company_name=_co.name if _co else '')
+                            if dataset is None:
+                                detail = (rebuild_audit[-1].get('status')
+                                          if rebuild_audit else 'нет данных')
+                                raise ValueError(
+                                    f'не удалось перестроить дашборд: {detail}')
+                            html_content = render_dashboard(
+                                dataset, back_url=f'/company/{company_id}')
+                            out_dir = os.path.join(OUTPUT, str(company_id))
+                            os.makedirs(out_dir, exist_ok=True)
+                            with open(os.path.join(
+                                    out_dir, 'dashboard_current.html'),
+                                    'w', encoding='utf-8') as fh:
+                                fh.write(html_content)
+                            _save_kpi_cache(dataset, out_dir)
                             stats['companies_updated'].add(company_id)
-                            from osvparser import extract_daily_date as _edd
-                            _xdt = _edd(dest)
-                            _xlbl = _xdt.strftime('%d.%m.%Y') if _xdt else '—'
+                            brief = dataset.get('brief', {})
+                            lead = brief.get('lead', '')
+                            head = brief.get('head', '')
                             _up = Upload(
                                 company_id=company_id,
                                 uploaded_by=uploader_id,
-                                period_label=_xlbl,
-                                accounts_loaded='[]',
-                                closure_status=None, profit_sign='neutral',
+                                period_label=dataset.get('period_label', ''),
+                                accounts_loaded=json.dumps(loaded_accounts),
+                                closure_status=(
+                                    'закрыт' in head.lower() if head else None),
+                                profit_sign=(
+                                    'loss' if 'убыток' in lead.lower() else
+                                    'profit' if 'прибыль' in lead.lower() else
+                                    'neutral'),
                                 files_count=1,
                                 dashboard_file='dashboard_current.html',
                                 source='auto_imap',
