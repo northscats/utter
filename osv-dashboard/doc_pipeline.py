@@ -11,6 +11,7 @@ ZIP → безопасная распаковка → маршрутизация
   * Статус обработки хранится в БД (DocPackage.status) — переживает рестарт.
 """
 import fnmatch
+import json
 import logging
 import os
 import shutil
@@ -19,9 +20,9 @@ import zipfile
 
 from database import (DocCatalog, DocFile, DocFilePage, DocPackage,
                       DocRoutingRule, db)
-from doc_parser import (SUPPORTED_EXTS, extract_pdf_pages_text,
-                        get_pdf_page_count, ocr_image_file, prepare_pdf,
-                        render_pdf_page, sanitize_filename)
+from doc_parser import (IMAGE_EXTS, SUPPORTED_EXTS, extract_pdf_pages_data,
+                        get_pdf_page_count, ocr_image_data, prepare_ocr_page,
+                        prepare_pdf, render_pdf_page, sanitize_filename)
 
 logger = logging.getLogger(__name__)
 
@@ -294,23 +295,42 @@ def process_package(app, package_id: int, zip_path: str, storage_root: str):
                                          f'обработаны первые {MAX_PAGES_PER_FILE}.')
                         n_pages = MAX_PAGES_PER_FILE
 
-                    texts = extract_pdf_pages_text(pdf_path)
+                    pdf_pages = extract_pdf_pages_data(pdf_path)
                     file_pages_dir = os.path.join(pages_dir, str(df.id))
                     os.makedirs(file_pages_dir, exist_ok=True)
 
                     for p in range(1, n_pages + 1):
                         img_path = os.path.join(file_pages_dir, f'p{p}.png')
                         has_img = render_pdf_page(pdf_path, p, img_path)
-                        text = texts[p - 1] if p <= len(texts) else ''
+                        pdf_page = pdf_pages[p - 1] if p <= len(pdf_pages) else {}
+                        text = pdf_page.get('text', '')
+                        words = pdf_page.get('words', [])
                         ocr_used = False
+                        coordinate_version = 'pdf_text_v1' if words else ''
+                        image_width = image_height = 0
                         # OCR-fallback: текст не извлёкся — вероятно скан
                         if not text and has_img:
-                            text = ocr_image_file(img_path)
+                            is_photo = os.path.splitext(df.orig_name)[1].lower() in IMAGE_EXTS
+                            coordinate_version = prepare_ocr_page(
+                                img_path, is_photo=is_photo)
+                            ocr = ocr_image_data(img_path)
+                            text = ocr['text']
+                            words = ocr['words']
+                            image_width = ocr['width']
+                            image_height = ocr['height']
                             ocr_used = bool(text)
+                        elif has_img:
+                            from PIL import Image
+                            with Image.open(img_path) as _page_image:
+                                image_width, image_height = _page_image.size
                         db.session.add(DocFilePage(
                             file_id=df.id, page_num=p, text=text,
                             image_path=img_path if has_img else '',
                             ocr_used=ocr_used,
+                            image_width=image_width,
+                            image_height=image_height,
+                            words_json=json.dumps(words, ensure_ascii=False),
+                            coordinate_version=coordinate_version,
                         ))
                     df.pages_count = n_pages
                     df.status = 'ready'

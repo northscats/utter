@@ -2403,6 +2403,7 @@ def settings():
             ai_active  = request.form.get('ai_is_active') == '1'
             ai_default = request.form.get('ai_is_default') == '1'
             ai_local   = request.form.get('ai_is_local') == '1'
+            ai_vision  = request.form.get('ai_supports_vision') == '1'
             if ai_name and ai_url and ai_model:
                 if ai_default:
                     AiProvider.query.update({'is_default': False})
@@ -2414,6 +2415,7 @@ def settings():
                     is_active=ai_active,
                     is_default=ai_default,
                     is_local=ai_local,
+                    supports_vision=ai_vision,
                 )
                 db.session.add(prov)
                 db.session.commit()
@@ -2439,6 +2441,7 @@ def settings():
                     prov.api_key = encrypt_value(ai_key_raw)
                 prov.is_active = ai_active
                 prov.is_local = request.form.get('ai_is_local') == '1'
+                prov.supports_vision = request.form.get('ai_supports_vision') == '1'
                 if ai_default and not prov.is_default:
                     AiProvider.query.update({'is_default': False})
                 prov.is_default = ai_default
@@ -2594,8 +2597,10 @@ def init_db():
                     app.logger.info('migration: %s.%s added', table, _col)
                 _cd.commit()
 
-        _add_missing('ai_providers',
-                     [('is_local', "BOOLEAN NOT NULL DEFAULT FALSE")])
+        _add_missing('ai_providers', [
+            ('is_local', "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ('supports_vision', "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ])
         _add_missing('doc_files', [
             ('approved',    "BOOLEAN NOT NULL DEFAULT FALSE"),
             ('approved_at', "TIMESTAMP WITH TIME ZONE"),
@@ -2611,6 +2616,18 @@ def init_db():
             ('options_json', "TEXT DEFAULT '{}'"),
             ('result_json',  "TEXT DEFAULT '{}'"),
             ('catalog_run_id', "INTEGER REFERENCES doc_catalog_analysis_runs(id)"),
+        ])
+        _add_missing('doc_file_pages', [
+            ('image_width', "INTEGER DEFAULT 0"),
+            ('image_height', "INTEGER DEFAULT 0"),
+            ('words_json', "TEXT DEFAULT '[]'"),
+            ('coordinate_version', "VARCHAR(40) DEFAULT ''"),
+        ])
+        _add_missing('doc_findings', [
+            ('source', "VARCHAR(20) DEFAULT ''"),
+            ('boxes_json', "TEXT DEFAULT '[]'"),
+            ('confidence', "DOUBLE PRECISION"),
+            ('algorithm_version', "VARCHAR(40) DEFAULT ''"),
         ])
         _add_missing('doc_catalog_analysis_runs', [
             ('skipped_json', "TEXT DEFAULT '[]'"),

@@ -160,11 +160,12 @@ check('внешний провайдер отклонён', r.status_code == 400
 r = client.post('/settings', data=dict(
     action='add_ai_provider', ai_name='Локальный vLLM',
     ai_base_url=FAKE_URL, ai_api_key='local-key', ai_model='qwen',
-    ai_is_active='1', ai_is_local='1'), follow_redirects=True)
+    ai_is_active='1', ai_is_local='1', ai_supports_vision='1'), follow_redirects=True)
 check('провайдер добавлен через настройки', r.status_code == 200)
 with app.app_context():
     loc = AiProvider.query.filter_by(name='Локальный vLLM').first()
     check('is_local сохранён формой', loc is not None and loc.is_local)
+    check('vision capability сохраняется только явно', loc.supports_vision is True)
     loc_id = loc.id
 
 r = client.post('/settings', data=dict(
@@ -174,6 +175,7 @@ r = client.post('/settings', data=dict(
 with app.app_context():
     loc = db.session.get(AiProvider, loc_id)
     check('is_local сохраняется при редактировании', loc.is_local and loc.is_active)
+    check('vision capability можно явно отключить', loc.supports_vision is False)
 
 # Большая сводка проходит через несколько валидных групп без потери источников.
 summary_calls_start = len(received_bodies)

@@ -142,6 +142,9 @@ class AiProvider(db.Model):
     # ИБ: локальный (внутренний) провайдер. Документы пакетов проверки
     # разрешено отправлять ТОЛЬКО локальным провайдерам.
     is_local   = db.Column(db.Boolean, nullable=False, default=False)
+    # Явная capability: модель принимает изображения и возвращает координаты.
+    # Никогда не выводится автоматически из имени модели.
+    supports_vision = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
@@ -275,6 +278,12 @@ class DocFilePage(db.Model):
     text       = db.Column(db.Text, default='')
     image_path = db.Column(db.String(1000), default='')
     ocr_used   = db.Column(db.Boolean, default=False)
+    image_width  = db.Column(db.Integer, default=0)
+    image_height = db.Column(db.Integer, default=0)
+    # JSON-массив word-level токенов: text, bbox [x,y,w,h], confidence.
+    words_json = db.Column(db.Text, default='[]')
+    # pdf_text_v1 | ocr_v1 | photo_rectify_v1
+    coordinate_version = db.Column(db.String(40), default='')
 
 
 class DocCheckResult(db.Model):
@@ -306,6 +315,11 @@ class DocFinding(db.Model):
     ftype       = db.Column(db.String(20), nullable=False)  # 'date'|'signature'|'seal'
     snippet     = db.Column(db.Text, default='')            # цитата из текста
     description = db.Column(db.Text, default='')            # пояснение ИИ
+    source      = db.Column(db.String(20), default='')       # pdf_text|ocr_text|vision
+    # JSON-массив нормализованных прямоугольников [x,y,w,h], значения 0..1.
+    boxes_json  = db.Column(db.Text, default='[]')
+    confidence  = db.Column(db.Float, nullable=True)
+    algorithm_version = db.Column(db.String(40), default='')
     created_at  = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 

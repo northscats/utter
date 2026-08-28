@@ -12,7 +12,15 @@ import logging
 import re
 import threading
 import time
+import base64
+import io
+import math
+import os
+import unicodedata
+from difflib import SequenceMatcher
 from types import SimpleNamespace
+
+from PIL import Image
 
 from ai_client import call_ai_provider
 from database import (AiProvider, AnalysisTemplate, DocAnalysisRun,
@@ -26,6 +34,9 @@ PAGES_PER_CHUNK = 3          # страниц за один вызов ИИ
 MAX_CHARS_PER_PAGE = 6000    # обрезка текста страницы (контроль токенов)
 RETRY_ATTEMPTS = 3
 RETRY_STATUSES = (429, 500, 502, 503)
+TEXT_MATCH_MIN_CONFIDENCE = 0.85
+VISION_BOX_MIN_CONFIDENCE = 0.75
+FINDING_ALGORITHM_VERSION = 'hybrid_bbox_v1'
 
 # Один анализ одновременно (LLM + БД, тот же принцип, что в doc_pipeline)
 _ANALYZE_SEMAPHORE = threading.Semaphore(1)
@@ -205,7 +216,8 @@ def _parse_ai_json(content: str) -> dict:
     raise ValueError('ИИ вернул повреждённый или неподдерживаемый JSON')
 
 
-def _call_with_retry(provider, api_key, messages, cancel_check=None) -> dict:
+def _call_with_retry(provider, api_key, messages, cancel_check=None,
+                     response_format=None) -> dict:
     """call_ai_provider с retry (3 попытки, экспоненциальный backoff)."""
     last_exc = None
     for attempt in range(RETRY_ATTEMPTS):
@@ -220,6 +232,7 @@ def _call_with_retry(provider, api_key, messages, cancel_check=None) -> dict:
                 max_tokens=2000,
                 enable_thinking=False,
                 timeout=60,
+                response_format=response_format,
             )
             _raise_if_cancelled(cancel_check)
             return result
@@ -240,6 +253,228 @@ def _call_with_retry(provider, api_key, messages, cancel_check=None) -> dict:
 
 # Приоритет статусов при агрегации chunk-результатов
 _STATUS_RANK = {'violation': 3, 'ok': 2, 'not_found': 1}
+
+
+def _normalized_word(value) -> str:
+    value = unicodedata.normalize('NFKC', str(value or '')).casefold().replace('ё', 'е')
+    return ''.join(ch for ch in value if ch.isalnum())
+
+
+def _numeric_ocr_key(value: str) -> str:
+    """Разрешает только узкую O/0-подмену внутри числового токена."""
+    normalized = _normalized_word(value)
+    if any(ch.isdigit() for ch in normalized):
+        return normalized.replace('o', '0').replace('о', '0')
+    return normalized
+
+
+def _token_match(expected: str, actual: str, allow_fuzzy=False):
+    expected_key, actual_key = _numeric_ocr_key(expected), _numeric_ocr_key(actual)
+    numeric = any(ch.isdigit() for ch in expected_key + actual_key)
+    if expected_key == actual_key:
+        return 1.0
+    if numeric or not allow_fuzzy or min(len(expected_key), len(actual_key)) < 6:
+        return None
+    score = SequenceMatcher(None, expected_key, actual_key).ratio()
+    return score if score >= 0.90 else None
+
+
+def _page_words(page) -> list:
+    try:
+        words = json.loads(page.words_json or '[]')
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return words if isinstance(words, list) else []
+
+
+def _backfill_page_coordinates(df: DocFile, pages: list, cancel_check=None):
+    """Лениво добавляет координаты старым страницам при повторном анализе."""
+    missing = [page for page in pages if not _page_words(page)]
+    if not missing:
+        return
+    from doc_parser import (IMAGE_EXTS, extract_pdf_pages_data, ocr_image_data,
+                            prepare_ocr_page)
+    pdf_pages = extract_pdf_pages_data(df.pdf_path) if df.pdf_path else []
+    for page in missing:
+        _raise_if_cancelled(cancel_check)
+        source = pdf_pages[page.page_num - 1] if page.page_num <= len(pdf_pages) else {}
+        words = source.get('words') or []
+        if words:
+            page.words_json = json.dumps(words, ensure_ascii=False)
+            page.coordinate_version = 'pdf_text_v1'
+        elif page.image_path and os.path.isfile(page.image_path):
+            is_photo = os.path.splitext(df.orig_name)[1].lower() in IMAGE_EXTS
+            page.coordinate_version = prepare_ocr_page(
+                page.image_path, is_photo=is_photo)
+            ocr = ocr_image_data(page.image_path)
+            page.words_json = json.dumps(ocr['words'], ensure_ascii=False)
+            page.image_width = ocr['width']
+            page.image_height = ocr['height']
+            if not page.text and ocr['text']:
+                page.text = ocr['text']
+            page.ocr_used = bool(ocr['words'])
+
+
+def _valid_normalized_box(value):
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    try:
+        x, y, width, height = (float(v) for v in value)
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (x, y, width, height)):
+        return None
+    if (x < 0 or y < 0 or width <= 0 or height <= 0
+            or x + width > 1.0001 or y + height > 1.0001):
+        return None
+    return [round(max(0.0, min(1.0, x)), 6),
+            round(max(0.0, min(1.0, y)), 6),
+            round(max(0.0, min(1.0 - x, width)), 6),
+            round(max(0.0, min(1.0 - y, height)), 6)]
+
+
+def _merge_word_boxes(words: list) -> list:
+    """Объединяет соседние слова строки, сохраняя переносы как несколько bbox."""
+    boxes = []
+    for word in words:
+        box = _valid_normalized_box(word.get('bbox') if isinstance(word, dict) else None)
+        if box is None:
+            continue
+        x, y, width, height = box
+        if boxes:
+            px, py, pw, ph = boxes[-1]
+            same_line = abs((py + ph / 2) - (y + height / 2)) <= max(ph, height) * 0.65
+            close = x <= px + pw + 0.035
+            if same_line and close:
+                right, bottom = max(px + pw, x + width), max(py + ph, y + height)
+                boxes[-1] = [px, min(py, y), right - px, bottom - min(py, y)]
+                continue
+        boxes.append(box)
+    return [[round(v, 6) for v in box] for box in boxes]
+
+
+def match_quote_boxes(page, quote: str) -> tuple[list, float | None, str]:
+    """Сопоставляет цитату с последовательностью PDF/OCR токенов."""
+    raw_words = _page_words(page)
+    words = [(word, _normalized_word(word.get('text')))
+             for word in raw_words if isinstance(word, dict)]
+    words = [(word, norm) for word, norm in words if norm]
+    quote_words = [_normalized_word(x) for x in re.findall(r'\S+', quote or '', re.UNICODE)]
+    quote_words = [x for x in quote_words if x]
+    if not words or not quote_words:
+        return [], None, ''
+    q_len = len(quote_words)
+    if q_len > len(words):
+        return [], None, ''
+
+    def candidates(allow_fuzzy):
+        found = []
+        for start in range(0, len(words) - q_len + 1):
+            scores = [
+                _token_match(expected, actual, allow_fuzzy=allow_fuzzy)
+                for expected, (_, actual) in zip(quote_words, words[start:start + q_len])
+            ]
+            if all(score is not None for score in scores):
+                found.append((sum(scores) / len(scores), start, start + q_len))
+        return found
+
+    matches = candidates(False) or candidates(True)
+    # Повторяющаяся одинаковая цитата неоднозначна: безопаснее оставить точку.
+    if len(matches) != 1:
+        best_score = max((m[0] for m in matches), default=0.0)
+        return [], round(best_score, 3) if matches else None, ''
+    score, start, end = matches[0]
+    if score < 0.94:
+        return [], round(score, 3), ''
+    selected = [word for word, _ in words[start:end]]
+    token_conf = []
+    for word in selected:
+        try:
+            value = float(word.get('confidence', 1.0))
+        except (TypeError, ValueError):
+            return [], None, ''
+        if not math.isfinite(value) or value < 0 or value > 1:
+            return [], None, ''
+        token_conf.append(value)
+    confidence = score * (sum(token_conf) / len(token_conf) if token_conf else 1.0)
+    if confidence < TEXT_MATCH_MIN_CONFIDENCE:
+        return [], round(confidence, 3), ''
+    source = 'ocr_text' if page.ocr_used else 'pdf_text'
+    return _merge_word_boxes(selected), round(min(1.0, confidence), 3), source
+
+
+def _vision_image_data_uri(image_path: str) -> str:
+    with Image.open(image_path) as image:
+        image = image.convert('RGB')
+        image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG', quality=85, optimize=True)
+    return 'data:image/jpeg;base64,' + base64.b64encode(buffer.getvalue()).decode('ascii')
+
+
+def _parse_vision_findings(content: str, page_num: int, find_types: tuple) -> list:
+    parsed = _parse_ai_json(content)
+    results = []
+    for item in parsed['findings']:
+        if not isinstance(item, dict) or item.get('type') not in find_types:
+            continue
+        try:
+            confidence = float(item.get('confidence'))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        raw_boxes = item.get('boxes')
+        if not isinstance(raw_boxes, list):
+            raw_boxes = [item.get('bbox')] if item.get('bbox') is not None else []
+        boxes = [box for box in (_valid_normalized_box(v) for v in raw_boxes) if box]
+        # Не рисуем правдоподобную, но сомнительную рамку.
+        if confidence < VISION_BOX_MIN_CONFIDENCE:
+            boxes = []
+        results.append({
+            'page_num': page_num,
+            'ftype': item['type'],
+            'snippet': str(item.get('quote') or '')[:1000],
+            'description': str(item.get('description') or '')[:1000],
+            'source': 'vision',
+            'boxes_json': json.dumps(boxes),
+            'confidence': round(confidence, 3),
+            'algorithm_version': FINDING_ALGORITHM_VERSION,
+        })
+    return results
+
+
+def _analyze_page_vision(page, provider, api_key, find_types,
+                         cancel_check=None) -> list:
+    if not provider.is_local:
+        raise ProviderNotLocalError('Изображения документов разрешены только локальному провайдеру.')
+    if not provider.supports_vision or not page.image_path:
+        return []
+    _raise_if_cancelled(cancel_check)
+    requested = ', '.join(find_types)
+    messages = [
+        {'role': 'system', 'content':
+            'Ты локальный детектор реквизитов документов. Найди только реально '
+            'видимые графические объекты указанных типов. Координаты bbox нормализованы '
+            'относительно изображения: [x,y,width,height], все значения 0..1. '
+            'Не создавай рамку по одному лишь слову «подпись» или «печать». Ответь '
+            'строго JSON: {\"rules\":[],\"findings\":[{\"type\":\"signature|seal\",'
+            '\"confidence\":0.0,\"bbox\":[0,0,0,0],\"quote\":\"\",'
+            '\"description\":\"\"}]}.'},
+        {'role': 'user', 'content': [
+            {'type': 'text', 'text':
+                f'Страница {page.page_num}. Искомые типы: {requested}. '
+                'Верни только обнаруженные объекты.'},
+            {'type': 'image_url', 'image_url': {
+                'url': _vision_image_data_uri(page.image_path)}},
+        ]},
+    ]
+    result = _call_with_retry(
+        provider, api_key, messages, cancel_check=cancel_check,
+        response_format={'type': 'json_object'})
+    _raise_if_cancelled(cancel_check)
+    return _parse_vision_findings(result['content'], page.page_num, find_types)
 
 
 def analyze_file(df: DocFile, provider, api_key, find_types=(),
@@ -268,16 +503,21 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
         if commit:
             db.session.commit()
         return {'rules': [], 'findings': []}
+    if find_types:
+        _backfill_page_coordinates(df, pages, cancel_check=cancel_check)
 
     # Агрегация: violation > ok > not_found по всем chunk'ам
     agg: dict = {r.id: {'status': 'not_found', 'details': []} for r in rules}
     max_page = pages[-1].page_num
     staged_findings = []
 
+    visual_types = tuple(t for t in find_types if t in ('signature', 'seal'))
+    text_find_types = tuple(find_types)
+
     for i in range(0, len(pages), PAGES_PER_CHUNK):
         _raise_if_cancelled(cancel_check)
         chunk = pages[i:i + PAGES_PER_CHUNK]
-        messages = build_prompt(rules, chunk, find_types, system_extra,
+        messages = build_prompt(rules, chunk, text_find_types, system_extra,
                                 user_extra)
         result = _call_with_retry(
             provider, api_key, messages, cancel_check=cancel_check)
@@ -303,7 +543,7 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
             if not isinstance(item, dict):
                 continue
             ftype = item.get('type')
-            if ftype not in find_types:
+            if ftype not in text_find_types:
                 continue
             try:
                 page = int(item.get('page') or chunk[0].page_num)
@@ -311,10 +551,45 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
                 page = chunk[0].page_num
             if page not in chunk_pages:
                 page = min(max(1, page), max_page)
+            page_row = next((p for p in chunk if p.page_num == page), None)
+            boxes, confidence, source = (match_quote_boxes(page_row, item.get('quote') or '')
+                                         if page_row and ftype == 'date'
+                                         else ([], None, ''))
             staged_findings.append(dict(
                 page_num=page, ftype=ftype,
                 snippet=str(item.get('quote') or '')[:1000],
-                description=str(item.get('description') or '')[:1000]))
+                description=str(item.get('description') or '')[:1000],
+                source=source,
+                boxes_json=json.dumps(boxes),
+                confidence=confidence,
+                algorithm_version=FINDING_ALGORITHM_VERSION if source else ''))
+
+    if provider.supports_vision and visual_types:
+        for page in pages:
+            _raise_if_cancelled(cancel_check)
+            try:
+                vision_findings = _analyze_page_vision(
+                    page, provider, api_key, visual_types,
+                    cancel_check=cancel_check)
+                if vision_findings:
+                    detected_types = {item['ftype'] for item in vision_findings}
+                    # Vision заменяет только page-level fallback того же типа.
+                    # Если vision ничего не нашёл/сломался, текстовая карточка
+                    # сохраняется без ложной координатной рамки.
+                    staged_findings = [
+                        item for item in staged_findings
+                        if not (item['page_num'] == page.page_num
+                                and item['ftype'] in detected_types
+                                and not item.get('source'))
+                    ]
+                    staged_findings.extend(vision_findings)
+            except AnalysisCancelled:
+                raise
+            except Exception as exc:
+                # Vision экспериментален: сбой координат не отменяет текстовую
+                # проверку и не создаёт ложных рамок.
+                logger.warning('vision analysis failed for file %s page %s: %s',
+                               df.id, page.page_num, exc)
 
     snapshot_rules = []
     for rule in rules:
@@ -327,7 +602,11 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
         ))
     snapshot_findings = [
         dict(page=item['page_num'], type=item['ftype'],
-             quote=item['snippet'], description=item['description'])
+             quote=item['snippet'], description=item['description'],
+             source=item.get('source') or '',
+             boxes=json.loads(item.get('boxes_json') or '[]'),
+             confidence=item.get('confidence'),
+             algorithm_version=item.get('algorithm_version') or '')
         for item in staged_findings
     ]
 

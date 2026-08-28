@@ -194,6 +194,12 @@ textarea{resize:vertical}
 .ws-stage{background:#66707c;padding:14px;display:flex;flex:1;min-width:0;min-height:0;overflow:auto}
 .ws-stage>*{margin:auto}
 .ws-stage img{box-shadow:0 3px 14px rgba(0,0,0,.4);background:#fff;display:block;flex-shrink:0}
+.page-layer{position:relative;margin:auto;flex-shrink:0;line-height:0}
+.page-layer img{width:100%;height:auto}
+.bbox-layer{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.bbox-rect{fill-opacity:.13;stroke-width:2;vector-effect:non-scaling-stroke;pointer-events:all;cursor:help;
+  transition:fill-opacity .15s,stroke-width .15s,filter .15s}
+.bbox-rect:hover,.bbox-rect.flash{fill-opacity:.28;stroke-width:4;filter:drop-shadow(0 0 3px rgba(255,255,255,.95))}
 
 /* панель масштаба */
 .zoom-bar{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);
@@ -213,7 +219,7 @@ textarea{resize:vertical}
 /* находки текущей страницы */
 .ws-findings{padding:8px 14px;border-bottom:1px solid #edf0f3;display:flex;flex-direction:column;gap:5px;background:#fcfdfe;
   max-height:22vh;overflow-y:auto}
-.find-chip{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;
+.find-chip{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;cursor:pointer;
   border-left:3px solid #ccc;padding:3px 8px;background:#fff;border-radius:0 4px 4px 0;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .find-chip b{flex-shrink:0}
 .find-chip .q{color:#607080;font-style:italic}
@@ -728,6 +734,8 @@ function applyZoom() {
   w = Math.max(40, Math.round(w));
   img.style.width = w + 'px';
   img.style.height = 'auto';
+  if (img.parentElement && img.parentElement.classList.contains('page-layer'))
+    img.parentElement.style.width = w + 'px';
   setZoomLbl(Math.round(w / img.naturalWidth * 100));
 }
 function setZoomLbl(pct) {
@@ -1148,7 +1156,7 @@ document.getElementById('ws-legend').addEventListener('click', e => {
   if (!leg) return;
   const t = leg.dataset.ftype;
   if (hiddenFtypes.has(t)) hiddenFtypes.delete(t); else hiddenFtypes.add(t);
-  renderLegend(); renderThumbs(); renderFindings();
+  renderLegend(); renderThumbs(); renderFindings(); renderBboxOverlay();
 });
 
 /* ── Миниатюры (с точками находок и отметок) ── */
@@ -1225,7 +1233,7 @@ function renderPage() {
   wsPage = Math.min(Math.max(1, wsPage), total);
   const p = f.pages.find(x => x.page_num === wsPage) || f.pages[wsPage - 1];
   stage.innerHTML = p && p.has_image
-    ? `<img src="/docs/files/${f.id}/pages/${p.page_num}/image" alt="Страница ${p.page_num}">`
+    ? `<div class="page-layer"><img src="/docs/files/${f.id}/pages/${p.page_num}/image" alt="Страница ${p.page_num}"><svg class="bbox-layer" viewBox="0 0 1 1" preserveAspectRatio="none" aria-label="Координатные находки"></svg></div>`
     : `<div class="empty-block" style="color:#fff">Изображение страницы недоступно</div>`;
   const im = stageImg();
   if (im) { im.addEventListener('load', applyZoom); if (im.complete) applyZoom(); }
@@ -1245,7 +1253,31 @@ function renderPage() {
     if (act) t.scrollIntoView({block:'nearest'});
   });
   renderFindings();
+  renderBboxOverlay();
   renderMarksBar();
+}
+
+function findingTooltip(x) {
+  const ft = FTYPES[x.type] || {single:x.type,label:x.type};
+  const src = {pdf_text:'Текст PDF',ocr_text:'OCR',vision:'Vision (экспериментально)'}[x.source] || 'Страница';
+  const conf = typeof x.confidence === 'number' ? ` · уверенность ${Math.round(x.confidence*100)}%` : '';
+  return `${ft.single || ft.label}${x.quote ? ': «'+x.quote+'»' : ''}${x.description ? ' · '+x.description : ''} · ${src}${conf}`;
+}
+
+function renderBboxOverlay(flashId) {
+  const svg = document.querySelector('#ws-stage .bbox-layer');
+  if (!svg || !wsFile || !wsFile.findings) return;
+  const findings = wsFile.findings.filter(x => x.page === wsPage && !hiddenFtypes.has(x.type)
+    && Array.isArray(x.boxes) && x.boxes.length);
+  svg.innerHTML = findings.flatMap(x => {
+    const color = (FTYPES[x.type] || {color:'#999'}).color;
+    return x.boxes.map(box => `<rect class="bbox-rect ${x.id===flashId?'flash':''}"
+      data-finding="${x.id}" x="${box[0]}" y="${box[1]}" width="${box[2]}" height="${box[3]}"
+      fill="${color}" stroke="${color}"><title>${esc(findingTooltip(x))}</title></rect>`);
+  }).join('');
+  if (flashId) setTimeout(() => {
+    svg.querySelectorAll('.flash').forEach(el => el.classList.remove('flash'));
+  }, 1300);
 }
 
 /* ── Находки текущей страницы ── */
@@ -1253,17 +1285,35 @@ function renderFindings() {
   const box = document.getElementById('ws-findings');
   const f = wsFile;
   if (!f || !f.findings) { box.style.display = 'none'; return; }
-  const items = f.findings.filter(x => x.page === wsPage && !hiddenFtypes.has(x.type));
+  const items = f.findings.filter(x => !hiddenFtypes.has(x.type));
   if (!items.length) { box.style.display = 'none'; return; }
   box.style.display = '';
   box.innerHTML = items.map(x => {
     const ft = FTYPES[x.type] || {label:x.type, color:'#999'};
-    return `<div class="find-chip" style="border-left-color:${ft.color}">
+    const source = {pdf_text:'PDF',ocr_text:'OCR',vision:'Vision · экспериментально'}[x.source] || '';
+    const confidence = typeof x.confidence === 'number' ? `${Math.round(x.confidence*100)}%` : '';
+    const precise = Array.isArray(x.boxes) && x.boxes.length;
+    return `<div class="find-chip" data-finding="${x.id}" data-page="${x.page}" style="border-left-color:${ft.color}"
+      title="${esc(precise ? 'Перейти к точной рамке' : 'Точная рамка не построена из-за недостаточной уверенности')}">
       <b style="color:${ft.color}">${ft.single || ft.label}</b>
-      <span>${x.quote ? `<span class="q">«${esc(x.quote)}»</span> ` : ''}${esc(x.description || '')}</span>
+      <span><span class="b b-err" style="padding:0 6px">стр. ${x.page}</span>
+        ${x.quote ? `<span class="q">«${esc(x.quote)}»</span> ` : ''}${esc(x.description || '')}
+        ${(source || confidence) ? `<span class="muted"> · ${esc(source)}${confidence?' · '+confidence:''}${precise?' · точная рамка':' · без рамки'}</span>` : ''}</span>
     </div>`;
   }).join('');
 }
+document.getElementById('ws-findings').addEventListener('click', e => {
+  const chip = e.target.closest('[data-finding]');
+  if (!chip || !wsFile) return;
+  wsPage = parseInt(chip.dataset.page, 10) || wsPage;
+  const findingId = parseInt(chip.dataset.finding, 10);
+  renderPage();
+  requestAnimationFrame(() => {
+    renderBboxOverlay(findingId);
+    const rect = document.querySelector(`#ws-stage [data-finding="${findingId}"]`);
+    if (rect) rect.scrollIntoView({block:'center', inline:'center', behavior:'smooth'});
+  });
+});
 
 /* ── Кнопки ручных отметок ── */
 function renderMarksBar() {

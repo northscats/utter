@@ -434,6 +434,37 @@ def file_detail(file_id):
     runs = (DocAnalysisRun.query.filter_by(file_id=f.id)
             .order_by(DocAnalysisRun.created_at.desc(), DocAnalysisRun.id.desc())
             .limit(20).all())
+    def _boxes(finding):
+        import json
+        import math
+        try:
+            value = json.loads(finding.boxes_json or '[]')
+        except (TypeError, json.JSONDecodeError):
+            return []
+        if not isinstance(value, list):
+            return []
+        valid = []
+        for box in value:
+            if not isinstance(box, list) or len(box) != 4:
+                continue
+            try:
+                x, y, w, h = (float(v) for v in box)
+            except (TypeError, ValueError):
+                continue
+            if not all(math.isfinite(v) for v in (x, y, w, h)):
+                continue
+            if x >= 0 and y >= 0 and w > 0 and h > 0 and x + w <= 1.0001 and y + h <= 1.0001:
+                valid.append([x, y, w, h])
+        return valid
+
+    def _confidence(finding):
+        import math
+        try:
+            value = float(finding.confidence)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and 0 <= value <= 1 else None
+
     return jsonify(
         id=f.id, orig_name=f.orig_name, status=f.status,
         error_text=f.error_text or '', pages_count=f.pages_count,
@@ -441,10 +472,16 @@ def file_detail(file_id):
         analysis_status=f.analysis_status or 'none',
         catalog=dict(id=f.catalog.id, name=f.catalog.name) if f.catalog else None,
         pages=[dict(page_num=p.page_num, text=p.text or '',
-                    has_image=bool(p.image_path), ocr_used=p.ocr_used)
+                    has_image=bool(p.image_path), ocr_used=p.ocr_used,
+                    image_width=p.image_width or 0,
+                    image_height=p.image_height or 0,
+                    coordinate_version=p.coordinate_version or '')
                for p in pages],
         findings=[dict(id=fi.id, page=fi.page_num, type=fi.ftype,
-                       quote=fi.snippet or '', description=fi.description or '')
+                       quote=fi.snippet or '', description=fi.description or '',
+                       source=fi.source or '', boxes=_boxes(fi),
+                       confidence=_confidence(fi),
+                       algorithm_version=fi.algorithm_version or '')
                   for fi in sorted(f.findings, key=lambda x: (x.page_num, x.id))],
         marks=[dict(id=m.id, page=m.page_num, button_key=m.button_key)
                for m in sorted(f.marks, key=lambda x: (x.page_num, x.id))],

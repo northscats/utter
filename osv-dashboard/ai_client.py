@@ -20,6 +20,7 @@ def call_ai_provider(
     max_tokens: int = 1024,
     enable_thinking: Optional[bool] = False,
     timeout: int = 60,
+    response_format: Optional[dict] = None,
 ) -> dict:
     """POST /chat/completions к OpenAI-совместимому провайдеру.
 
@@ -44,6 +45,8 @@ def call_ai_provider(
     # OpenAI SDK обворачивает extra_body — они не доходят до vLLM.
     if enable_thinking is False:
         body['chat_template_kwargs'] = {'enable_thinking': False}
+    if response_format:
+        body['response_format'] = response_format
 
     data = json.dumps(body, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(

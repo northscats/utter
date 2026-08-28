@@ -328,6 +328,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
             {% if p.is_default %}<span class="bdg-default">По умолчанию</span> {% endif %}
             {% if p.is_active %}<span class="bdg-active">Активен</span>{% else %}<span class="bdg-inactive">Выключен</span>{% endif %}
             {% if p.is_local %} <span class="bdg-active" style="background:#e3f0ff;color:#1c4f8a">Локальный</span>{% endif %}
+            {% if p.supports_vision %} <span class="bdg-active" style="background:#f3e8ff;color:#6b21a8">Vision · экспериментально</span>{% endif %}
           </td>
           <td style="text-align:right;white-space:nowrap;padding-right:8px">
             {% if not p.is_default %}
@@ -345,7 +346,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
               data-model="{{ p.model | e }}"
               data-active="{{ '1' if p.is_active else '0' }}"
               data-default="{{ '1' if p.is_default else '0' }}"
-              data-local="{{ '1' if p.is_local else '0' }}">Изменить</button>
+              data-local="{{ '1' if p.is_local else '0' }}"
+              data-vision="{{ '1' if p.supports_vision else '0' }}">Изменить</button>
             <form method="post" style="display:inline"
                   onsubmit="return confirm('Удалить провайдер «{{ p.name }}»?')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -396,6 +398,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
             <label><input type="checkbox" name="ai_is_default" id="edit-ai-default" value="1"> По умолчанию</label>
             <label title="Разрешает проверку документов: они отправляются только локальным (внутренним) провайдерам">
               <input type="checkbox" name="ai_is_local" id="edit-ai-local" value="1"> Локальный (внутренний)</label>
+            <label title="Явно разрешает отправку изображений этой локальной модели для экспериментального поиска подписей и печатей">
+              <input type="checkbox" name="ai_supports_vision" id="edit-ai-vision" value="1"> Vision (экспериментально)</label>
           </div>
           <div class="form-actions" style="margin-top:18px">
             <button class="btn btn-primary" type="submit">Сохранить</button>
@@ -436,6 +440,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         <label><input type="checkbox" name="ai_is_default" value="1"> По умолчанию</label>
         <label title="Разрешает проверку документов: они отправляются только локальным (внутренним) провайдерам">
           <input type="checkbox" name="ai_is_local" value="1"> Локальный (внутренний)</label>
+        <label title="Включайте только для проверенной локальной мультимодальной модели. Изображения внешним провайдерам не отправляются.">
+          <input type="checkbox" name="ai_supports_vision" value="1"> Vision (экспериментально)</label>
       </div>
       <div class="form-actions" style="align-items:center">
         <button class="btn btn-primary" type="submit">+ Добавить</button>
@@ -571,6 +577,7 @@ function openEditAi(btn) {
   document.getElementById('edit-ai-active').checked  = d.active  === '1';
   document.getElementById('edit-ai-default').checked = d.default === '1';
   document.getElementById('edit-ai-local').checked   = d.local   === '1';
+  document.getElementById('edit-ai-vision').checked  = d.vision  === '1';
   document.getElementById('ai-edit-overlay').style.display = 'flex';
 }
 function closeEditAi() {

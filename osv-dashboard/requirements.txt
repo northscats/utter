@@ -12,3 +12,4 @@ cryptography>=42.0
 pdfplumber>=0.11
 pytesseract>=0.3
 Pillow>=10.0
+opencv-python-headless>=4.10
