@@ -251,16 +251,18 @@ def process_package(app, package_id: int, zip_path: str, storage_root: str):
             os.makedirs(files_dir, exist_ok=True)
             unrouted = get_unrouted_catalog()
 
-            # 2. Регистрация файлов + маршрутизация
+            # 2. Регистрация файлов.
+            # Распределение по правилам запускается только вручную через
+            # кнопку «Распределить», поэтому новые файлы всегда начинают
+            # в системном каталоге «Не распределено».
             doc_files = []
             for orig_name, tmp_path in extracted:
                 stored = os.path.join(files_dir, os.path.basename(tmp_path))
                 shutil.move(tmp_path, stored)
                 ext = os.path.splitext(orig_name)[1].lower()
-                catalog = route_file(orig_name) if ext in SUPPORTED_EXTS else None
                 df = DocFile(
                     package_id=package_id,
-                    catalog_id=(catalog or unrouted).id,
+                    catalog_id=unrouted.id,
                     orig_name=orig_name[:500],
                     stored_path=stored,
                     status='routed' if ext in SUPPORTED_EXTS else 'error',
@@ -334,13 +336,6 @@ def process_package(app, package_id: int, zip_path: str, storage_root: str):
                         ))
                     df.pages_count = n_pages
                     df.status = 'ready'
-                    # Дораспределение по тексту: текст уже извлечён,
-                    # правила «Текст содержит» теперь могут сработать
-                    if df.catalog_id in (None, unrouted.id):
-                        db.session.flush()
-                        cat2 = route_file(df.orig_name, df)
-                        if cat2 is not None:
-                            df.catalog_id = cat2.id
                 except Exception as exc:
                     logger.exception('processing failed for file %s', df.orig_name)
                     df.status = 'error'

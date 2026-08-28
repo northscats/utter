@@ -133,24 +133,40 @@ for _ in range(60):
     time.sleep(1)
 check('пакет обработан', st['status'] == 'done', json.dumps(st, ensure_ascii=False))
 
-# 7. Детали пакета: маршрутизация и страницы
+# 7. Детали пакета: до нажатия «Распределить» все файлы остаются
+# в системном каталоге
 r = client.get(f'/docs/packages/{pkg_id}')
 d = r.get_json()
 files = {f['orig_name']: f for f in d['files']}
 akt = files.get('Акт выполненных работ.txt')
-check('акт распределён в «Акты»', akt and akt['catalog']['name'] == 'Акты',
+check('акт до ручного запуска не распределён',
+      akt and akt['catalog']['name'] == 'Не распределено',
       json.dumps(d['files'], ensure_ascii=False)[:400])
 check('акт готов, есть страницы', akt['status'] == 'ready' and akt['pages_count'] >= 1)
 binf = files.get('data.bin')
 check('bin помечен ошибкой', binf and binf['status'] == 'error')
 
-# 8. Текст страницы
+# 8. Ручное распределение тем же API, который вызывает кнопка
+r = client.post(f'/docs/packages/{pkg_id}/route-all')
+route_result = r.get_json()
+check('ручное распределение выполнено',
+      r.status_code == 200 and route_result.get('routed', 0) >= 1,
+      r.get_data(as_text=True))
+r = client.get(f'/docs/packages/{pkg_id}')
+d = r.get_json()
+files = {f['orig_name']: f for f in d['files']}
+akt = files.get('Акт выполненных работ.txt')
+check('акт распределён в «Акты» после нажатия',
+      akt and akt['catalog']['name'] == 'Акты',
+      json.dumps(d['files'], ensure_ascii=False)[:400])
+
+# 9. Текст страницы
 r = client.get(f"/docs/files/{akt['id']}")
 fd = r.get_json()
 page1 = fd['pages'][0]
 check('текст извлечён', 'Акт' in page1['text'], page1['text'][:100])
 
-# 9. Изображение страницы
+# 10. Изображение страницы
 if page1['has_image']:
     r = client.get(f"/docs/files/{akt['id']}/pages/1/image")
     check('изображение страницы', r.status_code == 200 and r.data[:4] == b'\x89PNG')
