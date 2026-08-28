@@ -11,9 +11,10 @@ from flask import Blueprint, abort, current_app, jsonify, request, send_file
 from flask_login import current_user, login_required
 
 from database import (AnalysisTemplate, DocAnalysisRun, DocCatalog,
-                       DocCheckRule, DocFile, DocFileMark, DocFilePage,
-                       DocFinding, DocFreeAnalysisResult, DocMarkButton,
-                       DocPackage, DocRoutingRule, db)
+                       DocCatalogAnalysisRun, DocCheckRule, DocFile,
+                       DocFileMark, DocFilePage, DocFinding,
+                       DocFreeAnalysisResult, DocMarkButton, DocPackage,
+                       DocRoutingRule, db)
 from doc_pipeline import (PackageValidationError, get_unrouted_catalog,
                           process_package, validate_zip)
 
@@ -82,6 +83,49 @@ def _analysis_run_dict(run: DocAnalysisRun):
         answer=(run.free_result.content
                 if run.free_result is not None else None),
     )
+
+
+def _catalog_analysis_run_dict(run: DocCatalogAnalysisRun,
+                               include_children=True):
+    """Представление версии анализа каталога и её фиксированного состава."""
+    import json
+
+    def parsed(value, fallback):
+        try:
+            return json.loads(value or '')
+        except (TypeError, ValueError):
+            return fallback
+
+    data = dict(
+        id=run.id,
+        package_id=run.package_id,
+        catalog_id=run.catalog_id,
+        catalog_name=(run.catalog_name_snapshot
+                      or (run.catalog.name if run.catalog else 'Удалённый каталог')),
+        mode=run.mode,
+        user_prompt=run.user_prompt or '',
+        template_id=run.template_id,
+        template_name=run.template_name or '',
+        file_ids=parsed(run.file_ids_json, []),
+        skipped_files=parsed(run.skipped_json, []),
+        options=parsed(run.options_json, {}),
+        summary=parsed(run.summary_json, {}),
+        errors=parsed(run.errors_json, []),
+        status=run.status,
+        files_total=run.files_total,
+        files_done=run.files_done,
+        error_text=run.error_text or '',
+        author=run.author.username if run.author else '—',
+        created_at=run.created_at.strftime('%d.%m.%Y %H:%M'),
+        completed_at=(run.completed_at.strftime('%d.%m.%Y %H:%M')
+                      if run.completed_at else None),
+    )
+    if include_children:
+        data['file_runs'] = [
+            _analysis_run_dict(child)
+            for child in sorted(run.file_runs, key=lambda x: x.id)
+        ]
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +203,11 @@ def catalog_delete(cat_id):
         unrouted = get_unrouted_catalog()
         for f in cat.files:
             f.catalog_id = unrouted.id
+    # История запусков сохраняется независимо от жизненного цикла каталога.
+    for run in DocCatalogAnalysisRun.query.filter_by(catalog_id=cat.id).all():
+        if not run.catalog_name_snapshot:
+            run.catalog_name_snapshot = cat.name
+        run.catalog_id = None
     db.session.delete(cat)
     db.session.commit()
     return jsonify(ok=True)
@@ -617,6 +666,156 @@ def current_file_analyze(file_id):
     return jsonify(_analysis_run_dict(run)), 202
 
 
+@docs_bp.route('/packages/<int:pkg_id>/catalogs/<int:catalog_id>/analyze',
+               methods=['POST'])
+@login_required
+def catalog_analyze(pkg_id, catalog_id):
+    """Запускает версионный анализ снимка готовых файлов одного каталога."""
+    import json
+    from doc_analysis import (ProviderNotLocalError, analyze_catalog,
+                              get_local_provider)
+
+    pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
+    catalog = db.session.get(DocCatalog, catalog_id) or abort(404)
+    if pkg.status != 'done':
+        return jsonify(error='Пакет ещё не обработан — дождитесь завершения'), 400
+
+    all_files = [f for f in pkg.files if f.catalog_id == catalog.id]
+    ready_files = sorted(
+        (f for f in all_files if f.status == 'ready'),
+        key=lambda f: f.id)
+    if not all_files:
+        return jsonify(error='Каталог пуст'), 400
+    if not ready_files:
+        return jsonify(error='В каталоге нет готовых документов'), 400
+
+    data = request.get_json(silent=True) or {}
+    mode = (data.get('mode') or '').strip()
+    if mode not in ('supplement', 'free'):
+        return jsonify(error='mode должен быть supplement или free'), 400
+    user_prompt = (data.get('user_prompt') or '').strip()
+    if not user_prompt:
+        return jsonify(error='Введите пользовательский промпт'), 400
+    if len(user_prompt) > 8000:
+        return jsonify(error='Промпт не должен превышать 8000 символов'), 400
+
+    options = {}
+    for key in ('find_dates', 'find_signatures', 'find_seals'):
+        if key in data:
+            if not isinstance(data[key], bool):
+                return jsonify(error=f'{key} должен быть булевым значением'), 400
+            options[key] = data[key]
+    template = None
+    if data.get('template_id') not in (None, ''):
+        try:
+            template_id = int(data['template_id'])
+        except (TypeError, ValueError):
+            return jsonify(error='template_id должен быть числом'), 400
+        template = db.session.get(AnalysisTemplate, template_id)
+        if template is None:
+            return jsonify(error='Шаблон анализа не найден'), 404
+        options.setdefault('find_dates', bool(template.find_dates))
+        options.setdefault('find_signatures', bool(template.find_signatures))
+        options.setdefault('find_seals', bool(template.find_seals))
+
+    try:
+        get_local_provider()
+    except ProviderNotLocalError as exc:
+        return jsonify(error=str(exc)), 400
+
+    rules_snapshot = [
+        dict(id=rule.id, name=rule.name, prompt_text=rule.prompt_text)
+        for rule in catalog.check_rules if rule.is_active
+    ]
+    option_snapshot = dict(
+        find_dates=options.get('find_dates', True),
+        find_signatures=options.get('find_signatures', True),
+        find_seals=options.get('find_seals', True),
+        rules=rules_snapshot,
+    )
+    ready_ids = [f.id for f in ready_files]
+    skipped_snapshot = [
+        dict(file_id=f.id, name=f.orig_name, status=f.status,
+             error=f.error_text or 'Документ не готов к анализу', skipped=True)
+        for f in all_files if f.status != 'ready'
+    ]
+
+    with _ANALYSIS_START_LOCK:
+        db.session.expire_all()
+        pkg = (DocPackage.query.filter_by(id=pkg_id).with_for_update()
+               .populate_existing().first() or abort(404))
+        _package_access(pkg)
+        if pkg.analysis_status == 'running':
+            db.session.rollback()
+            return jsonify(error='В этом пакете уже выполняется анализ'), 409
+        # Фиксируем состав повторным запросом внутри блокировки. После commit
+        # дальнейшие перемещения файлов не меняют file_ids_json.
+        locked_ready = (DocFile.query.filter(
+            DocFile.package_id == pkg.id,
+            DocFile.catalog_id == catalog.id,
+            DocFile.status == 'ready',
+            DocFile.id.in_(ready_ids)).order_by(DocFile.id).all())
+        if not locked_ready:
+            db.session.rollback()
+            return jsonify(error='В каталоге нет готовых документов'), 400
+        batch = DocCatalogAnalysisRun(
+            package_id=pkg.id,
+            catalog_id=catalog.id,
+            catalog_name_snapshot=catalog.name,
+            created_by=current_user.id,
+            mode=mode,
+            user_prompt=user_prompt,
+            template_id=template.id if template else None,
+            template_name=template.name if template else '',
+            template_prompt=template.system_prompt if template else '',
+            file_ids_json=json.dumps(
+                [f.id for f in locked_ready], ensure_ascii=False),
+            skipped_json=json.dumps(skipped_snapshot, ensure_ascii=False),
+            options_json=json.dumps(option_snapshot, ensure_ascii=False),
+            files_total=len(locked_ready),
+            status='queued',
+        )
+        db.session.add(batch)
+        db.session.flush()
+        for f in locked_ready:
+            db.session.add(DocAnalysisRun(
+                package_id=pkg.id,
+                catalog_run_id=batch.id,
+                file_id=f.id,
+                created_by=current_user.id,
+                mode=mode,
+                scope='selected_catalog',
+                user_prompt=user_prompt,
+                template_id=template.id if template else None,
+                template_name=template.name if template else '',
+                template_prompt=template.system_prompt if template else '',
+                options_json=json.dumps(option_snapshot, ensure_ascii=False),
+                status='queued',
+            ))
+        pkg.analysis_status = 'running'
+        pkg.analysis_error = ''
+        pkg.analysis_total = len(locked_ready)
+        pkg.analysis_done = 0
+        db.session.commit()
+
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=analyze_catalog,
+        args=(app_obj, batch.id),
+        daemon=True,
+        name=f'doc-catalog-analysis-{batch.id}',
+    ).start()
+    return jsonify(_catalog_analysis_run_dict(batch)), 202
+
+
+@docs_bp.route('/catalog-analysis-runs/<int:run_id>')
+@login_required
+def catalog_analysis_run(run_id):
+    run = db.session.get(DocCatalogAnalysisRun, run_id) or abort(404)
+    _package_access(run.package)
+    return jsonify(_catalog_analysis_run_dict(run))
+
+
 def _results_for_package(pkg):
     """Сводка результатов проверки: файл → каталог → правила → статусы."""
     import json as _json
@@ -662,6 +861,12 @@ def package_results(pkg_id):
     pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
     d = _package_dict(pkg)
     d['files'] = _results_for_package(pkg)
+    runs = (DocCatalogAnalysisRun.query.filter_by(package_id=pkg.id)
+            .order_by(DocCatalogAnalysisRun.created_at.desc(),
+                      DocCatalogAnalysisRun.id.desc()).limit(20).all())
+    d['catalog_runs'] = [
+        _catalog_analysis_run_dict(run) for run in runs
+    ]
     return jsonify(d)
 
 

@@ -353,6 +353,44 @@ class AnalysisTemplate(db.Model):
     created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
+class DocCatalogAnalysisRun(db.Model):
+    """Версия анализа фиксированного набора документов одного каталога."""
+    __tablename__ = 'doc_catalog_analysis_runs'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    package_id      = db.Column(db.Integer, db.ForeignKey('doc_packages.id'),
+                                nullable=False)
+    catalog_id      = db.Column(
+        db.Integer, db.ForeignKey('doc_catalogs.id', ondelete='SET NULL'),
+        nullable=True)
+    catalog_name_snapshot = db.Column(db.String(255), default='')
+    created_by      = db.Column(db.Integer, db.ForeignKey('users.id'),
+                                nullable=False)
+    mode            = db.Column(db.String(20), nullable=False)
+    user_prompt     = db.Column(db.Text, default='')
+    template_id     = db.Column(db.Integer,
+                                db.ForeignKey('doc_analysis_templates.id'))
+    template_name   = db.Column(db.String(255), default='')
+    template_prompt = db.Column(db.Text, default='')
+    file_ids_json   = db.Column(db.Text, default='[]')
+    skipped_json    = db.Column(db.Text, default='[]')
+    options_json    = db.Column(db.Text, default='{}')
+    summary_json    = db.Column(db.Text, default='{}')
+    errors_json     = db.Column(db.Text, default='[]')
+    status          = db.Column(db.String(20), nullable=False, default='queued')
+    files_total     = db.Column(db.Integer, nullable=False, default=0)
+    files_done      = db.Column(db.Integer, nullable=False, default=0)
+    error_text      = db.Column(db.Text, default='')
+    created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
+    started_at      = db.Column(db.DateTime(timezone=True))
+    completed_at    = db.Column(db.DateTime(timezone=True))
+
+    package = db.relationship('DocPackage', lazy=True)
+    catalog = db.relationship('DocCatalog', lazy=True)
+    author = db.relationship('User', lazy=True)
+    template = db.relationship('AnalysisTemplate', lazy=True)
+
+
 class DocAnalysisRun(db.Model):
     """Воспроизводимый запуск ИИ-анализа одного документа.
 
@@ -364,6 +402,9 @@ class DocAnalysisRun(db.Model):
     id                = db.Column(db.Integer, primary_key=True)
     package_id        = db.Column(db.Integer, db.ForeignKey('doc_packages.id'),
                                   nullable=False)
+    catalog_run_id    = db.Column(
+        db.Integer, db.ForeignKey('doc_catalog_analysis_runs.id'),
+        nullable=True)
     file_id           = db.Column(db.Integer, db.ForeignKey('doc_files.id'),
                                   nullable=False)
     created_by        = db.Column(db.Integer, db.ForeignKey('users.id'),
@@ -396,6 +437,11 @@ class DocAnalysisRun(db.Model):
         lazy=True)
     author = db.relationship('User', lazy=True)
     template = db.relationship('AnalysisTemplate', lazy=True)
+    catalog_run = db.relationship(
+        'DocCatalogAnalysisRun',
+        backref=db.backref('file_runs', cascade='all, delete-orphan',
+                           lazy=True),
+        lazy=True)
 
 
 class DocFreeAnalysisResult(db.Model):

@@ -20,7 +20,10 @@ os.environ['DATABASE_URL'] = f'sqlite:///{_TMP}/test.db'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db, encrypt_value
-from database import AiProvider, DocAnalysisRun, DocFile, DocPackage, User, db
+from database import (AiProvider, DocAnalysisRun, DocCatalog,
+                      DocCatalogAnalysisRun, DocCheckRule, DocFile,
+                      DocPackage, User, db)
+from doc_analysis import _synthesize_catalog
 
 app.config['DOCS_STORAGE'] = os.path.join(_TMP, 'docs')
 os.makedirs(app.config['DOCS_STORAGE'], exist_ok=True)
@@ -30,6 +33,7 @@ init_db()
 received_bodies = []
 fake_response_mode = {'value': 'normal'}
 fake_delay_seconds = {'value': 0}
+fake_invalid_marker = {'value': ''}
 
 class FakeAI(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -39,8 +43,17 @@ class FakeAI(BaseHTTPRequestHandler):
         received_bodies.append(body)
         system_msg = body['messages'][0]['content']
         user_msg = body['messages'][1]['content']
-        if fake_response_mode['value'] == 'invalid':
+        if (fake_response_mode['value'] == 'invalid'
+                or (fake_invalid_marker['value']
+                    and fake_invalid_marker['value'] in user_msg)):
             content = 'это не JSON'
+        elif '{"summary"' in system_msg:
+            content = json.dumps({
+                'summary': 'Сводное заключение по успешно проверенным документам',
+                'common_issues': ['Общий риск'],
+                'discrepancies': ['Расхождение сроков'],
+                'missing_information': ['Не во всех документах есть дата'],
+            }, ensure_ascii=False)
         elif '{"answer"' in system_msg:
             content = json.dumps(
                 {'answer': 'Срок действия найден. Существенных рисков не выявлено.'},
@@ -150,6 +163,34 @@ with app.app_context():
     loc = db.session.get(AiProvider, loc_id)
     check('is_local сохраняется при редактировании', loc.is_local and loc.is_active)
 
+# Большая сводка проходит через несколько валидных групп без потери источников.
+summary_calls_start = len(received_bodies)
+with app.app_context():
+    large_docs = [
+        {'file_id': 1000 + i, 'name': f'Большой документ {i}',
+         'run_id': 2000 + i, 'result': {'answer': 'Результат ' + ('Я' * 12000)}}
+        for i in range(8)
+    ]
+    large_summary = _synthesize_catalog(
+        db.session.get(AiProvider, loc_id), 'local-key',
+        'Сформируй большую сводку', large_docs, [])
+large_summary_bodies = [
+    b for b in received_bodies[summary_calls_start:]
+    if '{"summary"' in b['messages'][0]['content']]
+check('большая сводка обработана иерархически',
+      len(large_summary_bodies) > 1
+      and {x['file_id'] for x in large_summary['sources']}
+      == {1000 + i for i in range(8)})
+valid_payloads = True
+for body in large_summary_bodies:
+    raw = body['messages'][1]['content'].split(
+        'СТРУКТУРИРОВАННЫЕ РЕЗУЛЬТАТЫ:\n', 1)[1]
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError:
+        valid_payloads = False
+check('каждая часть большой сводки — валидный JSON', valid_payloads)
+
 r = client.post(f'/docs/packages/{pkg_id}/analyze')
 check('анализ запущен', r.status_code == 202, r.get_data(as_text=True)[:200])
 
@@ -163,7 +204,9 @@ check('анализ завершён', st['analysis_status'] == 'done',
 check('прогресс анализа', st['analysis_done'] == 2 and st['analysis_total'] == 2,
       json.dumps(st, ensure_ascii=False))
 check('ИИ-запросы получены', len(received_bodies) >= 1)
-_user_prompt = received_bodies[0]['messages'][1]['content']
+_user_prompt = next(
+    b['messages'][1]['content'] for b in received_bodies
+    if 'ПРАВИЛА ПРОВЕРКИ' in b['messages'][1]['content'])
 check('промпт содержит правила', 'Печать' in _user_prompt and 'Договор' in _user_prompt,
       repr(_user_prompt[:400]))
 
@@ -279,6 +322,156 @@ for _ in range(30):
 fake_delay_seconds['value'] = 0
 check('медленный анализ завершён', st['analysis_status'] == 'done')
 
+# ── Анализ фиксированного снимка выбранного каталога ───────────────────────
+catalog_state = client.get(f'/docs/packages/{pkg_id}/results').get_json()
+current_row = next(f for f in catalog_state['files']
+                   if f['file_id'] == current_file_id)
+catalog_id = current_row['catalog']['id']
+catalog_files = [f for f in catalog_state['files']
+                 if f['catalog'] and f['catalog']['id'] == catalog_id]
+other_ready_file_id = next(
+    f['file_id'] for f in catalog_files if f['file_id'] != current_file_id)
+with app.app_context():
+    skipped_file = DocFile(
+        package_id=pkg_id, catalog_id=catalog_id,
+        orig_name='Повреждённый документ.pdf', status='error',
+        error_text='Не удалось извлечь текст')
+    db.session.add(skipped_file)
+    db.session.commit()
+    skipped_file_id = skipped_file.id
+
+fake_delay_seconds['value'] = 1
+fake_invalid_marker['value'] = 'Содержимое подозрительного файла'
+summary_calls_before = len(received_bodies)
+r = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'free', 'user_prompt': 'Сравни документы каталога'})
+check('анализ каталога запущен', r.status_code == 202, r.get_data(as_text=True))
+catalog_run = r.get_json()
+catalog_run_id = catalog_run['id']
+check('состав готовых файлов зафиксирован',
+      set(catalog_run['file_ids']) == {current_file_id, other_ready_file_id})
+check('ошибочный файл зафиксирован как пропущенный',
+      any(x['file_id'] == skipped_file_id
+          for x in catalog_run['skipped_files']))
+
+# Перемещение после старта не должно менять уже зафиксированную работу.
+with app.app_context():
+    moved = db.session.get(DocFile, other_ready_file_id)
+    original_catalog_id = moved.catalog_id
+    moved.catalog_id = next(c.id for c in DocCatalog.query.all()
+                            if c.id != original_catalog_id)
+    db.session.commit()
+
+for _ in range(30):
+    catalog_run = client.get(
+        f'/docs/catalog-analysis-runs/{catalog_run_id}').get_json()
+    if catalog_run['status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+fake_delay_seconds['value'] = 0
+fake_invalid_marker['value'] = ''
+check('частичная ошибка не остановила каталог',
+      catalog_run['status'] == 'done'
+      and catalog_run['files_done'] == catalog_run['files_total'] == 2)
+check('сводка построена по успешному документу',
+      catalog_run['summary']['summary']
+      and {x['file_id'] for x in catalog_run['summary']['sources']}
+      == {current_file_id})
+check('сводка содержит ошибку анализа и пропущенный файл',
+      {x['file_id'] for x in catalog_run['summary']['errors']}
+      == {other_ready_file_id, skipped_file_id})
+check('у каждого готового файла есть отдельный запуск',
+      len(catalog_run['file_runs']) == 2
+      and {x['status'] for x in catalog_run['file_runs']} == {'done', 'error'})
+summary_bodies = received_bodies[summary_calls_before:]
+summary_body = next(b for b in summary_bodies
+                    if '{"summary"' in b['messages'][0]['content'])
+check('сводка получает результаты, а не исходные страницы',
+      'СТРУКТУРИРОВАННЫЕ РЕЗУЛЬТАТЫ' in summary_body['messages'][1]['content']
+      and 'ТЕКСТ ДОКУМЕНТА' not in summary_body['messages'][1]['content'])
+
+with app.app_context():
+    db.session.get(DocFile, other_ready_file_id).catalog_id = original_catalog_id
+    temporary_rule = DocCheckRule(
+        catalog_id=catalog_id, name='Удаляемое правило',
+        prompt_text='Найди контрольный реквизит', is_active=True)
+    db.session.add(temporary_rule)
+    db.session.commit()
+    temporary_rule_id = temporary_rule.id
+
+# Удаление правила после старта не должно ломать исторический snapshot.
+fake_delay_seconds['value'] = 1
+r = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'supplement', 'user_prompt': 'Проверь каталог повторно'})
+check('повторная версия каталога запущена', r.status_code == 202)
+rule_snapshot_run_id = r.get_json()['id']
+with app.app_context():
+    db.session.delete(db.session.get(DocCheckRule, temporary_rule_id))
+    db.session.commit()
+for _ in range(30):
+    rule_snapshot_run = client.get(
+        f'/docs/catalog-analysis-runs/{rule_snapshot_run_id}').get_json()
+    if rule_snapshot_run['status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+fake_delay_seconds['value'] = 0
+check('удаление правила не ломает запущенную версию',
+      rule_snapshot_run['status'] == 'done'
+      and all(x['status'] == 'done'
+              for x in rule_snapshot_run['file_runs']))
+check('имя удалённого правила осталось в истории',
+      all(any(rule['rule_name'] == 'Удаляемое правило'
+              for rule in child['result']['rules'])
+          for child in rule_snapshot_run['file_runs']))
+
+with app.app_context():
+    db.session.delete(db.session.get(DocFile, skipped_file_id))
+    empty_catalog = DocCatalog(name='Пустой каталог для теста')
+    error_catalog = DocCatalog(name='Каталог без готовых файлов')
+    history_catalog = DocCatalog(name='Удаляемый каталог с историей')
+    db.session.add_all([empty_catalog, error_catalog, history_catalog])
+    db.session.flush()
+    only_error = DocFile(
+        package_id=pkg_id, catalog_id=error_catalog.id,
+        orig_name='Только ошибка.pdf', status='error',
+        error_text='Файл повреждён')
+    db.session.add(only_error)
+    history_run = DocCatalogAnalysisRun(
+        package_id=pkg_id, catalog_id=history_catalog.id,
+        catalog_name_snapshot=history_catalog.name, created_by=admin_id,
+        mode='free', user_prompt='Исторический запуск',
+        file_ids_json='[]', status='done', files_total=0, files_done=0)
+    db.session.add(history_run)
+    db.session.commit()
+    empty_catalog_id = empty_catalog.id
+    error_catalog_id = error_catalog.id
+    only_error_id = only_error.id
+    history_catalog_id = history_catalog.id
+    history_run_id = history_run.id
+check('пустой каталог не запускает задачу',
+      client.post(
+          f'/docs/packages/{pkg_id}/catalogs/{empty_catalog_id}/analyze',
+          json={'mode': 'free', 'user_prompt': 'Проверить'}).status_code == 400)
+check('каталог без готовых файлов не запускает задачу',
+      client.post(
+          f'/docs/packages/{pkg_id}/catalogs/{error_catalog_id}/analyze',
+          json={'mode': 'free', 'user_prompt': 'Проверить'}).status_code == 400)
+check('каталог с историей удаляется штатно',
+      client.delete(
+          f'/docs/catalogs/{history_catalog_id}').status_code == 200)
+preserved_history = client.get(
+    f'/docs/catalog-analysis-runs/{history_run_id}').get_json()
+check('история удалённого каталога сохранена',
+      preserved_history['catalog_id'] is None
+      and preserved_history['catalog_name'] == 'Удаляемый каталог с историей')
+with app.app_context():
+    db.session.delete(db.session.get(DocFile, only_error_id))
+    db.session.delete(db.session.get(DocCatalog, empty_catalog_id))
+    db.session.delete(db.session.get(DocCatalog, error_catalog_id))
+    db.session.commit()
+
 # ── 5. Экспорт XLSX ────────────────────────────────────────────────────────
 r = client.get(f'/docs/packages/{pkg_id}/export')
 check('экспорт XLSX', r.status_code == 200 and r.data[:2] == b'PK')
@@ -345,13 +538,19 @@ r2 = client.get(f'/docs/packages/{pkg_id}/export')
 r3 = client.post(f'/docs/packages/{pkg_id}/analyze')
 r4 = client.post(f'/docs/files/{current_file_id}/analyze',
                  json={'mode': 'free', 'user_prompt': 'Покажи документ'})
+r_catalog = client.get(f'/docs/catalog-analysis-runs/{catalog_run_id}')
+r_catalog_start = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'free', 'user_prompt': 'Проверь каталог'})
 r5 = client.post('/docs/analysis-templates', json={
     'name': 'Пользовательский шаблон',
     'system_prompt': 'Проверь существенные условия',
 })
 check('чужой пакет недоступен', r1.status_code == 403 and r2.status_code == 403
-      and r3.status_code == 403 and r4.status_code == 403,
-      f'{r1.status_code}/{r2.status_code}/{r3.status_code}/{r4.status_code}')
+      and r3.status_code == 403 and r4.status_code == 403
+      and r_catalog.status_code == 403 and r_catalog_start.status_code == 403,
+      f'{r1.status_code}/{r2.status_code}/{r3.status_code}/{r4.status_code}/'
+      f'{r_catalog.status_code}/{r_catalog_start.status_code}')
 check('обычный пользователь может создать шаблон', r5.status_code == 201,
       r5.get_data(as_text=True)[:200])
 

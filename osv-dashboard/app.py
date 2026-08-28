@@ -2610,12 +2610,47 @@ def init_db():
         _add_missing('doc_analysis_runs', [
             ('options_json', "TEXT DEFAULT '{}'"),
             ('result_json',  "TEXT DEFAULT '{}'"),
+            ('catalog_run_id', "INTEGER REFERENCES doc_catalog_analysis_runs(id)"),
         ])
+        _add_missing('doc_catalog_analysis_runs', [
+            ('skipped_json', "TEXT DEFAULT '[]'"),
+            ('catalog_name_snapshot', "VARCHAR(255) DEFAULT ''"),
+        ])
+        if db.engine.dialect.name == 'postgresql':
+            try:
+                from sqlalchemy import text as _text_catalog_run
+                with db.engine.begin() as _catalog_conn:
+                    _catalog_conn.execute(_text_catalog_run(
+                        'ALTER TABLE doc_catalog_analysis_runs '
+                        'ALTER COLUMN catalog_id DROP NOT NULL'))
+                    _catalog_conn.execute(_text_catalog_run(
+                        'UPDATE doc_catalog_analysis_runs r '
+                        'SET catalog_name_snapshot = c.name '
+                        'FROM doc_catalogs c '
+                        'WHERE r.catalog_id = c.id '
+                        "AND COALESCE(r.catalog_name_snapshot, '') = ''"))
+            except Exception as _catalog_migration_exc:
+                app.logger.warning(
+                    'catalog run nullable migration failed: %s',
+                    _catalog_migration_exc)
         # Daemon-поток не переживает рестарт. Не оставляем историю текущего
         # документа навсегда в состоянии queued/running.
         try:
-            from database import (DocAnalysisRun, DocCheckResult,
-                                  DocFreeAnalysisResult, utcnow)
+            from database import (DocAnalysisRun, DocCatalogAnalysisRun,
+                                  DocCheckResult, DocFreeAnalysisResult, utcnow)
+            stale_catalog_runs = DocCatalogAnalysisRun.query.filter(
+                DocCatalogAnalysisRun.status.in_(('queued', 'running'))).all()
+            for _catalog_run in stale_catalog_runs:
+                _catalog_run.status = 'error'
+                _catalog_run.error_text = (
+                    'Анализ каталога прерван перезапуском приложения. '
+                    'Запустите его повторно.')
+                _catalog_run.completed_at = utcnow()
+                if (_catalog_run.package
+                        and _catalog_run.package.analysis_status == 'running'):
+                    _catalog_run.package.analysis_status = 'error'
+                    _catalog_run.package.analysis_error = (
+                        _catalog_run.error_text)
             stale_runs = DocAnalysisRun.query.filter(
                 DocAnalysisRun.status.in_(('queued', 'running'))).all()
             for _run in stale_runs:
@@ -2634,11 +2669,11 @@ def init_db():
                         or DocFreeAnalysisResult.query.filter_by(
                             file_id=_file.id).first())
                     _file.analysis_status = 'done' if has_previous else 'error'
-            if stale_runs:
+            if stale_runs or stale_catalog_runs:
                 db.session.commit()
                 app.logger.warning(
-                    'recovered %s interrupted document analysis runs',
-                    len(stale_runs))
+                    'recovered %s document and %s catalog analysis runs',
+                    len(stale_runs), len(stale_catalog_runs))
         except Exception as _analysis_recovery_exc:
             db.session.rollback()
             app.logger.warning(

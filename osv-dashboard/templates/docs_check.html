@@ -435,6 +435,10 @@ textarea{resize:vertical}
           </div>
         </div>
         <div class="card" id="ws-empty"><div class="empty-block">Выберите файл в списке слева</div></div>
+        <div class="card" id="ws-catalog-summary" style="display:none;margin-top:12px">
+          <h3>Сводные заключения по каталогам</h3>
+          <div id="ws-catalog-summary-body"></div>
+        </div>
         <div class="card" id="ws-ai" style="display:none;margin-top:12px">
           <h3>Результаты ИИ-проверки</h3>
           <div id="ws-ai-body"></div>
@@ -564,6 +568,41 @@ textarea{resize:vertical}
   </div>
 </div>
 
+<div class="modal-bg" id="catalog-analysis-modal">
+  <div class="modal narrow">
+    <h3>✦ Анализировать каталог
+      <button class="x" data-close="catalog-analysis-modal">✕</button></h3>
+    <div id="cal-name" style="font-weight:700;margin-bottom:3px"></div>
+    <div id="cal-counts" class="muted" style="margin-bottom:12px"></div>
+    <div class="fgrid" style="grid-template-columns:1fr">
+      <div><label>Режим</label>
+        <select id="cal-mode">
+          <option value="supplement">Дополнить проверку по правилам</option>
+          <option value="free">Свободный анализ документов</option>
+        </select>
+      </div>
+      <div><label>Шаблон анализа</label>
+        <select id="cal-template"><option value="">По умолчанию</option></select>
+      </div>
+      <div><label>Один промпт для всех документов</label>
+        <textarea id="cal-prompt" rows="5" maxlength="8000"
+          placeholder="Например: сравни сроки, суммы и стороны во всех документах каталога"></textarea>
+        <div class="muted" style="margin-top:3px"><span id="cal-count">0</span>/8000</div>
+      </div>
+    </div>
+    <div id="cal-find-types" style="display:flex;gap:14px;margin:10px 0;flex-wrap:wrap">
+      <label class="ck"><input type="checkbox" id="cal-dates" checked> Даты</label>
+      <label class="ck"><input type="checkbox" id="cal-sigs" checked> Подписи</label>
+      <label class="ck"><input type="checkbox" id="cal-seals" checked> Печати</label>
+    </div>
+    <div class="muted" id="cal-mode-help" style="font-size:11.5px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:7px">
+      <button class="btn btn-primary" id="cal-run">Запустить анализ каталога</button>
+      <button class="btn btn-grey" data-close="catalog-analysis-modal">Отмена</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -573,6 +612,7 @@ let CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let currentPkgId = null, pkgPollTimer = null, pdPollTimer = null;
 let wsFileId = null, wsPage = 1, wsFile = null, wsResults = null;
 let activeCurrentRunId = null;
+let activeCatalogRunId = null, catalogAnalysisTarget = null;
 let collapsedCats = new Set();
 try { collapsedCats = new Set(JSON.parse(localStorage.getItem('docs.collapsedCats') || '[]')); } catch (e) {}
 let markButtons = [], catalogsCache = [], analysisTemplates = [];
@@ -853,7 +893,7 @@ async function loadMarkButtons() {
 }
 async function loadTemplates() {
   try { analysisTemplates = await api('/docs/analysis-templates'); } catch(e){ analysisTemplates = []; }
-  ['an-template','caf-template'].forEach(id => {
+  ['an-template','caf-template','cal-template'].forEach(id => {
     const sel = document.getElementById(id);
     const cur = sel.value;
     sel.innerHTML = '<option value="">По умолчанию</option>' + analysisTemplates.map(t =>
@@ -884,6 +924,7 @@ async function renderPackage(autoselect) {
   try { d = await api(`/docs/packages/${currentPkgId}/results`); }
   catch(e) { toast(e.message); show('packages'); loadPackages(); return; }
   wsResults = d;
+  renderCatalogSummaries();
 
   document.getElementById('pd-title').textContent = d.title;
   const stB = d.status==='done' ? ['готов','b-done'] : d.status==='error' ? ['ошибка','b-viol']
@@ -914,9 +955,15 @@ async function renderPackage(autoselect) {
       const grp = groups[g];
       const catId = grp.cat ? grp.cat.id : '';
       const isCollapsed = collapsedCats.has(g);
+      const readyCount = grp.files.filter(f => f.file_status === 'ready').length;
+      const errorCount = grp.files.filter(f => f.file_status === 'error').length;
       return `<div class="ws-cat-hdr" data-cat-drop="${catId}" data-cat-key="${esc(g)}" title="Свернуть/развернуть">
           <span class="cat-caret">${isCollapsed ? '▸' : '▾'}</span>${esc(g)}
-          <span class="muted" style="font-weight:400;text-transform:none">(${grp.files.length})</span></div>` +
+          <span class="muted" style="font-weight:400;text-transform:none">(${grp.files.length})</span>
+          ${catId ? `<button class="btn btn-grey btn-sm" data-cat-analyze="${catId}"
+            data-cat-name="${esc(g)}" data-ready="${readyCount}" data-errors="${errorCount}"
+            style="margin-left:auto;padding:2px 6px;text-transform:none" title="Анализировать только этот каталог">✦ Анализ</button>` : ''}
+          </div>` +
         `<div class="ws-cat-files" ${isCollapsed ? 'style="display:none"' : ''}>` +
         grp.files.map(f => {
           const a = aggStatus(f);
@@ -1232,6 +1279,49 @@ document.getElementById('ws-marks').addEventListener('click', async e => {
   } catch(err) { toast(err.message); }
 });
 
+/* ── Сводные результаты запусков по каталогам ── */
+function renderCatalogSummaries() {
+  const box = document.getElementById('ws-catalog-summary');
+  const runs = wsResults?.catalog_runs || [];
+  if (!runs.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  document.getElementById('ws-catalog-summary-body').innerHTML = runs.map(run => {
+    const status = run.status === 'done' ? ['Завершён','b-done']
+      : run.status === 'error' ? ['Ошибка','b-viol']
+      : run.status === 'running' ? ['Выполняется','b-run'] : ['В очереди','b-err'];
+    const s = run.summary || {};
+    const list = (title, values) => Array.isArray(values) && values.length
+      ? `<div style="margin-top:8px"><b>${title}</b><ul style="margin:4px 0 0 18px">${values.map(v => `<li>${esc(v)}</li>`).join('')}</ul></div>` : '';
+    const sources = Array.isArray(s.sources) ? s.sources : [];
+    const errors = Array.isArray(s.errors) ? s.errors : (run.errors || []);
+    return `<div class="analysis-run ${run.mode==='free'?'free':''} ${run.status==='error'?'error':''}">
+      <div class="run-meta">
+        <span class="b ${status[1]}">${status[0]}</span>
+        <b>${esc(run.catalog_name)}</b>
+        <span>${run.mode==='free'?'Свободный анализ':'Дополнение правил'}</span>
+        <span>${esc(run.author)} · ${esc(run.created_at)}</span>
+        <span>${run.files_done}/${run.files_total} файлов</span>
+        ${run.template_name ? `<span>Шаблон: ${esc(run.template_name)}</span>` : ''}
+      </div>
+      <div class="run-prompt"><b>Промпт:</b> ${esc(run.user_prompt)}</div>
+      ${s.summary ? `<div class="run-answer"><b>Сводное заключение</b><br>${esc(s.summary)}</div>` : ''}
+      ${list('Общие нарушения', s.common_issues)}
+      ${list('Расхождения между документами', s.discrepancies)}
+      ${list('Нет нужных сведений', s.missing_information)}
+      ${sources.length ? `<div style="margin-top:8px"><b>Источники:</b> ${sources.map(src =>
+        `<button class="btn btn-grey btn-sm" data-summary-file="${src.file_id}" style="margin:3px">${esc(src.name)}</button>`
+      ).join('')}</div>` : ''}
+      ${errors.length ? `<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--bad)">Ошибки и пропуски (${errors.length})</summary>
+        ${errors.map(er => `<div class="res-det">${esc(er.name)}: ${esc(er.error)}</div>`).join('')}</details>` : ''}
+      ${run.error_text ? `<div class="res-det" style="color:var(--bad)">${esc(run.error_text)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+document.getElementById('ws-catalog-summary-body').addEventListener('click', e => {
+  const btn = e.target.closest('[data-summary-file]');
+  if (btn) selectFile(parseInt(btn.dataset.summaryFile, 10), false);
+});
+
 /* ── Результаты ИИ выбранного файла ── */
 function renderAiResults() {
   const box = document.getElementById('ws-ai');
@@ -1372,8 +1462,83 @@ document.getElementById('caf-save-template').addEventListener('click', async () 
   } catch(err) { toast(err.message); }
 });
 
+/* ── Анализ выбранного каталога ── */
+function updateCatalogAnalysisMode() {
+  const free = document.getElementById('cal-mode').value === 'free';
+  document.getElementById('cal-find-types').style.display = free ? 'none' : 'flex';
+  document.getElementById('cal-mode-help').textContent = free
+    ? 'Один вопрос будет применён отдельно к каждому документу, затем ИИ сформирует общий ответ по каталогу.'
+    : 'Промпт дополнит правила каталога для каждого документа; сводка будет построена из полученных результатов.';
+}
+function openCatalogAnalysisModal(btn) {
+  const ready = parseInt(btn.dataset.ready || '0', 10);
+  const errors = parseInt(btn.dataset.errors || '0', 10);
+  if (!ready) { toast(errors ? 'В каталоге нет готовых документов' : 'Каталог пуст'); return; }
+  if (wsResults?.analysis_status === 'running') { toast('Дождитесь завершения текущего анализа'); return; }
+  catalogAnalysisTarget = {
+    id: parseInt(btn.dataset.catAnalyze, 10),
+    name: btn.dataset.catName,
+  };
+  document.getElementById('cal-name').textContent = catalogAnalysisTarget.name;
+  document.getElementById('cal-counts').textContent =
+    `Готово к анализу: ${ready}. Файлов с ошибками: ${errors}. Состав будет зафиксирован при запуске.`;
+  document.getElementById('cal-prompt').value = '';
+  document.getElementById('cal-count').textContent = '0';
+  document.getElementById('cal-mode').value = 'supplement';
+  document.getElementById('cal-template').value = '';
+  updateCatalogAnalysisMode();
+  document.getElementById('catalog-analysis-modal').classList.add('open');
+  setTimeout(() => document.getElementById('cal-prompt').focus(), 0);
+}
+document.getElementById('cal-mode').addEventListener('change', updateCatalogAnalysisMode);
+document.getElementById('cal-prompt').addEventListener('input', e => {
+  document.getElementById('cal-count').textContent = e.target.value.length;
+});
+document.getElementById('cal-template').addEventListener('change', e => {
+  const tpl = analysisTemplates.find(t => t.id === parseInt(e.target.value, 10));
+  if (!tpl) return;
+  document.getElementById('cal-dates').checked = !!tpl.find_dates;
+  document.getElementById('cal-sigs').checked = !!tpl.find_signatures;
+  document.getElementById('cal-seals').checked = !!tpl.find_seals;
+});
+document.getElementById('cal-run').addEventListener('click', async () => {
+  if (!catalogAnalysisTarget || !currentPkgId) return;
+  const promptText = document.getElementById('cal-prompt').value.trim();
+  if (!promptText) { toast('Введите пользовательский промпт'); return; }
+  const btn = document.getElementById('cal-run');
+  const body = {
+    mode: document.getElementById('cal-mode').value,
+    user_prompt: promptText,
+    find_dates: document.getElementById('cal-dates').checked,
+    find_signatures: document.getElementById('cal-sigs').checked,
+    find_seals: document.getElementById('cal-seals').checked,
+  };
+  const tpl = document.getElementById('cal-template').value;
+  if (tpl) body.template_id = parseInt(tpl, 10);
+  btn.disabled = true;
+  try {
+    const run = await api(`/docs/packages/${currentPkgId}/catalogs/${catalogAnalysisTarget.id}/analyze`,
+      {method:'POST', json:body});
+    activeCatalogRunId = run.id;
+    document.getElementById('catalog-analysis-modal').classList.remove('open');
+    toast(`Анализ каталога запущен: 0/${run.files_total}`);
+    await renderPackage(false);
+  } catch(err) {
+    const msg = err.message || '';
+    if (msg.toLowerCase().includes('провайдер'))
+      toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
+    else toast(msg);
+  } finally { btn.disabled = false; }
+});
+
 /* ── Обработчики рабочего экрана ── */
 document.getElementById('ws-files-list').addEventListener('click', e => {
+  const analyzeCatalog = e.target.closest('[data-cat-analyze]');
+  if (analyzeCatalog) {
+    e.stopPropagation();
+    openCatalogAnalysisModal(analyzeCatalog);
+    return;
+  }
   const hdr = e.target.closest('.ws-cat-hdr');
   if (hdr) {
     const key = hdr.dataset.catKey;

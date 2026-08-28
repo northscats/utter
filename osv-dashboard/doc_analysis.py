@@ -12,11 +12,13 @@ import logging
 import re
 import threading
 import time
+from types import SimpleNamespace
 
 from ai_client import call_ai_provider
 from database import (AiProvider, AnalysisTemplate, DocAnalysisRun,
-                      DocCheckResult, DocFile, DocFilePage, DocFinding,
-                      DocFreeAnalysisResult, DocPackage, db, utcnow)
+                      DocCatalogAnalysisRun, DocCheckResult, DocCheckRule, DocFile,
+                      DocFilePage, DocFinding, DocFreeAnalysisResult,
+                      DocPackage, db, utcnow)
 
 logger = logging.getLogger(__name__)
 
@@ -224,19 +226,27 @@ _STATUS_RANK = {'violation': 3, 'ok': 2, 'not_found': 1}
 
 
 def analyze_file(df: DocFile, provider, api_key, find_types=(),
-                 system_extra='', user_extra='') -> None:
+                 system_extra='', user_extra='', rules_override=None) -> dict:
     """Проверяет один файл: правила каталога + поиск находок.
 
     Результаты (по одному DocCheckResult на правило) и находки перезаписываются.
     """
-    rules = [r for r in (df.catalog.check_rules if df.catalog else [])
-             if r.is_active]
+    if rules_override is None:
+        rules = [r for r in (df.catalog.check_rules if df.catalog else [])
+                 if r.is_active]
+    else:
+        rules = [
+            SimpleNamespace(
+                id=int(r['id']), name=str(r.get('name') or '—'),
+                prompt_text=str(r.get('prompt_text') or ''))
+            for r in rules_override if isinstance(r, dict) and r.get('id')
+        ]
     pages = (DocFilePage.query.filter_by(file_id=df.id)
              .order_by(DocFilePage.page_num).all())
     if not pages or (not rules and not find_types):
         df.analysis_status = 'done'
         db.session.commit()
-        return
+        return {'rules': [], 'findings': []}
 
     # Агрегация: violation > ok > not_found по всем chunk'ам
     agg: dict = {r.id: {'status': 'not_found', 'details': []} for r in rules}
@@ -282,10 +292,33 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
                 snippet=str(item.get('quote') or '')[:1000],
                 description=str(item.get('description') or '')[:1000]))
 
+    snapshot_rules = []
+    for rule in rules:
+        a = agg[rule.id]
+        snapshot_rules.append(dict(
+            rule_id=rule.id,
+            rule_name=rule.name,
+            status=a['status'],
+            details={'notes': list(a['details'])},
+        ))
+    snapshot_findings = [
+        dict(page=item['page_num'], type=item['ftype'],
+             quote=item['snippet'], description=item['description'])
+        for item in staged_findings
+    ]
+
     # Старый успешный результат заменяется только после полного получения нового.
+    # Исторический snapshot не зависит от живой строки правила. В общую таблицу
+    # пишем только правила, которые всё ещё существуют (FK PostgreSQL).
     DocCheckResult.query.filter_by(file_id=df.id).delete()
     DocFinding.query.filter_by(file_id=df.id).delete()
+    live_rule_ids = {
+        row[0] for row in db.session.query(DocCheckRule.id).filter(
+            DocCheckRule.id.in_([r.id for r in rules])).all()
+    } if rules else set()
     for rule in rules:
+        if rule.id not in live_rule_ids:
+            continue
         a = agg[rule.id]
         db.session.add(DocCheckResult(
             file_id=df.id,
@@ -297,6 +330,7 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
         db.session.add(DocFinding(file_id=df.id, **item))
     df.analysis_status = 'done'
     db.session.commit()
+    return {'rules': snapshot_rules, 'findings': snapshot_findings}
 
 
 def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
@@ -328,27 +362,203 @@ def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
     return _parse_free_ai_json(result['content'])[:30000]
 
 
-def _standard_result_snapshot(file_id: int) -> str:
-    """Неизменяемый снимок результатов supplement-запуска."""
-    rows = []
-    for result in DocCheckResult.query.filter_by(file_id=file_id).all():
-        try:
-            details = json.loads(result.details or '{}')
-        except (TypeError, ValueError):
-            details = {'raw': result.details or ''}
-        rows.append(dict(
-            rule_id=result.check_rule_id,
-            rule_name=(result.check_rule.name if result.check_rule else '—'),
-            status=result.status,
-            details=details,
-        ))
-    findings = [
-        dict(page=f.page_num, type=f.ftype, quote=f.snippet or '',
-             description=f.description or '')
-        for f in (DocFinding.query.filter_by(file_id=file_id)
-                  .order_by(DocFinding.page_num, DocFinding.id).all())
+def build_catalog_summary_prompt(user_prompt: str, documents: list,
+                                 errors: list) -> list:
+    """Строит сводку только из структурированных результатов документов."""
+    source_text = json.dumps(
+        {'documents': documents, 'analysis_errors': errors},
+        ensure_ascii=False)
+    return [
+        {'role': 'system', 'content':
+            'Ты формируешь сводное заключение по каталогу документов. Используй '
+            'ТОЛЬКО переданные результаты анализов, не делай выводов по файлам с '
+            'ошибками и не придумывай источники. Ответь СТРОГО JSON без Markdown: '
+            '{"summary":"<общий вывод>",'
+            '"common_issues":["<общие нарушения>"],'
+            '"discrepancies":["<расхождения между документами>"],'
+            '"missing_information":["<документы без нужных сведений>"]}'},
+        {'role': 'user', 'content':
+            'ИСХОДНЫЙ ПРОМПТ ПОЛЬЗОВАТЕЛЯ:\n' + user_prompt.strip() +
+            '\n\nСТРУКТУРИРОВАННЫЕ РЕЗУЛЬТАТЫ:\n' + source_text},
     ]
-    return json.dumps({'rules': rows, 'findings': findings}, ensure_ascii=False)
+
+
+def _parse_catalog_summary(content: str) -> dict:
+    m = re.search(r'\{[\s\S]*\}', content or '')
+    if not m:
+        raise ValueError('ИИ вернул сводку не в формате JSON')
+    try:
+        data = json.loads(m.group(0))
+    except json.JSONDecodeError as exc:
+        raise ValueError('ИИ вернул повреждённый JSON сводки') from exc
+    if not isinstance(data, dict) or not isinstance(data.get('summary'), str):
+        raise ValueError('ИИ вернул сводку без общего вывода')
+    result = {'summary': data['summary'].strip()[:6000]}
+    for key in ('common_issues', 'discrepancies', 'missing_information'):
+        values = data.get(key)
+        result[key] = ([str(v)[:500] for v in values[:20]]
+                       if isinstance(values, list) else [])
+    return result
+
+
+def _compact_summary_document(document: dict, max_chars=12000) -> dict:
+    """Оставляет валидное представление каждого источника в заданном бюджете."""
+    base = {
+        'file_id': document.get('file_id'),
+        'name': str(document.get('name') or '—')[:500],
+        'run_id': document.get('run_id'),
+    }
+    if document.get('source_file_ids'):
+        base['represented_source_ids'] = document.get('source_file_ids')
+    result = document.get('result') if isinstance(document.get('result'), dict) else {}
+    if isinstance(result.get('answer'), str):
+        base['result'] = {'answer': result['answer'][:max_chars - 1000]}
+        return base
+    if isinstance(result.get('summary'), str):
+        base['result'] = {
+            'summary': result['summary'][:6000],
+            'common_issues': [
+                str(v)[:500] for v in (result.get('common_issues') or [])[:20]],
+            'discrepancies': [
+                str(v)[:500] for v in (result.get('discrepancies') or [])[:20]],
+            'missing_information': [
+                str(v)[:500]
+                for v in (result.get('missing_information') or [])[:20]],
+        }
+        return base
+
+    compact_rules = []
+    omitted_details = 0
+    omitted_rules = 0
+    source_rules = result.get('rules') or []
+    for rule_index, rule in enumerate(source_rules):
+        if not isinstance(rule, dict):
+            continue
+        item = {
+            'rule_id': rule.get('rule_id'),
+            'rule_name': str(rule.get('rule_name') or '—')[:300],
+            'status': rule.get('status'),
+        }
+        details = rule.get('details')
+        notes = details.get('notes') if isinstance(details, dict) else None
+        if isinstance(notes, list) and notes:
+            item['details'] = '; '.join(str(n) for n in notes)[:500]
+        candidate = dict(base, result={
+            'rules': compact_rules + [item],
+            'finding_counts': {},
+        })
+        if len(json.dumps(candidate, ensure_ascii=False)) > max_chars - 1500:
+            omitted_details += 1
+            item.pop('details', None)
+            candidate = dict(base, result={
+                'rules': compact_rules + [item],
+                'finding_counts': {},
+            })
+            if len(json.dumps(candidate, ensure_ascii=False)) > max_chars - 1000:
+                omitted_rules = len(source_rules) - rule_index
+                break
+        compact_rules.append(item)
+
+    finding_counts = {}
+    finding_examples = []
+    for finding in result.get('findings') or []:
+        if not isinstance(finding, dict):
+            continue
+        ftype = str(finding.get('type') or 'other')
+        finding_counts[ftype] = finding_counts.get(ftype, 0) + 1
+        example = {
+            'page': finding.get('page'),
+            'type': ftype,
+            'quote': str(finding.get('quote') or '')[:250],
+            'description': str(finding.get('description') or '')[:250],
+        }
+        candidate = dict(base, result={
+            'rules': compact_rules,
+            'finding_counts': finding_counts,
+            'finding_examples': finding_examples + [example],
+        })
+        if len(json.dumps(candidate, ensure_ascii=False)) <= max_chars:
+            finding_examples.append(example)
+
+    base['result'] = {
+        'rules': compact_rules,
+        'finding_counts': finding_counts,
+        'finding_examples': finding_examples,
+    }
+    if omitted_details:
+        base['result']['details_compacted'] = omitted_details
+    if omitted_rules:
+        base['result']['rules_omitted_after_budget'] = omitted_rules
+    return base
+
+
+def _chunk_summary_documents(documents: list, max_chars=45000) -> list:
+    chunks, current, current_size = [], [], 0
+    for document in documents:
+        size = len(json.dumps(document, ensure_ascii=False))
+        if current and current_size + size > max_chars:
+            chunks.append(current)
+            current, current_size = [], 0
+        current.append(document)
+        current_size += size
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _synthesize_catalog(provider, api_key, user_prompt: str,
+                        documents: list, errors: list) -> dict:
+    """Иерархически сводит все источники без обрезки или ложных ссылок."""
+    compact = [_compact_summary_document(d) for d in documents]
+    source_map = {
+        d['file_id']: dict(file_id=d['file_id'], name=d['name'],
+                           run_id=d.get('run_id'))
+        for d in compact
+    }
+    chunks = _chunk_summary_documents(compact)
+    if len(chunks) == 1:
+        response = _call_with_retry(
+            provider, api_key,
+            build_catalog_summary_prompt(user_prompt, chunks[0], errors))
+        summary = _parse_catalog_summary(response['content'])
+    else:
+        level = []
+        for index, chunk in enumerate(chunks, 1):
+            response = _call_with_retry(
+                provider, api_key,
+                build_catalog_summary_prompt(user_prompt, chunk, []))
+            partial = _parse_catalog_summary(response['content'])
+            level.append({
+                'file_id': f'group-{index}',
+                'name': f'Промежуточная сводка {index}',
+                'result': partial,
+                'source_file_ids': [d['file_id'] for d in chunk],
+            })
+        while len(level) > 1:
+            next_level = []
+            for index, chunk in enumerate(
+                    _chunk_summary_documents(
+                        [_compact_summary_document(d) for d in level]), 1):
+                response = _call_with_retry(
+                    provider, api_key,
+                    build_catalog_summary_prompt(user_prompt, chunk, []))
+                partial = _parse_catalog_summary(response['content'])
+                next_level.append({
+                    'file_id': f'reduced-{len(next_level)}-{index}',
+                    'name': f'Объединённая сводка {index}',
+                    'result': partial,
+                })
+            level = next_level
+        if errors:
+            response = _call_with_retry(
+                provider, api_key,
+                build_catalog_summary_prompt(user_prompt, level, errors))
+            summary = _parse_catalog_summary(response['content'])
+        else:
+            summary = level[0]['result']
+    summary['sources'] = list(source_map.values())
+    summary['errors'] = errors
+    return summary
 
 
 def analyze_current_file(app, run_id: int, options: dict | None = None) -> None:
@@ -388,10 +598,11 @@ def analyze_current_file(app, run_id: int, options: dict | None = None) -> None:
                                    (('date', 'find_dates'),
                                     ('signature', 'find_signatures'),
                                     ('seal', 'find_seals')) if opts.get(k, True))
-                analyze_file(
+                snapshot = analyze_file(
                     df, provider, api_key, find_types,
-                    run.template_prompt or '', run.user_prompt or '')
-                run.result_json = _standard_result_snapshot(df.id)
+                    run.template_prompt or '', run.user_prompt or '',
+                    rules_override=opts.get('rules'))
+                run.result_json = json.dumps(snapshot, ensure_ascii=False)
 
             run.status = 'done'
             run.error_text = ''
@@ -421,6 +632,144 @@ def analyze_current_file(app, run_id: int, options: dict | None = None) -> None:
                 pkg.analysis_status = 'error'
                 pkg.analysis_error = str(exc)[:1000]
                 pkg.analysis_done = 1
+            db.session.commit()
+
+
+def analyze_catalog(app, catalog_run_id: int) -> None:
+    """Анализирует зафиксированный список файлов и затем строит одну сводку."""
+    with _ANALYZE_SEMAPHORE, app.app_context():
+        batch = db.session.get(DocCatalogAnalysisRun, catalog_run_id)
+        if batch is None:
+            return
+        pkg = db.session.get(DocPackage, batch.package_id)
+        try:
+            provider = get_local_provider()
+            from app import decrypt_value
+            api_key = decrypt_value(provider.api_key) if provider.api_key else ''
+            opts = json.loads(batch.options_json or '{}')
+            file_ids = [int(x) for x in json.loads(batch.file_ids_json or '[]')]
+            find_types = tuple(t for t, k in
+                               (('date', 'find_dates'),
+                                ('signature', 'find_signatures'),
+                                ('seal', 'find_seals')) if opts.get(k, True))
+
+            batch.status = 'running'
+            batch.started_at = utcnow()
+            db.session.commit()
+            documents = []
+            try:
+                errors = json.loads(batch.skipped_json or '[]')
+            except (TypeError, ValueError):
+                errors = []
+
+            for file_id in file_ids:
+                child = (DocAnalysisRun.query.filter_by(
+                    catalog_run_id=batch.id, file_id=file_id).first())
+                df = db.session.get(DocFile, file_id)
+                if child is None:
+                    errors.append(dict(file_id=file_id, name=f'Файл #{file_id}',
+                                       error='Запись анализа файла не найдена'))
+                    batch.files_done += 1
+                    pkg.analysis_done = batch.files_done
+                    db.session.commit()
+                    continue
+                try:
+                    if df is None or df.package_id != batch.package_id:
+                        raise ValueError('Документ больше не существует в пакете')
+                    child.status = 'running'
+                    child.started_at = utcnow()
+                    df.analysis_status = 'processing'
+                    db.session.commit()
+
+                    if batch.mode == 'free':
+                        content = analyze_file_free(
+                            df, provider, api_key, batch.user_prompt,
+                            batch.template_prompt or '')
+                        db.session.add(DocFreeAnalysisResult(
+                            run_id=child.id, file_id=df.id, content=content))
+                        snapshot = {'answer': content}
+                        child.result_json = json.dumps(snapshot,
+                                                       ensure_ascii=False)
+                        df.analysis_status = (
+                            'done' if DocCheckResult.query.filter_by(
+                                file_id=df.id).first() else 'none')
+                    else:
+                        snapshot = analyze_file(
+                            df, provider, api_key, find_types,
+                            batch.template_prompt or '', batch.user_prompt,
+                            rules_override=opts.get('rules'))
+                        child.result_json = json.dumps(snapshot,
+                                                       ensure_ascii=False)
+                    child.status = 'done'
+                    child.error_text = ''
+                    child.completed_at = utcnow()
+                    documents.append(dict(
+                        file_id=df.id, name=df.orig_name, run_id=child.id,
+                        result=snapshot))
+                    db.session.commit()
+                except Exception as file_exc:
+                    logger.exception('catalog run %s file %s failed',
+                                     catalog_run_id, file_id)
+                    db.session.rollback()
+                    batch = db.session.get(DocCatalogAnalysisRun,
+                                           catalog_run_id)
+                    pkg = db.session.get(DocPackage, batch.package_id)
+                    child = (DocAnalysisRun.query.filter_by(
+                        catalog_run_id=batch.id, file_id=file_id).first())
+                    df = db.session.get(DocFile, file_id)
+                    if child:
+                        child.status = 'error'
+                        child.error_text = str(file_exc)[:1000]
+                        child.completed_at = utcnow()
+                    if df:
+                        df.analysis_status = (
+                            'done' if (DocCheckResult.query.filter_by(
+                                file_id=df.id).first()
+                                or DocFreeAnalysisResult.query.filter_by(
+                                    file_id=df.id).first()) else 'error')
+                    errors.append(dict(
+                        file_id=file_id,
+                        name=(df.orig_name if df else f'Файл #{file_id}'),
+                        error=str(file_exc)[:1000]))
+                batch.files_done += 1
+                pkg.analysis_done = batch.files_done
+                db.session.commit()
+
+            if documents:
+                summary = _synthesize_catalog(
+                    provider, api_key, batch.user_prompt, documents, errors)
+            else:
+                summary = {
+                    'summary': 'Ни один документ не был успешно проанализирован.',
+                    'common_issues': [],
+                    'discrepancies': [],
+                    'missing_information': [],
+                }
+                summary['sources'] = []
+                summary['errors'] = errors
+            batch.summary_json = json.dumps(summary, ensure_ascii=False)
+            batch.errors_json = json.dumps(errors, ensure_ascii=False)
+            batch.status = 'done'
+            batch.error_text = (
+                f'Не удалось проанализировать файлов: {len(errors)}'
+                if errors else '')
+            batch.completed_at = utcnow()
+            pkg.analysis_status = 'done'
+            pkg.analysis_error = batch.error_text
+            pkg.analysis_done = batch.files_total
+            db.session.commit()
+        except Exception as exc:
+            logger.exception('catalog analysis run %s failed', catalog_run_id)
+            db.session.rollback()
+            batch = db.session.get(DocCatalogAnalysisRun, catalog_run_id)
+            pkg = db.session.get(DocPackage, batch.package_id) if batch else None
+            if batch:
+                batch.status = 'error'
+                batch.error_text = str(exc)[:1000]
+                batch.completed_at = utcnow()
+            if pkg:
+                pkg.analysis_status = 'error'
+                pkg.analysis_error = str(exc)[:1000]
             db.session.commit()
 
 
