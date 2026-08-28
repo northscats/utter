@@ -22,8 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app import app, init_db, encrypt_value
 from database import (AiProvider, DocAnalysisRun, DocCatalog,
                       DocCatalogAnalysisRun, DocCheckRule, DocFile,
-                      DocPackage, User, db)
-from doc_analysis import _synthesize_catalog
+                      DocPackage, User, db, utcnow)
+from doc_analysis import (AnalysisCancelled, _call_with_retry,
+                          _synthesize_catalog, analyze_catalog, analyze_file)
 
 app.config['DOCS_STORAGE'] = os.path.join(_TMP, 'docs')
 os.makedirs(app.config['DOCS_STORAGE'], exist_ok=True)
@@ -33,16 +34,27 @@ init_db()
 received_bodies = []
 fake_response_mode = {'value': 'normal'}
 fake_delay_seconds = {'value': 0}
+fake_delay_marker = {'value': ''}
 fake_invalid_marker = {'value': ''}
 
 class FakeAI(BaseHTTPRequestHandler):
     def do_POST(self):
-        if fake_delay_seconds['value']:
-            time.sleep(fake_delay_seconds['value'])
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         received_bodies.append(body)
         system_msg = body['messages'][0]['content']
         user_msg = body['messages'][1]['content']
+        if (fake_delay_seconds['value']
+                and (not fake_delay_marker['value']
+                     or fake_delay_marker['value'] in user_msg)):
+            time.sleep(fake_delay_seconds['value'])
+        if fake_response_mode['value'] == 'retry':
+            data = json.dumps({'error': {'message': 'temporary'}}).encode()
+            self.send_response(503)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if (fake_response_mode['value'] == 'invalid'
                 or (fake_invalid_marker['value']
                     and fake_invalid_marker['value'] in user_msg)):
@@ -191,6 +203,40 @@ for body in large_summary_bodies:
         valid_payloads = False
 check('каждая часть большой сводки — валидный JSON', valid_payloads)
 
+# Отмена проверяется во время retry/backoff и до сводного запроса.
+with app.app_context():
+    loc = db.session.get(AiProvider, loc_id)
+    retry_calls_before = len(received_bodies)
+    fake_response_mode['value'] = 'retry'
+    retry_cancelled = False
+    try:
+        _call_with_retry(
+            loc, 'local-key',
+            [{'role': 'system', 'content': 'retry'},
+             {'role': 'user', 'content': 'retry'}],
+            cancel_check=lambda: len(received_bodies) > retry_calls_before)
+    except AnalysisCancelled:
+        retry_cancelled = True
+    finally:
+        fake_response_mode['value'] = 'normal'
+check('отмена прерывает backoff перед retry',
+      retry_cancelled and len(received_bodies) == retry_calls_before + 1)
+
+summary_cancel_calls = len(received_bodies)
+with app.app_context():
+    loc = db.session.get(AiProvider, loc_id)
+    summary_cancelled = False
+    try:
+        _synthesize_catalog(
+            loc, 'local-key', 'Не строить сводку',
+            [{'file_id': 1, 'name': 'Источник', 'run_id': 1,
+              'result': {'answer': 'Готовый ответ'}}], [],
+            cancel_check=lambda: True)
+    except AnalysisCancelled:
+        summary_cancelled = True
+check('отмена до сводки не отправляет запрос',
+      summary_cancelled and len(received_bodies) == summary_cancel_calls)
+
 r = client.post(f'/docs/packages/{pkg_id}/analyze')
 check('анализ запущен', r.status_code == 202, r.get_data(as_text=True)[:200])
 
@@ -331,6 +377,190 @@ catalog_files = [f for f in catalog_state['files']
                  if f['catalog'] and f['catalog']['id'] == catalog_id]
 other_ready_file_id = next(
     f['file_id'] for f in catalog_files if f['file_id'] != current_file_id)
+
+# Отмена до первого файла: queued-запуск не должен отправить запрос к ИИ.
+with app.app_context():
+    pre_cancel = DocCatalogAnalysisRun(
+        package_id=pkg_id, catalog_id=catalog_id,
+        catalog_name_snapshot='Договоры', created_by=admin_id,
+        mode='free', user_prompt='Отменить до старта',
+        file_ids_json=json.dumps([current_file_id, other_ready_file_id]),
+        options_json='{}', files_total=2, status='queued')
+    db.session.add(pre_cancel)
+    db.session.flush()
+    for fid in (current_file_id, other_ready_file_id):
+        db.session.add(DocAnalysisRun(
+            package_id=pkg_id, catalog_run_id=pre_cancel.id,
+            file_id=fid, created_by=admin_id, mode='free',
+            scope='selected_catalog', user_prompt=pre_cancel.user_prompt,
+            status='queued'))
+    db.session.get(DocPackage, pkg_id).analysis_status = 'running'
+    db.session.commit()
+    pre_cancel_id = pre_cancel.id
+pre_cancel_calls = len(received_bodies)
+cancel_response = client.post(
+    f'/docs/catalog-analysis-runs/{pre_cancel_id}/cancel')
+check('отмена queued-запуска принята',
+      cancel_response.status_code == 202
+      and cancel_response.get_json()['status'] == 'cancel_requested'
+      and cancel_response.get_json()['cancel_requested_by'] == 'admin')
+analyze_catalog(app, pre_cancel_id)
+pre_cancelled = client.get(
+    f'/docs/catalog-analysis-runs/{pre_cancel_id}').get_json()
+check('отмена до первого файла не вызывает ИИ',
+      len(received_bodies) == pre_cancel_calls
+      and pre_cancelled['status'] == 'cancelled'
+      and pre_cancelled['files_cancelled'] == 2
+      and {x['status'] for x in pre_cancelled['file_runs']} == {'cancelled'})
+
+# Ранний no-work результат supplement остаётся staged до guarded commit.
+with app.app_context():
+    no_work_catalog = DocCatalog(name='Каталог без страниц для отмены')
+    db.session.add(no_work_catalog)
+    db.session.flush()
+    no_work_file = DocFile(
+        package_id=pkg_id, catalog_id=no_work_catalog.id,
+        orig_name='Пустой источник.txt', status='ready',
+        analysis_status='processing', pages_count=0)
+    db.session.add(no_work_file)
+    db.session.flush()
+    no_work_run = DocCatalogAnalysisRun(
+        package_id=pkg_id, catalog_id=no_work_catalog.id,
+        catalog_name_snapshot=no_work_catalog.name, created_by=admin_id,
+        mode='supplement', user_prompt='Пустая работа',
+        file_ids_json=json.dumps([no_work_file.id]), options_json='{}',
+        files_total=1, status='running')
+    db.session.add(no_work_run)
+    db.session.flush()
+    db.session.add(DocAnalysisRun(
+        package_id=pkg_id, catalog_run_id=no_work_run.id,
+        file_id=no_work_file.id, created_by=admin_id,
+        mode='supplement', scope='selected_catalog',
+        user_prompt=no_work_run.user_prompt, status='running'))
+    db.session.get(DocPackage, pkg_id).analysis_status = 'running'
+    db.session.commit()
+    no_work_file_id = no_work_file.id
+    no_work_run_id = no_work_run.id
+    no_work_catalog_id = no_work_catalog.id
+    loc = db.session.get(AiProvider, loc_id)
+    analyze_file(
+        no_work_file, loc, 'local-key', find_types=(),
+        rules_override=[], cancel_check=lambda: False, commit=False)
+    staged_only = no_work_file.analysis_status == 'done'
+    db.session.rollback()
+    persisted_before_cancel = (
+        db.session.get(DocFile, no_work_file_id).analysis_status)
+    no_work_run = db.session.get(DocCatalogAnalysisRun, no_work_run_id)
+    no_work_run.status = 'cancel_requested'
+    no_work_run.cancel_requested_by = admin_id
+    no_work_run.cancel_requested_at = utcnow()
+    db.session.commit()
+analyze_catalog(app, no_work_run_id)
+with app.app_context():
+    no_work_run = db.session.get(DocCatalogAnalysisRun, no_work_run_id)
+    no_work_file = db.session.get(DocFile, no_work_file_id)
+    check('no-work результат откатывается при отмене',
+          staged_only and persisted_before_cancel == 'processing'
+          and no_work_run.status == 'cancelled'
+          and no_work_run.file_runs[0].status == 'cancelled'
+          and no_work_file.analysis_status == 'none')
+    db.session.delete(no_work_run)
+    db.session.delete(no_work_file)
+    db.session.delete(db.session.get(DocCatalog, no_work_catalog_id))
+    db.session.commit()
+
+# Отмена во время HTTP-запроса: ответ текущего файла не публикуется.
+fake_delay_seconds['value'] = 2
+cancel_calls_before = len(received_bodies)
+r = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'free', 'user_prompt': 'Отменить текущий запрос'})
+check('запуск для отмены во время запроса создан', r.status_code == 202)
+during_cancel_id = r.get_json()['id']
+for _ in range(40):
+    during_cancel = client.get(
+        f'/docs/catalog-analysis-runs/{during_cancel_id}').get_json()
+    if any(x['status'] == 'running' for x in during_cancel['file_runs']):
+        break
+    time.sleep(0.05)
+cancel_response = client.post(
+    f'/docs/catalog-analysis-runs/{during_cancel_id}/cancel')
+check('отмена выполняющегося запуска принята',
+      cancel_response.status_code == 202
+      and cancel_response.get_json()['status'] == 'cancel_requested')
+blocked_restart = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'free', 'user_prompt': 'Слишком ранний повтор'})
+check('новый запуск ждёт освобождения рабочего слота',
+      blocked_restart.status_code == 409)
+for _ in range(60):
+    during_cancel = client.get(
+        f'/docs/catalog-analysis-runs/{during_cancel_id}').get_json()
+    if during_cancel['status'] == 'cancelled':
+        break
+    time.sleep(0.1)
+fake_delay_seconds['value'] = 0
+check('неполный ответ текущего файла не опубликован',
+      during_cancel['status'] == 'cancelled'
+      and during_cancel['files_done'] == 0
+      and during_cancel['files_cancelled'] == 2
+      and not during_cancel['summary']
+      and all(x['status'] == 'cancelled'
+              and not x['result'] for x in during_cancel['file_runs']))
+check('после фактической отмены новый запуск разрешён',
+      client.post(
+          f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+          json={'mode': 'free',
+                'user_prompt': 'Проверка освобождённого слота'}).status_code == 202)
+for _ in range(60):
+    released_run = client.get(
+        f'/docs/packages/{pkg_id}/results').get_json()['catalog_runs'][0]
+    if released_run['status'] in ('done', 'error'):
+        break
+    time.sleep(0.1)
+
+# Отмена между файлами сохраняет полностью готовый первый результат.
+fake_delay_seconds['value'] = 2
+fake_delay_marker['value'] = 'Содержимое подозрительного файла'
+between_summary_start = len(received_bodies)
+r = client.post(
+    f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
+    json={'mode': 'free', 'user_prompt': 'Остановить после первого файла'})
+check('запуск для отмены между файлами создан', r.status_code == 202)
+between_cancel_id = r.get_json()['id']
+for _ in range(80):
+    between_cancel = client.get(
+        f'/docs/catalog-analysis-runs/{between_cancel_id}').get_json()
+    statuses = {x['status'] for x in between_cancel['file_runs']}
+    if between_cancel['files_done'] == 1 and 'running' in statuses:
+        break
+    time.sleep(0.05)
+check('первый файл завершён до отмены',
+      between_cancel['files_done'] == 1
+      and any(x['status'] == 'done' for x in between_cancel['file_runs']))
+client.post(f'/docs/catalog-analysis-runs/{between_cancel_id}/cancel')
+for _ in range(60):
+    between_cancel = client.get(
+        f'/docs/catalog-analysis-runs/{between_cancel_id}').get_json()
+    if between_cancel['status'] == 'cancelled':
+        break
+    time.sleep(0.1)
+fake_delay_seconds['value'] = 0
+fake_delay_marker['value'] = ''
+between_bodies = received_bodies[between_summary_start:]
+check('готовый файл сохранён, оставшийся отменён',
+      between_cancel['status'] == 'cancelled'
+      and between_cancel['files_done'] == 1
+      and between_cancel['files_cancelled'] == 1
+      and [x['status'] for x in between_cancel['file_runs']].count('done') == 1
+      and [x['status'] for x in between_cancel['file_runs']].count('cancelled') == 1
+      and any(x['status'] == 'done' and x['result'].get('answer')
+              for x in between_cancel['file_runs']))
+check('после отмены сводка каталога не запускается',
+      not between_cancel['summary']
+      and not any('{"summary"' in b['messages'][0]['content']
+                  for b in between_bodies))
+
 with app.app_context():
     skipped_file = DocFile(
         package_id=pkg_id, catalog_id=catalog_id,
@@ -514,14 +744,36 @@ with app.app_context():
     df = db.session.get(DocFile, current_file_id)
     pkg.analysis_status = 'running'
     df.analysis_status = 'processing'
+    stale_cancel = DocCatalogAnalysisRun(
+        package_id=pkg_id, catalog_id=catalog_id,
+        catalog_name_snapshot='Договоры', created_by=admin_id,
+        mode='free', user_prompt='Отмена перед рестартом',
+        file_ids_json=json.dumps([other_ready_file_id]),
+        status='cancel_requested', files_total=1,
+        cancel_requested_by=admin_id, cancel_requested_at=utcnow())
+    db.session.add(stale_cancel)
+    db.session.flush()
+    stale_cancel_child = DocAnalysisRun(
+        package_id=pkg_id, catalog_run_id=stale_cancel.id,
+        file_id=other_ready_file_id, created_by=admin_id,
+        mode='free', scope='selected_catalog',
+        user_prompt=stale_cancel.user_prompt, status='cancel_requested')
+    db.session.add(stale_cancel_child)
     db.session.commit()
     stale_id = stale.id
+    stale_cancel_id = stale_cancel.id
 init_db()
 with app.app_context():
     stale = db.session.get(DocAnalysisRun, stale_id)
     check('зависший запуск восстановлен как ошибка',
           stale.status == 'error' and stale.completed_at is not None
           and 'перезапуск' in stale.error_text.lower())
+    stale_cancel = db.session.get(DocCatalogAnalysisRun, stale_cancel_id)
+    check('запрошенная отмена восстановлена как отменённая',
+          stale_cancel.status == 'cancelled'
+          and stale_cancel.cancelled_at is not None
+          and stale_cancel.files_cancelled == 1
+          and stale_cancel.file_runs[0].status == 'cancelled')
 
 # ── 8. Доступ: обычный пользователь не видит чужой пакет/файл ──────────────
 with app.app_context():
@@ -529,8 +781,21 @@ with app.app_context():
     other = User(username='test_user_docs', role='user',
                  password_hash=generate_password_hash('x'))
     db.session.add(other)
+    db.session.flush()
+    owner_pkg = DocPackage(
+        title='Пакет обычного пользователя', uploaded_by=other.id,
+        status='done', analysis_status='running')
+    db.session.add(owner_pkg)
+    db.session.flush()
+    owner_cancel_run = DocCatalogAnalysisRun(
+        package_id=owner_pkg.id, catalog_id=catalog_id,
+        catalog_name_snapshot='Договоры', created_by=other.id,
+        mode='free', user_prompt='Остановить свой запуск',
+        file_ids_json='[]', status='queued', files_total=0)
+    db.session.add(owner_cancel_run)
     db.session.commit()
     other_id = other.id
+    owner_cancel_run_id = owner_cancel_run.id
 with client.session_transaction() as s:
     s['_user_id'] = str(other_id)
 r1 = client.get(f'/docs/packages/{pkg_id}/results')
@@ -539,6 +804,8 @@ r3 = client.post(f'/docs/packages/{pkg_id}/analyze')
 r4 = client.post(f'/docs/files/{current_file_id}/analyze',
                  json={'mode': 'free', 'user_prompt': 'Покажи документ'})
 r_catalog = client.get(f'/docs/catalog-analysis-runs/{catalog_run_id}')
+r_catalog_cancel = client.post(
+    f'/docs/catalog-analysis-runs/{catalog_run_id}/cancel')
 r_catalog_start = client.post(
     f'/docs/packages/{pkg_id}/catalogs/{catalog_id}/analyze',
     json={'mode': 'free', 'user_prompt': 'Проверь каталог'})
@@ -546,11 +813,20 @@ r5 = client.post('/docs/analysis-templates', json={
     'name': 'Пользовательский шаблон',
     'system_prompt': 'Проверь существенные условия',
 })
+r_own_cancel = client.post(
+    f'/docs/catalog-analysis-runs/{owner_cancel_run_id}/cancel')
 check('чужой пакет недоступен', r1.status_code == 403 and r2.status_code == 403
       and r3.status_code == 403 and r4.status_code == 403
-      and r_catalog.status_code == 403 and r_catalog_start.status_code == 403,
+      and r_catalog.status_code == 403
+      and r_catalog_cancel.status_code == 403
+      and r_catalog_start.status_code == 403,
       f'{r1.status_code}/{r2.status_code}/{r3.status_code}/{r4.status_code}/'
-      f'{r_catalog.status_code}/{r_catalog_start.status_code}')
+      f'{r_catalog.status_code}/{r_catalog_cancel.status_code}/'
+      f'{r_catalog_start.status_code}')
+check('обычный пользователь может остановить свой запуск',
+      r_own_cancel.status_code == 202
+      and r_own_cancel.get_json()['cancel_requested_by'] == 'test_user_docs')
+analyze_catalog(app, owner_cancel_run_id)
 check('обычный пользователь может создать шаблон', r5.status_code == 201,
       r5.get_data(as_text=True)[:200])
 

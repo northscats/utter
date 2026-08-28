@@ -380,14 +380,20 @@ class DocCatalogAnalysisRun(db.Model):
     status          = db.Column(db.String(20), nullable=False, default='queued')
     files_total     = db.Column(db.Integer, nullable=False, default=0)
     files_done      = db.Column(db.Integer, nullable=False, default=0)
+    files_cancelled = db.Column(db.Integer, nullable=False, default=0)
     error_text      = db.Column(db.Text, default='')
+    cancel_requested_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    cancel_requested_at = db.Column(db.DateTime(timezone=True))
+    cancelled_at    = db.Column(db.DateTime(timezone=True))
     created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
     started_at      = db.Column(db.DateTime(timezone=True))
     completed_at    = db.Column(db.DateTime(timezone=True))
 
     package = db.relationship('DocPackage', lazy=True)
     catalog = db.relationship('DocCatalog', lazy=True)
-    author = db.relationship('User', lazy=True)
+    author = db.relationship('User', foreign_keys=[created_by], lazy=True)
+    cancel_requester = db.relationship(
+        'User', foreign_keys=[cancel_requested_by], lazy=True)
     template = db.relationship('AnalysisTemplate', lazy=True)
 
 

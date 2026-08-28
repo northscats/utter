@@ -14,7 +14,7 @@ from database import (AnalysisTemplate, DocAnalysisRun, DocCatalog,
                        DocCatalogAnalysisRun, DocCheckRule, DocFile,
                        DocFileMark, DocFilePage, DocFinding,
                        DocFreeAnalysisResult, DocMarkButton, DocPackage,
-                       DocRoutingRule, db)
+                       DocRoutingRule, db, utcnow)
 from doc_pipeline import (PackageValidationError, get_unrouted_catalog,
                           process_package, validate_zip)
 
@@ -114,8 +114,16 @@ def _catalog_analysis_run_dict(run: DocCatalogAnalysisRun,
         status=run.status,
         files_total=run.files_total,
         files_done=run.files_done,
+        files_cancelled=run.files_cancelled or 0,
         error_text=run.error_text or '',
         author=run.author.username if run.author else '—',
+        cancel_requested_by=(
+            run.cancel_requester.username if run.cancel_requester else None),
+        cancel_requested_at=(
+            run.cancel_requested_at.strftime('%d.%m.%Y %H:%M')
+            if run.cancel_requested_at else None),
+        cancelled_at=(run.cancelled_at.strftime('%d.%m.%Y %H:%M')
+                      if run.cancelled_at else None),
         created_at=run.created_at.strftime('%d.%m.%Y %H:%M'),
         completed_at=(run.completed_at.strftime('%d.%m.%Y %H:%M')
                       if run.completed_at else None),
@@ -814,6 +822,31 @@ def catalog_analysis_run(run_id):
     run = db.session.get(DocCatalogAnalysisRun, run_id) or abort(404)
     _package_access(run.package)
     return jsonify(_catalog_analysis_run_dict(run))
+
+
+@docs_bp.route('/catalog-analysis-runs/<int:run_id>/cancel', methods=['POST'])
+@login_required
+def catalog_analysis_cancel(run_id):
+    """Запрашивает кооперативную остановку без завершения Python-потока."""
+    with _ANALYSIS_START_LOCK:
+        run = (DocCatalogAnalysisRun.query.filter_by(id=run_id)
+               .with_for_update().populate_existing().first() or abort(404))
+        _package_access(run.package)
+        if run.status == 'cancel_requested':
+            db.session.rollback()
+            return jsonify(_catalog_analysis_run_dict(run)), 202
+        if run.status not in ('queued', 'running'):
+            db.session.rollback()
+            return jsonify(error='Этот анализ уже завершён'), 409
+        now = utcnow()
+        run.status = 'cancel_requested'
+        run.cancel_requested_by = current_user.id
+        run.cancel_requested_at = now
+        for child in run.file_runs:
+            if child.status in ('queued', 'running'):
+                child.status = 'cancel_requested'
+        db.session.commit()
+    return jsonify(_catalog_analysis_run_dict(run)), 202
 
 
 def _results_for_package(pkg):

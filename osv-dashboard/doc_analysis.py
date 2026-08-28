@@ -35,6 +35,15 @@ class ProviderNotLocalError(Exception):
     """Провайдер не является локальным — отправка документов запрещена."""
 
 
+class AnalysisCancelled(Exception):
+    """Кооперативная остановка на безопасной границе выполнения."""
+
+
+def _raise_if_cancelled(cancel_check=None):
+    if cancel_check is not None and cancel_check():
+        raise AnalysisCancelled('Анализ остановлен пользователем')
+
+
 def get_local_provider() -> AiProvider:
     """Возвращает активный ЛОКАЛЬНЫЙ провайдер или бросает ProviderNotLocalError.
 
@@ -196,12 +205,13 @@ def _parse_ai_json(content: str) -> dict:
     raise ValueError('ИИ вернул повреждённый или неподдерживаемый JSON')
 
 
-def _call_with_retry(provider, api_key, messages) -> dict:
+def _call_with_retry(provider, api_key, messages, cancel_check=None) -> dict:
     """call_ai_provider с retry (3 попытки, экспоненциальный backoff)."""
     last_exc = None
     for attempt in range(RETRY_ATTEMPTS):
+        _raise_if_cancelled(cancel_check)
         try:
-            return call_ai_provider(
+            result = call_ai_provider(
                 base_url=provider.base_url,
                 api_key=api_key,
                 model=provider.model,
@@ -209,13 +219,20 @@ def _call_with_retry(provider, api_key, messages) -> dict:
                 temperature=0.1,
                 max_tokens=2000,
                 enable_thinking=False,
-                timeout=120,
+                timeout=60,
             )
+            _raise_if_cancelled(cancel_check)
+            return result
         except Exception as exc:
+            if isinstance(exc, AnalysisCancelled):
+                raise
             last_exc = exc
             status = getattr(exc, 'status', None)
             if status in RETRY_STATUSES and attempt < RETRY_ATTEMPTS - 1:
-                time.sleep(2 ** attempt)   # 1с, 2с
+                deadline = time.monotonic() + (2 ** attempt)
+                while time.monotonic() < deadline:
+                    _raise_if_cancelled(cancel_check)
+                    time.sleep(min(0.1, deadline - time.monotonic()))
                 continue
             raise
     raise last_exc  # pragma: no cover
@@ -226,11 +243,13 @@ _STATUS_RANK = {'violation': 3, 'ok': 2, 'not_found': 1}
 
 
 def analyze_file(df: DocFile, provider, api_key, find_types=(),
-                 system_extra='', user_extra='', rules_override=None) -> dict:
+                 system_extra='', user_extra='', rules_override=None,
+                 cancel_check=None, commit=True) -> dict:
     """Проверяет один файл: правила каталога + поиск находок.
 
     Результаты (по одному DocCheckResult на правило) и находки перезаписываются.
     """
+    _raise_if_cancelled(cancel_check)
     if rules_override is None:
         rules = [r for r in (df.catalog.check_rules if df.catalog else [])
                  if r.is_active]
@@ -244,8 +263,10 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
     pages = (DocFilePage.query.filter_by(file_id=df.id)
              .order_by(DocFilePage.page_num).all())
     if not pages or (not rules and not find_types):
+        _raise_if_cancelled(cancel_check)
         df.analysis_status = 'done'
-        db.session.commit()
+        if commit:
+            db.session.commit()
         return {'rules': [], 'findings': []}
 
     # Агрегация: violation > ok > not_found по всем chunk'ам
@@ -254,10 +275,13 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
     staged_findings = []
 
     for i in range(0, len(pages), PAGES_PER_CHUNK):
+        _raise_if_cancelled(cancel_check)
         chunk = pages[i:i + PAGES_PER_CHUNK]
         messages = build_prompt(rules, chunk, find_types, system_extra,
                                 user_extra)
-        result = _call_with_retry(provider, api_key, messages)
+        result = _call_with_retry(
+            provider, api_key, messages, cancel_check=cancel_check)
+        _raise_if_cancelled(cancel_check)
         parsed = _parse_ai_json(result['content'])
         for item in parsed['rules']:
             if not isinstance(item, dict):
@@ -310,6 +334,7 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
     # Старый успешный результат заменяется только после полного получения нового.
     # Исторический snapshot не зависит от живой строки правила. В общую таблицу
     # пишем только правила, которые всё ещё существуют (FK PostgreSQL).
+    _raise_if_cancelled(cancel_check)
     DocCheckResult.query.filter_by(file_id=df.id).delete()
     DocFinding.query.filter_by(file_id=df.id).delete()
     live_rule_ids = {
@@ -329,13 +354,16 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
     for item in staged_findings:
         db.session.add(DocFinding(file_id=df.id, **item))
     df.analysis_status = 'done'
-    db.session.commit()
+    _raise_if_cancelled(cancel_check)
+    if commit:
+        db.session.commit()
     return {'rules': snapshot_rules, 'findings': snapshot_findings}
 
 
 def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
-                      system_extra: str = '') -> str:
+                      system_extra: str = '', cancel_check=None) -> str:
     """Свободный анализ файла; возвращает ответ, не меняя проверки правил."""
+    _raise_if_cancelled(cancel_check)
     pages = (DocFilePage.query.filter_by(file_id=df.id)
              .order_by(DocFilePage.page_num).all())
     if not pages:
@@ -343,10 +371,13 @@ def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
 
     answers = []
     for i in range(0, len(pages), PAGES_PER_CHUNK):
+        _raise_if_cancelled(cancel_check)
         chunk = pages[i:i + PAGES_PER_CHUNK]
         result = _call_with_retry(
             provider, api_key,
-            build_free_prompt(chunk, user_prompt, system_extra))
+            build_free_prompt(chunk, user_prompt, system_extra),
+            cancel_check=cancel_check)
+        _raise_if_cancelled(cancel_check)
         answer = _parse_free_ai_json(result['content'])
         if len(pages) > PAGES_PER_CHUNK:
             label = (f'Страницы {chunk[0].page_num}–{chunk[-1].page_num}'
@@ -358,7 +389,9 @@ def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
         return answers[0]
     result = _call_with_retry(
         provider, api_key,
-        build_free_synthesis_prompt(user_prompt, answers))
+        build_free_synthesis_prompt(user_prompt, answers),
+        cancel_check=cancel_check)
+    _raise_if_cancelled(cancel_check)
     return _parse_free_ai_json(result['content'])[:30000]
 
 
@@ -507,8 +540,10 @@ def _chunk_summary_documents(documents: list, max_chars=45000) -> list:
 
 
 def _synthesize_catalog(provider, api_key, user_prompt: str,
-                        documents: list, errors: list) -> dict:
+                        documents: list, errors: list,
+                        cancel_check=None) -> dict:
     """Иерархически сводит все источники без обрезки или ложных ссылок."""
+    _raise_if_cancelled(cancel_check)
     compact = [_compact_summary_document(d) for d in documents]
     source_map = {
         d['file_id']: dict(file_id=d['file_id'], name=d['name'],
@@ -519,14 +554,16 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
     if len(chunks) == 1:
         response = _call_with_retry(
             provider, api_key,
-            build_catalog_summary_prompt(user_prompt, chunks[0], errors))
+            build_catalog_summary_prompt(user_prompt, chunks[0], errors),
+            cancel_check=cancel_check)
         summary = _parse_catalog_summary(response['content'])
     else:
         level = []
         for index, chunk in enumerate(chunks, 1):
             response = _call_with_retry(
                 provider, api_key,
-                build_catalog_summary_prompt(user_prompt, chunk, []))
+                build_catalog_summary_prompt(user_prompt, chunk, []),
+                cancel_check=cancel_check)
             partial = _parse_catalog_summary(response['content'])
             level.append({
                 'file_id': f'group-{index}',
@@ -541,7 +578,8 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
                         [_compact_summary_document(d) for d in level]), 1):
                 response = _call_with_retry(
                     provider, api_key,
-                    build_catalog_summary_prompt(user_prompt, chunk, []))
+                    build_catalog_summary_prompt(user_prompt, chunk, []),
+                    cancel_check=cancel_check)
                 partial = _parse_catalog_summary(response['content'])
                 next_level.append({
                     'file_id': f'reduced-{len(next_level)}-{index}',
@@ -552,10 +590,12 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
         if errors:
             response = _call_with_retry(
                 provider, api_key,
-                build_catalog_summary_prompt(user_prompt, level, errors))
+                build_catalog_summary_prompt(user_prompt, level, errors),
+                cancel_check=cancel_check)
             summary = _parse_catalog_summary(response['content'])
         else:
             summary = level[0]['result']
+    _raise_if_cancelled(cancel_check)
     summary['sources'] = list(source_map.values())
     summary['errors'] = errors
     return summary
@@ -635,14 +675,77 @@ def analyze_current_file(app, run_id: int, options: dict | None = None) -> None:
             db.session.commit()
 
 
-def analyze_catalog(app, catalog_run_id: int) -> None:
+def _catalog_cancel_requested(catalog_run_id: int) -> bool:
+    status = (db.session.query(DocCatalogAnalysisRun.status)
+              .filter_by(id=catalog_run_id).scalar())
+    return status in ('cancel_requested', 'cancelled')
+
+
+def _lock_running_catalog_run(catalog_run_id: int) -> DocCatalogAnalysisRun:
+    """Сериализует cancel и terminal-write по строке родительского запуска."""
+    batch = (DocCatalogAnalysisRun.query.filter_by(id=catalog_run_id)
+             .with_for_update().populate_existing().first())
+    if batch is None or batch.status != 'running':
+        raise AnalysisCancelled('Анализ остановлен пользователем')
+    return batch
+
+
+def _start_catalog_run(catalog_run_id: int) -> DocCatalogAnalysisRun:
+    """Атомарно переводит queued→running либо замечает раннюю отмену."""
+    batch = (DocCatalogAnalysisRun.query.filter_by(id=catalog_run_id)
+             .with_for_update().populate_existing().first())
+    if batch is None or batch.status not in ('queued', 'running'):
+        raise AnalysisCancelled('Анализ остановлен пользователем')
+    batch.status = 'running'
+    return batch
+
+
+def _restore_file_after_cancel(df):
+    if df is None or df.analysis_status != 'processing':
+        return
+    has_previous = (
+        DocCheckResult.query.filter_by(file_id=df.id).first()
+        or DocFreeAnalysisResult.query.filter_by(file_id=df.id).first())
+    df.analysis_status = 'done' if has_previous else 'none'
+
+
+def _finalize_catalog_cancel(catalog_run_id: int) -> None:
+    """Завершает кооперативную отмену и сохраняет готовые дочерние результаты."""
+    db.session.rollback()
+    batch = db.session.get(DocCatalogAnalysisRun, catalog_run_id)
+    if batch is None:
+        return
+    now = utcnow()
+    cancelled = 0
+    for child in batch.file_runs:
+        if child.status in ('queued', 'running', 'cancel_requested'):
+            _restore_file_after_cancel(child.file)
+            child.status = 'cancelled'
+            child.error_text = 'Анализ отменён пользователем'
+            child.completed_at = now
+            cancelled += 1
+    processed = sum(
+        1 for child in batch.file_runs if child.status in ('done', 'error'))
+    batch.files_done = processed
+    batch.files_cancelled = cancelled
+    batch.status = 'cancelled'
+    batch.error_text = ''
+    batch.summary_json = '{}'
+    batch.cancelled_at = now
+    batch.completed_at = now
+    db.session.commit()
+
+
+def _analyze_catalog_locked(app, catalog_run_id: int) -> None:
     """Анализирует зафиксированный список файлов и затем строит одну сводку."""
-    with _ANALYZE_SEMAPHORE, app.app_context():
+    with app.app_context():
         batch = db.session.get(DocCatalogAnalysisRun, catalog_run_id)
         if batch is None:
             return
         pkg = db.session.get(DocPackage, batch.package_id)
+        cancel_check = lambda: _catalog_cancel_requested(catalog_run_id)
         try:
+            _raise_if_cancelled(cancel_check)
             provider = get_local_provider()
             from app import decrypt_value
             api_key = decrypt_value(provider.api_key) if provider.api_key else ''
@@ -653,7 +756,7 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                                 ('signature', 'find_signatures'),
                                 ('seal', 'find_seals')) if opts.get(k, True))
 
-            batch.status = 'running'
+            batch = _start_catalog_run(catalog_run_id)
             batch.started_at = utcnow()
             db.session.commit()
             documents = []
@@ -663,12 +766,14 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                 errors = []
 
             for file_id in file_ids:
+                _raise_if_cancelled(cancel_check)
                 child = (DocAnalysisRun.query.filter_by(
                     catalog_run_id=batch.id, file_id=file_id).first())
                 df = db.session.get(DocFile, file_id)
                 if child is None:
                     errors.append(dict(file_id=file_id, name=f'Файл #{file_id}',
                                        error='Запись анализа файла не найдена'))
+                    batch = _lock_running_catalog_run(catalog_run_id)
                     batch.files_done += 1
                     pkg.analysis_done = batch.files_done
                     db.session.commit()
@@ -676,6 +781,12 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                 try:
                     if df is None or df.package_id != batch.package_id:
                         raise ValueError('Документ больше не существует в пакете')
+                    batch = _lock_running_catalog_run(catalog_run_id)
+                    child = (DocAnalysisRun.query.filter_by(
+                        catalog_run_id=batch.id, file_id=file_id)
+                        .with_for_update().populate_existing().first())
+                    if child is None:
+                        raise ValueError('Запись анализа файла не найдена')
                     child.status = 'running'
                     child.started_at = utcnow()
                     df.analysis_status = 'processing'
@@ -684,7 +795,8 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                     if batch.mode == 'free':
                         content = analyze_file_free(
                             df, provider, api_key, batch.user_prompt,
-                            batch.template_prompt or '')
+                            batch.template_prompt or '',
+                            cancel_check=cancel_check)
                         db.session.add(DocFreeAnalysisResult(
                             run_id=child.id, file_id=df.id, content=content))
                         snapshot = {'answer': content}
@@ -697,9 +809,19 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                         snapshot = analyze_file(
                             df, provider, api_key, find_types,
                             batch.template_prompt or '', batch.user_prompt,
-                            rules_override=opts.get('rules'))
+                            rules_override=opts.get('rules'),
+                            cancel_check=cancel_check, commit=False)
+                        batch = _lock_running_catalog_run(catalog_run_id)
+                        child = (DocAnalysisRun.query.filter_by(
+                            catalog_run_id=batch.id, file_id=file_id)
+                            .with_for_update().populate_existing().first())
                         child.result_json = json.dumps(snapshot,
                                                        ensure_ascii=False)
+                    if batch.mode == 'free':
+                        batch = _lock_running_catalog_run(catalog_run_id)
+                        child = (DocAnalysisRun.query.filter_by(
+                            catalog_run_id=batch.id, file_id=file_id)
+                            .with_for_update().populate_existing().first())
                     child.status = 'done'
                     child.error_text = ''
                     child.completed_at = utcnow()
@@ -707,12 +829,16 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                         file_id=df.id, name=df.orig_name, run_id=child.id,
                         result=snapshot))
                     db.session.commit()
+                except AnalysisCancelled:
+                    db.session.rollback()
+                    raise
                 except Exception as file_exc:
                     logger.exception('catalog run %s file %s failed',
                                      catalog_run_id, file_id)
                     db.session.rollback()
                     batch = db.session.get(DocCatalogAnalysisRun,
                                            catalog_run_id)
+                    batch = _lock_running_catalog_run(catalog_run_id)
                     pkg = db.session.get(DocPackage, batch.package_id)
                     child = (DocAnalysisRun.query.filter_by(
                         catalog_run_id=batch.id, file_id=file_id).first())
@@ -731,13 +857,17 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                         file_id=file_id,
                         name=(df.orig_name if df else f'Файл #{file_id}'),
                         error=str(file_exc)[:1000]))
+                batch = _lock_running_catalog_run(catalog_run_id)
                 batch.files_done += 1
                 pkg.analysis_done = batch.files_done
+                batch.errors_json = json.dumps(errors, ensure_ascii=False)
                 db.session.commit()
 
+            _raise_if_cancelled(cancel_check)
             if documents:
                 summary = _synthesize_catalog(
-                    provider, api_key, batch.user_prompt, documents, errors)
+                    provider, api_key, batch.user_prompt, documents, errors,
+                    cancel_check=cancel_check)
             else:
                 summary = {
                     'summary': 'Ни один документ не был успешно проанализирован.',
@@ -747,6 +877,9 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                 }
                 summary['sources'] = []
                 summary['errors'] = errors
+            _raise_if_cancelled(cancel_check)
+            batch = _lock_running_catalog_run(catalog_run_id)
+            pkg = db.session.get(DocPackage, batch.package_id)
             batch.summary_json = json.dumps(summary, ensure_ascii=False)
             batch.errors_json = json.dumps(errors, ensure_ascii=False)
             batch.status = 'done'
@@ -754,10 +887,9 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                 f'Не удалось проанализировать файлов: {len(errors)}'
                 if errors else '')
             batch.completed_at = utcnow()
-            pkg.analysis_status = 'done'
-            pkg.analysis_error = batch.error_text
-            pkg.analysis_done = batch.files_total
             db.session.commit()
+        except AnalysisCancelled:
+            _finalize_catalog_cancel(catalog_run_id)
         except Exception as exc:
             logger.exception('catalog analysis run %s failed', catalog_run_id)
             db.session.rollback()
@@ -767,10 +899,35 @@ def analyze_catalog(app, catalog_run_id: int) -> None:
                 batch.status = 'error'
                 batch.error_text = str(exc)[:1000]
                 batch.completed_at = utcnow()
-            if pkg:
-                pkg.analysis_status = 'error'
-                pkg.analysis_error = str(exc)[:1000]
             db.session.commit()
+
+
+def _release_catalog_package_slot(app, catalog_run_id: int) -> None:
+    """Разрешает новый запуск только после фактического выхода worker из слота."""
+    with app.app_context():
+        batch = db.session.get(DocCatalogAnalysisRun, catalog_run_id)
+        if batch is None or batch.package is None:
+            return
+        pkg = batch.package
+        if batch.status == 'error':
+            pkg.analysis_status = 'error'
+            pkg.analysis_error = batch.error_text or 'Ошибка анализа каталога'
+        elif batch.status in ('done', 'cancelled'):
+            pkg.analysis_status = 'done'
+            pkg.analysis_error = batch.error_text or ''
+        else:
+            return
+        pkg.analysis_done = batch.files_done
+        db.session.commit()
+
+
+def analyze_catalog(app, catalog_run_id: int) -> None:
+    _ANALYZE_SEMAPHORE.acquire()
+    try:
+        _analyze_catalog_locked(app, catalog_run_id)
+    finally:
+        _ANALYZE_SEMAPHORE.release()
+    _release_catalog_package_slot(app, catalog_run_id)
 
 
 DEFAULT_OPTIONS = dict(find_dates=True, find_signatures=True, find_seals=True,

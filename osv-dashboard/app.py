@@ -2615,6 +2615,10 @@ def init_db():
         _add_missing('doc_catalog_analysis_runs', [
             ('skipped_json', "TEXT DEFAULT '[]'"),
             ('catalog_name_snapshot', "VARCHAR(255) DEFAULT ''"),
+            ('files_cancelled', "INTEGER NOT NULL DEFAULT 0"),
+            ('cancel_requested_by', "INTEGER REFERENCES users(id)"),
+            ('cancel_requested_at', "TIMESTAMP WITH TIME ZONE"),
+            ('cancelled_at', "TIMESTAMP WITH TIME ZONE"),
         ])
         if db.engine.dialect.name == 'postgresql':
             try:
@@ -2639,23 +2643,44 @@ def init_db():
             from database import (DocAnalysisRun, DocCatalogAnalysisRun,
                                   DocCheckResult, DocFreeAnalysisResult, utcnow)
             stale_catalog_runs = DocCatalogAnalysisRun.query.filter(
-                DocCatalogAnalysisRun.status.in_(('queued', 'running'))).all()
+                DocCatalogAnalysisRun.status.in_(
+                    ('queued', 'running', 'cancel_requested'))).all()
             for _catalog_run in stale_catalog_runs:
-                _catalog_run.status = 'error'
-                _catalog_run.error_text = (
-                    'Анализ каталога прерван перезапуском приложения. '
-                    'Запустите его повторно.')
+                if _catalog_run.status == 'cancel_requested':
+                    _catalog_run.status = 'cancelled'
+                    _catalog_run.error_text = ''
+                    _catalog_run.cancelled_at = utcnow()
+                    for _child in _catalog_run.file_runs:
+                        if _child.status in (
+                                'queued', 'running', 'cancel_requested'):
+                            _child.status = 'cancelled'
+                            _child.error_text = 'Анализ отменён пользователем'
+                            _child.completed_at = utcnow()
+                    _catalog_run.files_cancelled = sum(
+                        1 for _child in _catalog_run.file_runs
+                        if _child.status == 'cancelled')
+                    _catalog_run.files_done = sum(
+                        1 for _child in _catalog_run.file_runs
+                        if _child.status in ('done', 'error'))
+                else:
+                    _catalog_run.status = 'error'
+                    _catalog_run.error_text = (
+                        'Анализ каталога прерван перезапуском приложения. '
+                        'Запустите его повторно.')
                 _catalog_run.completed_at = utcnow()
                 if (_catalog_run.package
                         and _catalog_run.package.analysis_status == 'running'):
-                    _catalog_run.package.analysis_status = 'error'
-                    _catalog_run.package.analysis_error = (
-                        _catalog_run.error_text)
+                    _catalog_run.package.analysis_status = (
+                        'done' if _catalog_run.status == 'cancelled' else 'error')
+                    _catalog_run.package.analysis_error = _catalog_run.error_text
             stale_runs = DocAnalysisRun.query.filter(
-                DocAnalysisRun.status.in_(('queued', 'running'))).all()
+                DocAnalysisRun.status.in_(
+                    ('queued', 'running', 'cancel_requested'))).all()
             for _run in stale_runs:
-                _run.status = 'error'
+                was_cancelled = _run.status == 'cancel_requested'
+                _run.status = 'cancelled' if was_cancelled else 'error'
                 _run.error_text = (
+                    'Анализ отменён пользователем' if was_cancelled else
                     'Анализ прерван перезапуском приложения. Запустите его повторно.')
                 _run.completed_at = utcnow()
                 _pkg = _run.package
@@ -2668,7 +2693,9 @@ def init_db():
                         DocCheckResult.query.filter_by(file_id=_file.id).first()
                         or DocFreeAnalysisResult.query.filter_by(
                             file_id=_file.id).first())
-                    _file.analysis_status = 'done' if has_previous else 'error'
+                    _file.analysis_status = (
+                        'done' if has_previous else
+                        ('none' if was_cancelled else 'error'))
             if stale_runs or stale_catalog_runs:
                 db.session.commit()
                 app.logger.warning(

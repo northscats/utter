@@ -944,6 +944,10 @@ async function renderPackage(autoselect) {
   // ── Левая панель: файлы, сгруппированные по каталогам ──
   document.getElementById('ws-files-cnt').textContent = `(${d.files.length})`;
   const groups = {};
+  const activeCatalogRuns = new Map(
+    (d.catalog_runs || [])
+      .filter(run => ['queued','running','cancel_requested'].includes(run.status))
+      .map(run => [run.catalog_id, run]));
   d.files.forEach(f => {
     const k = f.catalog ? f.catalog.name : 'Без каталога';
     (groups[k] = groups[k] || {cat: f.catalog, files: []});
@@ -957,12 +961,22 @@ async function renderPackage(autoselect) {
       const isCollapsed = collapsedCats.has(g);
       const readyCount = grp.files.filter(f => f.file_status === 'ready').length;
       const errorCount = grp.files.filter(f => f.file_status === 'error').length;
+      const activeRun = activeCatalogRuns.get(catId);
+      const catalogAction = activeRun
+        ? (activeRun.status === 'cancel_requested'
+          ? `<button class="btn btn-grey btn-sm" disabled
+              style="margin-left:auto;padding:2px 6px;text-transform:none">Останавливается…</button>`
+          : `<button class="btn btn-danger btn-sm" data-cat-cancel="${activeRun.id}"
+              style="margin-left:auto;padding:2px 6px;text-transform:none"
+              title="Остановить анализ на ближайшей безопасной границе">■ Остановить анализ</button>`)
+        : (catId ? `<button class="btn btn-grey btn-sm" data-cat-analyze="${catId}"
+              data-cat-name="${esc(g)}" data-ready="${readyCount}" data-errors="${errorCount}"
+              style="margin-left:auto;padding:2px 6px;text-transform:none"
+              title="Анализировать только этот каталог">✦ Анализ</button>` : '');
       return `<div class="ws-cat-hdr" data-cat-drop="${catId}" data-cat-key="${esc(g)}" title="Свернуть/развернуть">
           <span class="cat-caret">${isCollapsed ? '▸' : '▾'}</span>${esc(g)}
           <span class="muted" style="font-weight:400;text-transform:none">(${grp.files.length})</span>
-          ${catId ? `<button class="btn btn-grey btn-sm" data-cat-analyze="${catId}"
-            data-cat-name="${esc(g)}" data-ready="${readyCount}" data-errors="${errorCount}"
-            style="margin-left:auto;padding:2px 6px;text-transform:none" title="Анализировать только этот каталог">✦ Анализ</button>` : ''}
+          ${catalogAction}
           </div>` +
         `<div class="ws-cat-files" ${isCollapsed ? 'style="display:none"' : ''}>` +
         grp.files.map(f => {
@@ -1288,6 +1302,8 @@ function renderCatalogSummaries() {
   document.getElementById('ws-catalog-summary-body').innerHTML = runs.map(run => {
     const status = run.status === 'done' ? ['Завершён','b-done']
       : run.status === 'error' ? ['Ошибка','b-viol']
+      : run.status === 'cancelled' ? ['Остановлен','b-err']
+      : run.status === 'cancel_requested' ? ['Останавливается…','b-run']
       : run.status === 'running' ? ['Выполняется','b-run'] : ['В очереди','b-err'];
     const s = run.summary || {};
     const list = (title, values) => Array.isArray(values) && values.length
@@ -1301,6 +1317,8 @@ function renderCatalogSummaries() {
         <span>${run.mode==='free'?'Свободный анализ':'Дополнение правил'}</span>
         <span>${esc(run.author)} · ${esc(run.created_at)}</span>
         <span>${run.files_done}/${run.files_total} файлов</span>
+        ${run.files_cancelled ? `<span>Отменено: ${run.files_cancelled}</span>` : ''}
+        ${run.cancel_requested_by ? `<span>Остановил: ${esc(run.cancel_requested_by)}${(run.cancelled_at || run.cancel_requested_at) ? ` · ${esc(run.cancelled_at || run.cancel_requested_at)}` : ''}</span>` : ''}
         ${run.template_name ? `<span>Шаблон: ${esc(run.template_name)}</span>` : ''}
       </div>
       <div class="run-prompt"><b>Промпт:</b> ${esc(run.user_prompt)}</div>
@@ -1348,6 +1366,8 @@ function renderAiResults() {
         ? run.result.rules : [];
       const status = run.status === 'done' ? ['Завершён','b-done']
         : run.status === 'error' ? ['Ошибка','b-viol']
+        : run.status === 'cancelled' ? ['Отменён','b-err']
+        : run.status === 'cancel_requested' ? ['Останавливается…','b-run']
         : run.status === 'running' ? ['Выполняется','b-run'] : ['В очереди','b-err'];
       return `<div class="analysis-run ${isFree?'free':''} ${run.status==='error'?'error':''}">
         <div class="run-meta">
@@ -1490,6 +1510,17 @@ function openCatalogAnalysisModal(btn) {
   document.getElementById('catalog-analysis-modal').classList.add('open');
   setTimeout(() => document.getElementById('cal-prompt').focus(), 0);
 }
+async function cancelCatalogAnalysis(runId) {
+  const run = (wsResults?.catalog_runs || []).find(x => x.id === runId);
+  if (!run) return;
+  const progress = `${run.files_done}/${run.files_total}`;
+  if (!confirm(`Остановить анализ каталога «${run.catalog_name}»?\n\nПрогресс: ${progress}. Полностью завершённые документы сохранятся. Текущий запрос завершится на ближайшей безопасной границе.`)) return;
+  try {
+    await api(`/docs/catalog-analysis-runs/${runId}/cancel`, {method:'POST'});
+    toast('Останавливается… Завершённые результаты будут сохранены.');
+    await renderPackage(false);
+  } catch(err) { toast(err.message); }
+}
 document.getElementById('cal-mode').addEventListener('change', updateCatalogAnalysisMode);
 document.getElementById('cal-prompt').addEventListener('input', e => {
   document.getElementById('cal-count').textContent = e.target.value.length;
@@ -1533,6 +1564,12 @@ document.getElementById('cal-run').addEventListener('click', async () => {
 
 /* ── Обработчики рабочего экрана ── */
 document.getElementById('ws-files-list').addEventListener('click', e => {
+  const cancelCatalog = e.target.closest('[data-cat-cancel]');
+  if (cancelCatalog) {
+    e.stopPropagation();
+    cancelCatalogAnalysis(parseInt(cancelCatalog.dataset.catCancel, 10));
+    return;
+  }
   const analyzeCatalog = e.target.closest('[data-cat-analyze]');
   if (analyzeCatalog) {
     e.stopPropagation();

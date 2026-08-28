@@ -4,3 +4,4 @@
 - [Dashboard regeneration pattern](dashboard-regen-pattern.md) — _rebuild_dashboard_with_daily только возвращает dataset; нужна полная цепочка + render_dashboard + запись файла
 - [Универсальный парсер документов](doc-parser-pipeline.md) — фоновые статусы в БД требуют startup-recovery; семафор на тяжёлую обработку; Dockerfile и requirements обновлять синхронно
 - [Эталон UI проверки документов](docs-check-ui.md) — исходный дизайн в mbt-service ZIP (MbtProjectPage.tsx): 3 панели, пейджер, миниатюры, «Согласовать»; не возвращать табличный вид
+- [Кооперативная отмена ИИ](cooperative-ai-cancel.md) — cancel и terminal-write сериализуются по запуску; пакет освобождается только после выхода worker из слота
