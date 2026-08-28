@@ -20,7 +20,7 @@ os.environ['DATABASE_URL'] = f'sqlite:///{_TMP}/test.db'
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db, encrypt_value
-from database import AiProvider, User, db
+from database import AiProvider, DocAnalysisRun, DocFile, DocPackage, User, db
 
 app.config['DOCS_STORAGE'] = os.path.join(_TMP, 'docs')
 os.makedirs(app.config['DOCS_STORAGE'], exist_ok=True)
@@ -28,20 +28,33 @@ init_db()
 
 # ── Фейковый OpenAI-совместимый сервер ─────────────────────────────────────
 received_bodies = []
+fake_response_mode = {'value': 'normal'}
+fake_delay_seconds = {'value': 0}
 
 class FakeAI(BaseHTTPRequestHandler):
     def do_POST(self):
+        if fake_delay_seconds['value']:
+            time.sleep(fake_delay_seconds['value'])
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         received_bodies.append(body)
+        system_msg = body['messages'][0]['content']
         user_msg = body['messages'][1]['content']
-        import re
-        rule_ids = [int(m) for m in re.findall(r'\[(\d+)\]', user_msg)]
-        items = []
-        for i, rid in enumerate(rule_ids):
-            st = 'violation' if i % 2 else 'ok'
-            items.append({'rule_id': rid, 'status': st,
-                          'details': f'Обоснование для правила {rid}'})
-        resp = {'choices': [{'message': {'content': json.dumps(items, ensure_ascii=False)}}],
+        if fake_response_mode['value'] == 'invalid':
+            content = 'это не JSON'
+        elif '{"answer"' in system_msg:
+            content = json.dumps(
+                {'answer': 'Срок действия найден. Существенных рисков не выявлено.'},
+                ensure_ascii=False)
+        else:
+            import re
+            rule_ids = [int(m) for m in re.findall(r'\[(\d+)\]', user_msg)]
+            items = []
+            for i, rid in enumerate(rule_ids):
+                st = 'violation' if i % 2 else 'ok'
+                items.append({'rule_id': rid, 'status': st,
+                              'details': f'Обоснование для правила {rid}'})
+            content = json.dumps(items, ensure_ascii=False)
+        resp = {'choices': [{'message': {'content': content}}],
                 'usage': {'prompt_tokens': 100, 'completion_tokens': 50}}
         data = json.dumps(resp).encode()
         self.send_response(200)
@@ -165,7 +178,108 @@ check('статусы ok+violation', set(statuses.values()) == {'ok', 'violation
 viol = [r_ for r_ in fres if r_['status'] == 'violation'][0]
 check('детали нарушения', 'Обоснование' in json.dumps(viol['details'], ensure_ascii=False))
 
-# ── 4. Экспорт XLSX ────────────────────────────────────────────────────────
+# ── 4. Анализ текущего документа пользовательским промптом ─────────────────
+current_file_id = _by_name['Договор 1.txt']['file_id']
+before_calls = len(received_bodies)
+r = client.post(f'/docs/files/{current_file_id}/analyze', json={
+    'mode': 'supplement',
+    'user_prompt': 'Особенно проверь срок действия договора',
+    'find_dates': True, 'find_signatures': False, 'find_seals': False,
+})
+check('дополнение правил запущено для текущего файла',
+      r.status_code == 202 and r.get_json()['mode'] == 'supplement',
+      r.get_data(as_text=True)[:300])
+supplement_run_id = r.get_json()['id']
+for _ in range(30):
+    st = client.get(f'/docs/packages/{pkg_id}/status').get_json()
+    if st['analysis_status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+check('дополнение правил завершено', st['analysis_status'] == 'done',
+      json.dumps(st, ensure_ascii=False))
+new_bodies = received_bodies[before_calls:]
+check('пользовательский промпт передан ИИ',
+      any('Особенно проверь срок действия договора' in
+          b['messages'][0]['content'] for b in new_bodies))
+
+r = client.post(f'/docs/files/{current_file_id}/analyze', json={
+    'mode': 'free',
+    'user_prompt': 'Найди срок действия и кратко оцени риски',
+})
+check('свободный анализ запущен',
+      r.status_code == 202 and r.get_json()['mode'] == 'free',
+      r.get_data(as_text=True)[:300])
+free_run_id = r.get_json()['id']
+for _ in range(30):
+    st = client.get(f'/docs/packages/{pkg_id}/status').get_json()
+    if st['analysis_status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+check('свободный анализ завершён', st['analysis_status'] == 'done',
+      json.dumps(st, ensure_ascii=False))
+fd = client.get(f'/docs/files/{current_file_id}').get_json()
+runs = {x['id']: x for x in fd['analysis_runs']}
+check('история содержит оба режима',
+      supplement_run_id in runs and free_run_id in runs)
+check('свободный ответ сохранён отдельно',
+      runs[free_run_id]['answer'] and 'Срок действия' in runs[free_run_id]['answer'])
+check('supplement хранит снимок правил и результата',
+      runs[supplement_run_id]['options']['rules']
+      and runs[supplement_run_id]['result']['rules'])
+check('стандартные результаты не удалены свободным анализом',
+      len(client.get(f'/docs/packages/{pkg_id}/results').get_json()['files'][0]['results']) >= 1)
+
+# Новый невалидный ответ не должен уничтожить предыдущую успешную проверку.
+before_invalid = client.get(f'/docs/packages/{pkg_id}/results').get_json()
+before_rules = {f['file_id']: f['results'] for f in before_invalid['files']}[current_file_id]
+fake_response_mode['value'] = 'invalid'
+r = client.post(f'/docs/files/{current_file_id}/analyze', json={
+    'mode': 'supplement', 'user_prompt': 'Повтори проверку',
+})
+check('запуск с будущим невалидным ответом принят', r.status_code == 202)
+invalid_run_id = r.get_json()['id']
+for _ in range(30):
+    st = client.get(f'/docs/packages/{pkg_id}/status').get_json()
+    if st['analysis_status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+fake_response_mode['value'] = 'normal'
+check('невалидный ответ помечен ошибкой', st['analysis_status'] == 'error')
+fd = client.get(f'/docs/files/{current_file_id}').get_json()
+invalid_run = {x['id']: x for x in fd['analysis_runs']}[invalid_run_id]
+check('ошибка сохранена в отдельном запуске',
+      invalid_run['status'] == 'error' and invalid_run['error_text'])
+after_invalid = client.get(f'/docs/packages/{pkg_id}/results').get_json()
+after_rules = {f['file_id']: f['results'] for f in after_invalid['files']}[current_file_id]
+check('предыдущий успешный результат сохранён при ошибке',
+      after_rules == before_rules)
+
+r = client.post(f'/docs/files/{current_file_id}/analyze',
+                json={'mode': 'free', 'user_prompt': ''})
+check('пустой промпт отклонён', r.status_code == 400)
+r = client.post(f'/docs/files/{current_file_id}/analyze',
+                json={'mode': 'other', 'user_prompt': 'тест'})
+check('неизвестный режим отклонён', r.status_code == 400)
+
+# Пакет резервируется до старта фонового потока: второй запрос получает 409.
+fake_delay_seconds['value'] = 1
+r = client.post(f'/docs/files/{current_file_id}/analyze', json={
+    'mode': 'free', 'user_prompt': 'Медленный анализ',
+})
+check('медленный анализ запущен', r.status_code == 202)
+r2 = client.post(f'/docs/files/{current_file_id}/analyze', json={
+    'mode': 'free', 'user_prompt': 'Параллельный анализ',
+})
+check('параллельный запуск отклонён', r2.status_code == 409)
+for _ in range(30):
+    st = client.get(f'/docs/packages/{pkg_id}/status').get_json()
+    if st['analysis_status'] in ('done', 'error'):
+        break
+    time.sleep(1)
+fake_delay_seconds['value'] = 0
+check('медленный анализ завершён', st['analysis_status'] == 'done')
+
+# ── 5. Экспорт XLSX ────────────────────────────────────────────────────────
 r = client.get(f'/docs/packages/{pkg_id}/export')
 check('экспорт XLSX', r.status_code == 200 and r.data[:2] == b'PK')
 from openpyxl import load_workbook
@@ -184,7 +298,7 @@ check('инъекционное имя экранировано',
       any(isinstance(c.value, str) and c.value.startswith("'=2+5") for row
           in wb.active.iter_rows() for c in row), str(cells)[:400])
 
-# ── 5. Повторный запуск перезаписывает результаты ──────────────────────────
+# ── 6. Повторный запуск перезаписывает результаты ──────────────────────────
 r = client.post(f'/docs/packages/{pkg_id}/analyze')
 check('повторный анализ запущен', r.status_code == 202)
 for _ in range(30):
@@ -196,7 +310,27 @@ res = client.get(f'/docs/packages/{pkg_id}/results').get_json()
 _by_name2 = {f['orig_name']: f for f in res['files']}
 check('результаты не дублируются', len(_by_name2['Договор 1.txt']['results']) == 2)
 
-# ── 6. Доступ: обычный пользователь не видит чужой пакет ───────────────────
+# ── 7. После рестарта зависший запуск получает конечную ошибку ──────────────
+with app.app_context():
+    stale = DocAnalysisRun(
+        package_id=pkg_id, file_id=current_file_id, created_by=admin_id,
+        mode='free', scope='current_file', user_prompt='Зависший запуск',
+        status='queued')
+    db.session.add(stale)
+    pkg = db.session.get(DocPackage, pkg_id)
+    df = db.session.get(DocFile, current_file_id)
+    pkg.analysis_status = 'running'
+    df.analysis_status = 'processing'
+    db.session.commit()
+    stale_id = stale.id
+init_db()
+with app.app_context():
+    stale = db.session.get(DocAnalysisRun, stale_id)
+    check('зависший запуск восстановлен как ошибка',
+          stale.status == 'error' and stale.completed_at is not None
+          and 'перезапуск' in stale.error_text.lower())
+
+# ── 8. Доступ: обычный пользователь не видит чужой пакет/файл ──────────────
 with app.app_context():
     from werkzeug.security import generate_password_hash
     other = User(username='test_user_docs', role='user',
@@ -209,8 +343,17 @@ with client.session_transaction() as s:
 r1 = client.get(f'/docs/packages/{pkg_id}/results')
 r2 = client.get(f'/docs/packages/{pkg_id}/export')
 r3 = client.post(f'/docs/packages/{pkg_id}/analyze')
+r4 = client.post(f'/docs/files/{current_file_id}/analyze',
+                 json={'mode': 'free', 'user_prompt': 'Покажи документ'})
+r5 = client.post('/docs/analysis-templates', json={
+    'name': 'Пользовательский шаблон',
+    'system_prompt': 'Проверь существенные условия',
+})
 check('чужой пакет недоступен', r1.status_code == 403 and r2.status_code == 403
-      and r3.status_code == 403, f'{r1.status_code}/{r2.status_code}/{r3.status_code}')
+      and r3.status_code == 403 and r4.status_code == 403,
+      f'{r1.status_code}/{r2.status_code}/{r3.status_code}/{r4.status_code}')
+check('обычный пользователь может создать шаблон', r5.status_code == 201,
+      r5.get_data(as_text=True)[:200])
 
 # ── Очистка временной среды ────────────────────────────────────────────────
 import shutil

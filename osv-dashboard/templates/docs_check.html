@@ -167,6 +167,13 @@ textarea{resize:vertical}
 .ws-viewer>*{flex:0 0 auto}
 #ws-ai{flex:0 0 auto;max-height:38vh;overflow-y:auto}
 #ws-empty{flex:0 0 auto}
+.analysis-run{border:1px solid #e1e7ec;border-radius:6px;padding:10px 12px;margin-top:8px;background:#fbfcfd}
+.analysis-run.free{border-left:4px solid var(--water)}
+.analysis-run.error{border-left:4px solid var(--bad)}
+.analysis-run .run-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--mut)}
+.analysis-run .run-prompt{margin-top:6px;padding:6px 8px;border-radius:4px;background:#f1f4f6;
+  font-size:11.5px;white-space:pre-wrap}
+.analysis-run .run-answer{margin-top:8px;font-size:12.5px;line-height:1.55;white-space:pre-wrap}
 .ws-actions{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);
   background:#f9fafb;flex-wrap:wrap}
 .ws-actions .fname{font-weight:700;font-size:13px;flex:1;min-width:140px;overflow:hidden;
@@ -408,6 +415,7 @@ textarea{resize:vertical}
               <button id="zm-fh" title="Вписать по высоте">⭥</button>
             </span>
             <select id="ws-catalog" title="Каталог файла" style="border:1px solid var(--line);border-radius:5px;padding:5px 8px;font:12px 'Segoe UI',sans-serif;max-width:160px"></select>
+            <button class="btn btn-amber btn-sm" id="ws-analyze-current">✦ Анализировать документ</button>
             <button class="btn btn-sm" id="ws-approve"></button>
           </div>
           <div class="ws-legend" id="ws-legend" style="display:none"></div>
@@ -430,6 +438,7 @@ textarea{resize:vertical}
         <div class="card" id="ws-ai" style="display:none;margin-top:12px">
           <h3>Результаты ИИ-проверки</h3>
           <div id="ws-ai-body"></div>
+          <div id="ws-free-results"></div>
         </div>
       </div>
       <div class="ws-resizer r2" id="ws-rz2" title="Потяните, чтобы изменить ширину"></div>
@@ -519,6 +528,42 @@ textarea{resize:vertical}
   </div>
 </div>
 
+<div class="modal-bg" id="current-analysis-modal">
+  <div class="modal narrow">
+    <h3>✦ Анализировать текущий документ
+      <button class="x" data-close="current-analysis-modal">✕</button></h3>
+    <div id="caf-file" style="font-weight:700;margin-bottom:3px"></div>
+    <div id="caf-pages" class="muted" style="margin-bottom:12px"></div>
+    <div class="fgrid" style="grid-template-columns:1fr">
+      <div><label>Режим</label>
+        <select id="caf-mode">
+          <option value="supplement">Дополнить проверку по правилам</option>
+          <option value="free">Свободный анализ документа</option>
+        </select>
+      </div>
+      <div><label>Шаблон анализа</label>
+        <select id="caf-template"><option value="">По умолчанию</option></select>
+      </div>
+      <div><label>Пользовательский промпт</label>
+        <textarea id="caf-prompt" rows="5" maxlength="8000"
+          placeholder="Например: проверь сроки действия договора и перечисли найденные риски"></textarea>
+        <div class="muted" style="margin-top:3px"><span id="caf-count">0</span>/8000</div>
+      </div>
+    </div>
+    <div id="caf-find-types" style="display:flex;gap:14px;margin:10px 0;flex-wrap:wrap">
+      <label class="ck"><input type="checkbox" id="caf-dates" checked> Даты</label>
+      <label class="ck"><input type="checkbox" id="caf-sigs" checked> Подписи</label>
+      <label class="ck"><input type="checkbox" id="caf-seals" checked> Печати</label>
+    </div>
+    <div class="muted" id="caf-mode-help" style="font-size:11.5px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:7px;align-items:center">
+      <button class="btn btn-primary" id="caf-run">Запустить анализ</button>
+      <button class="btn btn-grey" data-close="current-analysis-modal">Отмена</button>
+      <button class="btn btn-grey" id="caf-save-template" style="display:none;margin-left:auto">Сохранить как шаблон</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -527,6 +572,7 @@ const IS_ADMIN = {{ 'true' if current_user.is_admin else 'false' }};
 let CSRF = document.querySelector('meta[name="csrf-token"]').content;
 let currentPkgId = null, pkgPollTimer = null, pdPollTimer = null;
 let wsFileId = null, wsPage = 1, wsFile = null, wsResults = null;
+let activeCurrentRunId = null;
 let collapsedCats = new Set();
 try { collapsedCats = new Set(JSON.parse(localStorage.getItem('docs.collapsedCats') || '[]')); } catch (e) {}
 let markButtons = [], catalogsCache = [], analysisTemplates = [];
@@ -807,12 +853,14 @@ async function loadMarkButtons() {
 }
 async function loadTemplates() {
   try { analysisTemplates = await api('/docs/analysis-templates'); } catch(e){ analysisTemplates = []; }
-  const sel = document.getElementById('an-template');
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">По умолчанию</option>' + analysisTemplates.map(t =>
-    `<option value="${t.id}">${esc(t.name)}</option>`).join('');
-  sel.value = cur;
-  document.getElementById('an-templates-btn').style.display = IS_ADMIN ? '' : 'none';
+  ['an-template','caf-template'].forEach(id => {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">По умолчанию</option>' + analysisTemplates.map(t =>
+      `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    sel.value = cur;
+  });
+  document.getElementById('an-templates-btn').style.display = '';
 }
 
 // агрегированный статус файла: violation > error > not_found > ok
@@ -900,6 +948,12 @@ async function renderPackage(autoselect) {
       if ((cur.file_status === 'ready' && wsFile && wsFile.status !== 'ready') ||
           (cur.analysis_status === 'done' && wsFile && wsFile.analysis_status !== 'done'))
         selectFile(wsFileId, true);
+      if (activeCurrentRunId && cur.latest_run &&
+          cur.latest_run.id === activeCurrentRunId &&
+          ['done','error'].includes(cur.latest_run.status)) {
+        activeCurrentRunId = null;
+        selectFile(wsFileId, true);
+      }
     }
   }
 
@@ -987,6 +1041,9 @@ async function selectFile(fileId, keepPage) {
   const fn = document.getElementById('ws-fname');
   fn.textContent = f.orig_name; fn.title = f.orig_name;
   renderApproveBtn(f.approved);
+  const analyzeBtn = document.getElementById('ws-analyze-current');
+  analyzeBtn.disabled = f.status !== 'ready' || wsResults?.analysis_status === 'running';
+  analyzeBtn.title = analyzeBtn.disabled ? 'Дождитесь завершения текущей обработки' : '';
 
   // селектор каталога
   const sel = document.getElementById('ws-catalog');
@@ -1180,9 +1237,10 @@ function renderAiResults() {
   const box = document.getElementById('ws-ai');
   if (!wsResults || !wsFileId) { box.style.display = 'none'; return; }
   const fr = (wsResults.files || []).find(x => x.file_id === wsFileId);
-  if (!fr || !fr.results.length) { box.style.display = 'none'; return; }
+  const runs = wsFile?.analysis_runs || [];
+  if ((!fr || !fr.results.length) && !runs.length) { box.style.display = 'none'; return; }
   box.style.display = '';
-  document.getElementById('ws-ai-body').innerHTML = fr.results.map(r => {
+  document.getElementById('ws-ai-body').innerHTML = fr && fr.results.length ? fr.results.map(r => {
     const st = STATUS_L[r.status] || [r.status,'b-err'];
     const det = (r.details.notes || []).join('; ') || r.details.error || r.details.raw || '';
     return `<div class="res-item s-${esc(r.status)}">
@@ -1190,8 +1248,129 @@ function renderAiResults() {
         <span class="b ${st[1]}">${st[0]}</span></div>
       ${det ? `<div class="res-det">${esc(det)}</div>` : ''}
     </div>`;
-  }).join('');
+  }).join('') : '<div class="muted">Проверка по правилам ещё не выполнялась.</div>';
+
+  const runBox = document.getElementById('ws-free-results');
+  runBox.innerHTML = runs.length ? `<h3 style="margin-top:14px">История анализов документа</h3>` +
+    runs.map(run => {
+      const isFree = run.mode === 'free';
+      const snapshotRules = (!isFree && run.result && Array.isArray(run.result.rules))
+        ? run.result.rules : [];
+      const status = run.status === 'done' ? ['Завершён','b-done']
+        : run.status === 'error' ? ['Ошибка','b-viol']
+        : run.status === 'running' ? ['Выполняется','b-run'] : ['В очереди','b-err'];
+      return `<div class="analysis-run ${isFree?'free':''} ${run.status==='error'?'error':''}">
+        <div class="run-meta">
+          <span class="b ${status[1]}">${status[0]}</span>
+          <b>${isFree ? 'Свободный анализ' : 'Дополнение правил'}</b>
+          <span>${esc(run.author)} · ${esc(run.created_at)}</span>
+          ${run.template_name ? `<span>Шаблон: ${esc(run.template_name)}</span>` : ''}
+        </div>
+        <div class="run-prompt"><b>Промпт:</b> ${esc(run.user_prompt)}</div>
+        ${run.answer ? `<div class="run-answer">${esc(run.answer)}</div>` : ''}
+        ${snapshotRules.length ? `<details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:11.5px;font-weight:700">Снимок результатов этого запуска (${snapshotRules.length})</summary>
+          <div style="margin-top:6px">${snapshotRules.map(r => {
+            const st = STATUS_L[r.status] || [r.status,'b-err'];
+            const det = ((r.details && r.details.notes) || []).join('; ')
+              || (r.details && (r.details.error || r.details.raw)) || '';
+            return `<div class="res-item s-${esc(r.status)}">
+              <div class="res-hd"><span class="res-name">${esc(r.rule_name)}</span>
+                <span class="b ${st[1]}">${st[0]}</span></div>
+              ${det ? `<div class="res-det">${esc(det)}</div>` : ''}
+            </div>`;
+          }).join('')}</div></details>` : ''}
+        ${run.error_text ? `<div class="run-answer" style="color:var(--bad)">${esc(run.error_text)}</div>` : ''}
+      </div>`;
+    }).join('') : '';
 }
+
+/* ── Явный анализ текущего документа ── */
+function updateCurrentAnalysisMode() {
+  const free = document.getElementById('caf-mode').value === 'free';
+  document.getElementById('caf-find-types').style.display = free ? 'none' : 'flex';
+  document.getElementById('caf-mode-help').textContent = free
+    ? 'ИИ ответит на произвольный вопрос. Ответ будет сохранён отдельно и не изменит проверку по правилам.'
+    : 'Инструкция дополнит обязательные правила каталога. Формат результатов проверки останется неизменным.';
+}
+function openCurrentAnalysisModal() {
+  if (!wsFile || wsFile.status !== 'ready') { toast('Документ ещё не готов к анализу'); return; }
+  if (wsResults?.analysis_status === 'running') { toast('Дождитесь завершения текущего анализа'); return; }
+  document.getElementById('caf-file').textContent = wsFile.orig_name;
+  document.getElementById('caf-pages').textContent = `Страниц: ${wsFile.pages_count || wsFile.pages.length}`;
+  document.getElementById('caf-prompt').value = '';
+  document.getElementById('caf-count').textContent = '0';
+  document.getElementById('caf-mode').value = 'supplement';
+  document.getElementById('caf-template').value = '';
+  document.getElementById('caf-save-template').style.display = '';
+  updateCurrentAnalysisMode();
+  document.getElementById('current-analysis-modal').classList.add('open');
+  setTimeout(() => document.getElementById('caf-prompt').focus(), 0);
+}
+document.getElementById('ws-analyze-current').addEventListener('click', openCurrentAnalysisModal);
+document.getElementById('caf-mode').addEventListener('change', updateCurrentAnalysisMode);
+document.getElementById('caf-prompt').addEventListener('input', e => {
+  document.getElementById('caf-count').textContent = e.target.value.length;
+});
+document.getElementById('caf-template').addEventListener('change', e => {
+  const tpl = analysisTemplates.find(t => t.id === parseInt(e.target.value, 10));
+  if (!tpl) return;
+  document.getElementById('caf-dates').checked = !!tpl.find_dates;
+  document.getElementById('caf-sigs').checked = !!tpl.find_signatures;
+  document.getElementById('caf-seals').checked = !!tpl.find_seals;
+});
+document.getElementById('caf-run').addEventListener('click', async () => {
+  if (!wsFileId) return;
+  const promptText = document.getElementById('caf-prompt').value.trim();
+  if (!promptText) { toast('Введите пользовательский промпт'); return; }
+  const btn = document.getElementById('caf-run');
+  const body = {
+    mode: document.getElementById('caf-mode').value,
+    user_prompt: promptText,
+    find_dates: document.getElementById('caf-dates').checked,
+    find_signatures: document.getElementById('caf-sigs').checked,
+    find_seals: document.getElementById('caf-seals').checked,
+  };
+  const tpl = document.getElementById('caf-template').value;
+  if (tpl) body.template_id = parseInt(tpl, 10);
+  btn.disabled = true;
+  try {
+    const run = await api(`/docs/files/${wsFileId}/analyze`, {method:'POST', json:body});
+    activeCurrentRunId = run.id;
+    if (wsFile) {
+      wsFile.analysis_status = 'processing';
+      wsFile.analysis_runs = [run, ...(wsFile.analysis_runs || [])];
+    }
+    document.getElementById('current-analysis-modal').classList.remove('open');
+    toast('Анализ текущего документа запущен');
+    renderAiResults();
+    renderPackage(false);
+  } catch(err) {
+    const msg = err.message || '';
+    if (msg.toLowerCase().includes('провайдер'))
+      toastHint(msg, 'Настроить ИИ-провайдер', '/settings#ai');
+    else toast(msg);
+  } finally {
+    btn.disabled = false;
+  }
+});
+document.getElementById('caf-save-template').addEventListener('click', async () => {
+  const promptText = document.getElementById('caf-prompt').value.trim();
+  if (!promptText) { toast('Сначала введите промпт'); return; }
+  const name = prompt('Название шаблона:');
+  if (!name || !name.trim()) return;
+  try {
+    const tpl = await api('/docs/analysis-templates', {method:'POST', json:{
+      name: name.trim(), system_prompt: promptText,
+      find_dates: document.getElementById('caf-dates').checked,
+      find_signatures: document.getElementById('caf-sigs').checked,
+      find_seals: document.getElementById('caf-seals').checked,
+    }});
+    await loadTemplates();
+    document.getElementById('caf-template').value = String(tpl.id);
+    toast('Промпт сохранён как шаблон');
+  } catch(err) { toast(err.message); }
+});
 
 /* ── Обработчики рабочего экрана ── */
 document.getElementById('ws-files-list').addEventListener('click', e => {

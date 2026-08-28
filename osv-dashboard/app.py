@@ -2607,6 +2607,43 @@ def init_db():
             ('analysis_total',  "INTEGER DEFAULT 0"),
             ('analysis_done',   "INTEGER DEFAULT 0"),
         ])
+        _add_missing('doc_analysis_runs', [
+            ('options_json', "TEXT DEFAULT '{}'"),
+            ('result_json',  "TEXT DEFAULT '{}'"),
+        ])
+        # Daemon-поток не переживает рестарт. Не оставляем историю текущего
+        # документа навсегда в состоянии queued/running.
+        try:
+            from database import (DocAnalysisRun, DocCheckResult,
+                                  DocFreeAnalysisResult, utcnow)
+            stale_runs = DocAnalysisRun.query.filter(
+                DocAnalysisRun.status.in_(('queued', 'running'))).all()
+            for _run in stale_runs:
+                _run.status = 'error'
+                _run.error_text = (
+                    'Анализ прерван перезапуском приложения. Запустите его повторно.')
+                _run.completed_at = utcnow()
+                _pkg = _run.package
+                if _pkg and _pkg.analysis_status == 'running':
+                    _pkg.analysis_status = 'error'
+                    _pkg.analysis_error = _run.error_text
+                _file = _run.file
+                if _file and _file.analysis_status == 'processing':
+                    has_previous = (
+                        DocCheckResult.query.filter_by(file_id=_file.id).first()
+                        or DocFreeAnalysisResult.query.filter_by(
+                            file_id=_file.id).first())
+                    _file.analysis_status = 'done' if has_previous else 'error'
+            if stale_runs:
+                db.session.commit()
+                app.logger.warning(
+                    'recovered %s interrupted document analysis runs',
+                    len(stale_runs))
+        except Exception as _analysis_recovery_exc:
+            db.session.rollback()
+            app.logger.warning(
+                'document analysis recovery failed: %s',
+                _analysis_recovery_exc)
         # Универсальный парсер документов: зависшие после рестарта пакеты → error
         try:
             from doc_pipeline import recover_stale_packages

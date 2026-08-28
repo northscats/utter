@@ -353,6 +353,71 @@ class AnalysisTemplate(db.Model):
     created_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
+class DocAnalysisRun(db.Model):
+    """Воспроизводимый запуск ИИ-анализа одного документа.
+
+    Отдельная сущность не смешивает историю запусков со сводным статусом файла
+    и сохраняет снимок промпта/шаблона на момент запуска.
+    """
+    __tablename__ = 'doc_analysis_runs'
+
+    id                = db.Column(db.Integer, primary_key=True)
+    package_id        = db.Column(db.Integer, db.ForeignKey('doc_packages.id'),
+                                  nullable=False)
+    file_id           = db.Column(db.Integer, db.ForeignKey('doc_files.id'),
+                                  nullable=False)
+    created_by        = db.Column(db.Integer, db.ForeignKey('users.id'),
+                                  nullable=False)
+    # supplement | free
+    mode              = db.Column(db.String(20), nullable=False)
+    # current_file (следующие задачи расширят список областей)
+    scope             = db.Column(db.String(30), nullable=False,
+                                  default='current_file')
+    user_prompt       = db.Column(db.Text, default='')
+    template_id       = db.Column(db.Integer,
+                                  db.ForeignKey('doc_analysis_templates.id'),
+                                  nullable=True)
+    template_name     = db.Column(db.String(255), default='')
+    template_prompt   = db.Column(db.Text, default='')
+    options_json      = db.Column(db.Text, default='{}')
+    result_json       = db.Column(db.Text, default='{}')
+    # queued | running | done | error
+    status            = db.Column(db.String(20), nullable=False, default='queued')
+    error_text        = db.Column(db.Text, default='')
+    created_at        = db.Column(db.DateTime(timezone=True), default=utcnow)
+    started_at        = db.Column(db.DateTime(timezone=True), nullable=True)
+    completed_at      = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    package = db.relationship('DocPackage', lazy=True)
+    file = db.relationship(
+        'DocFile',
+        backref=db.backref('analysis_runs', cascade='all, delete-orphan',
+                           lazy=True),
+        lazy=True)
+    author = db.relationship('User', lazy=True)
+    template = db.relationship('AnalysisTemplate', lazy=True)
+
+
+class DocFreeAnalysisResult(db.Model):
+    """Текстовый результат свободного вопроса к документу."""
+    __tablename__ = 'doc_free_analysis_results'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    run_id     = db.Column(db.Integer, db.ForeignKey('doc_analysis_runs.id'),
+                           nullable=False, unique=True)
+    file_id    = db.Column(db.Integer, db.ForeignKey('doc_files.id'),
+                           nullable=False)
+    content    = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    run = db.relationship(
+        'DocAnalysisRun',
+        backref=db.backref('free_result', uselist=False,
+                           cascade='all, delete-orphan'),
+        lazy=True)
+    file = db.relationship('DocFile', lazy=True)
+
+
 class DailyRow(db.Model):
     """Суточные данные из ZIP-архивов: один счёт, один день."""
     __tablename__ = 'daily_rows'

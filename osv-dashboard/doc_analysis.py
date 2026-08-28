@@ -14,9 +14,9 @@ import threading
 import time
 
 from ai_client import call_ai_provider
-from database import (AiProvider, AnalysisTemplate, DocCheckResult,
-                      DocCheckRule, DocFile, DocFilePage, DocFinding,
-                      DocPackage, db)
+from database import (AiProvider, AnalysisTemplate, DocAnalysisRun,
+                      DocCheckResult, DocFile, DocFilePage, DocFinding,
+                      DocFreeAnalysisResult, DocPackage, db, utcnow)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,8 @@ _FINDING_RU = {'date': 'даты подписания/составления д�
                'seal': 'печати и штампы (упоминания «м.п.», «печать», оттиски)'}
 
 
-def build_prompt(rules: list, pages: list, find_types=(), system_extra='') -> list:
+def build_prompt(rules: list, pages: list, find_types=(), system_extra='',
+                 user_extra='') -> list:
     """Собирает messages для ИИ: правила каталога + поиск находок.
 
     Промпт формируется динамически — правила задаёт администратор,
@@ -100,6 +101,11 @@ def build_prompt(rules: list, pages: list, find_types=(), system_extra='') -> li
         '"quote": "<цитата>", "description": "<пояснение>"}]}')
     if system_extra:
         parts.append('Дополнительные указания администратора:\n' + system_extra.strip())
+    if user_extra:
+        parts.append(
+            'Дополнительная инструкция пользователя:\n' + user_extra.strip() +
+            '\nЭта инструкция уточняет предмет проверки, но не отменяет правила выше '
+            'и не изменяет обязательный JSON-формат ответа.')
     system_msg = '\n'.join(parts)
 
     user_parts = []
@@ -108,6 +114,59 @@ def build_prompt(rules: list, pages: list, find_types=(), system_extra='') -> li
     user_parts.append('ТЕКСТ ДОКУМЕНТА:\n' + '\n\n'.join(pages_lines))
     return [{'role': 'system', 'content': system_msg},
             {'role': 'user', 'content': '\n\n'.join(user_parts)}]
+
+
+def build_free_prompt(pages: list, user_prompt: str,
+                      system_extra: str = '') -> list:
+    """Строгий контракт свободного вопроса к страницам документа."""
+    page_parts = []
+    for p in pages:
+        text = (p.text or '')[:MAX_CHARS_PER_PAGE]
+        page_parts.append(
+            f'--- Страница {p.page_num} ---\n{text or "(текст не извлечён)"}')
+    system = [
+        'Ты эксперт по анализу документов. Выполни задачу пользователя только '
+        'по содержимому переданных страниц. Не придумывай отсутствующие факты.',
+        'Ответь СТРОГО валидным JSON-объектом без Markdown и внешних пояснений: '
+        '{"answer": "<содержательный ответ на русском>"}',
+    ]
+    if system_extra:
+        system.append('Указания администратора:\n' + system_extra.strip())
+    return [
+        {'role': 'system', 'content': '\n'.join(system)},
+        {'role': 'user', 'content':
+            'ЗАДАЧА ПОЛЬЗОВАТЕЛЯ:\n' + user_prompt.strip() +
+            '\n\nТЕКСТ ДОКУМЕНТА:\n' + '\n\n'.join(page_parts)},
+    ]
+
+
+def build_free_synthesis_prompt(user_prompt: str, partial_answers: list) -> list:
+    """Сводит ответы по блокам страниц в один ответ по всему документу."""
+    excerpts = '\n\n'.join(partial_answers)[:30000]
+    return [
+        {'role': 'system', 'content':
+            'Сформируй единый итоговый ответ по документу из результатов анализа '
+            'его частей. Не добавляй факты, которых нет в результатах. Ответь '
+            'СТРОГО валидным JSON без Markdown: {"answer": "<ответ на русском>"}'},
+        {'role': 'user', 'content':
+            'ИСХОДНАЯ ЗАДАЧА:\n' + user_prompt.strip() +
+            '\n\nРЕЗУЛЬТАТЫ ПО ЧАСТЯМ ДОКУМЕНТА:\n' + excerpts},
+    ]
+
+
+def _parse_free_ai_json(content: str) -> str:
+    """Извлекает обязательное строковое поле answer или отклоняет ответ."""
+    m = re.search(r'\{[\s\S]*\}', content or '')
+    if not m:
+        raise ValueError('ИИ вернул ответ не в формате JSON')
+    try:
+        data = json.loads(m.group(0))
+    except json.JSONDecodeError as exc:
+        raise ValueError('ИИ вернул повреждённый JSON') from exc
+    answer = data.get('answer') if isinstance(data, dict) else None
+    if not isinstance(answer, str) or not answer.strip():
+        raise ValueError('ИИ вернул пустой свободный ответ')
+    return answer.strip()[:12000]
 
 
 def _parse_ai_json(content: str) -> dict:
@@ -132,7 +191,7 @@ def _parse_ai_json(content: str) -> dict:
                 return {'rules': data, 'findings': []}
         except json.JSONDecodeError:
             pass
-    return {'rules': [], 'findings': []}
+    raise ValueError('ИИ вернул повреждённый или неподдерживаемый JSON')
 
 
 def _call_with_retry(provider, api_key, messages) -> dict:
@@ -165,7 +224,7 @@ _STATUS_RANK = {'violation': 3, 'ok': 2, 'not_found': 1}
 
 
 def analyze_file(df: DocFile, provider, api_key, find_types=(),
-                 system_extra='') -> None:
+                 system_extra='', user_extra='') -> None:
     """Проверяет один файл: правила каталога + поиск находок.
 
     Результаты (по одному DocCheckResult на правило) и находки перезаписываются.
@@ -179,17 +238,15 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
         db.session.commit()
         return
 
-    # Перезапуск проверки: старые результаты и находки файла удаляем
-    DocCheckResult.query.filter_by(file_id=df.id).delete()
-    DocFinding.query.filter_by(file_id=df.id).delete()
-
     # Агрегация: violation > ok > not_found по всем chunk'ам
     agg: dict = {r.id: {'status': 'not_found', 'details': []} for r in rules}
     max_page = pages[-1].page_num
+    staged_findings = []
 
     for i in range(0, len(pages), PAGES_PER_CHUNK):
         chunk = pages[i:i + PAGES_PER_CHUNK]
-        messages = build_prompt(rules, chunk, find_types, system_extra)
+        messages = build_prompt(rules, chunk, find_types, system_extra,
+                                user_extra)
         result = _call_with_retry(provider, api_key, messages)
         parsed = _parse_ai_json(result['content'])
         for item in parsed['rules']:
@@ -220,11 +277,14 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
                 page = chunk[0].page_num
             if page not in chunk_pages:
                 page = min(max(1, page), max_page)
-            db.session.add(DocFinding(
-                file_id=df.id, page_num=page, ftype=ftype,
+            staged_findings.append(dict(
+                page_num=page, ftype=ftype,
                 snippet=str(item.get('quote') or '')[:1000],
                 description=str(item.get('description') or '')[:1000]))
 
+    # Старый успешный результат заменяется только после полного получения нового.
+    DocCheckResult.query.filter_by(file_id=df.id).delete()
+    DocFinding.query.filter_by(file_id=df.id).delete()
     for rule in rules:
         a = agg[rule.id]
         db.session.add(DocCheckResult(
@@ -233,8 +293,135 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
             status=a['status'],
             details=json.dumps({'notes': a['details']}, ensure_ascii=False),
         ))
+    for item in staged_findings:
+        db.session.add(DocFinding(file_id=df.id, **item))
     df.analysis_status = 'done'
     db.session.commit()
+
+
+def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
+                      system_extra: str = '') -> str:
+    """Свободный анализ файла; возвращает ответ, не меняя проверки правил."""
+    pages = (DocFilePage.query.filter_by(file_id=df.id)
+             .order_by(DocFilePage.page_num).all())
+    if not pages:
+        raise ValueError('В документе нет страниц для анализа')
+
+    answers = []
+    for i in range(0, len(pages), PAGES_PER_CHUNK):
+        chunk = pages[i:i + PAGES_PER_CHUNK]
+        result = _call_with_retry(
+            provider, api_key,
+            build_free_prompt(chunk, user_prompt, system_extra))
+        answer = _parse_free_ai_json(result['content'])
+        if len(pages) > PAGES_PER_CHUNK:
+            label = (f'Страницы {chunk[0].page_num}–{chunk[-1].page_num}'
+                     if len(chunk) > 1 else f'Страница {chunk[0].page_num}')
+            answers.append(f'{label}: {answer}')
+        else:
+            answers.append(answer)
+    if len(answers) == 1:
+        return answers[0]
+    result = _call_with_retry(
+        provider, api_key,
+        build_free_synthesis_prompt(user_prompt, answers))
+    return _parse_free_ai_json(result['content'])[:30000]
+
+
+def _standard_result_snapshot(file_id: int) -> str:
+    """Неизменяемый снимок результатов supplement-запуска."""
+    rows = []
+    for result in DocCheckResult.query.filter_by(file_id=file_id).all():
+        try:
+            details = json.loads(result.details or '{}')
+        except (TypeError, ValueError):
+            details = {'raw': result.details or ''}
+        rows.append(dict(
+            rule_id=result.check_rule_id,
+            rule_name=(result.check_rule.name if result.check_rule else '—'),
+            status=result.status,
+            details=details,
+        ))
+    findings = [
+        dict(page=f.page_num, type=f.ftype, quote=f.snippet or '',
+             description=f.description or '')
+        for f in (DocFinding.query.filter_by(file_id=file_id)
+                  .order_by(DocFinding.page_num, DocFinding.id).all())
+    ]
+    return json.dumps({'rules': rows, 'findings': findings}, ensure_ascii=False)
+
+
+def analyze_current_file(app, run_id: int, options: dict | None = None) -> None:
+    """Фоновый запуск одного файла в supplement/free режиме."""
+    opts = dict(options or {})
+    with _ANALYZE_SEMAPHORE, app.app_context():
+        run = db.session.get(DocAnalysisRun, run_id)
+        if run is None:
+            return
+        pkg = db.session.get(DocPackage, run.package_id)
+        df = db.session.get(DocFile, run.file_id)
+        try:
+            if pkg is None or df is None:
+                raise ValueError('Документ или пакет больше не существует')
+            provider = get_local_provider()
+            from app import decrypt_value
+            api_key = decrypt_value(provider.api_key) if provider.api_key else ''
+            run.status = 'running'
+            run.started_at = utcnow()
+            df.analysis_status = 'processing'
+            db.session.commit()
+
+            if run.mode == 'free':
+                content = analyze_file_free(
+                    df, provider, api_key, run.user_prompt,
+                    run.template_prompt or '')
+                db.session.add(DocFreeAnalysisResult(
+                    run_id=run.id, file_id=df.id, content=content))
+                run.result_json = json.dumps({'answer': content},
+                                             ensure_ascii=False)
+                # Свободный вопрос не заменяет статус последней проверки правил.
+                df.analysis_status = (
+                    'done' if DocCheckResult.query.filter_by(file_id=df.id).first()
+                    else 'none')
+            else:
+                find_types = tuple(t for t, k in
+                                   (('date', 'find_dates'),
+                                    ('signature', 'find_signatures'),
+                                    ('seal', 'find_seals')) if opts.get(k, True))
+                analyze_file(
+                    df, provider, api_key, find_types,
+                    run.template_prompt or '', run.user_prompt or '')
+                run.result_json = _standard_result_snapshot(df.id)
+
+            run.status = 'done'
+            run.error_text = ''
+            run.completed_at = utcnow()
+            pkg.analysis_status = 'done'
+            pkg.analysis_error = ''
+            pkg.analysis_done = 1
+            db.session.commit()
+        except Exception as exc:
+            logger.exception('current file analysis run %s failed', run_id)
+            db.session.rollback()
+            run = db.session.get(DocAnalysisRun, run_id)
+            pkg = db.session.get(DocPackage, run.package_id) if run else None
+            df = db.session.get(DocFile, run.file_id) if run else None
+            if run is not None:
+                run.status = 'error'
+                run.error_text = str(exc)[:1000]
+                run.completed_at = utcnow()
+            if df is not None:
+                # При ошибке предыдущий успешный результат остаётся доступен.
+                df.analysis_status = (
+                    'done' if (DocCheckResult.query.filter_by(file_id=df.id).first()
+                               or DocFreeAnalysisResult.query.filter_by(
+                                   file_id=df.id).first())
+                    else 'error')
+            if pkg is not None:
+                pkg.analysis_status = 'error'
+                pkg.analysis_error = str(exc)[:1000]
+                pkg.analysis_done = 1
+            db.session.commit()
 
 
 DEFAULT_OPTIONS = dict(find_dates=True, find_signatures=True, find_seals=True,
@@ -287,12 +474,13 @@ def analyze_package(app, package_id: int, options: dict | None = None) -> None:
                 except Exception as exc:
                     logger.exception('analysis failed for file %s', df.id)
                     db.session.rollback()
-                    # Ошибка одного файла не валит весь пакет
-                    DocCheckResult.query.filter_by(file_id=df.id).delete()
-                    db.session.add(DocCheckResult(
-                        file_id=df.id, check_rule_id=None, status='error',
-                        details=json.dumps({'error': str(exc)[:500]},
-                                           ensure_ascii=False)))
+                    # Ошибка одного файла не валит весь пакет. Старый успешный
+                    # результат сохраняем; error-запись нужна только если его нет.
+                    if not DocCheckResult.query.filter_by(file_id=df.id).first():
+                        db.session.add(DocCheckResult(
+                            file_id=df.id, check_rule_id=None, status='error',
+                            details=json.dumps({'error': str(exc)[:500]},
+                                               ensure_ascii=False)))
                     df2 = db.session.get(DocFile, df.id)
                     if df2 is not None:
                         df2.analysis_status = 'error'

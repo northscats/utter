@@ -10,13 +10,15 @@ import time
 from flask import Blueprint, abort, current_app, jsonify, request, send_file
 from flask_login import current_user, login_required
 
-from database import (AnalysisTemplate, DocCatalog, DocCheckRule, DocFile,
-                      DocFileMark, DocFilePage, DocFinding, DocMarkButton,
-                      DocPackage, DocRoutingRule, db)
+from database import (AnalysisTemplate, DocAnalysisRun, DocCatalog,
+                       DocCheckRule, DocFile, DocFileMark, DocFilePage,
+                       DocFinding, DocFreeAnalysisResult, DocMarkButton,
+                       DocPackage, DocRoutingRule, db)
 from doc_pipeline import (PackageValidationError, get_unrouted_catalog,
                           process_package, validate_zip)
 
 docs_bp = Blueprint('docs', __name__, url_prefix='/docs')
+_ANALYSIS_START_LOCK = threading.Lock()
 
 
 @docs_bp.route('/')
@@ -46,6 +48,40 @@ def _file_access(f: DocFile) -> DocFile:
     """Доступ к файлу — через владельца его пакета."""
     _package_access(f.package)
     return f
+
+
+def _analysis_run_dict(run: DocAnalysisRun):
+    """Безопасное представление запуска для владельца документа."""
+    import json
+    try:
+        options = json.loads(run.options_json or '{}')
+    except (TypeError, ValueError):
+        options = {}
+    try:
+        result = json.loads(run.result_json or '{}')
+    except (TypeError, ValueError):
+        result = {}
+    return dict(
+        id=run.id,
+        file_id=run.file_id,
+        mode=run.mode,
+        scope=run.scope,
+        user_prompt=run.user_prompt or '',
+        template_id=run.template_id,
+        template_name=run.template_name or '',
+        status=run.status,
+        error_text=run.error_text or '',
+        options=options,
+        result=result,
+        author=run.author.username if run.author else '—',
+        created_at=run.created_at.strftime('%d.%m.%Y %H:%M'),
+        started_at=(run.started_at.strftime('%d.%m.%Y %H:%M')
+                    if run.started_at else None),
+        completed_at=(run.completed_at.strftime('%d.%m.%Y %H:%M')
+                      if run.completed_at else None),
+        answer=(run.free_result.content
+                if run.free_result is not None else None),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +374,9 @@ def file_detail(file_id):
     f = _file_access(db.session.get(DocFile, file_id) or abort(404))
     pages = (DocFilePage.query.filter_by(file_id=f.id)
              .order_by(DocFilePage.page_num).all())
+    runs = (DocAnalysisRun.query.filter_by(file_id=f.id)
+            .order_by(DocAnalysisRun.created_at.desc(), DocAnalysisRun.id.desc())
+            .limit(20).all())
     return jsonify(
         id=f.id, orig_name=f.orig_name, status=f.status,
         error_text=f.error_text or '', pages_count=f.pages_count,
@@ -352,6 +391,7 @@ def file_detail(file_id):
                   for fi in sorted(f.findings, key=lambda x: (x.page_num, x.id))],
         marks=[dict(id=m.id, page=m.page_num, button_key=m.button_key)
                for m in sorted(f.marks, key=lambda x: (x.page_num, x.id))],
+        analysis_runs=[_analysis_run_dict(run) for run in runs],
     )
 
 
@@ -418,9 +458,6 @@ def package_analyze(pkg_id):
     pkg = _package_access(db.session.get(DocPackage, pkg_id) or abort(404))
     if pkg.status != 'done':
         return jsonify(error='Пакет ещё не обработан — дождитесь завершения'), 400
-    if pkg.analysis_status == 'running':
-        return jsonify(error='Проверка уже выполняется'), 409
-
     data = request.get_json(silent=True) or {}
     options = {}
     for k in ('find_dates', 'find_signatures', 'find_seals', 'skip_analyzed'):
@@ -454,16 +491,130 @@ def package_analyze(pkg_id):
     except ProviderNotLocalError as pe:
         return jsonify(error=str(pe)), 400
 
-    pkg.analysis_status = 'running'
-    pkg.analysis_error = ''
-    pkg.analysis_total = 0
-    pkg.analysis_done = 0
-    db.session.commit()
+    # Атомарно резервируем пакет: row lock защищает несколько процессов,
+    # локальный lock — параллельные потоки и SQLite в тестах.
+    with _ANALYSIS_START_LOCK:
+        db.session.expire_all()
+        pkg = (DocPackage.query.filter_by(id=pkg_id).with_for_update()
+               .populate_existing().first() or abort(404))
+        _package_access(pkg)
+        if pkg.analysis_status == 'running':
+            db.session.rollback()
+            return jsonify(error='Проверка уже выполняется'), 409
+        pkg.analysis_status = 'running'
+        pkg.analysis_error = ''
+        pkg.analysis_total = 0
+        pkg.analysis_done = 0
+        db.session.commit()
 
     app_obj = current_app._get_current_object()
     threading.Thread(target=analyze_package, args=(app_obj, pkg.id, options),
                      daemon=True).start()
     return jsonify(_package_dict(pkg)), 202
+
+
+@docs_bp.route('/files/<int:file_id>/analyze', methods=['POST'])
+@login_required
+def current_file_analyze(file_id):
+    """Запускает явный анализ открытого документа пользовательским промптом."""
+    from doc_analysis import (ProviderNotLocalError, analyze_current_file,
+                              get_local_provider)
+
+    f = _file_access(db.session.get(DocFile, file_id) or abort(404))
+    pkg = f.package
+    if f.status != 'ready':
+        return jsonify(error='Документ ещё не готов к анализу'), 400
+    if pkg.status != 'done':
+        return jsonify(error='Пакет ещё не обработан — дождитесь завершения'), 400
+    if pkg.analysis_status == 'running':
+        return jsonify(error='В этом пакете уже выполняется анализ'), 409
+
+    data = request.get_json(silent=True) or {}
+    mode = (data.get('mode') or '').strip()
+    if mode not in ('supplement', 'free'):
+        return jsonify(error='mode должен быть supplement или free'), 400
+    user_prompt = (data.get('user_prompt') or '').strip()
+    if not user_prompt:
+        return jsonify(error='Введите пользовательский промпт'), 400
+    if len(user_prompt) > 8000:
+        return jsonify(error='Промпт не должен превышать 8000 символов'), 400
+
+    options = {}
+    for key in ('find_dates', 'find_signatures', 'find_seals'):
+        if key in data:
+            if not isinstance(data[key], bool):
+                return jsonify(error=f'{key} должен быть булевым значением'), 400
+            options[key] = data[key]
+
+    template = None
+    if data.get('template_id') not in (None, ''):
+        try:
+            template_id = int(data['template_id'])
+        except (TypeError, ValueError):
+            return jsonify(error='template_id должен быть числом'), 400
+        template = db.session.get(AnalysisTemplate, template_id)
+        if template is None:
+            return jsonify(error='Шаблон анализа не найден'), 404
+        options.setdefault('find_dates', bool(template.find_dates))
+        options.setdefault('find_signatures', bool(template.find_signatures))
+        options.setdefault('find_seals', bool(template.find_seals))
+
+    try:
+        get_local_provider()
+    except ProviderNotLocalError as exc:
+        return jsonify(error=str(exc)), 400
+
+    import json
+    rules_snapshot = [
+        dict(id=rule.id, name=rule.name, prompt_text=rule.prompt_text)
+        for rule in (f.catalog.check_rules if f.catalog else [])
+        if rule.is_active
+    ]
+    option_snapshot = dict(
+        find_dates=options.get('find_dates', True),
+        find_signatures=options.get('find_signatures', True),
+        find_seals=options.get('find_seals', True),
+        rules=rules_snapshot,
+    )
+
+    # Повторная проверка под блокировкой обязательна: пока пользователь
+    # заполнял форму, анализ мог стартовать из другой вкладки.
+    with _ANALYSIS_START_LOCK:
+        db.session.expire_all()
+        pkg = (DocPackage.query.filter_by(id=f.package_id).with_for_update()
+               .populate_existing().first() or abort(404))
+        _package_access(pkg)
+        if pkg.analysis_status == 'running':
+            db.session.rollback()
+            return jsonify(error='В этом пакете уже выполняется анализ'), 409
+        run = DocAnalysisRun(
+            package_id=pkg.id,
+            file_id=f.id,
+            created_by=current_user.id,
+            mode=mode,
+            scope='current_file',
+            user_prompt=user_prompt,
+            template_id=template.id if template else None,
+            template_name=template.name if template else '',
+            template_prompt=template.system_prompt if template else '',
+            options_json=json.dumps(option_snapshot, ensure_ascii=False),
+            status='queued',
+        )
+        db.session.add(run)
+        pkg.analysis_status = 'running'
+        pkg.analysis_error = ''
+        pkg.analysis_total = 1
+        pkg.analysis_done = 0
+        db.session.commit()
+
+    app_obj = current_app._get_current_object()
+    threading.Thread(
+        target=analyze_current_file,
+        args=(app_obj, run.id, options),
+        daemon=True,
+        name=f'doc-analysis-run-{run.id}',
+    ).start()
+    return jsonify(_analysis_run_dict(run)), 202
 
 
 def _results_for_package(pkg):
@@ -489,6 +640,9 @@ def _results_for_package(pkg):
         for fi in f.findings:
             if fi.ftype in fcounts:
                 fcounts[fi.ftype] += 1
+        latest_run = (DocAnalysisRun.query.filter_by(file_id=f.id)
+                      .order_by(DocAnalysisRun.created_at.desc(),
+                                DocAnalysisRun.id.desc()).first())
         out.append(dict(
             file_id=f.id, orig_name=f.orig_name, file_status=f.status,
             pages_count=f.pages_count, approved=bool(f.approved),
@@ -497,6 +651,7 @@ def _results_for_package(pkg):
             results=rows,
             findings_count=fcounts,
             marks=[dict(page=m.page_num, button_key=m.button_key) for m in f.marks],
+            latest_run=(_analysis_run_dict(latest_run) if latest_run else None),
         ))
     return out
 
@@ -714,7 +869,6 @@ def templates_list():
 @docs_bp.route('/analysis-templates', methods=['POST'])
 @login_required
 def template_create():
-    _admin_required()
     data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
     if not name:
@@ -733,7 +887,6 @@ def template_create():
 @docs_bp.route('/analysis-templates/<int:tpl_id>', methods=['PUT'])
 @login_required
 def template_update(tpl_id):
-    _admin_required()
     tpl = db.session.get(AnalysisTemplate, tpl_id) or abort(404)
     data = request.get_json(silent=True) or {}
     if 'name' in data and (data['name'] or '').strip():
@@ -750,7 +903,6 @@ def template_update(tpl_id):
 @docs_bp.route('/analysis-templates/<int:tpl_id>', methods=['DELETE'])
 @login_required
 def template_delete(tpl_id):
-    _admin_required()
     tpl = db.session.get(AnalysisTemplate, tpl_id) or abort(404)
     db.session.delete(tpl)
     db.session.commit()
