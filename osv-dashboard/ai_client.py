@@ -8,6 +8,7 @@ import json
 import re
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Optional
 
 
@@ -45,6 +46,12 @@ def call_ai_provider(
     # OpenAI SDK обворачивает extra_body — они не доходят до vLLM.
     if enable_thinking is False:
         body['chat_template_kwargs'] = {'enable_thinking': False}
+        # DeepSeek не использует vLLM chat_template_kwargs и продолжает
+        # расходовать весь max_tokens на reasoning_content. Его официальный
+        # OpenAI-compatible API отключает reasoning отдельным полем.
+        hostname = (urllib.parse.urlparse(base_url).hostname or '').lower()
+        if hostname == 'api.deepseek.com':
+            body['thinking'] = {'type': 'disabled'}
     if response_format:
         body['response_format'] = response_format
 
@@ -82,6 +89,7 @@ def call_ai_provider(
     usage = result.get('usage') or {}
     return {
         'content': content,
+        'finish_reason': (result.get('choices') or [{}])[0].get('finish_reason'),
         'usage': {
             'prompt_tokens':     usage.get('prompt_tokens', 0),
             'completion_tokens': usage.get('completion_tokens', 0),

@@ -13,6 +13,8 @@ import threading
 import time
 import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
+from unittest.mock import patch
 
 _TMP = tempfile.mkdtemp(prefix='docs_ai_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_TMP}/test.db'
@@ -25,6 +27,8 @@ from database import (AiProvider, DocAnalysisRun, DocCatalog,
                       DocPackage, User, db, utcnow)
 from doc_analysis import (AnalysisCancelled, _call_with_retry,
                           _synthesize_catalog, analyze_catalog, analyze_file)
+from ai_client import call_ai_provider
+import doc_analysis
 
 app.config['DOCS_STORAGE'] = os.path.join(_TMP, 'docs')
 os.makedirs(app.config['DOCS_STORAGE'], exist_ok=True)
@@ -114,6 +118,71 @@ def check(name, cond, extra=''):
     print(('PASS' if cond else 'FAIL'), name, extra)
     if not cond:
         sys.exit(1)
+
+
+captured_deepseek_body = {}
+
+
+class _DeepSeekResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return json.dumps({
+            'choices': [{
+                'finish_reason': 'stop',
+                'message': {'content': '{"rules":[],"findings":[]}'},
+            }],
+            'usage': {},
+        }).encode()
+
+
+def _deepseek_urlopen(request, timeout=0):
+    captured_deepseek_body.update(json.loads(request.data))
+    return _DeepSeekResponse()
+
+
+with patch('ai_client.urllib.request.urlopen', _deepseek_urlopen):
+    deepseek_result = call_ai_provider(
+        'https://api.deepseek.com', 'test-key', 'deepseek-test',
+        [{'role': 'user', 'content': 'test'}], enable_thinking=False)
+check('DeepSeek thinking отключается официальным параметром',
+      captured_deepseek_body.get('thinking') == {'type': 'disabled'}
+      and deepseek_result.get('finish_reason') == 'stop')
+captured_deepseek_body.clear()
+with patch('ai_client.urllib.request.urlopen', _deepseek_urlopen):
+    call_ai_provider(
+        'http://127.0.0.1:8000/v1', 'test-key', 'vllm-test',
+        [{'role': 'user', 'content': 'test'}], enable_thinking=False)
+check('DeepSeek-поле не отправляется обычному vLLM',
+      'thinking' not in captured_deepseek_body
+      and captured_deepseek_body.get('chat_template_kwargs')
+      == {'enable_thinking': False})
+
+original_doc_call = doc_analysis.call_ai_provider
+truncated_calls = []
+
+
+def _truncated_response(**kwargs):
+    truncated_calls.append(kwargs)
+    return {'content': '', 'finish_reason': 'length', 'usage': {}}
+
+
+doc_analysis.call_ai_provider = _truncated_response
+try:
+    _call_with_retry(
+        SimpleNamespace(base_url='http://127.0.0.1:8000/v1', model='test'),
+        'key', [{'role': 'user', 'content': 'test'}])
+    truncated_error = ''
+except ValueError as exc:
+    truncated_error = str(exc)
+finally:
+    doc_analysis.call_ai_provider = original_doc_call
+check('оборванный ответ отклоняется до JSON-парсинга без повторов',
+      'лимит генерации' in truncated_error and len(truncated_calls) == 1)
 
 # ── Каталог с правилами проверки ───────────────────────────────────────────
 r = client.post('/docs/catalogs', json=dict(name='Договоры'))

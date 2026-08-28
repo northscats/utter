@@ -14,6 +14,18 @@ SDK-обёртки (openai.extra_body) это поле не пробрасыва
 **How to apply:** Всегда передавать `enable_thinking=False` в `call_ai_provider()`.
 Добавлять `body['chat_template_kwargs'] = {'enable_thinking': False}` до сериализации.
 
+## DeepSeek reasoning
+
+Для официального OpenAI-compatible API DeepSeek отключение рассуждений задаётся
+через `thinking: {type: disabled}`. Один `chat_template_kwargs` там игнорируется.
+
+**Why:** На документных запросах DeepSeek израсходовал весь лимит генерации на
+`reasoning_content`, завершил ответ по `length` и оставил `content` пустым.
+
+**How to apply:** Для официального домена DeepSeek отправлять оба совместимых
+параметра отключения thinking. Структурированные запросы должны требовать JSON,
+а `finish_reason=length` и пустой content — отклоняться до JSON-парсинга.
+
 ## Детали
 
 - `AiProvider` — таблица `ai_providers`: name, base_url, api_key (зашифрован Fernet), model, is_active, is_default

@@ -17,6 +17,7 @@ import io
 import math
 import os
 import unicodedata
+import urllib.parse
 from difflib import SequenceMatcher
 from types import SimpleNamespace
 
@@ -229,12 +230,17 @@ def _call_with_retry(provider, api_key, messages, cancel_check=None,
                 model=provider.model,
                 messages=messages,
                 temperature=0.1,
-                max_tokens=2000,
+                max_tokens=4000,
                 enable_thinking=False,
                 timeout=60,
                 response_format=response_format,
             )
             _raise_if_cancelled(cancel_check)
+            if result.get('finish_reason') == 'length':
+                raise ValueError(
+                    'ИИ не завершил JSON-ответ: достигнут лимит генерации')
+            if not (result.get('content') or '').strip():
+                raise ValueError('ИИ вернул пустой ответ вместо JSON')
             return result
         except Exception as exc:
             if isinstance(exc, AnalysisCancelled):
@@ -249,6 +255,12 @@ def _call_with_retry(provider, api_key, messages, cancel_check=None,
                 continue
             raise
     raise last_exc  # pragma: no cover
+
+
+def _provider_json_response_format(provider):
+    """JSON mode только для подтверждённо совместимого официального DeepSeek."""
+    hostname = (urllib.parse.urlparse(provider.base_url).hostname or '').lower()
+    return {'type': 'json_object'} if hostname == 'api.deepseek.com' else None
 
 
 # Приоритет статусов при агрегации chunk-результатов
@@ -520,7 +532,8 @@ def analyze_file(df: DocFile, provider, api_key, find_types=(),
         messages = build_prompt(rules, chunk, text_find_types, system_extra,
                                 user_extra)
         result = _call_with_retry(
-            provider, api_key, messages, cancel_check=cancel_check)
+            provider, api_key, messages, cancel_check=cancel_check,
+            response_format=_provider_json_response_format(provider))
         _raise_if_cancelled(cancel_check)
         parsed = _parse_ai_json(result['content'])
         for item in parsed['rules']:
@@ -655,7 +668,8 @@ def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
         result = _call_with_retry(
             provider, api_key,
             build_free_prompt(chunk, user_prompt, system_extra),
-            cancel_check=cancel_check)
+            cancel_check=cancel_check,
+            response_format=_provider_json_response_format(provider))
         _raise_if_cancelled(cancel_check)
         answer = _parse_free_ai_json(result['content'])
         if len(pages) > PAGES_PER_CHUNK:
@@ -669,7 +683,8 @@ def analyze_file_free(df: DocFile, provider, api_key, user_prompt: str,
     result = _call_with_retry(
         provider, api_key,
         build_free_synthesis_prompt(user_prompt, answers),
-        cancel_check=cancel_check)
+        cancel_check=cancel_check,
+        response_format=_provider_json_response_format(provider))
     _raise_if_cancelled(cancel_check)
     return _parse_free_ai_json(result['content'])[:30000]
 
@@ -834,7 +849,8 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
         response = _call_with_retry(
             provider, api_key,
             build_catalog_summary_prompt(user_prompt, chunks[0], errors),
-            cancel_check=cancel_check)
+            cancel_check=cancel_check,
+            response_format=_provider_json_response_format(provider))
         summary = _parse_catalog_summary(response['content'])
     else:
         level = []
@@ -842,7 +858,8 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
             response = _call_with_retry(
                 provider, api_key,
                 build_catalog_summary_prompt(user_prompt, chunk, []),
-                cancel_check=cancel_check)
+                cancel_check=cancel_check,
+                response_format=_provider_json_response_format(provider))
             partial = _parse_catalog_summary(response['content'])
             level.append({
                 'file_id': f'group-{index}',
@@ -858,7 +875,8 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
                 response = _call_with_retry(
                     provider, api_key,
                     build_catalog_summary_prompt(user_prompt, chunk, []),
-                    cancel_check=cancel_check)
+                    cancel_check=cancel_check,
+                    response_format=_provider_json_response_format(provider))
                 partial = _parse_catalog_summary(response['content'])
                 next_level.append({
                     'file_id': f'reduced-{len(next_level)}-{index}',
@@ -870,7 +888,8 @@ def _synthesize_catalog(provider, api_key, user_prompt: str,
             response = _call_with_retry(
                 provider, api_key,
                 build_catalog_summary_prompt(user_prompt, level, errors),
-                cancel_check=cancel_check)
+                cancel_check=cancel_check,
+                response_format=_provider_json_response_format(provider))
             summary = _parse_catalog_summary(response['content'])
         else:
             summary = level[0]['result']
