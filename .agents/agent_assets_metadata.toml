@@ -7,3 +7,18 @@ uri = "file://deliverables/functional_description_gis_uzter.docx"
 type = "word_document"
 title = "Функциональное описание ГИС УЗТЭР"
 description = "Подробный документ в формате DOCX: назначение системы, роли, финансовый модуль, дашборды, ИИ, проверка документов, интеграции, безопасность, сценарии и ограничения."
+logical_id = "771f84eb-4705-4874-b182-3701d204cf74"
+
+[[outputs]]
+id = "lVIkI4V7hvJFdohs0icSA"
+uri = "file://osv-dashboard/docs/REPLIT_AGENT_IMAP_INSTRUCTION.md"
+type = "text"
+title = "Инструкция Replit Agent: интеграция IMAP"
+description = "Готовое техническое задание для переноса приёма и обработки почтовых вложений по IMAP в другое приложение Replit."
+logical_id = "3af130aa-7282-47dc-aa74-853ef4df9211"
+content_hash = "sha256:354bfdb417ffbcc49317ac422c2fd0cf268178a96ad896ebcd67c23e761f1c15"
+size = 17298
+mtime_ms = 1788268620320
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/3af130aa-7282-47dc-aa74-853ef4df9211/9f7205c8-189d-4693-a589-395d93e3d275"
+storage_version_token = "1788268632823489"
+content_type = "text/markdown"
