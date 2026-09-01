@@ -97,6 +97,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 .alert-error{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
 
 .self-note{font-size:12px;color:var(--mut);font-style:italic}
+.module-list{display:flex;flex-wrap:wrap;gap:7px}.module-check{display:flex;align-items:center;gap:5px;
+  font-size:12px;background:#f7f9fa;border:1px solid var(--line);border-radius:6px;padding:5px 8px}
 
 @media(max-width:640px){
   .add-user-grid{grid-template-columns:1fr 1fr}
@@ -108,7 +110,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 <body>
 {% if not request.args.get('embedded') %}
 <div class="hd">
-  <a class="hd-logo" href="{{ url_for('home') }}">
+  <a class="hd-logo" href="{{ url_for('modules_dashboard') }}">
     <div class="hd-logo-icon">АР</div>
     ГИС УЗТЭР · Анализ ФХД РСО
   </a>
@@ -120,7 +122,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       {{ current_user.username }}
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
-        <a href="{{ url_for('home') }}">← Предприятия</a>
+        <a href="{{ url_for('modules_dashboard') }}">← Модули</a>
         <div class="hd-drop-sep"></div>
         <a href="{{ url_for('users_list') }}">Пользователи</a>
         <a href="{{ url_for('settings') }}">Настройки</a>
@@ -149,6 +151,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         <tr>
           <th>Логин</th>
           <th>Роль</th>
+          <th>Доступ к модулям</th>
           <th>Создан</th>
           <th>Пароль</th>
           <th></th>
@@ -169,6 +172,20 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
             {% else %}
             <span class="badge-role badge-user">Пользователь</span>
             {% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('users_set_modules', user_id=u.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="module-list">
+              {% for module in available_modules %}
+                <label class="module-check"><input type="checkbox" name="modules" value="{{ module.key }}"
+                  {% if module.key in u.assigned_module_keys %}checked{% endif %}>
+                  {{ module.name }}</label>
+              {% endfor %}
+              <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
+              </div>
+              {% if u.is_admin %}<span class="self-note">Администратору доступны все модули; назначения сохраняются на случай понижения.</span>{% endif %}
+            </form>
           </td>
           <td style="color:var(--mut);font-size:13px">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
           <td>
@@ -243,6 +260,11 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         <div style="padding-bottom:1px">
           <button class="btn btn-primary" type="submit">+ Создать</button>
         </div>
+      </div>
+      <div style="margin-top:14px"><label>Доступ к модулям</label>
+        <div class="module-list">{% for module in available_modules %}
+          <label class="module-check"><input type="checkbox" name="modules" value="{{ module.key }}"> {{ module.name }}</label>
+        {% endfor %}</div>
       </div>
     </form>
   </div>

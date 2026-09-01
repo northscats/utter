@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Модули — ГИС УЗТЭР</title>
+<style>
+:root{--ink:#243447;--mut:#66788a;--paper:#f4f7fa;--panel:#fff;--line:#dfe6ed;--blue:#1f7a9c;--amber:#f39c12}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
+.hd{height:64px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 max(24px,calc((100% - 1120px)/2));gap:12px}
+.logo{width:36px;height:36px;border-radius:9px;background:var(--amber);display:grid;place-items:center;font-weight:900}.brand{font-weight:750;flex:1}.user{color:var(--mut);font-size:13px}.out{color:var(--blue);text-decoration:none;font-weight:650;margin-left:12px}
+main{max-width:1120px;margin:auto;padding:56px 24px}.eyebrow{color:var(--blue);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}
+h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0 32px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:26px;color:inherit;text-decoration:none;box-shadow:0 6px 22px rgba(37,62,83,.06);transition:.18s}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(37,62,83,.12);border-color:#b9d2df}.ico{width:54px;height:54px;border-radius:15px;background:#eaf5f8;color:var(--blue);display:grid;place-items:center;margin-bottom:20px}
+.ico svg{width:28px;height:28px}.card h2{font-size:19px;margin:0 0 8px}.card p{color:var(--mut);margin:0}.go{display:block;color:var(--blue);font-weight:700;margin-top:22px}
+.empty{background:#fff;border:1px solid var(--line);border-radius:18px;padding:44px;text-align:center;max-width:660px}.empty h2{margin:0 0 10px}.empty p{color:var(--mut);margin:0 0 22px}.btn{display:inline-block;background:var(--ink);color:#fff;text-decoration:none;padding:10px 20px;border-radius:9px}
+@media(max-width:600px){.hd{padding:0 16px}.user{display:none}main{padding:36px 18px}h1{font-size:28px}}
+</style>
+</head><body>
+<header class="hd"><div class="logo">УТ</div><div class="brand">ГИС УЗТЭР</div><span class="user">{{ current_user.username }}</span>
+{% if current_user.is_admin %}<a class="out" href="{{ url_for('users_list') }}">Управление</a>{% endif %}
+<a class="out" href="{{ url_for('logout') }}">Выйти</a></header>
+<main><div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
+<p class="lead">Доступны только разделы, назначенные вашей учётной записи.</p>
+{% if modules %}<div class="grid">{% for module in modules %}
+<a class="card" href="{{ module.url }}"><div class="ico">
+{% if module.icon == 'chart' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/></svg>
+{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M4 7v14h11"/></svg>{% endif %}
+</div><h2>{{ module.name }}</h2><p>{{ module.description }}</p><span class="go">Открыть модуль →</span></a>
+{% endfor %}</div>{% else %}
+<div class="empty"><h2>Нет доступных модулей</h2><p>Администратор ещё не назначил вам доступ. Обратитесь к администратору системы или выйдите из учётной записи.</p><a class="btn" href="{{ url_for('logout') }}">Выйти из системы</a></div>
+{% endif %}</main></body></html>

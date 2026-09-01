@@ -23,7 +23,9 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import (AiProvider, AiSummary, AuditLog, Company, DailyRow,
-                       EmailRule, Setting, Upload, User, db)
+                       EmailRule, Setting, Upload, User, UserModuleAccess, db)
+from module_registry import (module_key_for_path, registered_modules,
+                             valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 
@@ -140,6 +142,16 @@ def admin_required(f):
             abort(403)
         return f(*args, **kwargs)
     return decorated
+
+
+@app.before_request
+def _enforce_module_access():
+    """Защищает маршруты областями, объявленными в едином реестре."""
+    if not current_user.is_authenticated:
+        return None
+    module_key = module_key_for_path(request.path)
+    if module_key and not current_user.has_module_access(module_key):
+        abort(403, description='Нет доступа к этому модулю')
 
 
 # ---------------------------------------------------------------------------
@@ -1136,7 +1148,7 @@ def get_csrf_token():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('home'))
+        return redirect(url_for('modules_dashboard'))
     error = None
     username = ''
     if request.method == 'POST':
@@ -1146,7 +1158,7 @@ def login():
         if user and _check_password(password, user.password_hash):
             login_user(user)
             log_event('login_ok', {'username': username})
-            return redirect(url_for('home'))
+            return redirect(url_for('modules_dashboard'))
         log_event('login_fail', {'username': username})
         error = 'Неверный логин или пароль.'
     return render_template('login.html', error=error, username=username)
@@ -1166,7 +1178,7 @@ def logout():
 @app.route('/')
 def landing():
     if current_user.is_authenticated:
-        return redirect(url_for('home'))
+        return redirect(url_for('modules_dashboard'))
     v09_label = Setting.get('landing_v09_label', 'Версия 0.9 alfa')
     v09_url   = Setting.get('landing_v09_url', '')
     return render_template('landing.html', second_url=None,
@@ -1174,7 +1186,21 @@ def landing():
 
 
 # ---------------------------------------------------------------------------
-# Главная — список предприятий
+# Каталог модулей
+# ---------------------------------------------------------------------------
+@app.route('/modules')
+@login_required
+def modules_dashboard():
+    modules = [
+        dict(module, url=url_for(module['endpoint']))
+        for module in registered_modules()
+        if current_user.has_module_access(module['key'])
+    ]
+    return render_template('modules.html', modules=modules)
+
+
+# ---------------------------------------------------------------------------
+# Главная модуля аналитики — список предприятий
 # ---------------------------------------------------------------------------
 @app.route('/home')
 @login_required
@@ -2502,7 +2528,8 @@ def settings():
 @admin_required
 def users_list():
     users = User.query.order_by(User.created_at).all()
-    return render_template('users.html', users=users)
+    return render_template('users.html', users=users,
+                           available_modules=registered_modules())
 
 
 @app.route('/users/create', methods=['POST'])
@@ -2522,13 +2549,17 @@ def users_create():
         error = f'Пользователь «{username}» уже существует.'
     if error:
         users = User.query.order_by(User.created_at).all()
-        return render_template('users.html', users=users, error=error)
+        return render_template('users.html', users=users, error=error,
+                               available_modules=registered_modules())
     new_user = User(
         username=username,
         password_hash=_hash_password(password),
         role=role,
     )
     db.session.add(new_user)
+    db.session.flush()
+    for key in valid_module_keys(request.form.getlist('modules')):
+        db.session.add(UserModuleAccess(user_id=new_user.id, module_key=key))
     db.session.commit()
     log_event('user_created', {'username': username, 'role': role})
     return redirect(url_for('users_list'))
@@ -2571,6 +2602,21 @@ def users_set_role(user_id):
         db.session.commit()
         log_event('user_role_changed',
                   {'username': user.username, 'old': old_role, 'new': role})
+    return redirect(url_for('users_list'))
+
+
+@app.route('/users/<int:user_id>/set-modules', methods=['POST'])
+@admin_required
+def users_set_modules(user_id):
+    """Назначения сохраняются независимо от роли и снова действуют при понижении."""
+    user = db.session.get(User, user_id) or abort(404)
+    selected = valid_module_keys(request.form.getlist('modules'))
+    UserModuleAccess.query.filter_by(user_id=user.id).delete()
+    for key in selected:
+        db.session.add(UserModuleAccess(user_id=user.id, module_key=key))
+    db.session.commit()
+    log_event('user_modules_changed',
+              {'username': user.username, 'modules': selected})
     return redirect(url_for('users_list'))
 
 

@@ -135,7 +135,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 <body>
 {% if not request.args.get('embedded') %}
 <div class="hd">
-  <a class="hd-logo" href="{{ url_for('home') }}">
+  <a class="hd-logo" href="{{ url_for('modules_dashboard') }}">
     <div class="hd-logo-icon">АР</div>
     ГИС УЗТЭР · Анализ ФХД РСО
   </a>
@@ -147,7 +147,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       {{ current_user.username }}
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
-        <a href="{{ url_for('home') }}">← Предприятия</a>
+        <a href="{{ url_for('modules_dashboard') }}">← Модули</a>
         <div class="hd-drop-sep"></div>
         {% if current_user.is_admin %}
         <a href="{{ url_for('users_list') }}">Пользователи</a>

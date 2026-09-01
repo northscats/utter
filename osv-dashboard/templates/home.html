@@ -292,15 +292,15 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 
 <!-- ══ HEADER ══ -->
 <div class="hd">
-  <div class="hd-logo">
+  <a class="hd-logo" href="{{ url_for('modules_dashboard') }}" style="color:inherit;text-decoration:none">
     <div class="hd-logo-icon">АР</div>
     ГИС УЗТЭР · Анализ ФХД РСО
-  </div>
+  </a>
   <div class="hd-menu">
     {% if companies %}
     <button class="hd-menu-btn" onclick="openRegModal()">📁 Справочник РСО</button>
     {% endif %}
-    <a class="hd-menu-btn" href="{{ url_for('docs.docs_ui') }}">📑 Проверка документов</a>
+    <a class="hd-menu-btn" href="{{ url_for('modules_dashboard') }}">▦ Все модули</a>
   </div>
   <div class="hd-right">
     <div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">

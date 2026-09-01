@@ -271,7 +271,7 @@ tr:last-child td{border-bottom:0}
 <body>
 {% if not request.args.get('embedded') %}
 <div class="hd">
-  <a class="hd-logo" href="{{ url_for('home') }}">
+  <a class="hd-logo" href="{{ url_for('modules_dashboard') }}">
     <div class="hd-logo-icon">АР</div>
     ГИС УЗТЭР · Анализ ФХД РСО
   </a>
@@ -285,6 +285,7 @@ tr:last-child td{border-bottom:0}
       {{ current_user.username }}
       <svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg>
       <div class="hd-drop">
+        <a href="{{ url_for('modules_dashboard') }}">← Все модули</a>
         {% if current_user.is_admin %}
         <a href="{{ url_for('users_list') }}">Пользователи</a>
         <a href="{{ url_for('settings') }}">Настройки</a>

@@ -66,6 +66,35 @@ class User(UserMixin, db.Model):
                               foreign_keys='Upload.uploaded_by')
     companies = db.relationship('Company', backref='creator', lazy=True,
                                 foreign_keys='Company.created_by')
+    module_grants = db.relationship(
+        'UserModuleAccess', backref='user', lazy=True,
+        cascade='all, delete-orphan')
+
+    def has_module_access(self, module_key):
+        """Администратор видит весь живой реестр; пользователь — назначения."""
+        if self.is_admin:
+            return True
+        return any(grant.module_key == module_key for grant in self.module_grants)
+
+    @property
+    def assigned_module_keys(self):
+        return {grant.module_key for grant in self.module_grants}
+
+
+class UserModuleAccess(db.Model):
+    """Сохранённое назначение модуля обычному пользователю."""
+    __tablename__ = 'user_module_access'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'module_key',
+                            name='uq_user_module_access_user_key'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    module_key = db.Column(db.String(80), nullable=False, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 
 class Company(db.Model):
