@@ -22,11 +22,11 @@
 <div class="fact"><span>ОКОГУ / ОКФС</span>{{ extended.okogu or '—' }} / {{ extended.okfs or '—' }}</div>
 </div>
 
-<details class="data-block" open><summary>Контакты</summary><div class="subsection">
+<details class="data-block"><summary>Контакты</summary><div class="subsection">
 {% if company.contacts %}<table class="data-table"><thead><tr><th>Тип</th><th>Контакт</th><th>Значение</th></tr></thead><tbody>{% for contact in company.contacts %}<tr><td>{{ contact.label or contact.contact_type }}</td><td>{{ contact.name or '—' }}</td><td>{{ contact.value }}{% if contact.source != 'manual' %} <span class="pill">Внешний источник</span>{% endif %}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">Контакты не сохранены. Получите свежий снимок и примите изменения.</div>{% endif %}
 </div></details>
 
-<details class="data-block" open><summary>Виды деятельности (ОКВЭД)</summary><div class="subsection">
+<details class="data-block"><summary>Виды деятельности (ОКВЭД)</summary><div class="subsection">
 {% if company.okved_entries %}<table class="data-table"><thead><tr><th>Код</th><th>Наименование</th><th>Признак</th></tr></thead><tbody>{% for item in company.okved_entries|sort(attribute='code') %}<tr><td><b>{{ item.code }}</b></td><td>{{ item.name or '—' }}</td><td>{% if item.is_main %}<span class="pill">Основной</span>{% else %}Дополнительный{% endif %}</td></tr>{% endfor %}</tbody></table>{% else %}<div class="empty">Сведения об ОКВЭД не сохранены.</div>{% endif %}
 </div></details>
 
