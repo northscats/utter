@@ -5,8 +5,9 @@ import json
 import re
 from datetime import date, datetime, timezone
 
-from database import (Company, CompanyDadataProfile, CompanyDadataSnapshot,
-                      CompanyFinance, CompanyLicense, CompanyOkved, utcnow, db)
+from database import (Company, CompanyContact, CompanyDadataProfile,
+                      CompanyDadataSnapshot, CompanyFinance, CompanyLicense,
+                      CompanyOkved, utcnow, db)
 from sqlalchemy import and_, or_
 
 
@@ -48,6 +49,43 @@ def _json(value, default):
         return default
 
 
+def _normalize_contacts(data):
+    """Возвращает контакты, реально присутствующие в ответе DaData."""
+    result = []
+    seen = set()
+    contact_types = (
+        ('phones', 'phone', 'Телефон'),
+        ('emails', 'email', 'E-mail'),
+        ('sites', 'website', 'Сайт'),
+    )
+    for source_key, contact_type, default_label in contact_types:
+        items = data.get(source_key) or []
+        if isinstance(items, dict):
+            items = [items]
+        for item in items:
+            if isinstance(item, str):
+                item = {'value': item}
+            if not isinstance(item, dict):
+                continue
+            details = item.get('data') or {}
+            value = str(
+                item.get('unrestricted_value') or item.get('value') or
+                details.get('source') or ''
+            ).strip()
+            dedupe_key = (contact_type, value.casefold())
+            if not value or dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            label = str(details.get('type') or default_label).strip()
+            result.append({
+                'type': contact_type,
+                'label': label[:120],
+                'name': str(details.get('contact') or '').strip()[:255],
+                'value': value[:500],
+            })
+    return result
+
+
 def normalize_party(party):
     """Извлекает стабильные поля, не затирая внутренние контакты."""
     data = party.get('data') if isinstance(party, dict) else {}
@@ -68,9 +106,12 @@ def normalize_party(party):
         'ogrn': data.get('ogrn') or '',
         'ogrn_date': data.get('ogrn_date'),
         'status': state.get('status') or '',
-        'registration_date': data.get('registration_date'),
-        'actuality_date': data.get('actuality_date'),
-        'liquidation_date': data.get('liquidation_date'),
+        'registration_date': (
+            state.get('registration_date') or data.get('registration_date')),
+        'actuality_date': (
+            state.get('actuality_date') or data.get('actuality_date')),
+        'liquidation_date': (
+            state.get('liquidation_date') or data.get('liquidation_date')),
         'address': address.get('unrestricted_value') or address.get('value') or '',
         'address_quality': address_data.get('qc') or address.get('qc') or '',
         'address_ids': {
@@ -86,6 +127,7 @@ def normalize_party(party):
         'codes': data.get('code') or {},
         'branch_type': data.get('branch_type') or '',
         'branch_count': data.get('branch_count'),
+        'contacts': _normalize_contacts(data),
     }
     return normalized
 
@@ -204,6 +246,20 @@ def accept_dadata(company, snapshot, user_id):
                 activity=json.dumps(item.get('activities') or [], ensure_ascii=False),
                 status=str(item.get('status') or '')[:80],
                 details_json=json.dumps(item, ensure_ascii=False)))
+    CompanyContact.query.filter_by(
+        company_id=company.id, source='DaData').delete()
+    for item in normalized.get('contacts') or []:
+        if not isinstance(item, dict) or not str(item.get('value') or '').strip():
+            continue
+        db.session.add(CompanyContact(
+            company_id=company.id,
+            contact_type=str(item.get('type') or 'other')[:40],
+            label=str(item.get('label') or '')[:120],
+            name=str(item.get('name') or '')[:255],
+            value=str(item.get('value') or '')[:500],
+            is_internal=False,
+            source='DaData',
+        ))
     CompanyFinance.query.filter_by(company_id=company.id).delete()
     finance = data.get('finance') or {}
     finance_rows = finance if isinstance(finance, list) else [finance]

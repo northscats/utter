@@ -2230,6 +2230,22 @@ def _snapshot_changes(company, normalized):
         new = normalized.get(incoming_field) or ''
         if new and old != new:
             changes.append({'label': label, 'old': old, 'new': new})
+    incoming_contacts = {
+        (str(item.get('type') or ''), str(item.get('value') or '').casefold())
+        for item in normalized.get('contacts') or []
+        if isinstance(item, dict) and item.get('value')
+    }
+    current_contacts = {
+        (contact.contact_type or '', (contact.value or '').casefold())
+        for contact in company.contacts
+        if contact.source == 'DaData' and contact.value
+    }
+    if incoming_contacts and incoming_contacts != current_contacts:
+        changes.append({
+            'label': 'Контакты DaData',
+            'old': ', '.join(sorted(value for _kind, value in current_contacts)),
+            'new': ', '.join(sorted(value for _kind, value in incoming_contacts)),
+        })
     return changes
 
 

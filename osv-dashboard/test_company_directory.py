@@ -12,7 +12,7 @@ os.environ['ENCRYPTION_KEY'] = (
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, encrypt_value, init_db
-from database import (AuditLog, Company, CompanyDadataSnapshot,
+from database import (AuditLog, Company, CompanyContact, CompanyDadataSnapshot,
                       CompanyMembership, CompanyOkved, Setting, User,
                       UserModuleAccess, db)
 from dadata_client import DaDataError, find_party
@@ -44,7 +44,11 @@ party = {
             'full_with_opf': 'ООО "Тестовая организация"',
         },
         'opf': {'short': 'ООО'},
-        'state': {'status': 'ACTIVE', 'actuality_date': 1788134400000},
+        'state': {
+            'status': 'ACTIVE',
+            'registration_date': 1028073600000,
+            'actuality_date': 1788134400000,
+        },
         'address': {
             'value': 'г Москва, ул Тестовая, д 1',
             'unrestricted_value': 'г Москва, ул Тестовая, д 1',
@@ -56,6 +60,13 @@ party = {
         'licenses': [{'number': 'Л-1', 'activities': ['Теплоснабжение'],
                       'status': 'ACTIVE'}],
         'finance': {'year': 2025, 'revenue': 1000, 'expense': 900, 'profit': 100},
+        'phones': [{
+            'value': '+7 495 123-45-67',
+            'unrestricted_value': '+7 495 123-45-67',
+            'data': {'type': 'Стационарный', 'contact': 'Приёмная'},
+        }],
+        'emails': [{'value': 'INFO@EXAMPLE.RU'}],
+        'sites': [{'value': 'example.ru'}],
         'founders': [{'name': 'Учредитель', 'share': {'value': 10000}}],
     },
 }
@@ -130,6 +141,16 @@ with app.app_context():
     check('дополнительные ОКВЭД нормализованы',
           {row.code for row in CompanyOkved.query.filter_by(
               company_id=company_id).all()} == {'35.30', '36.00'})
+    contacts = CompanyContact.query.filter_by(
+        company_id=company_id, source='DaData').all()
+    check('контакты DaData приняты',
+          {(item.contact_type, item.value) for item in contacts} == {
+              ('phone', '+7 495 123-45-67'),
+              ('email', 'INFO@EXAMPLE.RU'),
+              ('website', 'example.ru'),
+          })
+    check('дата регистрации взята из state',
+          company.registration_date is not None)
 
 # Сбой не удаляет последний успешный снимок и не раскрывает токен.
 with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):
