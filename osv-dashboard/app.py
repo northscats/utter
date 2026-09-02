@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import re
 import time
 import traceback
+from urllib.parse import urlparse
 
 import threading
 
@@ -16,14 +17,22 @@ from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from jobs import create_job, get_job, finish_job, fail_job
 
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import (AiProvider, AiSummary, AuditLog, Company, DailyRow,
-                       EmailRule, Setting, Upload, User, UserModuleAccess, db)
+from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
+                       CompanyDadataProfile, CompanyDadataSnapshot,
+                       CompanyFinance, CompanyLicense, CompanyMembership,
+                       CompanyOkved, DailyRow, EmailRule, Setting, Upload,
+                       User, UserModuleAccess, db, utcnow)
+from directory_service import (accept_dadata, apply_normalized_to_company,
+                                clean_identifier, company_identity_key,
+                                duplicate_companies,
+                                save_snapshot)
 from module_registry import (module_key_for_path, registered_modules,
                              valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
@@ -66,6 +75,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 csrf = CSRFProtect(app)
+_LOGIN_CSRF = URLSafeTimedSerializer(
+    app.secret_key, salt='login-csrf-v1')
 
 # --- Универсальный парсер документов (/docs/*) ---
 app.config['DOCS_STORAGE'] = DOCS_STORAGE
@@ -152,6 +163,35 @@ def _enforce_module_access():
     module_key = module_key_for_path(request.path)
     if module_key and not current_user.has_module_access(module_key):
         abort(403, description='Нет доступа к этому модулю')
+    company_match = re.match(r'^/(?:company|dashboard)/(\d+)(?:/|$)', request.path)
+    if company_match and not _company_is_visible(int(company_match.group(1))):
+        abort(403, description='Нет доступа к предприятию')
+    any_company_match = re.match(
+        r'^/(?:company|dashboard|directories/companies|api/companies)/(\d+)(?:/|$)',
+        request.path)
+    if any_company_match and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        company = db.session.get(Company, int(any_company_match.group(1)))
+        is_restore = (
+            request.path.endswith('/archive')
+            and current_user.is_admin
+            and request.form.get('archive') == '0')
+        if company and company.is_archived and not is_restore:
+            abort(409, description='Архивное предприятие доступно только для чтения')
+
+
+def _company_is_visible(company_id):
+    """Серверная область видимости предприятия для всех новых и legacy URL."""
+    if current_user.is_admin:
+        return True
+    return CompanyMembership.query.filter_by(
+        user_id=current_user.id, company_id=company_id).first() is not None
+
+
+def _require_company_access(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if not _company_is_visible(company_id):
+        abort(403, description='Нет доступа к предприятию')
+    return company
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +558,8 @@ def _do_imap_sync(uploader_id: int) -> dict:
 
                 matched_company_id = None
                 for rule in rules:
-                    if _match_rule(rule, sender, subject):
+                    if (rule.company and not rule.company.is_archived
+                            and _match_rule(rule, sender, subject)):
                         matched_company_id = rule.company_id
                         break
 
@@ -1146,12 +1187,34 @@ def get_csrf_token():
 # Маршруты авторизации
 # ---------------------------------------------------------------------------
 @app.route('/login', methods=['GET', 'POST'])
+@csrf.exempt
 def login():
+    # Login uses a signed stateless token because the Replit preview proxy can
+    # scope the GET and POST session cookies differently. A strict same-origin
+    # check additionally prevents login-CSRF. Other POST routes still use the
+    # session-bound Flask-WTF protection.
     if current_user.is_authenticated:
         return redirect(url_for('modules_dashboard'))
     error = None
     username = ''
     if request.method == 'POST':
+        source = request.headers.get('Origin') or request.headers.get('Referer')
+        source_host = urlparse(source).netloc.lower() if source else ''
+        allowed_hosts = {
+            request.host.lower(),
+            *(part.strip().lower() for part in
+              request.headers.get('X-Forwarded-Host', '').split(',')
+              if part.strip()),
+        }
+        if not source_host or source_host not in allowed_hosts:
+            abort(403, description='Недопустимый источник запроса входа')
+        try:
+            payload = _LOGIN_CSRF.loads(
+                request.form.get('login_csrf_token', ''), max_age=15 * 60)
+            if payload != 'login':
+                raise BadSignature('invalid login token purpose')
+        except (BadSignature, SignatureExpired):
+            abort(403, description='Недействительный токен формы входа')
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         user = User.query.filter_by(username=username).first()
@@ -1161,7 +1224,9 @@ def login():
             return redirect(url_for('modules_dashboard'))
         log_event('login_fail', {'username': username})
         error = 'Неверный логин или пароль.'
-    return render_template('login.html', error=error, username=username)
+    return render_template(
+        'login.html', error=error, username=username,
+        login_csrf_token=_LOGIN_CSRF.dumps('login'))
 
 
 @app.route('/logout')
@@ -1205,7 +1270,11 @@ def modules_dashboard():
 @app.route('/home')
 @login_required
 def home():
-    companies = Company.query.order_by(Company.created_at.desc()).all()
+    query = Company.query.filter(Company.status != 'archived')
+    if not current_user.is_admin:
+        query = query.join(CompanyMembership).filter(
+            CompanyMembership.user_id == current_user.id)
+    companies = query.order_by(Company.created_at.desc()).all()
     # Автоматически восстанавливаем kpi_cache.json для компаний, у которых
     # уже есть дашборд, но кэш КПЭ отсутствует (например, после деплоя).
     for c in companies:
@@ -1287,6 +1356,9 @@ def company_new():
     company = Company(name=org_name, created_by=current_user.id)
     db.session.add(company)
     db.session.flush()  # получаем company.id
+    db.session.add(CompanyMembership(
+        user_id=current_user.id, company_id=company.id,
+        participation_type='creator', is_primary=False))
 
     # Перемещаем файлы в постоянное хранилище
     final_dir = os.path.join(UPLOADS, str(company.id), ts)
@@ -1372,7 +1444,14 @@ def job_status(company_id, job_id):
 def company_details(company_id):
     """Сохраняет реквизиты предприятия (справочник РСО)."""
     company = db.session.get(Company, company_id) or abort(404)
-    company.inn              = request.form.get('inn',              '').strip()[:20]
+    new_inn = clean_identifier(request.form.get('inn'), (10, 12))
+    duplicates = duplicate_companies(new_inn, company.ogrn or '',
+                                      company.kpp or '', exclude_id=company.id)
+    if duplicates:
+        abort(409, description='Предприятие с такими реквизитами уже существует')
+    company.inn              = new_inn
+    company.identity_key     = company_identity_key(
+        company.inn, company.ogrn, company.kpp)
     company.full_name        = request.form.get('full_name',        '').strip()
     company.address          = request.form.get('address',          '').strip()
     company.director_name    = request.form.get('director_name',    '').strip()
@@ -1393,7 +1472,11 @@ def company_registry_export():
     """Выгрузка реестра предприятий в CSV (логируется в audit_log)."""
     import io as _io
     import csv as _csv
-    companies = Company.query.order_by(Company.name).all()
+    query = Company.query
+    if not current_user.is_admin:
+        query = query.join(CompanyMembership).filter(
+            CompanyMembership.user_id == current_user.id)
+    companies = query.order_by(Company.name).all()
     log_event('registry_export', {'count': len(companies)})
     out = _io.StringIO()
     w = _csv.writer(out, delimiter=';')
@@ -2094,32 +2177,368 @@ def company_rename(company_id):
 
 
 @app.route('/company/<int:company_id>/delete', methods=['POST'])
-@login_required
+@admin_required
 def company_delete(company_id):
-    import shutil
     company = db.session.get(Company, company_id) or abort(404)
     confirmation_name = request.form.get('confirmation_name', '').strip()
     if confirmation_name != company.name:
-        abort(400, description='Для удаления необходимо точно ввести название предприятия.')
-    log_event('company_deleted', {'id': company_id, 'name': company.name})
-
-    # Удаляем все связанные записи
-    AiSummary.query.filter_by(company_id=company_id).delete()
-    DailyRow.query.filter_by(company_id=company_id).delete()
-    Upload.query.filter_by(company_id=company_id).delete()
-    EmailRule.query.filter_by(company_id=company_id).delete()
-    db.session.delete(company)
+        abort(400, description='Для архивирования необходимо точно ввести название предприятия.')
+    company.status = 'archived'
+    company.updated_at = datetime.now(timezone.utc)
     db.session.commit()
+    log_event('company_archived', {'id': company_id, 'name': company.name})
+    return redirect(url_for('directory_companies'))
 
-    # Удаляем файлы с диска
-    company_uploads = os.path.join(UPLOADS, str(company_id))
-    if os.path.isdir(company_uploads):
-        shutil.rmtree(company_uploads, ignore_errors=True)
-    dashboard_file = os.path.join(OUTPUT, f'dashboard_{company_id}_current.html')
-    if os.path.isfile(dashboard_file):
-        os.remove(dashboard_file)
 
-    return redirect(url_for('home'))
+# ---------------------------------------------------------------------------
+# Универсальный справочник предприятий
+# ---------------------------------------------------------------------------
+def _visible_company_query():
+    query = Company.query
+    if not current_user.is_admin:
+        query = query.join(CompanyMembership).filter(
+            CompanyMembership.user_id == current_user.id)
+    return query
+
+
+def _dadata_token():
+    encrypted = Setting.get('dadata_api_token', '').strip()
+    return decrypt_value(encrypted) if encrypted else ''
+
+
+def _safe_json(value, default=None):
+    try:
+        return json.loads(value or '')
+    except (TypeError, ValueError):
+        return {} if default is None else default
+
+
+def _snapshot_changes(company, normalized):
+    fields = {
+        'Наименование': ('full_name', 'full_name'),
+        'ИНН': ('inn', 'inn'),
+        'КПП': ('kpp', 'kpp'),
+        'ОГРН': ('ogrn', 'ogrn'),
+        'Юридический адрес': ('legal_address', 'address'),
+        'Руководитель': ('director_name', 'director_name'),
+        'Должность': ('director_position', 'director_position'),
+        'Основной ОКВЭД': ('primary_okved', 'primary_okved'),
+    }
+    changes = []
+    for label, (company_field, incoming_field) in fields.items():
+        old = getattr(company, company_field, '') or ''
+        new = normalized.get(incoming_field) or ''
+        if new and old != new:
+            changes.append({'label': label, 'old': old, 'new': new})
+    return changes
+
+
+@app.route('/directories/companies')
+@login_required
+def directory_companies():
+    companies = _visible_company_query().order_by(
+        Company.status.asc(), Company.name.asc()).all()
+    rows = []
+    for company in companies:
+        required = [company.name, company.inn, company.full_name,
+                    company.legal_address or company.address]
+        filled = sum(bool(value) for value in required)
+        rows.append({
+            'company': company,
+            'filled': filled,
+            'filled_label': f'{filled}/4',
+            'members_count': len(company.memberships),
+            'uploads_count': len(company.uploads),
+        })
+    return render_template(
+        'directory_companies.html', rows=rows,
+        active_count=sum(1 for row in rows if not row['company'].is_archived),
+        archived_count=sum(1 for row in rows if row['company'].is_archived),
+        dadata_enabled=Setting.get('dadata_enabled', '0') == '1',
+    )
+
+
+@app.route('/directories/companies/new', methods=['GET', 'POST'])
+@admin_required
+def directory_company_new():
+    preview = None
+    error = None
+    form = request.form
+    if request.method == 'POST':
+        action = form.get('action', 'create')
+        inn = clean_identifier(form.get('inn'), (10, 12))
+        ogrn = clean_identifier(form.get('ogrn'), (13, 15))
+        if action == 'lookup':
+            if Setting.get('dadata_enabled', '0') != '1':
+                error = 'Интеграция DaData выключена в системных настройках.'
+            else:
+                try:
+                    from dadata_client import find_party
+                    _party, preview = find_party(_dadata_token(), inn=inn, ogrn=ogrn)
+                    log_event('dadata_lookup', {'inn': inn, 'ogrn': ogrn, 'found': True})
+                except Exception as exc:
+                    error = str(exc)
+                    log_event('dadata_lookup', {
+                        'inn': inn, 'ogrn': ogrn, 'found': False,
+                        'error': error[:300],
+                    })
+        elif action == 'create':
+            name = form.get('name', '').strip()[:255]
+            full_name = form.get('full_name', '').strip()
+            kpp = clean_identifier(form.get('kpp'), (9,))
+            if not name:
+                error = 'Укажите внутреннее отображаемое имя предприятия.'
+            else:
+                duplicates = duplicate_companies(inn, ogrn, kpp)
+                if duplicates:
+                    error = 'Найдена конфликтующая запись: ' + ', '.join(
+                        f'#{item.id} {item.name}' for item in duplicates)
+                else:
+                    if form.get('confirm_dadata') == '1' and (
+                            Setting.get('dadata_enabled', '0') != '1'):
+                        error = 'Интеграция DaData выключена в системных настройках.'
+                        return render_template(
+                            'directory_company_new.html', preview=preview,
+                            error=error, form=form, dadata_enabled=False)
+                    company = Company(
+                        name=name, full_name=full_name, inn=inn, ogrn=ogrn,
+                        kpp=kpp, internal_code=form.get('internal_code', '').strip()[:80],
+                        address=form.get('address', '').strip(),
+                        legal_address=form.get('address', '').strip(),
+                        is_rso=form.get('is_rso') == '1',
+                        note=form.get('note', '').strip(),
+                        identity_key=company_identity_key(inn, ogrn, kpp),
+                        status='active', created_by=current_user.id,
+                    )
+                    db.session.add(company)
+                    db.session.flush()
+                    if form.get('confirm_dadata') == '1' and (inn or ogrn):
+                        try:
+                            from dadata_client import find_party
+                            party, normalized = find_party(
+                                _dadata_token(), inn=inn, ogrn=ogrn)
+                            dup = duplicate_companies(
+                                normalized.get('inn', ''), normalized.get('ogrn', ''),
+                                normalized.get('kpp', ''), exclude_id=company.id)
+                            if dup:
+                                raise ValueError('DaData вернула реквизиты существующего предприятия')
+                            snapshot = save_snapshot(
+                                company, party, normalized, query_inn=inn,
+                                query_ogrn=ogrn, requested_by=current_user.id)
+                            db.session.flush()
+                            accept_dadata(company, snapshot, current_user.id)
+                            Setting.set('dadata_last_sync', utcnow().isoformat())
+                        except Exception as exc:
+                            db.session.rollback()
+                            error = str(exc)
+                            return render_template(
+                                'directory_company_new.html', preview=preview,
+                                error=error, form=form,
+                                dadata_enabled=Setting.get('dadata_enabled', '0') == '1')
+                    db.session.commit()
+                    log_event('directory_company_created', {
+                        'company_id': company.id, 'inn': company.inn,
+                        'source': 'dadata' if company.dadata_source else 'manual',
+                    })
+                    return redirect(url_for(
+                        'directory_company_profile', company_id=company.id))
+    return render_template(
+        'directory_company_new.html', preview=preview, error=error, form=form,
+        dadata_enabled=Setting.get('dadata_enabled', '0') == '1')
+
+
+@app.route('/directories/companies/<int:company_id>')
+@login_required
+def directory_company_profile(company_id):
+    company = _require_company_access(company_id)
+    snapshots = CompanyDadataSnapshot.query.filter_by(company_id=company_id)\
+        .order_by(CompanyDadataSnapshot.received_at.desc()).limit(20).all()
+    latest = snapshots[0] if snapshots else None
+    latest_normalized = _safe_json(latest.normalized_json) if latest else {}
+    profile_normalized = _safe_json(
+        company.dadata_profile.normalized_json) if company.dadata_profile else {}
+    extended = _safe_json(
+        company.dadata_profile.extended_json) if company.dadata_profile else {}
+    extended_data = extended.get('data', {}) if isinstance(extended, dict) else {}
+    return render_template(
+        'directory_company_profile.html', company=company, snapshots=snapshots,
+        latest=latest, latest_normalized=latest_normalized,
+        profile_normalized=profile_normalized, extended=extended_data,
+        changes=_snapshot_changes(company, latest_normalized),
+        users=User.query.order_by(User.username).all() if current_user.is_admin else [],
+        linked={
+            'uploads': Upload.query.filter_by(company_id=company_id).count(),
+            'daily_rows': DailyRow.query.filter_by(company_id=company_id).count(),
+            'ai_summaries': AiSummary.query.filter_by(company_id=company_id).count(),
+            'mail_rules': EmailRule.query.filter_by(company_id=company_id).count(),
+        },
+        dadata_enabled=Setting.get('dadata_enabled', '0') == '1',
+    )
+
+
+@app.route('/directories/companies/<int:company_id>/edit', methods=['POST'])
+@admin_required
+def directory_company_edit(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    old = {'name': company.name, 'internal_code': company.internal_code,
+           'is_rso': company.is_rso}
+    company.name = request.form.get('name', '').strip()[:255] or company.name
+    company.internal_code = request.form.get('internal_code', '').strip()[:80]
+    company.is_rso = request.form.get('is_rso') == '1'
+    company.note = request.form.get('note', '').strip()
+    company.director_phone = request.form.get('director_phone', '').strip()[:100]
+    company.accountant_name = request.form.get('accountant_name', '').strip()[:255]
+    company.accountant_phone = request.form.get('accountant_phone', '').strip()[:100]
+    company.classifications_json = json.dumps({
+        'ownership': request.form.get('ownership', '').strip()[:100],
+        'sector': request.form.get('sector', '').strip()[:100],
+    }, ensure_ascii=False)
+    company.profile_version = (company.profile_version or 0) + 1
+    db.session.commit()
+    log_event('directory_company_updated', {
+        'company_id': company.id, 'before': old,
+        'after': {'name': company.name, 'internal_code': company.internal_code,
+                  'is_rso': company.is_rso},
+    })
+    return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+@app.route('/directories/companies/<int:company_id>/archive', methods=['POST'])
+@admin_required
+def directory_company_archive(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    company.status = 'archived' if request.form.get('archive') == '1' else 'active'
+    db.session.commit()
+    log_event('company_archived' if company.is_archived else 'company_restored',
+              {'company_id': company.id})
+    return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+@app.route('/directories/companies/<int:company_id>/dadata/refresh', methods=['POST'])
+@admin_required
+def directory_company_dadata_refresh(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if Setting.get('dadata_enabled', '0') != '1':
+        abort(409, description='Интеграция DaData выключена')
+    inn = clean_identifier(request.form.get('inn') or company.inn, (10, 12))
+    ogrn = clean_identifier(request.form.get('ogrn') or company.ogrn, (13, 15))
+    try:
+        from dadata_client import find_party
+        party, normalized = find_party(_dadata_token(), inn=inn, ogrn=ogrn)
+        duplicates = duplicate_companies(
+            normalized.get('inn', ''), normalized.get('ogrn', ''),
+            normalized.get('kpp', ''), exclude_id=company.id)
+        if duplicates:
+            raise ValueError('Обновление конфликтует с записью ' + ', '.join(
+                f'#{item.id} {item.name}' for item in duplicates))
+        snapshot = save_snapshot(
+            company, party, normalized, query_inn=inn, query_ogrn=ogrn,
+            requested_by=current_user.id)
+        company.dadata_sync_status = 'pending'
+        company.dadata_last_error = ''
+        Setting.set('dadata_last_sync', utcnow().isoformat())
+        db.session.commit()
+        log_event('dadata_refresh_received', {
+            'company_id': company.id, 'snapshot_id': snapshot.id,
+            'changes': len(_snapshot_changes(company, normalized)),
+        })
+    except Exception as exc:
+        company.dadata_sync_status = 'error'
+        company.dadata_last_error = str(exc)[:1000]
+        save_snapshot(
+            company, {}, {}, query_inn=inn, query_ogrn=ogrn,
+            requested_by=current_user.id, status='error',
+            error_text=str(exc))
+        db.session.commit()
+        log_event('dadata_refresh_failed', {
+            'company_id': company.id, 'error': str(exc)[:300]})
+    return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+@app.route('/directories/companies/<int:company_id>/dadata/accept', methods=['POST'])
+@admin_required
+def directory_company_dadata_accept(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    snapshot = db.session.get(
+        CompanyDadataSnapshot, request.form.get('snapshot_id', type=int)) or abort(404)
+    if snapshot.company_id != company.id or snapshot.status != 'success':
+        abort(400)
+    normalized = _safe_json(snapshot.normalized_json)
+    duplicates = duplicate_companies(
+        normalized.get('inn', ''), normalized.get('ogrn', ''),
+        normalized.get('kpp', ''), exclude_id=company.id)
+    if duplicates:
+        abort(409, description='Нельзя принять реквизиты: найден дубликат')
+    changes = _snapshot_changes(company, normalized)
+    accept_dadata(company, snapshot, current_user.id)
+    db.session.commit()
+    log_event('dadata_changes_accepted', {
+        'company_id': company.id, 'snapshot_id': snapshot.id,
+        'fields': [item['label'] for item in changes],
+    })
+    return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+@app.route('/directories/companies/<int:company_id>/contacts', methods=['POST'])
+@admin_required
+def directory_company_contact_add(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    value = request.form.get('value', '').strip()
+    if value:
+        contact = CompanyContact(
+            company_id=company.id,
+            contact_type=request.form.get('contact_type', 'other')[:40],
+            label=request.form.get('label', '').strip()[:120],
+            name=request.form.get('contact_name', '').strip()[:255],
+            value=value[:500], is_internal=True, source='manual')
+        db.session.add(contact)
+        db.session.commit()
+        log_event('company_contact_added', {
+            'company_id': company.id, 'contact_type': contact.contact_type})
+    return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+@app.route('/api/directories/companies')
+@login_required
+def directory_companies_api():
+    companies = _visible_company_query().order_by(Company.name).all()
+    return jsonify(items=[{
+        'company_id': company.id, 'name': company.name,
+        'full_name': company.full_name or '', 'inn': company.inn or '',
+        'kpp': company.kpp or '', 'ogrn': company.ogrn or '',
+        'status': company.status or 'active',
+        'profile_url': url_for('directory_company_profile', company_id=company.id),
+    } for company in companies])
+
+
+@app.route('/api/companies/<int:company_id>/profile')
+@login_required
+def directory_company_profile_api(company_id):
+    company = _require_company_access(company_id)
+    return jsonify({
+        'company_id': company.id,
+        'internal': {
+            'name': company.name, 'internal_code': company.internal_code or '',
+            'is_rso': bool(company.is_rso), 'note': company.note or '',
+            'status': company.status or 'active',
+        },
+        'official': {
+            'full_name': company.full_name or '', 'inn': company.inn or '',
+            'kpp': company.kpp or '', 'ogrn': company.ogrn or '',
+            'address': company.legal_address or company.address or '',
+            'director_name': company.director_name or '',
+            'director_position': company.director_position or '',
+            'primary_okved': company.primary_okved or '',
+            'source': company.dadata_source or 'manual',
+            'received_at': company.dadata_received_at.isoformat()
+                if company.dadata_received_at else None,
+            'actuality_date': company.dadata_actuality_date.isoformat()
+                if company.dadata_actuality_date else None,
+        },
+        'links': {
+            'analytics': url_for('company_detail', company_id=company.id),
+        },
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -2181,6 +2600,21 @@ def settings_sync_imap():
     """Ручная синхронизация — тонкая обёртка над _do_imap_sync()."""
     result = _do_imap_sync(current_user.id)
     return jsonify(**result)
+
+
+@app.route('/settings/test-dadata', methods=['POST'])
+@admin_required
+def settings_test_dadata():
+    """Проверяет введённый или сохранённый токен, никогда не возвращая его."""
+    from dadata_client import check_token
+    token = request.form.get('dadata_api_token', '').strip() or _dadata_token()
+    ok, msg = check_token(token)
+    now = utcnow().isoformat()
+    Setting.set('dadata_last_check', now)
+    Setting.set('dadata_last_error', '' if ok else msg[:1000])
+    db.session.commit()
+    log_event('dadata_connection_checked', {'ok': ok, 'error': '' if ok else msg[:300]})
+    return jsonify(ok=ok, msg=msg, checked_at=now)
 
 
 @app.route('/ai/brief', methods=['POST'])
@@ -2386,7 +2820,8 @@ def settings_test_ai():
 @app.route('/settings', methods=['GET', 'POST'])
 @admin_required
 def settings():
-    companies = Company.query.order_by(Company.name).all()
+    companies = Company.query.filter(Company.status != 'archived')\
+        .order_by(Company.name).all()
 
     if request.method == 'POST':
         action = request.form.get('action', '')
@@ -2500,6 +2935,19 @@ def settings():
             db.session.commit()
             log_event('landing_settings_saved')
 
+        elif action == 'save_dadata':
+            token = request.form.get('dadata_api_token', '').strip()
+            Setting.set(
+                'dadata_enabled',
+                '1' if request.form.get('dadata_enabled') == '1' else '0')
+            if token:
+                Setting.set('dadata_api_token', encrypt_value(token))
+            db.session.commit()
+            log_event('dadata_settings_saved', {
+                'enabled': Setting.get('dadata_enabled', '0') == '1',
+                'token_changed': bool(token),
+            })
+
         return redirect(url_for('settings'))
 
     imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
@@ -2512,13 +2960,21 @@ def settings():
         'v09_label': Setting.get('landing_v09_label', 'Версия 0.9 alfa'),
         'v09_url':   Setting.get('landing_v09_url', ''),
     }
+    dadata_cfg = {
+        'enabled': Setting.get('dadata_enabled', '0') == '1',
+        'token_configured': bool(Setting.get('dadata_api_token', '')),
+        'last_check': Setting.get('dadata_last_check', ''),
+        'last_sync': Setting.get('dadata_last_sync', ''),
+        'last_error': Setting.get('dadata_last_error', ''),
+    }
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
                            imap_cfg=imap_cfg,
                            rules=rules,
                            companies=companies,
                            ai_providers=ai_providers,
-                           landing_cfg=landing_cfg)
+                           landing_cfg=landing_cfg,
+                           dadata_cfg=dadata_cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -2529,7 +2985,8 @@ def settings():
 def users_list():
     users = User.query.order_by(User.created_at).all()
     return render_template('users.html', users=users,
-                           available_modules=registered_modules())
+                           available_modules=registered_modules(),
+                           companies=Company.query.order_by(Company.name).all())
 
 
 @app.route('/users/create', methods=['POST'])
@@ -2550,7 +3007,8 @@ def users_create():
     if error:
         users = User.query.order_by(User.created_at).all()
         return render_template('users.html', users=users, error=error,
-                               available_modules=registered_modules())
+                               available_modules=registered_modules(),
+                               companies=Company.query.order_by(Company.name).all())
     new_user = User(
         username=username,
         password_hash=_hash_password(password),
@@ -2620,6 +3078,38 @@ def users_set_modules(user_id):
     return redirect(url_for('users_list'))
 
 
+@app.route('/users/<int:user_id>/set-companies', methods=['POST'])
+@admin_required
+def users_set_companies(user_id):
+    """Назначает одно основное и дополнительные предприятия без выдачи модулей."""
+    user = db.session.get(User, user_id) or abort(404)
+    selected = {
+        int(value) for value in request.form.getlist('companies')
+        if str(value).isdigit()
+    }
+    primary_id = request.form.get('primary_company_id', type=int)
+    participation = request.form.get('participation_type', 'employee').strip()[:40]
+    valid_ids = {
+        item.id for item in Company.query.filter(Company.id.in_(selected)).all()
+    } if selected else set()
+    if primary_id and primary_id not in valid_ids:
+        primary_id = None
+    CompanyMembership.query.filter_by(user_id=user.id).delete()
+    for company_id in sorted(valid_ids):
+        db.session.add(CompanyMembership(
+            user_id=user.id, company_id=company_id,
+            participation_type=participation or 'employee',
+            is_primary=company_id == primary_id,
+        ))
+    db.session.commit()
+    log_event('user_company_memberships_changed', {
+        'user_id': user.id, 'company_ids': sorted(valid_ids),
+        'primary_company_id': primary_id,
+        'participation_type': participation or 'employee',
+    })
+    return redirect(url_for('users_list'))
+
+
 # ---------------------------------------------------------------------------
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
@@ -2647,6 +3137,83 @@ def init_db():
             ('is_local', "BOOLEAN NOT NULL DEFAULT FALSE"),
             ('supports_vision', "BOOLEAN NOT NULL DEFAULT FALSE"),
         ])
+        _add_missing('companies', [
+            ('internal_code', "VARCHAR(80) DEFAULT ''"),
+            ('identity_key', "VARCHAR(80)"),
+            ('status', "VARCHAR(20) NOT NULL DEFAULT 'active'"),
+            ('is_rso', "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ('curator_user_id', "INTEGER REFERENCES users(id)"),
+            ('ogrn', "VARCHAR(20) DEFAULT ''"),
+            ('kpp', "VARCHAR(20) DEFAULT ''"),
+            ('opf_short', "VARCHAR(120) DEFAULT ''"),
+            ('legal_status', "VARCHAR(40) DEFAULT ''"),
+            ('registration_date', "DATE"),
+            ('ogrn_date', "DATE"),
+            ('actuality_date', "DATE"),
+            ('liquidation_date', "DATE"),
+            ('legal_address', "TEXT DEFAULT ''"),
+            ('address_quality', "VARCHAR(40) DEFAULT ''"),
+            ('address_ids_json', "TEXT DEFAULT '{}'"),
+            ('director_position', "VARCHAR(255) DEFAULT ''"),
+            ('primary_okved', "VARCHAR(32) DEFAULT ''"),
+            ('classifications_json', "TEXT DEFAULT '{}'"),
+            ('labels_json', "TEXT DEFAULT '[]'"),
+            ('dadata_source', "VARCHAR(40) DEFAULT ''"),
+            ('dadata_received_at', "TIMESTAMP WITH TIME ZONE"),
+            ('dadata_actuality_date', "DATE"),
+            ('dadata_sync_status', "VARCHAR(24) DEFAULT 'never'"),
+            ('dadata_last_error', "TEXT DEFAULT ''"),
+            ('profile_version', "INTEGER NOT NULL DEFAULT 1"),
+            ('updated_at', "TIMESTAMP WITH TIME ZONE"),
+        ])
+        with db.engine.begin() as _company_conn:
+            _company_conn.execute(_text_docs(
+                "UPDATE companies SET legal_address = address "
+                "WHERE COALESCE(legal_address, '') = '' AND COALESCE(address, '') != ''"))
+            _company_conn.execute(_text_docs(
+                "UPDATE companies SET status = 'active' "
+                "WHERE status IS NULL OR status = ''"))
+        # Канонический ключ и совместимый scope для существующих установок.
+        existing_keys = set()
+        for _company in Company.query.order_by(Company.id).all():
+            _key = company_identity_key(
+                _company.inn or '', _company.ogrn or '', _company.kpp or '')
+            if _key and _key not in existing_keys:
+                _company.identity_key = _key
+                existing_keys.add(_key)
+            elif _key:
+                _company.identity_key = None
+        db.session.commit()
+        try:
+            with db.engine.begin() as _identity_conn:
+                _identity_conn.execute(_text_docs(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_companies_identity_key ON companies(identity_key) "
+                    "WHERE identity_key IS NOT NULL AND identity_key != ''"))
+        except Exception as _identity_exc:
+            app.logger.warning('company identity index migration failed: %s',
+                               _identity_exc)
+        if Setting.get('company_membership_backfill_v1', '') != 'done':
+            _companies = Company.query.all()
+            _grants = UserModuleAccess.query.filter_by(module_key='analytics').all()
+            for _grant in _grants:
+                for _company in _companies:
+                    if not CompanyMembership.query.filter_by(
+                            user_id=_grant.user_id,
+                            company_id=_company.id).first():
+                        db.session.add(CompanyMembership(
+                            user_id=_grant.user_id, company_id=_company.id,
+                            participation_type='legacy_access',
+                            is_primary=False))
+            for _company in _companies:
+                if _company.created_by and not CompanyMembership.query.filter_by(
+                        user_id=_company.created_by,
+                        company_id=_company.id).first():
+                    db.session.add(CompanyMembership(
+                        user_id=_company.created_by, company_id=_company.id,
+                        participation_type='creator', is_primary=False))
+            Setting.set('company_membership_backfill_v1', 'done')
+            db.session.commit()
         _add_missing('doc_files', [
             ('approved',    "BOOLEAN NOT NULL DEFAULT FALSE"),
             ('approved_at', "TIMESTAMP WITH TIME ZONE"),

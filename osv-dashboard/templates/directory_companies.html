@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Справочник предприятий — ГИС УЗТЭР</title>
+<style>
+:root{--ink:#203246;--mut:#66788a;--paper:#f2f5f7;--panel:#fff;--line:#dce4ea;--blue:#176f93;--ok:#28794b;--warn:#b7750a}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+.hd{height:58px;background:#25384a;color:#fff;display:flex;align-items:center;padding:0 24px;gap:18px}.brand{font-weight:800}.hd a{color:#cbe1ec;text-decoration:none}.sp{flex:1}
+main{max-width:1280px;margin:auto;padding:30px 24px}.top{display:flex;align-items:flex-start;gap:18px;margin-bottom:22px}.top h1{margin:0;font-size:27px}.sub{color:var(--mut);margin-top:4px}.btn{display:inline-block;border:0;border-radius:8px;padding:9px 16px;background:var(--blue);color:#fff;text-decoration:none;font-weight:700;cursor:pointer}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 15px}.stat b{font-size:18px;margin-right:6px}
+.toolbar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+.toolbar input,.toolbar select{width:100%;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font:inherit}
+.table{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}.row{display:grid;grid-template-columns:2.2fr 1fr 1fr .8fr .8fr 100px;gap:12px;align-items:center;padding:13px 16px;border-bottom:1px solid #edf1f4}.row:last-child{border:0}.head{background:#edf2f5;color:#526577;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}.name{font-weight:750}.meta{font-size:12px;color:var(--mut)}.mono{font-family:ui-monospace,monospace}.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}.active{background:#e2f2e8;color:var(--ok)}.archived{background:#eceff1;color:#667}.fresh{color:var(--ok)}.stale{color:var(--warn)}.open{color:var(--blue);text-decoration:none;font-weight:700}
+.empty{text-align:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:55px;color:var(--mut)}
+@media(max-width:850px){.toolbar{grid-template-columns:1fr 1fr}.head{display:none}.row{grid-template-columns:1fr 1fr}.row>div:first-child{grid-column:1/-1}}
+</style>
+</head><body>
+<header class="hd"><div class="brand">ГИС УЗТЭР · Справочники</div><a href="{{ url_for('modules_dashboard') }}">Все модули</a><span class="sp"></span><span>{{ current_user.username }}</span><a href="{{ url_for('logout') }}">Выйти</a></header>
+<main>
+<div class="top"><div><h1>Предприятия</h1><div class="sub">Единый системный справочник. Архивные записи и исторические связи сохраняются.</div></div><span class="sp"></span>{% if current_user.is_admin %}<a class="btn" href="{{ url_for('directory_company_new') }}">+ Добавить предприятие</a>{% endif %}</div>
+<div class="stats"><div class="stat"><b>{{ active_count }}</b> действующих</div><div class="stat"><b>{{ archived_count }}</b> архивных</div><div class="stat"><b>{{ rows|length }}</b> доступно</div><div class="stat">DaData: <b style="font-size:14px">{{ 'включена' if dadata_enabled else 'выключена' }}</b></div></div>
+<div class="toolbar"><input id="q" placeholder="Название, ИНН, ОГРН, внутренний код" oninput="filterRows()"><select id="status" onchange="filterRows()"><option value="">Все статусы</option><option value="active">Действующие</option><option value="archived">Архивные</option></select><select id="fill" onchange="filterRows()"><option value="">Любая заполненность</option><option value="full">Основные поля заполнены</option><option value="partial">Нужно дополнить</option></select><select id="sort" onchange="sortRows()"><option value="name">По названию</option><option value="updated">По обновлению</option></select></div>
+{% if rows %}<div class="table" id="company-table"><div class="row head"><div>Предприятие</div><div>Реквизиты</div><div>Статус данных</div><div>Связи</div><div>Заполнено</div><div></div></div>
+{% for row in rows %}{% set c=row.company %}<div class="row company-row" data-name="{{ (c.name ~ ' ' ~ (c.full_name or '') ~ ' ' ~ (c.inn or '') ~ ' ' ~ (c.ogrn or '') ~ ' ' ~ (c.internal_code or ''))|lower|e }}" data-status="{{ c.status or 'active' }}" data-fill="{{ 'full' if row.filled == 4 else 'partial' }}" data-updated="{{ (c.updated_at or c.created_at).isoformat() }}">
+<div><div class="name">{{ c.name }}</div><div class="meta">{{ c.full_name or 'Полное наименование не заполнено' }}{% if c.internal_code %} · код {{ c.internal_code }}{% endif %}</div></div>
+<div><div class="mono">ИНН {{ c.inn or '—' }}</div><div class="meta">КПП {{ c.kpp or '—' }} · ОГРН {{ c.ogrn or '—' }}</div></div>
+<div><span class="badge {{ 'archived' if c.is_archived else 'active' }}">{{ 'Архив' if c.is_archived else 'Действует' }}</span><div class="meta {{ 'fresh' if c.dadata_sync_status == 'success' else 'stale' }}">{{ 'DaData · ' ~ c.dadata_received_at.strftime('%d.%m.%Y') if c.dadata_received_at else 'Ручные данные' }}</div></div>
+<div><div>{{ row.members_count }} сотрудников</div><div class="meta">{{ row.uploads_count }} загрузок ОСВ</div></div><div>{{ row.filled_label }}</div><div><a class="open" href="{{ url_for('directory_company_profile', company_id=c.id) }}">Открыть →</a></div></div>{% endfor %}</div>
+<div class="empty" id="no-results" style="display:none">Ничего не найдено. Измените параметры фильтра.</div>{% else %}<div class="empty">Нет доступных предприятий.{% if current_user.is_admin %}<br><br><a class="btn" href="{{ url_for('directory_company_new') }}">Создать первое</a>{% endif %}</div>{% endif %}
+</main>
+<script>
+function rows(){return [...document.querySelectorAll('.company-row')]}
+function filterRows(){let q=document.getElementById('q').value.trim().toLowerCase(),s=document.getElementById('status').value,f=document.getElementById('fill').value,n=0;rows().forEach(r=>{let ok=(!q||r.dataset.name.includes(q))&&(!s||r.dataset.status===s)&&(!f||r.dataset.fill===f);r.style.display=ok?'':'none';if(ok)n++});let e=document.getElementById('no-results');if(e)e.style.display=n?'none':'block'}
+function sortRows(){let body=document.getElementById('company-table'),mode=document.getElementById('sort').value;rows().sort((a,b)=>mode==='updated'?b.dataset.updated.localeCompare(a.dataset.updated):a.dataset.name.localeCompare(b.dataset.name,'ru')).forEach(r=>body.appendChild(r))}
+</script></body></html>

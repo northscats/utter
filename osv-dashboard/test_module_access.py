@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+import re
 
 _TMP = tempfile.mkdtemp(prefix='module_access_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
@@ -61,9 +62,29 @@ check('реестр определяет API будущего модуля',
 del MODULES['future']
 
 # Успешный и повторный вход ведут в каталог, а не внутрь аналитики.
-r = client.post('/login', data={'username': 'admin', 'password': 'admin123'})
+app.config['WTF_CSRF_ENABLED'] = True
+login_page = client.get('/login').get_data(as_text=True)
+login_token = re.search(
+    r'name="login_csrf_token" value="([^"]+)"', login_page).group(1)
+cross_origin = client.post('/login', data={
+    'username': 'admin', 'password': 'admin123',
+    'login_csrf_token': login_token,
+}, headers={
+    'Origin': 'https://evil.example',
+    'X-Forwarded-Host': 'preview.example',
+})
+check('чужой Origin не может выполнить login-CSRF',
+      cross_origin.status_code == 403)
+r = client.post('/login', data={
+    'username': 'admin', 'password': 'admin123',
+    'login_csrf_token': login_token,
+}, headers={
+    'Origin': 'https://preview.example',
+    'X-Forwarded-Host': 'preview.example',
+})
 check('успешный вход ведёт в каталог модулей',
       r.status_code == 302 and r.headers['Location'].endswith('/modules'))
+app.config['WTF_CSRF_ENABLED'] = False
 r = client.get('/')
 check('повторное открытие ведёт в каталог модулей',
       r.status_code == 302 and r.headers['Location'].endswith('/modules'))

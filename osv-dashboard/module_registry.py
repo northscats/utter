@@ -20,6 +20,15 @@ MODULES = {
         'exact_paths': ('/docs',),
         'path_prefixes': ('/docs/',),
     },
+    'directories': {
+        'key': 'directories',
+        'name': 'Справочники',
+        'description': 'Единый каталог предприятий, реквизиты, контакты и назначения.',
+        'icon': 'directory',
+        'endpoint': 'directory_companies',
+        'exact_paths': ('/directories/companies',),
+        'path_prefixes': ('/directories/', '/api/directories/', '/api/companies/'),
+    },
 }
 
 

@@ -1,0 +1,205 @@
+# -*- coding: utf-8 -*-
+"""Регрессии универсального справочника предприятий и DaData."""
+import os
+import sys
+import tempfile
+from unittest.mock import patch
+
+_TMP = tempfile.mkdtemp(prefix='company_directory_test_')
+os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
+os.environ['ENCRYPTION_KEY'] = (
+    'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from app import app, encrypt_value, init_db
+from database import (AuditLog, Company, CompanyDadataSnapshot,
+                      CompanyMembership, CompanyOkved, Setting, User,
+                      UserModuleAccess, db)
+from dadata_client import DaDataError, find_party
+
+app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+init_db()
+
+
+def check(label, condition):
+    print(('PASS' if condition else 'FAIL'), label)
+    if not condition:
+        raise AssertionError(label)
+
+
+def login_as(client, user_id):
+    with client.session_transaction() as session:
+        session['_user_id'] = str(user_id)
+        session['_fresh'] = True
+
+
+party = {
+    'value': 'ООО "Тестовая организация"',
+    'data': {
+        'inn': '7701234567', 'kpp': '770101001', 'ogrn': '1027700000000',
+        'ogrn_date': 1028073600000, 'registration_date': 1028073600000,
+        'actuality_date': 1788134400000,
+        'name': {
+            'short_with_opf': 'ООО "Тест"',
+            'full_with_opf': 'ООО "Тестовая организация"',
+        },
+        'opf': {'short': 'ООО'},
+        'state': {'status': 'ACTIVE', 'actuality_date': 1788134400000},
+        'address': {
+            'value': 'г Москва, ул Тестовая, д 1',
+            'unrestricted_value': 'г Москва, ул Тестовая, д 1',
+            'data': {'fias_id': 'fias-1', 'qc': '0', 'postal_code': '101000'},
+        },
+        'management': {'name': 'Иванов Иван Иванович', 'post': 'Директор'},
+        'okved': '35.30',
+        'okveds': [{'code': '36.00', 'name': 'Забор и очистка воды'}],
+        'licenses': [{'number': 'Л-1', 'activities': ['Теплоснабжение'],
+                      'status': 'ACTIVE'}],
+        'finance': {'year': 2025, 'revenue': 1000, 'expense': 900, 'profit': 100},
+        'founders': [{'name': 'Учредитель', 'share': {'value': 10000}}],
+    },
+}
+
+with app.app_context():
+    admin = User.query.filter_by(role='admin').first()
+    user = User(username='reader', password_hash='unused', role='user')
+    db.session.add(user)
+    db.session.flush()
+    db.session.add(UserModuleAccess(user_id=user.id, module_key='directories'))
+    Setting.set('dadata_enabled', '1')
+    Setting.set('dadata_api_token', encrypt_value('secret-dadata-token'))
+    db.session.commit()
+    admin_id, user_id = admin.id, user.id
+
+client = app.test_client()
+login_as(client, admin_id)
+
+# Предприятие создаётся без ОСВ и получает прежний канонический id.
+r = client.post('/directories/companies/new', data={
+    'action': 'create', 'name': 'Внутреннее имя', 'inn': '7701234567',
+    'kpp': '770101001', 'ogrn': '1027700000000', 'is_rso': '1',
+    'director_phone': '+7 000 000-00-00',
+})
+check('ручное создание без файлов ОСВ', r.status_code == 302)
+with app.app_context():
+    company = Company.query.filter_by(name='Внутреннее имя').one()
+    company.director_phone = '+7 000 000-00-00'
+    company.classifications_json = '{"sector":"тепло"}'
+    db.session.add(CompanyMembership(
+        user_id=user_id, company_id=company.id,
+        participation_type='auditor', is_primary=True))
+    db.session.commit()
+    company_id = company.id
+
+# Дубликат с тем же ИНН/КПП не сохраняется незаметно.
+r = client.post('/directories/companies/new', data={
+    'action': 'create', 'name': 'Дубликат', 'inn': '7701234567',
+    'kpp': '770101001', 'ogrn': '1027700000000',
+})
+check('конфликт дубля показан пользователю',
+      r.status_code == 200 and 'конфликтующая запись' in r.get_data(as_text=True))
+with app.app_context():
+    check('дубликат не создан', Company.query.filter_by(name='Дубликат').count() == 0)
+
+# Получение снимка не применяет изменения до явного принятия.
+with patch('dadata_client.find_party', return_value=(party, __import__(
+        'directory_service').normalize_party(party))):
+    r = client.post(f'/directories/companies/{company_id}/dadata/refresh')
+check('снимок DaData получен', r.status_code == 302)
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    snapshot = CompanyDadataSnapshot.query.filter_by(company_id=company_id).first()
+    check('официальные изменения ожидают принятия',
+          snapshot is not None and company.full_name == '')
+    snapshot_id = snapshot.id
+
+r = client.post(
+    f'/directories/companies/{company_id}/dadata/accept',
+    data={'snapshot_id': snapshot_id})
+check('изменения DaData приняты', r.status_code == 302)
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    check('базовые реквизиты нормализованы',
+          company.full_name == 'ООО "Тестовая организация"'
+          and company.primary_okved == '35.30'
+          and company.legal_status == 'ACTIVE')
+    check('ручные данные не затёрты',
+          company.name == 'Внутреннее имя'
+          and company.director_phone == '+7 000 000-00-00'
+          and company.classifications.get('sector') == 'тепло')
+    check('дополнительные ОКВЭД нормализованы',
+          {row.code for row in CompanyOkved.query.filter_by(
+              company_id=company_id).all()} == {'35.30', '36.00'})
+
+# Сбой не удаляет последний успешный снимок и не раскрывает токен.
+with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):
+    client.post(f'/directories/companies/{company_id}/dadata/refresh')
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    check('последний успешный профиль сохранён при сбое',
+          company.dadata_profile is not None
+          and CompanyDadataSnapshot.query.filter_by(
+              company_id=company_id, status='success').count() == 1)
+r = client.get('/settings')
+body = r.get_data(as_text=True)
+check('токен отсутствует в HTML', 'secret-dadata-token' not in body)
+with app.app_context():
+    check('токен отсутствует в аудите',
+          all('secret-dadata-token' not in (row.details or '')
+              for row in AuditLog.query.all()))
+
+# Пустой токен при сохранении не меняет зашифрованное значение.
+with app.app_context():
+    previous = Setting.get('dadata_api_token')
+client.post('/settings', data={'action': 'save_dadata', 'dadata_enabled': '1',
+                               'dadata_api_token': ''})
+with app.app_context():
+    check('пустой токен не затирает сохранённый',
+          Setting.get('dadata_api_token') == previous)
+
+# Серверный scope применяется к каталогу и API.
+login_as(client, user_id)
+check('назначенное предприятие доступно в API',
+      client.get(f'/api/companies/{company_id}/profile').status_code == 200)
+with app.app_context():
+    other = Company(name='Чужое', created_by=admin_id)
+    db.session.add(other)
+    db.session.commit()
+    other_id = other.id
+check('чужое предприятие закрыто по прямому API URL',
+      client.get(f'/api/companies/{other_id}/profile').status_code == 403)
+check('чужое предприятие не видно в каталоге',
+      'Чужое' not in client.get('/directories/companies').get_data(as_text=True))
+
+# Архивирование сохраняет запись и все связи.
+login_as(client, admin_id)
+client.post(f'/directories/companies/{company_id}/archive', data={'archive': '1'})
+blocked_write = client.post(
+    f'/directories/companies/{company_id}/edit',
+    data={'name': 'Не должно сохраниться'})
+check('архивное предприятие доступно только для чтения',
+      blocked_write.status_code == 409)
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    check('архивирование не удаляет предприятие',
+          company is not None and company.status == 'archived'
+          and len(company.memberships) == 1)
+
+# Выключенный провайдер нельзя обойти прямым POST-запросом.
+client.post(f'/directories/companies/{company_id}/archive', data={'archive': '0'})
+with app.app_context():
+    Setting.set('dadata_enabled', '0')
+    db.session.commit()
+check('выключенную DaData нельзя вызвать напрямую',
+      client.post(
+          f'/directories/companies/{company_id}/dadata/refresh').status_code == 409)
+
+# Клиент не принимает поиск по названию вместо точного идентификатора.
+try:
+    find_party('token', inn='ООО Ромашка')
+    exact_rejected = False
+except DaDataError:
+    exact_rejected = True
+check('поиск без точного ИНН/ОГРН отклонён до сети', exact_rejected)
+
+print('\nВСЕ ТЕСТЫ СПРАВОЧНИКА ПРЕДПРИЯТИЙ ПРОЙДЕНЫ')

@@ -69,6 +69,9 @@ class User(UserMixin, db.Model):
     module_grants = db.relationship(
         'UserModuleAccess', backref='user', lazy=True,
         cascade='all, delete-orphan')
+    company_memberships = db.relationship(
+        'CompanyMembership', backref='user', lazy=True,
+        cascade='all, delete-orphan')
 
     def has_module_access(self, module_key):
         """Администратор видит весь живой реестр; пользователь — назначения."""
@@ -115,8 +118,197 @@ class Company(db.Model):
     accountant_phone = db.Column(db.String(100), default='')
     note             = db.Column(db.Text,        default='')
 
+    # Каноническая сущность предприятия для справочников и всех доменных модулей.
+    internal_code       = db.Column(db.String(80), default='')
+    identity_key        = db.Column(db.String(80), nullable=True, unique=True)
+    status              = db.Column(db.String(20), nullable=False, default='active')
+    is_rso              = db.Column(db.Boolean, nullable=False, default=True)
+    curator_user_id     = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    ogrn                = db.Column(db.String(20), default='')
+    kpp                 = db.Column(db.String(20), default='')
+    opf_short           = db.Column(db.String(120), default='')
+    legal_status        = db.Column(db.String(40), default='')
+    registration_date   = db.Column(db.Date, nullable=True)
+    ogrn_date           = db.Column(db.Date, nullable=True)
+    actuality_date      = db.Column(db.Date, nullable=True)
+    liquidation_date    = db.Column(db.Date, nullable=True)
+    legal_address       = db.Column(db.Text, default='')
+    address_quality     = db.Column(db.String(40), default='')
+    address_ids_json    = db.Column(db.Text, default='{}')
+    director_position   = db.Column(db.String(255), default='')
+    primary_okved       = db.Column(db.String(32), default='')
+    classifications_json = db.Column(db.Text, default='{}')
+    labels_json         = db.Column(db.Text, default='[]')
+    dadata_source       = db.Column(db.String(40), default='')
+    dadata_received_at  = db.Column(db.DateTime(timezone=True), nullable=True)
+    dadata_actuality_date = db.Column(db.Date, nullable=True)
+    dadata_sync_status  = db.Column(db.String(24), default='never')
+    dadata_last_error   = db.Column(db.Text, default='')
+    profile_version     = db.Column(db.Integer, nullable=False, default=1)
+    updated_at          = db.Column(db.DateTime(timezone=True), default=utcnow,
+                                    onupdate=utcnow)
+
     uploads = db.relationship('Upload', backref='company', lazy=True,
                               order_by='Upload.uploaded_at.desc()')
+    memberships = db.relationship('CompanyMembership', backref='company',
+                                  lazy=True, cascade='all, delete-orphan')
+    contacts = db.relationship('CompanyContact', backref='company', lazy=True,
+                               cascade='all, delete-orphan')
+    dadata_profile = db.relationship('CompanyDadataProfile', backref='company',
+                                     uselist=False, lazy=True,
+                                     cascade='all, delete-orphan')
+    dadata_snapshots = db.relationship('CompanyDadataSnapshot', backref='company',
+                                       lazy=True, order_by='CompanyDadataSnapshot.received_at.desc()',
+                                       cascade='all, delete-orphan')
+    okved_entries = db.relationship('CompanyOkved', backref='company', lazy=True,
+                                    cascade='all, delete-orphan')
+    licenses = db.relationship('CompanyLicense', backref='company', lazy=True,
+                               cascade='all, delete-orphan')
+    finance_rows = db.relationship('CompanyFinance', backref='company', lazy=True,
+                                   cascade='all, delete-orphan')
+    curator = db.relationship('User', foreign_keys=[curator_user_id], lazy=True)
+
+    @property
+    def is_archived(self):
+        return self.status == 'archived'
+
+    @property
+    def classifications(self):
+        try:
+            return json.loads(self.classifications_json or '{}')
+        except (TypeError, ValueError):
+            return {}
+
+    @property
+    def labels(self):
+        try:
+            return json.loads(self.labels_json or '[]')
+        except (TypeError, ValueError):
+            return []
+
+
+class CompanyMembership(db.Model):
+    """Явное назначение пользователя предприятию, независимо от модулей."""
+    __tablename__ = 'company_memberships'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'company_id',
+                            name='uq_company_membership_user_company'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    participation_type = db.Column(db.String(40), nullable=False, default='employee')
+    is_primary = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CompanyContact(db.Model):
+    """Повторяющиеся внутренние и внешние контакты предприятия."""
+    __tablename__ = 'company_contacts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    contact_type = db.Column(db.String(40), nullable=False, default='other')
+    label = db.Column(db.String(120), default='')
+    name = db.Column(db.String(255), default='')
+    value = db.Column(db.String(500), nullable=False, default='')
+    is_internal = db.Column(db.Boolean, nullable=False, default=True)
+    source = db.Column(db.String(40), default='manual')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CompanyDadataProfile(db.Model):
+    """Последний принятый расширенный профиль DaData."""
+    __tablename__ = 'company_dadata_profiles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, unique=True)
+    normalized_json = db.Column(db.Text, default='{}')
+    extended_json = db.Column(db.Text, default='{}')
+    source = db.Column(db.String(40), default='DaData')
+    received_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    actuality_date = db.Column(db.Date, nullable=True)
+    accepted_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    accepted_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    version = db.Column(db.Integer, nullable=False, default=1)
+
+    accepter = db.relationship('User', lazy=True)
+
+
+class CompanyDadataSnapshot(db.Model):
+    """Неизменяемый снимок успешного или неуспешного обращения к DaData."""
+    __tablename__ = 'company_dadata_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    query_inn = db.Column(db.String(20), default='')
+    query_ogrn = db.Column(db.String(20), default='')
+    received_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
+    actuality_date = db.Column(db.Date, nullable=True)
+    response_hash = db.Column(db.String(64), default='')
+    status = db.Column(db.String(24), nullable=False, default='success')
+    normalized_json = db.Column(db.Text, default='{}')
+    response_json = db.Column(db.Text, default='{}')
+    error_text = db.Column(db.Text, default='')
+    requested_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    requester = db.relationship('User', lazy=True)
+
+
+class CompanyOkved(db.Model):
+    """Нормализованный основной и дополнительные ОКВЭД."""
+    __tablename__ = 'company_okveds'
+    __table_args__ = (
+        db.UniqueConstraint('company_id', 'code', name='uq_company_okved_code'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    code = db.Column(db.String(32), nullable=False)
+    name = db.Column(db.String(500), default='')
+    is_main = db.Column(db.Boolean, nullable=False, default=False)
+    source = db.Column(db.String(40), default='DaData')
+
+
+class CompanyLicense(db.Model):
+    """Лицензии из принятого профиля DaData."""
+    __tablename__ = 'company_licenses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    number = db.Column(db.String(255), default='')
+    activity = db.Column(db.Text, default='')
+    status = db.Column(db.String(80), default='')
+    details_json = db.Column(db.Text, default='{}')
+    source = db.Column(db.String(40), default='DaData')
+
+
+class CompanyFinance(db.Model):
+    """Финансовые показатели по годам для отчётов и фильтров."""
+    __tablename__ = 'company_finances'
+    __table_args__ = (
+        db.UniqueConstraint('company_id', 'year', name='uq_company_finance_year'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False)
+    revenue = db.Column(db.Float, nullable=True)
+    expense = db.Column(db.Float, nullable=True)
+    profit = db.Column(db.Float, nullable=True)
+    details_json = db.Column(db.Text, default='{}')
+    source = db.Column(db.String(40), default='DaData')
 
 
 class Upload(db.Model):

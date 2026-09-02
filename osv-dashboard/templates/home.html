@@ -298,7 +298,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   </a>
   <div class="hd-menu">
     {% if companies %}
-    <button class="hd-menu-btn" onclick="openRegModal()">📁 Справочник РСО</button>
+    <a class="hd-menu-btn" href="{{ url_for('directory_companies') }}">📁 Справочник предприятий</a>
     {% endif %}
     <a class="hd-menu-btn" href="{{ url_for('modules_dashboard') }}">▦ Все модули</a>
   </div>

@@ -117,7 +117,7 @@ footer{background:var(--panel);border-top:1px solid var(--line);padding:15px 56p
   <div class="card">
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
     <form method="post" action="{{ url_for('login') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="login_csrf_token" value="{{ login_csrf_token }}">
       <label for="username">Логин</label>
       <input type="text" id="username" name="username" autocomplete="username" required
              value="{{ username or '' }}">

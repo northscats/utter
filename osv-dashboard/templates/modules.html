@@ -25,6 +25,7 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
 {% if modules %}<div class="grid">{% for module in modules %}
 <a class="card" href="{{ module.url }}"><div class="ico">
 {% if module.icon == 'chart' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/></svg>
+{% elif module.icon == 'directory' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h7l2 2h9v11H3z"/><path d="M8 13h8M8 16h5"/></svg>
 {% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M4 7v14h11"/></svg>{% endif %}
 </div><h2>{{ module.name }}</h2><p>{{ module.description }}</p><span class="go">Открыть модуль →</span></a>
 {% endfor %}</div>{% else %}

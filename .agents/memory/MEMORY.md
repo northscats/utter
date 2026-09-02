@@ -6,3 +6,4 @@
 - [Эталон UI проверки документов](docs-check-ui.md) — исходный дизайн в mbt-service ZIP (MbtProjectPage.tsx): 3 панели, пейджер, миниатюры, «Согласовать»; не возвращать табличный вид
 - [Кооперативная отмена ИИ](cooperative-ai-cancel.md) — cancel и terminal-write сериализуются по запуску; пакет освобождается только после выхода worker из слота
 - [Координаты находок](doc-finding-coordinates.md) — bbox нормализован к финальному PNG; сомнительная или неоднозначная находка остаётся без рамки
+- [Preview login CSRF](preview-login-csrf.md) — прокси preview может разделять cookie-сессии GET/POST формы входа; CSRF остальных POST остаётся включённым

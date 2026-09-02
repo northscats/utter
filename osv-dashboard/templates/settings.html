@@ -455,6 +455,49 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 
   <!-- ─── Посадочная страница ─── -->
   <div class="card">
+    <h3>Интеграция DaData</h3>
+    <p class="desc">
+      Точный серверный поиск организации только по ИНН и/или ОГРН.
+      Токен хранится зашифрованным и никогда не передаётся в браузер.
+    </p>
+    <form method="post" id="dadata-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="save_dadata">
+      <div class="field-grid">
+        <label for="dadata-enabled">Состояние</label>
+        <label style="text-align:left;color:var(--ink)">
+          <input style="width:auto" type="checkbox" id="dadata-enabled"
+                 name="dadata_enabled" value="1" {% if dadata_cfg.enabled %}checked{% endif %}>
+          Включить интеграцию
+        </label>
+        <label for="dadata-token">API-токен</label>
+        <div>
+          <input type="password" id="dadata-token" name="dadata_api_token"
+                 value="" autocomplete="new-password"
+                 placeholder="{{ '•••••••••••• (настроен)' if dadata_cfg.token_configured else 'Введите токен DaData' }}">
+          <div class="hint">Пустое поле не меняет уже сохранённый токен.</div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Сохранить</button>
+        <button class="btn btn-test" type="button" id="btn-test-dadata"
+                onclick="testDadata()">Проверить подключение</button>
+        <span id="dadata-test-msg" style="font-size:13px"></span>
+      </div>
+    </form>
+    <div class="status-row">
+      <span class="dot {{ 'dot-ok' if dadata_cfg.enabled and dadata_cfg.token_configured else 'dot-off' }}"></span>
+      <span>
+        {{ 'Настроено' if dadata_cfg.token_configured else 'Токен не настроен' }}
+        · последняя проверка: {{ dadata_cfg.last_check or '—' }}
+        · последняя синхронизация: {{ dadata_cfg.last_sync or '—' }}
+        {% if dadata_cfg.last_error %}<br><span style="color:var(--bad)">{{ dadata_cfg.last_error }}</span>{% endif %}
+      </span>
+    </div>
+  </div>
+
+  <!-- ─── Посадочная страница ─── -->
+  <div class="card">
     <h3>Посадочная страница</h3>
     <p class="desc">
       Настройка кнопки альтернативной версии в меню входа на посадочной странице («Войти в систему» → выпадающий список).
@@ -624,6 +667,29 @@ function testAi() {
       btn.disabled = false;
       btn.textContent = 'Тест подключения';
     });
+}
+function testDadata() {
+  const btn = document.getElementById('btn-test-dadata');
+  const msg = document.getElementById('dadata-test-msg');
+  const data = new FormData();
+  data.append('dadata_api_token', document.getElementById('dadata-token').value);
+  btn.disabled = true;
+  btn.textContent = 'Проверяю…';
+  msg.textContent = '';
+  fetch('/settings/test-dadata', {
+    method: 'POST',
+    body: data,
+    headers: {'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content}
+  }).then(r => r.json()).then(d => {
+    msg.textContent = d.msg;
+    msg.style.color = d.ok ? 'var(--ok)' : 'var(--bad)';
+  }).catch(() => {
+    msg.textContent = 'Не удалось выполнить запрос';
+    msg.style.color = 'var(--bad)';
+  }).finally(() => {
+    btn.disabled = false;
+    btn.textContent = 'Проверить подключение';
+  });
 }
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
 </script>
