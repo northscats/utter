@@ -2376,12 +2376,33 @@ def directory_company_profile(company_id):
     extended = _safe_json(
         company.dadata_profile.extended_json) if company.dadata_profile else {}
     extended_data = extended.get('data', {}) if isinstance(extended, dict) else {}
+    organization_status = company.legal_status or profile_normalized.get('status')
+    status_labels = {
+        'ACTIVE': 'Действует',
+        'LIQUIDATING': 'В процессе ликвидации',
+        'LIQUIDATED': 'Ликвидировано',
+        'BANKRUPT': 'Банкротство',
+        'REORGANIZING': 'В процессе реорганизации',
+    }
+    branch_type_labels = {
+        'MAIN': 'Основная организация',
+        'BRANCH': 'Филиал',
+        'REPRESENTATIVE_OFFICE': 'Представительство',
+    }
+    license_status_labels = {
+        'ACTIVE': 'Действует',
+        'SUSPENDED': 'Приостановлена',
+        'REVOKED': 'Аннулирована',
+        'EXPIRED': 'Срок действия истёк',
+    }
     license_rows = []
     for license_row in company.licenses:
         activities = _safe_json(license_row.activity, [])
+        license_status = license_row.status or ''
         license_rows.append({
             'number': license_row.number or '—',
-            'status': license_row.status or '—',
+            'status': license_status_labels.get(
+                license_status, license_status or '—'),
             'activities': activities if isinstance(activities, list) else [],
             'issue_authority': (
                 _safe_json(license_row.details_json, {}).get('issue_authority')
@@ -2393,6 +2414,11 @@ def directory_company_profile(company_id):
         latest=latest, latest_normalized=latest_normalized,
         profile_normalized=profile_normalized, extended=extended_data,
         license_rows=license_rows,
+        organization_status_label=status_labels.get(
+            organization_status, organization_status or '—'),
+        branch_type_label=branch_type_labels.get(
+            extended_data.get('branch_type'),
+            extended_data.get('branch_type') or '—'),
         changes=_snapshot_changes(company, latest_normalized),
         users=User.query.order_by(User.username).all() if current_user.is_admin else [],
         linked={

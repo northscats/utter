@@ -49,6 +49,7 @@ party = {
             'registration_date': 1028073600000,
             'actuality_date': 1788134400000,
         },
+        'branch_type': 'MAIN',
         'address': {
             'value': 'г Москва, ул Тестовая, д 1',
             'unrestricted_value': 'г Москва, ул Тестовая, д 1',
@@ -188,6 +189,11 @@ check('ОКВЭД, контакты и финансы видны в карточ
       and '+7 495 123-45-67' in body
       and 'Финансовые сведения' in body
       and '2024' in body)
+check('служебные статусы переведены на русский',
+      'Действует' in body
+      and 'Основная организация' in body
+      and 'ACTIVE' not in body
+      and '>MAIN<' not in body)
 
 # Сбой не удаляет последний успешный снимок и не раскрывает токен.
 with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):
