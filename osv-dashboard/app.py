@@ -2450,10 +2450,13 @@ def directory_company_dadata_refresh(company_id):
     if Setting.get('dadata_enabled', '0') != '1':
         abort(409, description='Интеграция DaData выключена')
     inn = clean_identifier(request.form.get('inn') or company.inn, (10, 12))
+    kpp = clean_identifier(request.form.get('kpp') or company.kpp, (9,))
     ogrn = clean_identifier(request.form.get('ogrn') or company.ogrn, (13, 15))
     try:
         from dadata_client import find_party
         party, normalized = find_party(_dadata_token(), inn=inn, ogrn=ogrn)
+        if kpp and not normalized.get('kpp'):
+            normalized['kpp'] = kpp
         duplicates = duplicate_companies(
             normalized.get('inn', ''), normalized.get('ogrn', ''),
             normalized.get('kpp', ''), exclude_id=company.id)

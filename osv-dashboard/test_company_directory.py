@@ -176,6 +176,9 @@ check('технический JSON не выводится в карточке',
       'Техническое представление полученных данных' not in body)
 check('обновление сведений доступно компактной кнопкой',
       '↻ Обновить' in body and 'id="sources"' not in body)
+check('ИНН ОГРН и КПП редактируются в подтверждённых сведениях',
+      'name="inn"' in body and 'name="ogrn"' in body
+      and 'name="kpp"' in body and 'form="dadata-refresh-form"' in body)
 check('блоки дополнительных сведений сворачиваются',
       body.count('class="data-block"') >= 6)
 check('все блоки дополнительных сведений закрыты по умолчанию',
