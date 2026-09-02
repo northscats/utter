@@ -167,8 +167,13 @@ with app.app_context():
 
 r = client.get(f'/directories/companies/{company_id}')
 body = r.get_data(as_text=True)
-check('отдельная вкладка DaData отображается',
-      r.status_code == 200 and 'Данные DaData' in body)
+check('дополнительные сведения отображаются без названия источника',
+      r.status_code == 200
+      and 'Дополнительные сведения' in body
+      and 'Данные DaData' not in body
+      and 'Обновление DaData' not in body)
+check('блоки дополнительных сведений сворачиваются',
+      body.count('class="data-block"') >= 6)
 check('ОКВЭД, контакты и финансы видны в карточке',
       '36.00' in body
       and '+7 495 123-45-67' in body
