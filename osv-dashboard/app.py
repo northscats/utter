@@ -2376,10 +2376,23 @@ def directory_company_profile(company_id):
     extended = _safe_json(
         company.dadata_profile.extended_json) if company.dadata_profile else {}
     extended_data = extended.get('data', {}) if isinstance(extended, dict) else {}
+    license_rows = []
+    for license_row in company.licenses:
+        activities = _safe_json(license_row.activity, [])
+        license_rows.append({
+            'number': license_row.number or '—',
+            'status': license_row.status or '—',
+            'activities': activities if isinstance(activities, list) else [],
+            'issue_authority': (
+                _safe_json(license_row.details_json, {}).get('issue_authority')
+                if license_row.details_json else None
+            ),
+        })
     return render_template(
         'directory_company_profile.html', company=company, snapshots=snapshots,
         latest=latest, latest_normalized=latest_normalized,
         profile_normalized=profile_normalized, extended=extended_data,
+        license_rows=license_rows,
         changes=_snapshot_changes(company, latest_normalized),
         users=User.query.order_by(User.username).all() if current_user.is_admin else [],
         linked={

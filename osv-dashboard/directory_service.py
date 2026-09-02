@@ -97,6 +97,9 @@ def normalize_party(party):
     management = data.get('management') or {}
     opf = data.get('opf') or {}
     okved = data.get('okved') or ''
+    code_fields = (
+        'okato', 'okfs', 'okogu', 'okpo', 'oktmo', 'okved', 'okved_type',
+    )
     normalized = {
         'short_name': name.get('short_with_opf') or name.get('short') or '',
         'full_name': name.get('full_with_opf') or name.get('full') or '',
@@ -124,7 +127,10 @@ def normalize_party(party):
         'director_name': management.get('name') or '',
         'director_position': management.get('post') or '',
         'primary_okved': okved,
-        'codes': data.get('code') or {},
+        'codes': {
+            key: data.get(key) for key in code_fields
+            if data.get(key) not in (None, '')
+        },
         'branch_type': data.get('branch_type') or '',
         'branch_count': data.get('branch_count'),
         'contacts': _normalize_contacts(data),
@@ -206,13 +212,17 @@ def save_snapshot(company, party, normalized, *, query_inn='', query_ogrn='',
 
 
 def accept_dadata(company, snapshot, user_id):
-    normalized = _json(snapshot.normalized_json, {})
+    raw = _json(snapshot.response_json, {})
+    # Нормализуем сохранённый сырой ответ заново: набор поддерживаемых полей
+    # развивается, а исторический normalized_json мог быть создан старой версией.
+    normalized = normalize_party(raw) if raw else _json(
+        snapshot.normalized_json, {})
     apply_normalized_to_company(company, normalized)
     profile = company.dadata_profile
     if profile is None:
         profile = CompanyDadataProfile(company_id=company.id)
         db.session.add(profile)
-    profile.normalized_json = snapshot.normalized_json or '{}'
+    profile.normalized_json = json.dumps(normalized, ensure_ascii=False)
     profile.extended_json = snapshot.response_json or '{}'
     profile.source = 'DaData'
     profile.received_at = snapshot.received_at
@@ -220,15 +230,18 @@ def accept_dadata(company, snapshot, user_id):
     profile.accepted_at = utcnow()
     profile.accepted_by = user_id
     profile.version = (profile.version or 0) + 1
-    raw = _json(snapshot.response_json, {})
     data = raw.get('data', {}) if isinstance(raw, dict) else {}
     CompanyOkved.query.filter_by(company_id=company.id).delete()
     okveds = data.get('okveds') or []
     main_code = normalized.get('primary_okved') or ''
     if main_code:
+        main_item = next((
+            item for item in okveds
+            if isinstance(item, dict) and str(item.get('code') or '') == main_code
+        ), {})
         db.session.add(CompanyOkved(
             company_id=company.id, code=main_code,
-            name=data.get('okved_type') or '', is_main=True))
+            name=str(main_item.get('name') or '')[:500], is_main=True))
     for item in okveds:
         if not isinstance(item, dict):
             continue
@@ -261,18 +274,42 @@ def accept_dadata(company, snapshot, user_id):
             source='DaData',
         ))
     CompanyFinance.query.filter_by(company_id=company.id).delete()
+    finance_rows = {}
+    for item in data.get('finance_history') or []:
+        if not isinstance(item, dict) or not str(item.get('year') or '').isdigit():
+            continue
+        metrics = {
+            str(metric.get('code')): metric.get('value')
+            for metric in item.get('metrics') or []
+            if isinstance(metric, dict) and metric.get('code')
+        }
+        revenue = metrics.get('2110')
+        profit = (metrics.get('2500') if metrics.get('2500') is not None
+                  else metrics.get('2300'))
+        finance_rows[int(item['year'])] = {
+            'year': item.get('year'),
+            'revenue': revenue,
+            'expense': None,
+            'profit': profit,
+        }
     finance = data.get('finance') or {}
-    finance_rows = finance if isinstance(finance, list) else [finance]
-    for item in finance_rows:
+    if isinstance(finance, dict) and str(finance.get('year') or '').isdigit():
+        finance_rows[int(finance['year'])] = finance
+    for item in finance_rows.values():
         if not isinstance(item, dict):
             continue
         year = item.get('year')
         if str(year).isdigit():
+            income = item.get('income')
+            expense = item.get('expense')
+            profit = item.get('profit')
+            if profit is None and income is not None and expense is not None:
+                profit = income - expense
             db.session.add(CompanyFinance(
                 company_id=company.id, year=int(year),
-                revenue=item.get('revenue') or item.get('income'),
-                expense=item.get('expense'),
-                profit=item.get('profit'),
+                revenue=item.get('revenue') or income,
+                expense=expense,
+                profit=profit,
                 details_json=json.dumps(item, ensure_ascii=False)))
     company.dadata_received_at = snapshot.received_at
     company.dadata_source = 'DaData'

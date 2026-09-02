@@ -60,6 +60,13 @@ party = {
         'licenses': [{'number': 'Л-1', 'activities': ['Теплоснабжение'],
                       'status': 'ACTIVE'}],
         'finance': {'year': 2025, 'revenue': 1000, 'expense': 900, 'profit': 100},
+        'finance_history': [{
+            'year': 2024,
+            'metrics': [
+                {'code': '2110', 'value': 800},
+                {'code': '2500', 'value': 75},
+            ],
+        }],
         'phones': [{
             'value': '+7 495 123-45-67',
             'unrestricted_value': '+7 495 123-45-67',
@@ -151,6 +158,22 @@ with app.app_context():
           })
     check('дата регистрации взята из state',
           company.registration_date is not None)
+    check('финансовая история нормализована',
+          {(row.year, row.revenue, row.profit)
+           for row in company.finance_rows} == {
+              (2025, 1000, 100),
+              (2024, 800, 75),
+          })
+
+r = client.get(f'/directories/companies/{company_id}')
+body = r.get_data(as_text=True)
+check('отдельная вкладка DaData отображается',
+      r.status_code == 200 and 'Данные DaData' in body)
+check('ОКВЭД, контакты и финансы видны в карточке',
+      '36.00' in body
+      and '+7 495 123-45-67' in body
+      and 'Финансовые сведения' in body
+      and '2024' in body)
 
 # Сбой не удаляет последний успешный снимок и не раскрывает токен.
 with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):

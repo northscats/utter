@@ -7,3 +7,4 @@
 - [Кооперативная отмена ИИ](cooperative-ai-cancel.md) — cancel и terminal-write сериализуются по запуску; пакет освобождается только после выхода worker из слота
 - [Координаты находок](doc-finding-coordinates.md) — bbox нормализован к финальному PNG; сомнительная или неоднозначная находка остаётся без рамки
 - [Preview login CSRF](preview-login-csrf.md) — прокси preview может разделять cookie-сессии GET/POST формы входа; CSRF остальных POST остаётся включённым
+- [Повторная нормализация DaData](dadata-renormalization.md) — при повторном принятии снимка строить профиль из сырого ответа, а не из устаревшего normalized JSON
