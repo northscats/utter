@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 _TMP = tempfile.mkdtemp(prefix='company_directory_test_')
@@ -168,6 +169,13 @@ with app.app_context():
 
 r = client.get(f'/directories/companies/{company_id}')
 body = r.get_data(as_text=True)
+directory_body = client.get('/directories/companies').get_data(as_text=True)
+check('в списке нет упоминания провайдера',
+      'Автоматические данные' in directory_body
+      and 'DaData ·' not in directory_body
+      and 'DaData:' not in directory_body
+      and 'Ручные данные' in Path(
+          'templates/directory_companies.html').read_text())
 check('дополнительные сведения отображаются без названия источника',
       r.status_code == 200
       and 'Дополнительные сведения' in body
