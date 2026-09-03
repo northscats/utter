@@ -42,12 +42,12 @@
 
 <details class="data-block"><summary>Руководители и учредители</summary><div class="subsection">
 <table class="data-table"><thead><tr><th>Роль</th><th>Наименование / ФИО</th><th>ИНН</th><th>Дополнительно</th></tr></thead><tbody>
-{% for item in extended.managers or [] %}<tr><td>{{ item.post or 'Руководитель' }}</td><td>{{ item.fio.source if item.fio else '—' }}</td><td>{{ item.inn or '—' }}</td><td>{{ item.type or '—' }}</td></tr>{% endfor %}
+{% for item in extended.managers or [] %}<tr><td>{{ item.post or 'Руководитель' }}</td><td>{{ item.fio.source if item.fio else '—' }}</td><td>{{ item.inn or '—' }}</td><td>{{ manager_type_labels.get(item.type, item.type or '—') }}</td></tr>{% endfor %}
 {% for item in extended.founders or [] %}<tr><td>Учредитель</td><td>{{ item.name or '—' }}</td><td>{{ item.inn or '—' }}</td><td>{% if item.share %}Доля: {{ item.share.value }}{% if item.share.type == 'PERCENT' %}%{% endif %}{% else %}—{% endif %}</td></tr>{% endfor %}
 </tbody></table></div></details>
 
 <details class="data-block"><summary>Регистрирующие органы</summary><div class="subsection">
-{% if extended.authorities %}<table class="data-table"><thead><tr><th>Вид</th><th>Код</th><th>Наименование</th></tr></thead><tbody>{% for key, item in extended.authorities.items() %}{% if item %}<tr><td>{{ key }}</td><td>{{ item.code or '—' }}</td><td>{{ item.name or '—' }}</td></tr>{% endif %}{% endfor %}</tbody></table>{% else %}<div class="empty">Сведения не предоставлены.</div>{% endif %}
+{% if extended.authorities %}<table class="data-table"><thead><tr><th>Вид</th><th>Код</th><th>Наименование</th></tr></thead><tbody>{% for key, item in extended.authorities.items() %}{% if item %}<tr><td>{{ authority_labels.get(key, key) }}</td><td>{{ item.code or '—' }}</td><td>{{ item.name or '—' }}</td></tr>{% endif %}{% endfor %}</tbody></table>{% else %}<div class="empty">Сведения не предоставлены.</div>{% endif %}
 </div></details>
 
 <details class="data-block"><summary>Правопредшественники и правопреемники</summary><div class="subsection">

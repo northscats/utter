@@ -2395,6 +2395,16 @@ def directory_company_profile(company_id):
         'REVOKED': 'Аннулирована',
         'EXPIRED': 'Срок действия истёк',
     }
+    manager_type_labels = {
+        'EMPLOYEE': 'Физическое лицо',
+        'LEGAL': 'Юридическое лицо',
+    }
+    authority_labels = {
+        'fts_registration': 'ФНС — регистрация',
+        'fts_report': 'ФНС — отчётность',
+        'pf': 'Пенсионный фонд',
+        'sif': 'Социальный фонд',
+    }
     license_rows = []
     for license_row in company.licenses:
         activities = _safe_json(license_row.activity, [])
@@ -2419,6 +2429,8 @@ def directory_company_profile(company_id):
         branch_type_label=branch_type_labels.get(
             extended_data.get('branch_type'),
             extended_data.get('branch_type') or '—'),
+        manager_type_labels=manager_type_labels,
+        authority_labels=authority_labels,
         changes=_snapshot_changes(company, latest_normalized),
         users=User.query.order_by(User.username).all() if current_user.is_admin else [],
         linked={

@@ -77,6 +77,20 @@ party = {
         'emails': [{'value': 'INFO@EXAMPLE.RU'}],
         'sites': [{'value': 'example.ru'}],
         'founders': [{'name': 'Учредитель', 'share': {'value': 10000}}],
+        'managers': [{
+            'post': 'Директор',
+            'type': 'EMPLOYEE',
+            'inn': '770000000001',
+            'fio': {'source': 'Иванов Иван Иванович'},
+        }],
+        'authorities': {
+            'fts_registration': {
+                'code': '7701', 'name': 'Инспекция ФНС',
+            },
+            'pf': {
+                'code': '087-001', 'name': 'Отделение Пенсионного фонда',
+            },
+        },
     },
 }
 
@@ -202,6 +216,12 @@ check('служебные статусы переведены на русски�
       and 'Основная организация' in body
       and 'ACTIVE' not in body
       and '>MAIN<' not in body)
+check('типы руководителей и органов переведены на русский',
+      'Физическое лицо' in body
+      and 'ФНС — регистрация' in body
+      and 'Пенсионный фонд' in body
+      and 'EMPLOYEE' not in body
+      and 'fts_registration' not in body)
 
 # Сбой не удаляет последний успешный снимок и не раскрывает токен.
 with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):
