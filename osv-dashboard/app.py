@@ -2219,6 +2219,28 @@ def _safe_json(value, default=None):
         return {} if default is None else default
 
 
+DEFAULT_ORGANIZATION_TYPES = ('РСО', 'УК', 'ТСЖ')
+ORGANIZATION_TYPES_SETTING = 'directory_organization_types'
+
+
+def _organization_type_options(extra=()):
+    """Возвращает общий справочник типов предприятий без дублей."""
+    stored = _safe_json(Setting.get(ORGANIZATION_TYPES_SETTING, '[]'), [])
+    values = list(DEFAULT_ORGANIZATION_TYPES)
+    if isinstance(stored, list):
+        values.extend(stored)
+    values.extend(extra or [])
+    result = []
+    seen = set()
+    for value in values:
+        value = str(value or '').strip()[:80]
+        key = value.casefold()
+        if value and key not in seen:
+            result.append(value)
+            seen.add(key)
+    return result
+
+
 def _snapshot_changes(company, normalized):
     fields = {
         'Наименование': ('full_name', 'full_name'),
@@ -2406,6 +2428,7 @@ def directory_company_new():
             name = form.get('name', '').strip()[:255]
             full_name = form.get('full_name', '').strip()
             kpp = clean_identifier(form.get('kpp'), (9,))
+            is_rso = form.get('is_rso') == '1'
             if not name:
                 error = 'Укажите внутреннее отображаемое имя предприятия.'
             else:
@@ -2425,7 +2448,10 @@ def directory_company_new():
                         kpp=kpp, internal_code=form.get('internal_code', '').strip()[:80],
                         address=form.get('address', '').strip(),
                         legal_address=form.get('address', '').strip(),
-                        is_rso=form.get('is_rso') == '1',
+                        is_rso=is_rso,
+                        classifications_json=json.dumps({
+                            'organization_types': ['РСО'] if is_rso else [],
+                        }, ensure_ascii=False),
                         note=form.get('note', '').strip(),
                         identity_key=company_identity_key(inn, ogrn, kpp),
                         status='active', created_by=current_user.id,
@@ -2476,6 +2502,20 @@ def directory_company_new():
 @login_required
 def directory_company_profile(company_id):
     company = _require_company_access(company_id)
+    classifications = company.classifications
+    if not isinstance(classifications, dict):
+        classifications = {}
+    organization_types = classifications.get('organization_types', [])
+    if not isinstance(organization_types, list):
+        organization_types = []
+    organization_types = [
+        str(value).strip()[:80] for value in organization_types
+        if str(value or '').strip()
+    ]
+    if company.is_rso and not any(
+            value.casefold() == 'рсо' for value in organization_types):
+        organization_types.insert(0, 'РСО')
+    organization_type_options = _organization_type_options(organization_types)
     snapshots = CompanyDadataSnapshot.query.filter_by(company_id=company_id)\
         .order_by(CompanyDadataSnapshot.received_at.desc()).limit(20).all()
     latest = snapshots[0] if snapshots else None
@@ -2530,6 +2570,8 @@ def directory_company_profile(company_id):
         })
     return render_template(
         'directory_company_profile.html', company=company, snapshots=snapshots,
+        organization_types=organization_types,
+        organization_type_options=organization_type_options,
         latest=latest, latest_normalized=latest_normalized,
         profile_normalized=profile_normalized, extended=extended_data,
         license_rows=license_rows,
@@ -2562,7 +2604,34 @@ def directory_company_edit(company_id):
     company.internal_code = request.form.get('internal_code', '').strip()[:80]
     if not company.internal_code:
         company.internal_code = str(company.id)
-    company.is_rso = request.form.get('is_rso') == '1'
+    submitted_types = []
+    seen_types = set()
+    for value in request.form.getlist('organization_types'):
+        value = value.strip()[:80]
+        key = value.casefold()
+        if value and key not in seen_types:
+            submitted_types.append(value)
+            seen_types.add(key)
+    new_type = request.form.get('new_organization_type', '').strip()[:80]
+    if new_type and new_type.casefold() not in seen_types:
+        submitted_types.append(new_type)
+        seen_types.add(new_type.casefold())
+    if not submitted_types and request.form.get('is_rso') == '1':
+        submitted_types = ['РСО']
+    stored_types = _organization_type_options()
+    stored_types_changed = False
+    for value in submitted_types:
+        if not any(existing.casefold() == value.casefold()
+                   for existing in stored_types):
+            stored_types.append(value)
+            stored_types_changed = True
+    if stored_types_changed:
+        Setting.set(
+            ORGANIZATION_TYPES_SETTING,
+            json.dumps(stored_types, ensure_ascii=False),
+        )
+    company.is_rso = any(value.casefold() == 'рсо'
+                         for value in submitted_types)
     company.note = request.form.get('note', '').strip()
     company.director_phone = request.form.get('director_phone', '').strip()[:100]
     company.accountant_name = request.form.get('accountant_name', '').strip()[:255]
@@ -2570,13 +2639,15 @@ def directory_company_edit(company_id):
     company.classifications_json = json.dumps({
         'ownership': request.form.get('ownership', '').strip()[:100],
         'sector': request.form.get('sector', '').strip()[:100],
+        'organization_types': submitted_types,
     }, ensure_ascii=False)
     company.profile_version = (company.profile_version or 0) + 1
     db.session.commit()
     log_event('directory_company_updated', {
         'company_id': company.id, 'before': old,
         'after': {'name': company.name, 'internal_code': company.internal_code,
-                  'is_rso': company.is_rso},
+                  'is_rso': company.is_rso,
+                  'organization_types': submitted_types},
     })
     return redirect(url_for('directory_company_profile', company_id=company.id))
 
@@ -2824,11 +2895,22 @@ def directory_companies_api():
 @login_required
 def directory_company_profile_api(company_id):
     company = _require_company_access(company_id)
+    classifications = company.classifications
+    if not isinstance(classifications, dict):
+        classifications = {}
+    organization_types = classifications.get('organization_types', [])
+    if not isinstance(organization_types, list):
+        organization_types = []
+    if company.is_rso and not any(
+            str(value).casefold() == 'рсо' for value in organization_types):
+        organization_types.insert(0, 'РСО')
     return jsonify({
         'company_id': company.id,
         'internal': {
             'name': company.name, 'internal_code': company.internal_code or '',
-            'is_rso': bool(company.is_rso), 'note': company.note or '',
+            'is_rso': bool(company.is_rso),
+            'organization_types': organization_types,
+            'note': company.note or '',
             'status': company.status or 'active',
         },
         'official': {
@@ -3501,6 +3583,17 @@ def init_db():
             _company_conn.execute(_text_docs(
                 "UPDATE companies SET internal_code = CAST(id AS VARCHAR(80)) "
                 "WHERE COALESCE(TRIM(internal_code), '') = ''"))
+        for _company in Company.query.order_by(Company.id).all():
+            _classifications = _safe_json(_company.classifications_json, {})
+            if not isinstance(_classifications, dict):
+                _classifications = {}
+            _types = _classifications.get('organization_types')
+            if not isinstance(_types, list):
+                _types = []
+            if not _types and _company.is_rso:
+                _classifications['organization_types'] = ['РСО']
+                _company.classifications_json = json.dumps(
+                    _classifications, ensure_ascii=False)
         # Канонический ключ и совместимый scope для существующих установок.
         existing_keys = set()
         for _company in Company.query.order_by(Company.id).all():

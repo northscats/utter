@@ -266,6 +266,42 @@ check('типы руководителей и органов переведен�
       and 'Пенсионный фонд' in body
       and 'EMPLOYEE' not in body
       and 'fts_registration' not in body)
+check('тип предприятия выбирается во всплывающем мультиселекте',
+      'class="organization-type-picker"' in body
+      and 'name="organization_types"' in body
+      and 'id="new-organization-type"' in body
+      and '>РСО<' in body
+      and '>УК<' in body
+      and '>ТСЖ<' in body)
+
+type_update = client.post(
+    f'/directories/companies/{company_id}/edit',
+    data={
+        'name': 'Внутреннее имя',
+        'internal_code': str(company_id),
+        'sector': 'тепло',
+        'organization_types': ['РСО', 'УК'],
+        'new_organization_type': 'ЖСК',
+    })
+check('несколько типов предприятия сохраняются',
+      type_update.status_code == 302)
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    check('типы и совместимый признак РСО сохранены',
+          set(company.classifications.get('organization_types', []))
+          == {'РСО', 'УК', 'ЖСК'}
+          and company.is_rso)
+    check('новый тип добавлен в общий справочник',
+          'ЖСК' in Setting.get('directory_organization_types', ''))
+updated_profile = client.get(
+    f'/directories/companies/{company_id}').get_data(as_text=True)
+check('созданный тип отображается в карточке',
+      'ЖСК' in updated_profile and 'РСО, УК, ЖСК' in updated_profile)
+profile_api = client.get(
+    f'/api/companies/{company_id}/profile').get_json()
+check('API возвращает несколько типов предприятия',
+      set(profile_api['internal']['organization_types'])
+      == {'РСО', 'УК', 'ЖСК'})
 
 # Сбой не удаляет последний успешный снимок и не раскрывает токен.
 with patch('dadata_client.find_party', side_effect=DaDataError('DaData недоступна')):
