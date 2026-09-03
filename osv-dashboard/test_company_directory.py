@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,8 +14,9 @@ os.environ['ENCRYPTION_KEY'] = (
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, encrypt_value, init_db
-from database import (AuditLog, Company, CompanyContact, CompanyDadataSnapshot,
-                      CompanyMembership, CompanyOkved, Setting, User,
+from database import (AiSummary, AuditLog, Company, CompanyContact,
+                      CompanyDadataSnapshot, CompanyMembership, CompanyOkved,
+                      DailyRow, EmailRule, Setting, Upload, User,
                       UserModuleAccess, db)
 from dadata_client import DaDataError, find_party
 
@@ -299,6 +301,16 @@ check('чужое предприятие не видно в каталоге',
 # Архивирование сохраняет запись и все связи.
 login_as(client, admin_id)
 client.post(f'/directories/companies/{company_id}/archive', data={'archive': '1'})
+default_directory = client.get('/directories/companies').get_data(as_text=True)
+archived_directory = client.get(
+    '/directories/companies?status=archived').get_data(as_text=True)
+all_directory = client.get(
+    '/directories/companies?status=all').get_data(as_text=True)
+company_profile_path = f'/directories/companies/{company_id}'
+check('архивные предприятия по умолчанию скрыты',
+      company_profile_path not in default_directory
+      and company_profile_path in archived_directory
+      and company_profile_path in all_directory)
 blocked_write = client.post(
     f'/directories/companies/{company_id}/edit',
     data={'name': 'Не должно сохраниться'})
@@ -326,5 +338,102 @@ try:
 except DaDataError:
     exact_rejected = True
 check('поиск без точного ИНН/ОГРН отклонён до сети', exact_rejected)
+
+# Полное удаление разрешено только администратору, только после архивирования
+# и удаляет записи без каскадных внешних ключей.
+with app.app_context():
+    deletion_company_name = db.session.get(Company, company_id).name
+check('действующее предприятие нельзя удалить полностью',
+      client.post(
+          f'/directories/companies/{company_id}/delete',
+          data={'confirmation_name': deletion_company_name}).status_code == 409)
+client.post(f'/directories/companies/{company_id}/archive', data={'archive': '1'})
+archived_profile = client.get(
+    f'/directories/companies/{company_id}').get_data(as_text=True)
+check('кнопка полного удаления видна в архивной карточке',
+      'Удалить полностью' in archived_profile
+      and 'name="confirmation_name"' in archived_profile)
+login_as(client, user_id)
+non_admin_delete = client.post(
+    f'/directories/companies/{company_id}/delete',
+    data={'confirmation_name': deletion_company_name})
+check(f'обычный пользователь не может удалить предприятие '
+      f'(HTTP {non_admin_delete.status_code})',
+      non_admin_delete.status_code == 403)
+login_as(client, admin_id)
+check('для удаления нужно точное название предприятия',
+      client.post(
+          f'/directories/companies/{company_id}/delete',
+          data={'confirmation_name': 'Тест'}).status_code == 400)
+with app.app_context():
+    db.session.add_all([
+        EmailRule(company_id=company_id, sender_pattern='delete@example.test'),
+        Upload(company_id=company_id, uploaded_by=admin_id),
+        AiSummary(company_id=company_id, content='delete me'),
+        DailyRow(company_id=company_id, date=date(2026, 9, 3), acc='51'),
+    ])
+    db.session.commit()
+delete_response = client.post(
+    f'/directories/companies/{company_id}/delete',
+    data={'confirmation_name': deletion_company_name})
+check(f'полное удаление возвращает в справочник '
+      f'(HTTP {delete_response.status_code}, '
+      f'{delete_response.headers.get("Location", "без Location")})',
+      delete_response.status_code == 302
+      and 'deleted=1' in delete_response.headers.get('Location', ''))
+with app.app_context():
+    check('предприятие и связанные данные удалены полностью',
+          db.session.get(Company, company_id) is None
+          and EmailRule.query.filter_by(company_id=company_id).count() == 0
+          and Upload.query.filter_by(company_id=company_id).count() == 0
+          and AiSummary.query.filter_by(company_id=company_id).count() == 0
+          and DailyRow.query.filter_by(company_id=company_id).count() == 0
+          and CompanyMembership.query.filter_by(company_id=company_id).count() == 0)
+    check('полное удаление записано в аудит',
+          AuditLog.query.filter_by(
+              action='directory_company_deleted').count() == 1)
+
+# Ошибка очистки файлов сохраняется как долговечная задача и повторяется.
+with app.app_context():
+    cleanup_company = Company(
+        name='Предприятие для проверки очистки',
+        created_by=admin_id,
+        status='archived',
+    )
+    db.session.add(cleanup_company)
+    db.session.commit()
+    cleanup_company_id = cleanup_company.id
+app.config['WTF_CSRF_ENABLED'] = True
+csrf_rejected = client.post(
+    f'/directories/companies/{cleanup_company_id}/delete',
+    data={'confirmation_name': 'Предприятие для проверки очистки'})
+app.config['WTF_CSRF_ENABLED'] = False
+check(f'полное удаление защищено CSRF (HTTP {csrf_rejected.status_code})',
+      csrf_rejected.status_code == 403)
+with app.app_context():
+    check('CSRF-ошибка не удаляет предприятие',
+          db.session.get(Company, cleanup_company_id) is not None)
+with patch('app._remove_company_storage',
+           return_value=['uploads:PermissionError']):
+    cleanup_response = client.post(
+        f'/directories/companies/{cleanup_company_id}/delete',
+        data={'confirmation_name': 'Предприятие для проверки очистки'})
+check('ошибка очистки файлов не маскируется полным успехом',
+      cleanup_response.status_code == 302
+      and 'cleanup=pending' in cleanup_response.headers.get('Location', ''))
+with app.app_context():
+    check('незавершённая очистка сохранена для повтора',
+          db.session.get(Company, cleanup_company_id) is None
+          and AuditLog.query.filter_by(
+              action='directory_company_delete_cleanup_pending').count() == 1)
+client.get('/directories/companies')
+with app.app_context():
+    cleanup_audit = AuditLog.query.filter(
+        AuditLog.details.contains(
+            f'"company_id": {cleanup_company_id}')).order_by(
+                AuditLog.id.desc()).first()
+    check('очистка файлов автоматически повторяется',
+          cleanup_audit is not None
+          and cleanup_audit.action == 'directory_company_deleted')
 
 print('\nВСЕ ТЕСТЫ СПРАВОЧНИКА ПРЕДПРИЯТИЙ ПРОЙДЕНЫ')

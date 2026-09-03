@@ -2,6 +2,7 @@
 """ОСВ Дашборд — веб-приложение с PostgreSQL, авторизацией и мультипредприятием."""
 import json
 import os
+import shutil
 from datetime import datetime, timezone
 import re
 import time
@@ -176,7 +177,11 @@ def _enforce_module_access():
             request.path.endswith('/archive')
             and current_user.is_admin
             and request.form.get('archive') == '0')
-        if company and company.is_archived and not is_restore:
+        is_permanent_delete = (
+            request.path.startswith('/directories/companies/')
+            and request.path.endswith('/delete'))
+        if (company and company.is_archived
+                and not (is_restore or is_permanent_delete)):
             abort(409, description='Архивное предприятие доступно только для чтения')
 
 
@@ -2253,15 +2258,17 @@ def _snapshot_changes(company, normalized):
 @app.route('/directories/companies')
 @login_required
 def directory_companies():
+    if current_user.is_admin:
+        _retry_pending_company_storage_cleanup()
     q = request.args.get('q', '').strip()[:200]
-    status_filter = request.args.get('status', '').strip()
+    status_filter = request.args.get('status', 'active').strip()
     fill_filter = request.args.get('fill', '').strip()
     sort = request.args.get('sort', 'name').strip()
     requested_page = max(request.args.get('page', 1, type=int) or 1, 1)
     per_page = min(max(request.args.get('per_page', 25, type=int) or 25, 1), 100)
 
-    if status_filter not in ('active', 'archived'):
-        status_filter = ''
+    if status_filter not in ('active', 'archived', 'all'):
+        status_filter = 'active'
     if fill_filter not in ('full', 'partial'):
         fill_filter = ''
     if sort not in ('name', 'updated'):
@@ -2285,7 +2292,7 @@ def directory_companies():
             func.coalesce(Company.ogrn, '').ilike(pattern, escape='\\'),
             func.coalesce(Company.internal_code, '').ilike(pattern, escape='\\'),
         ))
-    if status_filter:
+    if status_filter != 'all':
         query = query.filter(Company.status == status_filter)
 
     has_name = func.length(func.trim(func.coalesce(Company.name, ''))) > 0
@@ -2366,6 +2373,8 @@ def directory_companies():
             'end': page_end,
         },
         page_numbers=page_numbers,
+        deleted=request.args.get('deleted') == '1',
+        cleanup_pending=request.args.get('cleanup') == 'pending',
     )
 
 
@@ -2574,6 +2583,134 @@ def directory_company_archive(company_id):
     log_event('company_archived' if company.is_archived else 'company_restored',
               {'company_id': company.id})
     return redirect(url_for('directory_company_profile', company_id=company.id))
+
+
+def _delete_company_records(company):
+    """Удаляет предприятие и все ссылающиеся на него записи одной транзакцией."""
+    company_id = company.id
+    deleted_counts = {}
+    dependent_models = (
+        EmailRule,
+        AiSummary,
+        DailyRow,
+        Upload,
+        CompanyMembership,
+        CompanyContact,
+        CompanyDadataProfile,
+        CompanyDadataSnapshot,
+        CompanyOkved,
+        CompanyLicense,
+        CompanyFinance,
+    )
+    for model in dependent_models:
+        deleted_counts[model.__tablename__] = model.query.filter_by(
+            company_id=company_id).delete(synchronize_session=False)
+    db.session.delete(company)
+    return deleted_counts
+
+
+def _remove_company_storage(company_id):
+    """Удаляет только каталоги конкретного предприятия в разрешённых корнях."""
+    errors = []
+    for root in (UPLOADS, OUTPUT):
+        root_path = os.path.realpath(root)
+        target = os.path.realpath(os.path.join(root_path, str(int(company_id))))
+        if os.path.commonpath((root_path, target)) != root_path:
+            errors.append(f'unsafe_path:{os.path.basename(root_path)}')
+            continue
+        try:
+            shutil.rmtree(target)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            errors.append(f'{os.path.basename(root_path)}:{type(exc).__name__}')
+    return errors
+
+
+def _retry_pending_company_storage_cleanup(limit=10):
+    """Повторяет незавершённую очистку файлов по долговечным записям аудита."""
+    pending_actions = (
+        'directory_company_delete_pending',
+        'directory_company_delete_cleanup_pending',
+    )
+    try:
+        rows = AuditLog.query.filter(
+            AuditLog.action.in_(pending_actions)
+        ).order_by(AuditLog.id.asc()).limit(limit).all()
+        for row in rows:
+            details = _safe_json(row.details)
+            company_id = details.get('company_id')
+            if not isinstance(company_id, int):
+                continue
+            errors = _remove_company_storage(company_id)
+            details['storage_cleanup_errors'] = errors
+            details['storage_cleanup_status'] = (
+                'pending' if errors else 'complete')
+            details['storage_cleanup_attempts'] = int(
+                details.get('storage_cleanup_attempts') or 0) + 1
+            row.action = (
+                'directory_company_delete_cleanup_pending'
+                if errors else 'directory_company_deleted')
+            row.details = json.dumps(details, ensure_ascii=False, default=str)
+        if rows:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+@app.route('/directories/companies/<int:company_id>/delete', methods=['POST'])
+@admin_required
+def directory_company_delete(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if not company.is_archived:
+        abort(409, description='Перед полным удалением предприятие необходимо архивировать.')
+    confirmation_name = request.form.get('confirmation_name', '').strip()
+    if confirmation_name != company.name:
+        abort(400, description='Для удаления необходимо точно ввести название предприятия.')
+
+    company_name = company.name
+    deletion_audit = AuditLog(
+        user_id=current_user.id,
+        action='directory_company_delete_pending',
+        details=json.dumps({
+            'company_id': company_id,
+            'name': company_name,
+            'storage_cleanup_status': 'pending',
+            'storage_cleanup_attempts': 0,
+        }, ensure_ascii=False),
+        ip=request.remote_addr,
+    )
+    db.session.add(deletion_audit)
+    try:
+        deleted_counts = _delete_company_records(company)
+        pending_details = _safe_json(deletion_audit.details)
+        pending_details['deleted_records'] = deleted_counts
+        deletion_audit.details = json.dumps(
+            pending_details, ensure_ascii=False, default=str)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    storage_errors = _remove_company_storage(company_id)
+    audit_details = _safe_json(deletion_audit.details)
+    audit_details['storage_cleanup_errors'] = storage_errors
+    audit_details['storage_cleanup_status'] = (
+        'pending' if storage_errors else 'complete')
+    audit_details['storage_cleanup_attempts'] = 1
+    deletion_audit.action = (
+        'directory_company_delete_cleanup_pending'
+        if storage_errors else 'directory_company_deleted')
+    deletion_audit.details = json.dumps(
+        audit_details, ensure_ascii=False, default=str)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        storage_errors = storage_errors or ['audit_status_update_failed']
+    return redirect(url_for(
+        'directory_companies', deleted='1',
+        cleanup='pending' if storage_errors else None))
 
 
 @app.route('/directories/companies/<int:company_id>/dadata/refresh', methods=['POST'])
