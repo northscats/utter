@@ -35,6 +35,11 @@ body { display: flex; flex-direction: column; }
 .hd-back:hover { color: #fff; }
 .hd-title { font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hd-controls { display: flex; align-items: center; gap: 12px; }
+.mode-switch { display:flex; background:rgba(0,0,0,.25); padding:3px; border-radius:6px; }
+.mode-link { color:#cbd5e1; text-decoration:none; font-size:12px; font-weight:600;
+  padding:4px 11px; border-radius:4px; }
+.mode-link:hover { color:#fff; background:rgba(255,255,255,.1); }
+.mode-link.active { background:#fff; color:#0f172a; }
 
 /* Profile Form */
 .profile-form { display: flex; align-items: center; gap: 8px; }
@@ -152,9 +157,17 @@ body { display: flex; flex-direction: column; }
     <div class="hd-title">{{ company.name }} — Историческая аналитика</div>
     
     <div class="hd-controls">
+        {% if executive_enabled %}
+        <div class="mode-switch" aria-label="Режим просмотра">
+            <a class="mode-link" href="{{ url_for('historical_expert', company_id=company.id, view='executive', year=selected_year, profile_key=selected_profile_key, embedded=1 if embedded else None) }}">Руководитель</a>
+            <a class="mode-link active" href="{{ url_for('historical_expert', company_id=company.id, view='expert', year=selected_year, profile_key=selected_profile_key, embedded=1 if embedded else None) }}">Эксперт</a>
+        </div>
+        {% endif %}
         {% if profiles and profiles|length > 0 %}
         <form method="POST" action="{{ url_for('historical_expert_profile', company_id=company.id) }}" class="profile-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="view" value="expert">
+            {% if selected_year %}<input type="hidden" name="year" value="{{ selected_year }}">{% endif %}
             {% if request.args.get('embedded') %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
@@ -394,6 +407,7 @@ var availableYears = [
     {% for y in analytics.years %}'{{ y }}'{% if not loop.last %}, {% endif %}{% endfor %}
     {% endif %}
 ];
+var selectedYear = {{ selected_year | tojson }};
 
 function escapeHTML(str) {
     if (str === null || str === undefined) return '';
@@ -609,6 +623,14 @@ function openTrace(el, payloadStr, yStr) {
 function closeDrawer() {
     document.getElementById('drawer').classList.remove('open');
     document.querySelectorAll('.val-cell').forEach(function(c) { c.style.outline = 'none'; });
+}
+
+if (selectedYear) {
+    document.querySelectorAll('.yc-chk').forEach(function(c) {
+        c.checked = (c.value === String(selectedYear));
+        toggleYear(c.value, c.checked);
+    });
+    syncRangeSelects();
 }
 </script>
 </body>

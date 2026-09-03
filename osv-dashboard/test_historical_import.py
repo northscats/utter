@@ -151,8 +151,12 @@ with app.app_context():
     ))
     db.session.commit()
     from historical_analytics import build_expert_analytics
+    from historical_executive import build_executive_summary
     methodical = build_expert_analytics(company_id, "methodical")
     osv_control = build_expert_analytics(company_id, "osv_control")
+    executive = build_executive_summary(methodical, 2025)
+    executive_2022 = build_executive_summary(methodical, 2022)
+    executive_conflict = build_executive_summary(osv_control, 2025)
     check("чекпоинт охватывает все 15 тематических разделов",
           len(methodical["sections"]) == 15
           and {section["key"] for section in methodical["sections"]}
@@ -223,7 +227,42 @@ with app.app_context():
     check("модели банкротства представлены отдельными дорожками",
           [lane["key"] for lane in methodical["bankruptcy_models"]]
           == ["altman", "taffler", "saifullin"])
-expert_page = client.get(f"/company/{company_id}/historical/expert")
+    check("руководительский чекпоинт строит восемь KPI за 2022–2025",
+          executive["years"] == [2022, 2023, 2024, 2025]
+          and executive["year"] == 2025
+          and len(executive["cards"]) == 8
+          and [card["title"] for card in executive["cards"]][:3]
+          == ["Выручка", "Прибыль от продаж", "EBIT / покрытие процентов"])
+    check("карточки содержат норму, медиану, источник и компактную динамику",
+          all(
+              {"trend", "norm_label", "median_delta", "source", "sparkline"}
+              <= set(card)
+              for card in executive["cards"])
+          and any(card["sparkline"] for card in executive["cards"]))
+    check("медиана раннего года не использует будущие значения",
+          executive_2022["cards"][0]["median_delta"] == "+0,0%")
+    check("сигналы ограничены пятью и конфликт источников прозрачен",
+          len(executive_conflict["signals"]) <= 5
+          and any(
+              signal["label"] == "Конфликт источников"
+              for signal in executive_conflict["signals"]))
+executive_page = client.get(f"/company/{company_id}/historical/expert")
+executive_body = executive_page.get_data(as_text=True)
+check("руководительский режим является начальным и сохраняет выбранный год",
+      executive_page.status_code == 200
+      and "Резюме руководителя" in executive_body
+      and "Главное за 2025 год" in executive_body
+      and "view=expert" in executive_body
+      and "year=2025" in executive_body)
+embedded_page = client.get(
+    f"/company/{company_id}/historical/expert?embedded=1&year=2024")
+embedded_body = embedded_page.get_data(as_text=True)
+check("встроенный режим сохраняется в переключателях и фильтрах",
+      embedded_page.status_code == 200
+      and "embedded=1" in embedded_body
+      and 'name="embedded" value="1"' in embedded_body)
+expert_page = client.get(
+    f"/company/{company_id}/historical/expert?view=expert&year=2025")
 expert_body = expert_page.get_data(as_text=True)
 check("экспертный экран отображает профиль, годы и проверяемые значения",
       expert_page.status_code == 200
@@ -269,6 +308,11 @@ with app.app_context():
           2023 in with_gap["years"]
           and 2023 in with_gap["missing_years"]
           and gap_metric["values_by_year"][2023]["primary"] is None)
+    gap_summary = build_executive_summary(with_gap, 2023)
+    check("при пропущенном году вывод не формируется",
+          gap_summary["year"] == 2023
+          and not gap_summary["conclusion"]["allowed"]
+          and gap_summary["quality"]["label"] == "Недостаточно")
     missing_version.is_active = True
     db.session.commit()
 history_page = client.get(f"/company/{company_id}")
@@ -443,7 +487,24 @@ with app.app_context():
               company_id=company_id, year=2025, is_active=True).one().id
           == active_before)
 
-# Один переключатель возвращает прежнюю карточку и блокирует новый вход.
+# Независимый переключатель возвращает прежний экспертный начальный экран.
+with app.app_context():
+    version_count = HistoricalYearVersion.query.filter_by(
+        company_id=company_id).count()
+app.config["HISTORICAL_EXECUTIVE_ENABLED"] = False
+legacy_expert = client.get(f"/company/{company_id}/historical/expert")
+check("руководительский режим можно отключить без потери экспертного экрана",
+      legacy_expert.status_code == 200
+      and "Историческая аналитика (Эксперт)" in legacy_expert.get_data(
+          as_text=True)
+      and "Резюме руководителя" not in legacy_expert.get_data(as_text=True))
+with app.app_context():
+    check("выключение руководительского режима не меняет версии",
+          HistoricalYearVersion.query.filter_by(
+              company_id=company_id).count() == version_count)
+app.config["HISTORICAL_EXECUTIVE_ENABLED"] = True
+
+# Общий переключатель исторической аналитики блокирует новый вход.
 with app.app_context():
     osv_count = Upload.query.filter_by(company_id=company_id).count()
     version_count = HistoricalYearVersion.query.filter_by(

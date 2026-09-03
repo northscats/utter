@@ -70,6 +70,9 @@ app.config['HISTORICAL_IMPORT_ENABLED'] = (
 app.config['HISTORICAL_EXPERT_ENABLED'] = (
     os.environ.get('HISTORICAL_EXPERT_ENABLED', '1').strip().lower()
     not in ('0', 'false', 'no', 'off'))
+app.config['HISTORICAL_EXECUTIVE_ENABLED'] = (
+    os.environ.get('HISTORICAL_EXECUTIVE_ENABLED', '1').strip().lower()
+    not in ('0', 'false', 'no', 'off'))
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -1623,20 +1626,39 @@ def historical_source(company_id, import_id):
 @app.route('/company/<int:company_id>/historical/expert')
 @login_required
 def historical_expert(company_id):
-    """Проверяемый экспертный экран только по действующим годовым версиям."""
+    """Руководительский и экспертный режимы действующих годовых версий."""
     _require_historical_expert()
     company = _require_company_access(company_id)
     from historical_analytics import (
         build_expert_analytics, profile_payloads, validate_profile_key)
-    profile_key = validate_profile_key(Setting.get(
-        f'historical_expert_profile:{company_id}', 'methodical'))
+    saved_profile_key = Setting.get(
+        f'historical_expert_profile:{company_id}', 'methodical')
+    profile_key = validate_profile_key(
+        request.args.get('profile_key', saved_profile_key))
     analytics = build_expert_analytics(company_id, profile_key)
+    selected_year = request.args.get('year', type=int)
+    if selected_year not in analytics['years']:
+        selected_year = max(
+            analytics['available_years'] or analytics['years'],
+            default=None)
+    executive_enabled = app.config['HISTORICAL_EXECUTIVE_ENABLED']
+    view = request.args.get('view', 'executive' if executive_enabled else 'expert')
+    if view == 'executive' and executive_enabled:
+        from historical_executive import build_executive_summary
+        summary = build_executive_summary(analytics, selected_year)
+        template_name = 'historical_executive.html'
+    else:
+        summary = None
+        template_name = 'historical_expert.html'
     response = Response(render_template(
-        'historical_expert.html',
+        template_name,
         company=company,
         analytics=analytics,
+        summary=summary,
         profiles=profile_payloads(),
         selected_profile_key=profile_key,
+        selected_year=selected_year,
+        executive_enabled=executive_enabled,
         embedded=request.args.get('embedded') == '1',
     ), mimetype='text/html')
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
@@ -1663,6 +1685,12 @@ def historical_expert_profile(company_id):
     target = {'company_id': company_id}
     if request.form.get('embedded') == '1':
         target['embedded'] = '1'
+    if request.form.get('view') in ('executive', 'expert'):
+        target['view'] = request.form['view']
+    selected_year = request.form.get('year', type=int)
+    if selected_year:
+        target['year'] = selected_year
+    target['profile_key'] = profile_key
     return redirect(url_for('historical_expert', **target))
 
 
