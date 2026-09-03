@@ -12,8 +12,9 @@ from urllib.parse import urlparse
 import threading
 
 import bcrypt
-from flask import (Flask, Response, abort, jsonify, redirect, render_template,
-                   request, send_from_directory, url_for)
+from flask import (Flask, Response, abort, g, has_request_context, jsonify,
+                   redirect, render_template, request, send_from_directory,
+                   url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
@@ -30,6 +31,7 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        CompanyFinance, CompanyLicense, CompanyMembership,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
+                       HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, Setting, Upload, User,
                        UserModuleAccess, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
@@ -49,6 +51,67 @@ DOCS_STORAGE = os.path.join(BASE, 'uploads', 'docs')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 os.makedirs(DOCS_STORAGE, exist_ok=True)
+
+_DURABLE_MODELS = (
+    User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
+    HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
+)
+
+
+def _durable_backup(reason, allow_removals=False, required=False):
+    """A backup failure must be visible, but cannot undo a committed upload."""
+    if has_request_context():
+        g.durable_backup_done = True
+    if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
+        return
+    from durable_data import backup
+    try:
+        result = backup(
+            db, UPLOADS, OUTPUT, _DURABLE_MODELS, reason,
+            allow_removals=allow_removals)
+        if not result['promoted'] and result['shrink_rejected']:
+            message = (
+                f'{reason}: latest не обновлён из-за уменьшения таблиц: '
+                f'{", ".join(result["shrink_rejected"])}')
+            app.logger.error('durable backup rejected: %s', message)
+            Setting.set('durable_backup_error', message)
+            db.session.commit()
+        elif result.get('superseded'):
+            app.logger.info(
+                'durable backup superseded by a newer snapshot after %s',
+                reason)
+        app.logger.info('durable backup completed after %s: %s', reason, result)
+        return result
+    except Exception as exc:
+        app.logger.exception('durable backup failed after %s', reason)
+        try:
+            Setting.set('durable_backup_error', f'{reason}: {exc}')
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('could not record durable backup error')
+        if required:
+            raise
+        return None
+
+
+def _durable_restore():
+    """Merge durable data after schema creation; never block application start."""
+    if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
+        return
+    from durable_data import restore
+    try:
+        result = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
+        app.logger.info('durable restore completed: %s', result)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('durable restore failed')
+        try:
+            Setting.set('durable_restore_error', str(exc))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('could not record durable restore error')
 
 # Обязательный набор счетов ОСВ (17 счетов) — для оценки комплектности
 REQUIRED_ACCOUNTS = [20, 26, 44, 50, 51, 52, 55, 60, 62, 66, 67, 68, 69, 70, 76, 90, 91]
@@ -93,6 +156,16 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 csrf = CSRFProtect(app)
+
+
+@app.after_request
+def _durable_mutation_safety_net(response):
+    """Capture successful user mutations not covered by an explicit backup."""
+    if (request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
+            and response.status_code < 400
+            and not getattr(g, 'durable_backup_done', False)):
+        _durable_backup(f'http_{request.method.lower()}:{request.endpoint or "unknown"}')
+    return response
 _LOGIN_CSRF = URLSafeTimedSerializer(
     app.secret_key, salt='login-csrf-v1')
 
@@ -731,6 +804,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             )
                             db.session.add(_up)
                             db.session.commit()
+                            _durable_backup('IMAP ZIP ОСВ')
                             stats['files_processed'] += len(extracted_xls)
                         else:  # XLS / XLSX
                             is_daily = _is_daily_xls(path)
@@ -798,6 +872,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             )
                             db.session.add(_up)
                             db.session.commit()
+                            _durable_backup('IMAP ОСВ')
                             stats['files_processed'] += 1
                     except Exception as exc:
                         stats['errors'].append(f"{os.path.basename(path)}: {exc}")
@@ -902,6 +977,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
 
                 _upsert_daily_rows(company_id, full_xls + daily_xls)
                 db.session.commit()
+                _durable_backup('суточные строки background ОСВ')
 
                 if full_xls:
                     data_check, _ = parse_many(full_xls)
@@ -942,6 +1018,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                     row.skd = top['skd']; row.skk = top['skk']
                     zip_dates.append(dt)
                 db.session.commit()
+                _durable_backup('суточные строки ZIP background ОСВ')
 
             # Cleanup staging dir
             _sh.rmtree(stage_dir, ignore_errors=True)
@@ -999,6 +1076,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             )
             db.session.add(upload)
             db.session.commit()
+            _durable_backup('ОСВ background upload')
 
             discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
             log_event('file_upload',
@@ -1018,7 +1096,6 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
                     final_paths: list, ts: str, back_url: str,
                     company_name: str, uploader_id: int) -> None:
     """Background thread: process new company files and create first Upload."""
-    import shutil as _sh
     with app.app_context():
         try:
             record_kwargs, audit = _process_files(
@@ -1026,14 +1103,6 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
                 company_name=company_name)
             if record_kwargs is None:
                 fail_job(job_id, 'Ни один файл не удалось разобрать как ОСВ 1С')
-                # Remove the empty company record so the user can retry
-                _sh.rmtree(final_dir, ignore_errors=True)
-                co = db.session.get(Company, company_id)
-                if co:
-                    DailyRow.query.filter_by(company_id=company_id).delete()
-                    Upload.query.filter_by(company_id=company_id).delete()
-                    db.session.delete(co)
-                    db.session.commit()
                 return
 
             _upsert_daily_rows(company_id, final_paths)
@@ -1041,6 +1110,7 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
                             source='manual', **record_kwargs)
             db.session.add(upload)
             db.session.commit()
+            _durable_backup('первый ОСВ предприятия')
 
             log_event('company_created',
                       {'company_id': company_id, 'name': company_name},
@@ -1411,6 +1481,7 @@ def company_new():
     final_paths = [os.path.join(final_dir, os.path.basename(p)) for p in tmp_paths]
 
     db.session.commit()  # commit company before starting thread
+    _durable_backup('создание предприятия с исходными ОСВ')
     log_event('company_new_started', {'name': org_name, 'company_id': company.id})
 
     # Запускаем обработку в фоне
@@ -1591,6 +1662,7 @@ def historical_preview_upload(company_id):
         return redirect(url_for(
             'company_detail', company_id=company_id,
             historical_error=str(exc)))
+    _durable_backup('предпросмотр годовой отчётности')
     log_event('historical_import_previewed', {
         'company_id': company_id,
         'import_id': attempt.id,
@@ -1633,6 +1705,7 @@ def historical_confirm(company_id, import_id):
         return redirect(url_for(
             'company_detail', company_id=company_id,
             historical_preview=import_id, historical_error=message))
+    _durable_backup('активация годовой отчётности')
     log_event('historical_import_activated', {
         'company_id': company_id,
         'import_id': import_id,
@@ -1660,6 +1733,7 @@ def historical_cancel(company_id, import_id):
         return redirect(url_for(
             'company_detail', company_id=company_id,
             historical_preview=import_id, historical_error=str(exc)))
+    _durable_backup('отмена годового предпросмотра', allow_removals=True)
     log_event('historical_import_cancelled', {
         'company_id': company_id, 'import_id': import_id})
     return redirect(url_for('company_detail', company_id=company_id))
@@ -1776,6 +1850,7 @@ def historical_version_activate(company_id, version_id):
             historical_error=(
                 'Версия была одновременно изменена другим пользователем. '
                 'Обновите страницу и повторите действие.')))
+    _durable_backup('переключение годовой версии')
     log_event('historical_version_activated', {
         'company_id': company_id,
         'year': version.year,
@@ -2105,6 +2180,7 @@ def company_upload_all(company_id):
     )
     db.session.add(upload)
     db.session.commit()
+    _durable_backup('ОСВ upload')
 
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
@@ -2295,6 +2371,7 @@ def company_upload_zip(company_id):
         row.skd = top['skd']; row.skk = top['skk']
         upserted += 1
     db.session.commit()
+    _durable_backup('суточные строки ZIP ОСВ')
 
     # Пересобираем дашборд (месячные данные + новые суточные)
     back_url = url_for('company_detail', company_id=company_id)
@@ -2342,6 +2419,7 @@ def company_upload_zip(company_id):
     )
     db.session.add(upload)
     db.session.commit()
+    _durable_backup('суточный ZIP ОСВ')
 
     audit_out += [{'file': f'{item["date"]} сч.{item["parsed"]["acc"]}',
                    'acc': item['parsed']['acc'], 'status': 'добавлен', 'ok': True}
@@ -2519,6 +2597,7 @@ def company_regen(company_id):
             f.write(html)
         _save_kpi_cache(dataset, out_dir)
         log_event('dashboard_regen', {'company_id': company_id})
+        _durable_backup('пересборка дашборда')
     return redirect(url_for('company_detail', company_id=company_id))
 
 
@@ -3139,6 +3218,7 @@ def directory_company_delete(company_id):
     except Exception:
         db.session.rollback()
         storage_errors = storage_errors or ['audit_status_update_failed']
+    _durable_backup('полное удаление предприятия', allow_removals=True)
     return redirect(url_for(
         'directory_companies', deleted='1',
         cleanup='pending' if storage_errors else None))
@@ -3878,6 +3958,9 @@ def users_set_companies(user_id):
 def init_db():
     with app.app_context():
         db.create_all()
+        # Safe merge recovery precedes hand-written migrations. Existing rows
+        # always win; only missing protected data and files are restored.
+        _durable_restore()
         # Миграция: новые колонки парсера документов и ИИ-провайдера.
         # Диалектобезопасно: колонки добавляются только если их нет
         # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
@@ -4191,6 +4274,11 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             print('Создан пользователь admin / admin123 — смените пароль!')
+        if not app.config.get('TESTING'):
+            from durable_data import has_snapshot
+            _durable_backup(
+                'первичный снимок после запуска',
+                required=not has_snapshot())
 
 
 def _dataset_closure_status(dataset):

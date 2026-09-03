@@ -9,3 +9,4 @@
 - [Preview login CSRF](preview-login-csrf.md) — прокси preview может разделять cookie-сессии GET/POST формы входа; CSRF остальных POST остаётся включённым
 - [Повторная нормализация DaData](dadata-renormalization.md) — при повторном принятии снимка строить профиль из сырого ответа, а не из устаревшего normalized JSON
 - [Полное удаление предприятия](company-permanent-deletion.md) — удаление из БД атомарно с аудитом; очистка файлов имеет долговечный pending-статус и повтор
+- [Защита ОСВ и годовых данных](durable-osv-backups.md) — нужен независимый App Storage snapshot; восстановление только добавляет отсутствующее и не затирает текущее

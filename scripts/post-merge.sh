@@ -1,4 +1,9 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
 pnpm install --frozen-lockfile
-pnpm --filter db push
+uv sync --frozen --inexact
+python -m py_compile \
+  osv-dashboard/app.py \
+  osv-dashboard/durable_data.py \
+  osv-dashboard/historical_service.py

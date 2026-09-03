@@ -13,3 +13,4 @@ pdfplumber>=0.11
 pytesseract>=0.3
 Pillow>=10.0
 opencv-python-headless>=4.10
+google-cloud-storage>=3.13.1
