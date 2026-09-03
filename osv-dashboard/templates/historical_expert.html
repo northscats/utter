@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Историческая аналитика (Эксперт) — {{ company.name }}</title>
+<style>
+/* CSS Reset and Variables */
+:root {
+  --ink: #0f172a;
+  --mut: #64748b;
+  --paper: #f8fafc;
+  --panel: #ffffff;
+  --line: #cbd5e1;
+  --ok: #059669;
+  --bad: #e11d48;
+  --warn: #d97706;
+  --neutral: #94a3b8;
+  --accent: #0ea5e9;
+  
+  --bg-dark: #1e293b;
+  --border-light: #e2e8f0;
+  --row-hover: #f1f5f9;
+  
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Courier New', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: var(--font-sans); color: var(--ink); background: var(--paper); }
+body { display: flex; flex-direction: column; }
+
+/* Header */
+.hd { height: 46px; background: linear-gradient(to bottom, #1e293b, #0f172a); color: #fff; display: flex; align-items: center; padding: 0 16px; flex-shrink: 0; z-index: 100; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+.hd-back { color: #94a3b8; text-decoration: none; display: flex; align-items: center; gap: 6px; margin-right: 16px; font-weight: 600; transition: color 0.15s; }
+.hd-back:hover { color: #fff; }
+.hd-title { font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hd-controls { display: flex; align-items: center; gap: 12px; }
+
+/* Profile Form */
+.profile-form { display: flex; align-items: center; gap: 8px; }
+.profile-label { color: #94a3b8; font-size: 12px; }
+.profile-select { background: #334155; color: #fff; border: 1px solid #475569; border-radius: 4px; padding: 4px 8px; font-size: 12px; outline: none; cursor: pointer; transition: border-color 0.15s; max-width: 200px; text-overflow: ellipsis; }
+.profile-select:focus, .profile-select:hover { border-color: var(--accent); }
+
+/* Main Area */
+.main-area { display: flex; flex: 1; overflow: hidden; }
+
+/* Sidebar */
+.sidebar { width: 260px; background: var(--paper); border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; z-index: 10; }
+.sb-section { padding: 12px 16px; border-bottom: 1px solid var(--border-light); }
+.sb-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em; margin-bottom: 10px; }
+
+.search-input { width: 100%; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-size: 12px; outline: none; transition: all 0.15s; color: var(--ink); }
+.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(14,165,233,0.15); }
+
+.nav-btn { display: block; width: 100%; text-align: left; background: transparent; border: none; padding: 6px 8px; font-size: 12px; color: var(--ink); border-radius: 4px; cursor: pointer; margin-bottom: 2px; transition: background 0.1s; }
+.nav-btn:hover { background: #e2e8f0; }
+.nav-btn.active { background: #e0f2fe; color: #0284c7; font-weight: 600; }
+
+/* Years Controls */
+.year-controls { display: flex; flex-direction: column; gap: 10px; }
+.yc-btns { display: flex; gap: 6px; }
+.yc-btn { flex: 1; padding: 4px; background: #fff; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--mut); cursor: pointer; transition: all 0.15s; }
+.yc-btn:hover { background: #f1f5f9; color: var(--ink); }
+.yc-range { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--mut); }
+.yc-range select { flex: 1; padding: 2px 4px; font-size: 11px; border: 1px solid var(--line); border-radius: 3px; outline: none; }
+.year-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
+.year-lbl { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--ink); }
+.year-lbl input { cursor: pointer; accent-color: var(--accent); }
+
+/* Content Table */
+.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fff; }
+.table-wrap { flex: 1; overflow: auto; padding-bottom: 20px; }
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+.data-table th, .data-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-light); border-right: 1px solid var(--border-light); vertical-align: middle; }
+.data-table th { background: var(--paper); font-size: 11px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 20; }
+.data-table th::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: var(--line); }
+
+.col-metric { position: sticky; left: 0; background: #fff; z-index: 10; width: 300px; min-width: 300px; max-width: 300px; white-space: normal; box-shadow: 1px 0 0 var(--border-light); }
+.data-table th.col-metric { z-index: 30; background: var(--paper); }
+.col-norm { width: 80px; text-align: center; white-space: nowrap; }
+.col-year { min-width: 100px; text-align: right; }
+
+.metric-name { font-size: 12px; font-weight: 500; color: var(--ink); margin-bottom: 2px; line-height: 1.3; }
+.metric-formula { font-size: 10px; color: var(--mut); font-family: var(--font-mono); }
+
+/* Rows */
+.row-metric:hover td { background: var(--row-hover); }
+.row-metric:hover .col-metric { background: var(--row-hover); }
+
+.row-group td { background: #e2e8f0; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b; padding-top: 10px; padding-bottom: 10px; }
+.row-group .col-metric { background: #e2e8f0; }
+
+.row-section td { background: #f8fafc; font-weight: 600; font-size: 11px; color: #334155; }
+.row-section .col-metric { background: #f8fafc; padding-left: 20px; }
+
+/* Special Top Blocks */
+.top-blocks-container { border-bottom: 3px solid var(--border-light); margin-bottom: 1px; }
+.row-topblock-hdr td { background: #f1f5f9; font-weight: 700; font-size: 11px; text-transform: uppercase; color: #0f172a; padding: 8px 10px; }
+.row-topblock-hdr .col-metric { background: #f1f5f9; }
+.row-topblock-item td { background: #fff; }
+.row-topblock-item .col-metric { padding-left: 20px; font-weight: 500; font-size: 12px; }
+
+/* Values */
+.val-missing { height: 20px; background: repeating-linear-gradient(-45deg, transparent, transparent 4px, #f1f5f9 4px, #f1f5f9 8px); border-radius: 2px; border: 1px dashed var(--border-light); }
+.val-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 2px 4px; border-radius: 3px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; width: 100%; outline: none; }
+.val-cell:hover { background: #e0f2fe; border-color: #bae6fd; }
+.val-number { font-family: var(--font-mono); font-size: 12px; }
+
+.zone-normal .val-number { color: var(--ok); }
+.zone-outside .val-number { color: var(--bad); font-weight: 600; }
+.zone-neutral .val-number { color: var(--mut); }
+
+.icon-warn { color: var(--warn); flex-shrink: 0; }
+.icon-err { color: var(--bad); flex-shrink: 0; }
+
+/* Drawer */
+.drawer { width: 400px; background: #fff; border-left: 1px solid var(--line); display: none; flex-direction: column; flex-shrink: 0; z-index: 40; box-shadow: -4px 0 15px rgba(0,0,0,0.05); }
+.drawer.open { display: flex; }
+.drawer-hd { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; background: var(--paper); }
+.drawer-title { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ink); }
+.drawer-close { background: transparent; border: none; font-size: 18px; color: var(--mut); cursor: pointer; line-height: 1; padding: 0 4px; }
+.drawer-close:hover { color: var(--ink); }
+.drawer-body { padding: 16px; overflow-y: auto; flex: 1; }
+
+.ts-block { margin-bottom: 18px; }
+.ts-block-title { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--mut); letter-spacing: 0.05em; margin-bottom: 8px; border-bottom: 1px solid var(--border-light); padding-bottom: 4px; }
+.ts-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--border-light); font-size: 12px; }
+.ts-row:last-child { border-bottom: none; }
+.ts-lbl { color: var(--mut); flex-shrink: 0; }
+.ts-val { color: var(--ink); font-weight: 500; text-align: right; word-break: break-word; }
+.ts-val.mono { font-family: var(--font-mono); font-size: 11.5px; color: #475569; background: #f1f5f9; padding: 3px 6px; border-radius: 4px; border: 1px solid #e2e8f0; }
+
+.alert-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 12px; display: flex; gap: 8px; margin-bottom: 16px; }
+.alert-box svg { color: var(--warn); flex-shrink: 0; margin-top: 1px; }
+.alert-txt { font-size: 11px; color: #92400e; line-height: 1.4; }
+
+/* Empty state */
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--mut); }
+.empty svg { width: 48px; height: 48px; opacity: 0.3; margin-bottom: 16px; }
+.empty h3 { font-size: 16px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.empty p { font-size: 13px; max-width: 380px; text-align: center; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<header class="hd">
+    <a href="{{ url_for('company_detail', company_id=company.id) }}" class="hd-back" title="Вернуться к карточке предприятия">
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        Назад
+    </a>
+    <div class="hd-title">{{ company.name }} — Историческая аналитика</div>
+    
+    <div class="hd-controls">
+        {% if profiles and profiles|length > 0 %}
+        <form method="POST" action="{{ url_for('historical_expert_profile', company_id=company.id) }}" class="profile-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if request.args.get('embedded') %}
+            <input type="hidden" name="embedded" value="1">
+            {% endif %}
+            <label class="profile-label">Профиль:</label>
+            <select name="profile_key" onchange="this.form.submit()" class="profile-select">
+                {% for p in profiles %}
+                <option value="{{ p.key }}" {% if p.key == selected_profile_key %}selected{% endif %} title="{{ p.description }}">{{ p.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        {% endif %}
+    </div>
+</header>
+
+<div class="main-area">
+    <aside class="sidebar">
+        <div class="sb-section">
+            <input type="text" id="search-input" class="search-input" placeholder="Поиск показателя..." oninput="filterMetrics()">
+        </div>
+        
+        <div class="sb-section" style="flex:1; overflow-y:auto;">
+            <div class="sb-title">Разделы</div>
+            <nav id="group-nav">
+                <button class="nav-btn active" onclick="filterGroup('all', this)">Все группы</button>
+                {% if analytics and analytics.groups %}
+                {% for g in analytics.groups %}
+                <button class="nav-btn" onclick="filterGroup('{{ g.key }}', this)">{{ g.label }}</button>
+                {% endfor %}
+                {% endif %}
+            </nav>
+        </div>
+        
+        {% if analytics and analytics.years %}
+        <div class="sb-section">
+            <div class="sb-title">Периоды</div>
+            <div class="year-controls">
+                <div class="yc-btns">
+                    <button class="yc-btn" onclick="setYears('all')">Все</button>
+                    <button class="yc-btn" onclick="setYears('last')">Только последний</button>
+                </div>
+                <div class="yc-range">
+                    <span>От</span>
+                    <select id="year-from" onchange="applyYearRange()">
+                        {% for y in analytics.years %}
+                        <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                    <span>До</span>
+                    <select id="year-to" onchange="applyYearRange()">
+                        {% for y in analytics.years %}
+                        <option value="{{ y }}" {% if loop.last %}selected{% endif %}>{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="year-grid" id="year-checkboxes">
+                    {% for y in analytics.years %}
+                    <label class="year-lbl">
+                        <input type="checkbox" value="{{ y }}" class="yc-chk" checked onchange="toggleYear('{{ y }}', this.checked)">
+                        <span>{{ y }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </aside>
+    
+    <main class="content">
+        {% if not analytics or not analytics.years or not analytics.groups %}
+        <div class="empty">
+            <svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <h3>Нет исторических данных</h3>
+            <p>Для данного предприятия отсутствуют утвержденные загрузки или настроенные модели, необходимые для аналитики.</p>
+        </div>
+        {% else %}
+        <div class="table-wrap" id="table-wrap">
+            <table class="data-table" id="data-table">
+                <thead>
+                    <tr>
+                        <th class="col-metric">Показатель</th>
+                        <th class="col-norm">Норматив</th>
+                        {% for y in analytics.years %}
+                        <th class="col-year year-{{ y }}">{{ y }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                
+                <!-- Special Top Blocks (Rating & Bankruptcy) -->
+                <tbody class="top-blocks-container">
+                    {% if analytics.historical_rating %}
+                    <tr class="row-topblock-hdr">
+                        <td class="col-metric" title="Не входит в общий рейтинг платформы">Исторический рейтинг</td>
+                        <td class="col-norm">-</td>
+                        {% for y in analytics.years %}
+                        <td class="col-year year-{{ y }}"></td>
+                        {% endfor %}
+                    </tr>
+                    {% for rating_metric in analytics.historical_rating %}
+                    <tr class="row-topblock-item">
+                        <td class="col-metric">{{ rating_metric.label }}</td>
+                        <td class="col-norm">{{ rating_metric.norm_label or '-' }}</td>
+                        {% for y in analytics.years %}
+                            {% set r_val = rating_metric.values_by_year.get(y) %}
+                            <td class="col-year year-{{ y }}">
+                                {% if y in analytics.missing_years or not r_val or not r_val.primary or r_val.primary.missing %}
+                                    <div class="val-missing" title="Нет утвержденной версии"></div>
+                                {% else %}
+                                    {% set p = r_val.primary if r_val.primary else r_val %}
+                                    <div class="val-cell zone-{{ r_val.zone | default('neutral') }}">
+                                        <span class="val-number">{{ p.display_value }}{% if p.unit_label and p.unit_label != '—' %} {{ p.unit_label }}{% endif %}</span>
+                                    </div>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                    {% endif %}
+
+                    {% if analytics.bankruptcy_models %}
+                    <tr class="row-topblock-hdr">
+                        <td class="col-metric">Модели банкротства — без среднего балла</td>
+                        <td class="col-norm">-</td>
+                        {% for y in analytics.years %}
+                        <td class="col-year year-{{ y }}"></td>
+                        {% endfor %}
+                    </tr>
+                    {% for bm in analytics.bankruptcy_models %}
+                    {% if bm.metrics %}
+                    <tr class="row-topblock-item">
+                        <td class="col-metric">{{ bm.label }}</td>
+                        <td class="col-norm">отдельная модель</td>
+                        {% for y in analytics.years %}
+                            <td class="col-year year-{{ y }}">
+                                {% set present = namespace(items=[]) %}
+                                {% for model_metric in bm.metrics %}
+                                    {% set bm_val = model_metric.values_by_year.get(y) %}
+                                    {% if bm_val and bm_val.primary and not bm_val.primary.missing %}
+                                        {% set present.items = present.items + [bm_val.primary] %}
+                                    {% endif %}
+                                {% endfor %}
+                                {% if not present.items %}
+                                    <div class="val-missing" title="Нет утвержденной версии"></div>
+                                {% else %}
+                                    <div class="val-cell zone-neutral" title="{{ present.items|length }} знач.">
+                                        <span class="val-number">
+                                        {% for p in present.items %}
+                                            {{ p.display_value }}{% if p.unit_label and p.unit_label != '—' %} {{ p.unit_label }}{% endif %}{% if not loop.last %} · {% endif %}
+                                        {% endfor %}
+                                        </span>
+                                    </div>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+
+                <!-- Main Analytics Sections -->
+                <tbody>
+                    {% for sec in analytics.sections %}
+                        <tr class="row-section" data-group="{{ sec.group }}" id="section-{{ sec.key }}">
+                            <td class="col-metric">{{ sec.label }}</td>
+                            <td class="col-norm"></td>
+                            {% for y in analytics.years %}
+                            <td class="col-year year-{{ y }}"></td>
+                            {% endfor %}
+                        </tr>
+                        
+                        {% for m in sec.metrics %}
+                            <tr class="row-metric" data-group="{{ sec.group }}" data-search="{{ m.label | lower }}">
+                                <td class="col-metric">
+                                    <div class="metric-name">{{ m.label }}</div>
+                                    {% if m.formula %}<div class="metric-formula">{{ m.formula }}</div>{% endif %}
+                                </td>
+                                <td class="col-norm">{{ m.norm_label or '-' }}</td>
+                                
+                                {% for y in analytics.years %}
+                                    {% set val = m.values_by_year.get(y) %}
+                                    <td class="col-year year-{{ y }}">
+                                        {% if y in analytics.missing_years or not val or not val.primary or val.primary.missing %}
+                                            <div class="val-missing" title="{{ 'Нет утвержденной версии' if y in analytics.missing_years else 'Значение отсутствует в утвержденной версии' }}"></div>
+                                        {% else %}
+                                            {% set p = val.primary %}
+                                            
+                                            {% set trace_payload = {
+                                                'val': val,
+                                                'formula': m.formula,
+                                                'formula_confirmed': m.formula_confirmed,
+                                                'norm_label': m.norm_label,
+                                                'label': m.label,
+                                                'profile_name': analytics.profile.name if analytics.profile else ''
+                                            } %}
+                                            
+                                            <div class="val-cell zone-{{ val.zone | default('neutral') }}" 
+                                                 onclick="openTrace(this, '{{ trace_payload | tojson | forceescape }}', '{{ y }}')">
+                                                 <span class="val-number">{{ p.display_value }}{% if p.unit_label and p.unit_label != '—' %} {{ p.unit_label }}{% endif %}</span>
+                                                
+                                                {% if m.formula_confirmed == false %}
+                                                    <svg class="icon-warn" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" title="Формула не подтверждена"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                                {% endif %}
+                                                {% if val.discrepancy and not val.discrepancy.significant %}
+                                                    <span class="val-number" title="Есть вторичный источник; расхождение в пределах допуска">Δ</span>
+                                                {% endif %}
+                                                {% if val.discrepancy and val.discrepancy.significant %}
+                                                    <svg class="icon-err" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" title="Значительное расхождение"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </main>
+    
+    <!-- Trace Drawer -->
+    <aside class="drawer" id="drawer">
+        <div class="drawer-hd">
+            <div class="drawer-title" id="drawer-title">Детализация</div>
+            <button class="drawer-close" onclick="closeDrawer()" title="Закрыть">×</button>
+        </div>
+        <div class="drawer-body" id="drawer-body">
+            <!-- Populated by JS -->
+        </div>
+    </aside>
+</div>
+
+<script>
+var availableYears = [
+    {% if analytics and analytics.years %}
+    {% for y in analytics.years %}'{{ y }}'{% if not loop.last %}, {% endif %}{% endfor %}
+    {% endif %}
+];
+
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
+function filterMetrics() {
+    var q = document.getElementById('search-input').value.toLowerCase();
+    var activeGroupBtn = document.querySelector('#group-nav .nav-btn.active');
+    var activeGroupKey = 'all';
+    
+    if (activeGroupBtn && activeGroupBtn.onclick) {
+        var strMatch = activeGroupBtn.getAttribute('onclick').match(/filterGroup\('([^']+)'/);
+        if (strMatch && strMatch[1]) {
+            activeGroupKey = strMatch[1];
+        }
+    }
+    
+    applyFilters(activeGroupKey, q);
+}
+
+function filterGroup(gKey, btn) {
+    document.querySelectorAll('#group-nav .nav-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    
+    var q = document.getElementById('search-input').value.toLowerCase();
+    applyFilters(gKey, q);
+    
+    var wrap = document.getElementById('table-wrap');
+    if (wrap) wrap.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function applyFilters(gKey, q) {
+    document.querySelectorAll('.row-section, .row-metric').forEach(function(row) {
+        var rGroup = row.getAttribute('data-group');
+        var rSearch = row.getAttribute('data-search') || '';
+        
+        var groupMatch = (gKey === 'all' || rGroup === gKey);
+        var searchMatch = true;
+        
+        if (row.classList.contains('row-metric')) {
+            searchMatch = rSearch.includes(q);
+        }
+        
+        if (groupMatch && searchMatch) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function setYears(mode) {
+    var chks = document.querySelectorAll('.yc-chk');
+    if (mode === 'all') {
+        chks.forEach(function(c) { c.checked = true; toggleYear(c.value, true); });
+    } else if (mode === 'last') {
+        var lastY = availableYears[availableYears.length - 1];
+        chks.forEach(function(c) { 
+            c.checked = (c.value === lastY);
+            toggleYear(c.value, c.checked);
+        });
+    }
+    syncRangeSelects();
+}
+
+function applyYearRange() {
+    var fromSelect = document.getElementById('year-from');
+    var toSelect = document.getElementById('year-to');
+    if (!fromSelect || !toSelect) return;
+    
+    var fromVal = parseInt(fromSelect.value, 10);
+    var toVal = parseInt(toSelect.value, 10);
+    
+    if (fromVal > toVal) {
+        var temp = fromVal;
+        fromVal = toVal;
+        toVal = temp;
+    }
+    
+    var chks = document.querySelectorAll('.yc-chk');
+    chks.forEach(function(c) {
+        var yVal = parseInt(c.value, 10);
+        c.checked = (yVal >= fromVal && yVal <= toVal);
+        toggleYear(c.value, c.checked);
+    });
+}
+
+function syncRangeSelects() {
+    var chks = document.querySelectorAll('.yc-chk');
+    var checkedYears = [];
+    chks.forEach(function(c) { if(c.checked) checkedYears.push(parseInt(c.value, 10)); });
+    
+    if (checkedYears.length > 0) {
+        var min = Math.min.apply(null, checkedYears);
+        var max = Math.max.apply(null, checkedYears);
+        var fromSelect = document.getElementById('year-from');
+        var toSelect = document.getElementById('year-to');
+        if(fromSelect) fromSelect.value = min.toString();
+        if(toSelect) toSelect.value = max.toString();
+    }
+}
+
+function toggleYear(y, isVisible) {
+    var cells = document.querySelectorAll('.year-' + y);
+    cells.forEach(function(c) {
+        c.style.display = isVisible ? '' : 'none';
+    });
+}
+
+function openTrace(el, payloadStr, yStr) {
+    var payload = JSON.parse(payloadStr);
+    var val = payload.val;
+    var p = val.primary;
+    var s = val.secondary;
+    var disc = val.discrepancy;
+    
+    document.getElementById('drawer-title').innerText = payload.label + ' (' + yStr + ')';
+    
+    var html = '';
+    
+    // Formula Warning
+    var isFormulaConfirmed = (payload.formula_confirmed === false || (p && p.formula_confirmed === false)) ? false : true;
+    if (!isFormulaConfirmed) {
+        html += '<div class="alert-box">';
+        html += '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+        html += '<div class="alert-txt">Значение по загруженной отчетности; формула не подтверждена. Данные могли быть скорректированы вручную.</div>';
+        html += '</div>';
+    }
+
+    // Main values
+    html += '<div class="ts-block">';
+    html += '<div class="ts-block-title">Значение (' + escapeHTML(payload.profile_name) + ')</div>';
+    
+    if (p) {
+        html += '<div class="ts-row"><span class="ts-lbl">Исходное значение</span><span class="ts-val" style="font-size:14px; font-weight:700;">' + escapeHTML(p.display_value !== null ? p.display_value : '-') + '</span></div>';
+        html += '<div class="ts-row"><span class="ts-lbl">Единица изм.</span><span class="ts-val">' + escapeHTML(p.unit_label || '—') + '</span></div>';
+    }
+    
+    html += '<div class="ts-row"><span class="ts-lbl">Норматив</span><span class="ts-val">' + escapeHTML(payload.norm_label || '-') + '</span></div>';
+    
+    if (val.zone) {
+        var zLabel = val.zone === 'normal' ? 'Норма' : (val.zone === 'outside' ? 'Отклонение' : 'Требует внимания');
+        var zColor = val.zone === 'normal' ? 'var(--ok)' : (val.zone === 'outside' ? 'var(--bad)' : 'var(--mut)');
+        html += '<div class="ts-row"><span class="ts-lbl">Зона</span><span class="ts-val" style="color:'+zColor+'; font-weight:600;">' + escapeHTML(zLabel) + '</span></div>';
+    }
+    html += '</div>';
+
+    // Discrepancy
+    if (disc && (disc.delta !== null || disc.significant)) {
+        html += '<div class="ts-block">';
+        html += '<div class="ts-block-title" style="color:var(--bad)">Расхождение с вторичным источником</div>';
+        html += '<div class="ts-row"><span class="ts-lbl">Вторичный источник</span><span class="ts-val">' + escapeHTML(s && s.raw !== null ? s.raw : '-') + '</span></div>';
+        html += '<div class="ts-row"><span class="ts-lbl">Дельта</span><span class="ts-val" style="color:var(--bad); font-weight:700;">' + escapeHTML(disc.delta !== null ? disc.delta : '-') + '</span></div>';
+        if (disc.threshold !== undefined && disc.threshold !== null) {
+            html += '<div class="ts-row"><span class="ts-lbl">Порог</span><span class="ts-val">' + escapeHTML(disc.threshold) + '</span></div>';
+        }
+        if (disc.absolute_tolerance !== undefined && disc.absolute_tolerance !== null) {
+            html += '<div class="ts-row"><span class="ts-lbl">Абс. допуск</span><span class="ts-val">' + escapeHTML(disc.absolute_tolerance) + '</span></div>';
+        }
+        if (disc.relative_tolerance !== undefined && disc.relative_tolerance !== null) {
+            html += '<div class="ts-row"><span class="ts-lbl">Отн. допуск</span><span class="ts-val">' + escapeHTML(disc.relative_tolerance * 100) + '%</span></div>';
+        }
+        html += '</div>';
+    }
+
+    // Provenance
+    var prov = p && p.provenance ? p.provenance : null;
+    var form = p && p.formula ? p.formula : (payload.formula ? payload.formula : null);
+    
+    if (prov || form) {
+        html += '<div class="ts-block">';
+        html += '<div class="ts-block-title">Трассировка источника</div>';
+        
+        var src = prov && prov.source ? prov.source : '-';
+        var ver = prov && prov.version ? prov.version : '-';
+        var sht = prov && prov.sheet ? prov.sheet : '-';
+        var row = prov && prov.row ? prov.row : '-';
+        var cel = prov && prov.cell ? prov.cell : '-';
+        var fn  = prov && prov.filename ? prov.filename : '-';
+        
+        html += '<div class="ts-row"><span class="ts-lbl">Источник</span><span class="ts-val">' + escapeHTML(src) + '</span></div>';
+        html += '<div class="ts-row"><span class="ts-lbl">Версия</span><span class="ts-val">' + escapeHTML(ver) + '</span></div>';
+        if (fn !== '-') {
+            html += '<div class="ts-row"><span class="ts-lbl">Файл</span><span class="ts-val" style="word-break:break-all; font-size:11px;">' + escapeHTML(fn) + '</span></div>';
+        }
+        html += '<div class="ts-row"><span class="ts-lbl">Лист / строка / ячейка</span><span class="ts-val">' + escapeHTML(sht) + ' / ' + escapeHTML(row) + ' / ' + escapeHTML(cel) + '</span></div>';
+        
+        if (form) {
+            html += '<div class="ts-row" style="flex-direction:column; align-items:flex-start; gap:8px; border-bottom:none; margin-top:4px;">';
+            html += '<span class="ts-lbl">Формула</span>';
+            html += '<span class="ts-val mono" style="text-align:left; width:100%; word-break:break-all;">' + escapeHTML(form) + '</span>';
+            html += '</div>';
+        }
+        html += '</div>';
+    }
+
+    document.getElementById('drawer-body').innerHTML = html;
+    
+    var drawer = document.getElementById('drawer');
+    drawer.classList.add('open');
+    
+    document.querySelectorAll('.val-cell').forEach(function(c) { c.style.outline = 'none'; });
+    el.style.outline = '2px solid var(--accent)';
+    el.style.outlineOffset = '-1px';
+}
+
+function closeDrawer() {
+    document.getElementById('drawer').classList.remove('open');
+    document.querySelectorAll('.val-cell').forEach(function(c) { c.style.outline = 'none'; });
+}
+</script>
+</body>
+</html>

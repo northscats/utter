@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """End-to-end regressions for staged, versioned historical imports."""
 import io
+import json
 import os
 import sys
 import tempfile
@@ -138,6 +139,138 @@ with app.app_context():
           and missing_metric.raw_value.raw_text == "–")
     check("исходная строка есть у каждого значения",
           HistoricalRawValue.query.count() == HistoricalMetricValue.query.count())
+    db.session.add(Upload(
+        company_id=company_id,
+        uploaded_by=admin_id,
+        period_label="январь – декабрь 2025",
+        metrics_json=json.dumps({
+            "liquidity": 0.93,
+            "dz_days": 74.0,
+            "adm_pct": 8.433378878613446,
+        }),
+    ))
+    db.session.commit()
+    from historical_analytics import build_expert_analytics
+    methodical = build_expert_analytics(company_id, "methodical")
+    osv_control = build_expert_analytics(company_id, "osv_control")
+    check("чекпоинт охватывает все 15 тематических разделов",
+          len(methodical["sections"]) == 15
+          and {section["key"] for section in methodical["sections"]}
+          == {
+              "assets", "liabilities", "net_assets",
+              "financial_stability", "working_capital", "liquidity",
+              "asset_liability", "financial_results", "profitability",
+              "turnover", "rating", "insolvent_structure",
+              "creditworthiness", "bankruptcy_forecast", "dynamics",
+          })
+    liquidity = next(
+        metric for metric in methodical["metrics"]
+        if metric["section_key"] == "liquidity"
+        and metric["label"].startswith("Коэффициент текущей"))
+    check("методически разные показатели ОСВ не сравниваются",
+          liquidity["values_by_year"][2025]["osv"] is None
+          and liquidity["values_by_year"][2025]["discrepancy"] is None)
+    control_metric = next(
+        metric for metric in methodical["metrics"]
+        if metric["key"] == "control_adm_pct")
+    methodical_2025 = control_metric["values_by_year"][2025]
+    controlled_metric = next(
+        metric for metric in osv_control["metrics"]
+        if metric["key"] == "control_adm_pct")
+    controlled_2025 = controlled_metric["values_by_year"][2025]
+    expected_historical_control = 779881.0 / 9708071.0 * 100.0
+    check("профиль выбирает основной источник без смешивания значений",
+          methodical_2025["primary_source"] == "historical"
+          and methodical_2025["primary"]["value"]
+          == expected_historical_control
+          and methodical_2025["secondary"]["value"] == 8.433378878613446
+          and controlled_2025["primary_source"] == "osv"
+          and controlled_2025["primary"]["value"] == 8.433378878613446)
+    check("расхождение использует точные числа, 1% и абсолютный порог профиля",
+          methodical_2025["discrepancy"]["threshold"] == 0.5
+          and not methodical_2025["discrepancy"]["significant"]
+          and controlled_2025["discrepancy"]["threshold"] == 0.25
+          and controlled_2025["discrepancy"]["significant"])
+    db.session.add(Upload(
+        company_id=company_id,
+        uploaded_by=admin_id,
+        period_label="январь – июнь 2025",
+        metrics_json=json.dumps({"adm_pct": 99.0}),
+    ))
+    db.session.commit()
+    after_partial = build_expert_analytics(company_id, "osv_control")
+    partial_control = next(
+        metric for metric in after_partial["metrics"]
+        if metric["key"] == "control_adm_pct")
+    check("неполная ОСВ не подменяет годовой сопоставимый источник",
+          partial_control["values_by_year"][2025]["osv"]["value"]
+          == 8.433378878613446)
+    no_formula = next(
+        metric for metric in methodical["metrics"]
+        if not metric["formula_confirmed"])
+    trace = liquidity["values_by_year"][2025]["historical"]["provenance"]
+    check("каталог различает подтверждённую и неподтверждённую формулу",
+          liquidity["formula_confirmed"] and no_formula["formula"] is None)
+    check("происхождение содержит источник, версию, лист и ячейку",
+          trace["source"] == "Загруженная отчётность"
+          and trace["version"] == "v1"
+          and trace["sheet"] == "6. Ликвидность"
+          and isinstance(trace["row"], int)
+          and bool(trace["cell"]))
+    check("исторический рейтинг отделён от платформенного",
+          methodical["historical_rating"]
+          and not methodical["platform_rating_included"])
+    check("модели банкротства представлены отдельными дорожками",
+          [lane["key"] for lane in methodical["bankruptcy_models"]]
+          == ["altman", "taffler", "saifullin"])
+expert_page = client.get(f"/company/{company_id}/historical/expert")
+expert_body = expert_page.get_data(as_text=True)
+check("экспертный экран отображает профиль, годы и проверяемые значения",
+      expert_page.status_code == 200
+      and "Единый методический профиль" in expert_body
+      and "Финансовое положение" in expert_body
+      and "Исторический рейтинг" in expert_body
+      and "Модели банкротства — без среднего балла" in expert_body
+      and "Значение по загруженной отчетности; формула не подтверждена"
+      in expert_body)
+check("экспертный экран разделяет исходные значения и единицы",
+      "Исходное значение" in expert_body
+      and "Нормализованное" not in expert_body
+      and "Единица изм." in expert_body
+      and "26,1 %" in expert_body
+      and "26,1% %" not in expert_body
+      and "thousand_rubles" not in expert_body
+      and "percent" not in expert_body
+      and '"ratio"' not in expert_body)
+profile_response = client.post(
+    f"/company/{company_id}/historical/expert/profile",
+    data={"profile_key": "osv_control"},
+    follow_redirects=True,
+)
+check("смена профиля сохраняется для предприятия",
+      profile_response.status_code == 200
+      and 'value="osv_control" selected' in profile_response.get_data(
+          as_text=True))
+client.post(
+    f"/company/{company_id}/historical/expert/profile",
+    data={"profile_key": "methodical"},
+)
+with app.app_context():
+    missing_version = HistoricalYearVersion.query.filter_by(
+        company_id=company_id, year=2023, is_active=True).one()
+    missing_version.is_active = False
+    db.session.commit()
+    with_gap = build_expert_analytics(company_id, "methodical")
+    gap_metric = next(
+        metric for metric in with_gap["metrics"]
+        if metric["section_key"] == "liquidity"
+        and metric["label"].startswith("Коэффициент текущей"))
+    check("промежуточный год остаётся явным разрывом без интерполяции",
+          2023 in with_gap["years"]
+          and 2023 in with_gap["missing_years"]
+          and gap_metric["values_by_year"][2023]["primary"] is None)
+    missing_version.is_active = True
+    db.session.commit()
 history_page = client.get(f"/company/{company_id}")
 history_body = history_page.get_data(as_text=True)
 check("карточка показывает действующие версии и исходный файл",
@@ -313,6 +446,22 @@ with app.app_context():
 # Один переключатель возвращает прежнюю карточку и блокирует новый вход.
 with app.app_context():
     osv_count = Upload.query.filter_by(company_id=company_id).count()
+    version_count = HistoricalYearVersion.query.filter_by(
+        company_id=company_id).count()
+app.config["HISTORICAL_EXPERT_ENABLED"] = False
+expert_hidden_body = client.get(
+    f"/company/{company_id}").get_data(as_text=True)
+expert_blocked = client.get(
+    f"/company/{company_id}/historical/expert")
+check("экспертный вход скрывается отдельно от импортированных версий",
+      "Годовая историческая аналитика" in expert_hidden_body
+      and ">Эксперт<" not in expert_hidden_body
+      and expert_blocked.status_code == 404)
+with app.app_context():
+    check("скрытие экспертного режима сохраняет накопленные версии",
+          HistoricalYearVersion.query.filter_by(
+              company_id=company_id).count() == version_count)
+app.config["HISTORICAL_EXPERT_ENABLED"] = True
 app.config["HISTORICAL_IMPORT_ENABLED"] = False
 body = client.get(f"/company/{company_id}").get_data(as_text=True)
 blocked = post_file(client, company_id, partial_book(), "выключено.xlsx")

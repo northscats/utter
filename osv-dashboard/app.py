@@ -67,6 +67,9 @@ app.config['WTF_CSRF_TIME_LIMIT'] = None   # токен живёт до исте
 app.config['HISTORICAL_IMPORT_ENABLED'] = (
     os.environ.get('HISTORICAL_IMPORT_ENABLED', '1').strip().lower()
     not in ('0', 'false', 'no', 'off'))
+app.config['HISTORICAL_EXPERT_ENABLED'] = (
+    os.environ.get('HISTORICAL_EXPERT_ENABLED', '1').strip().lower()
+    not in ('0', 'false', 'no', 'off'))
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -1302,7 +1305,10 @@ def home():
     cards = [_company_summary(c) for c in companies]
     response = Response(
         render_template('home.html', companies=cards,
-                        rating_profiles=_rating_profiles_for_user()),
+                        rating_profiles=_rating_profiles_for_user(),
+                        historical_expert_enabled=(
+                            app.config['HISTORICAL_IMPORT_ENABLED']
+                            and app.config['HISTORICAL_EXPERT_ENABLED'])),
         mimetype='text/html')
     # В шаблоне находится клиент API рейтинга. Не позволяем открытой вкладке
     # после обновления сервера продолжать выполнять устаревший JavaScript.
@@ -1479,6 +1485,9 @@ def company_detail(company_id):
                            ai_provider_configured=ai_provider_configured,
                            historical_enabled=app.config[
                                'HISTORICAL_IMPORT_ENABLED'],
+                           historical_expert_enabled=(
+                               app.config['HISTORICAL_IMPORT_ENABLED']
+                               and app.config['HISTORICAL_EXPERT_ENABLED']),
                            historical_imports=historical_imports,
                            historical_versions=historical_versions,
                            historical_preview=historical_preview,
@@ -1490,6 +1499,12 @@ def company_detail(company_id):
 
 def _require_historical_import():
     if not app.config['HISTORICAL_IMPORT_ENABLED']:
+        abort(404)
+
+
+def _require_historical_expert():
+    if (not app.config['HISTORICAL_IMPORT_ENABLED']
+            or not app.config['HISTORICAL_EXPERT_ENABLED']):
         abort(404)
 
 
@@ -1603,6 +1618,52 @@ def historical_source(company_id, import_id):
         as_attachment=True,
         download_name=attempt.original_filename,
     )
+
+
+@app.route('/company/<int:company_id>/historical/expert')
+@login_required
+def historical_expert(company_id):
+    """Проверяемый экспертный экран только по действующим годовым версиям."""
+    _require_historical_expert()
+    company = _require_company_access(company_id)
+    from historical_analytics import (
+        build_expert_analytics, profile_payloads, validate_profile_key)
+    profile_key = validate_profile_key(Setting.get(
+        f'historical_expert_profile:{company_id}', 'methodical'))
+    analytics = build_expert_analytics(company_id, profile_key)
+    response = Response(render_template(
+        'historical_expert.html',
+        company=company,
+        analytics=analytics,
+        profiles=profile_payloads(),
+        selected_profile_key=profile_key,
+        embedded=request.args.get('embedded') == '1',
+    ), mimetype='text/html')
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
+
+
+@app.route('/company/<int:company_id>/historical/expert/profile',
+           methods=['POST'])
+@login_required
+def historical_expert_profile(company_id):
+    """Сохранить именованный методический профиль предприятия."""
+    _require_historical_expert()
+    _require_company_access(company_id)
+    from historical_analytics import PROFILES
+    profile_key = request.form.get('profile_key', '').strip()
+    if profile_key not in PROFILES:
+        abort(400, description='Неизвестный методический профиль')
+    Setting.set(f'historical_expert_profile:{company_id}', profile_key)
+    db.session.commit()
+    log_event('historical_expert_profile_changed', {
+        'company_id': company_id,
+        'profile_key': profile_key,
+    })
+    target = {'company_id': company_id}
+    if request.form.get('embedded') == '1':
+        target['embedded'] = '1'
+    return redirect(url_for('historical_expert', **target))
 
 
 @app.route(

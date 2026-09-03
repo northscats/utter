@@ -432,6 +432,15 @@ tr:last-child td{border-bottom:0}
 
     <div class="ab-sep"></div>
 
+    {% if historical_expert_enabled %}
+    <a class="ab-btn ab-btn-dash"
+       href="{{ url_for('historical_expert', company_id=company.id) }}"
+       title="Утверждённые годовые данные, нормативы и происхождение значений">
+      Эксперт
+    </a>
+    <div class="ab-sep"></div>
+    {% endif %}
+
     <!-- Кнопка дашборда -->
     {% if current_dash %}
     <div class="ab-dash-seg">

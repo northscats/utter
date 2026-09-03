@@ -376,6 +376,9 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
              data-dash="{{ dash_url }}"
              data-has-dash="{{ '1' if c.has_dashboard else '0' }}"
              data-detail="{{ url_for('company_detail', company_id=c.id) }}"
+             {% if historical_expert_enabled %}
+             data-expert="{{ url_for('historical_expert', company_id=c.id) }}"
+             {% endif %}
              data-label="{{ c.name }}"
              data-inn-display="{{ c.inn or '' }}"
              data-last-period="{{ c.last_period or '' }}"
@@ -428,6 +431,11 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
           <span class="ico">📋</span><span>История загрузок</span>
         </div>
+        {% if historical_expert_enabled %}
+        <div class="sl-nav-item" data-nav="expert" onclick="setNavView('expert',this)">
+          <span class="ico">◫</span><span>Эксперт</span>
+        </div>
+        {% endif %}
         <div class="sl-nav-item" data-nav="alerts" onclick="setNavView('alerts',this)">
           <span class="ico">🚨</span><span>Алерты</span>
           <span class="sl-nav-badge sb-hide" id="alerts-badge" style="display:none"></span>
@@ -721,7 +729,7 @@ function setNavView(view, clickedEl) {
   if (clickedEl) clickedEl.classList.add('active');
   // Показываем/скрываем топбар в зависимости от вида
   if (currentCompanyId) {
-    var iframeView = view === 'history' || view === 'kpi' || view === 'cards' || view === 'rating';
+    var iframeView = view === 'history' || view === 'expert' || view === 'kpi' || view === 'cards' || view === 'rating';
     document.getElementById('sl-topbar').style.display = iframeView ? 'none' : 'flex';
   }
   renderNavView(view);
@@ -756,6 +764,10 @@ function renderNavView(view) {
   if (view === 'history') {
     document.getElementById('sl-topbar').style.display = 'none';
     loadIframe(el.dataset.detail + '?embedded=1', el.dataset.detail);
+  }
+  else if (view === 'expert') {
+    document.getElementById('sl-topbar').style.display = 'none';
+    loadIframe(el.dataset.expert + '?embedded=1', el.dataset.expert);
   }
   else if (view === 'kpi') {
     document.getElementById('sl-topbar').style.display = 'none';
@@ -1072,6 +1084,7 @@ function closeRegModal() { var m=document.getElementById('reg-modal'); if(m) m.c
   // Restore nav view
   var nav = 'kpi';
   try { nav = localStorage.getItem('sl_nav') || 'kpi'; } catch(e){}
+  if (!document.querySelector('.sl-nav-item[data-nav="' + nav + '"]')) nav = 'kpi';
   currentNavView = nav;
   document.querySelectorAll('.sl-nav-item').forEach(function(el){
     el.classList.toggle('active', el.dataset.nav === nav);
