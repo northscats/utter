@@ -190,6 +190,11 @@ check('в списке нет упоминания провайдера',
       and 'DaData:' not in directory_body
       and 'Ручные данные' in Path(
           'templates/directory_companies.html').read_text())
+check('в списке скрыты ненужные столбцы и есть иконка просмотра',
+      'Связи' not in directory_body
+      and 'Заполнено' not in directory_body
+      and 'aria-label="Открыть предприятие"' in directory_body
+      and '<svg viewBox="0 0 24 24"' in directory_body)
 with app.app_context():
     second_company = Company(
         name='Второе предприятие', created_by=admin_id, status='active')
