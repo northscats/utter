@@ -29,8 +29,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        CompanyFinance, CompanyLicense, CompanyMembership,
-                       CompanyOkved, DailyRow, EmailRule, Setting, Upload,
-                       User, UserModuleAccess, db, utcnow)
+                       CompanyOkved, DailyRow, EmailRule, HistoricalImport,
+                       HistoricalYearVersion, Setting, Upload, User,
+                       UserModuleAccess, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
                                 duplicate_companies,
@@ -63,6 +64,9 @@ app.secret_key = os.environ.get('SESSION_SECRET', 'dev-secret-change-me')
 # + служебные данные ZIP); лимиты распакованного содержимого — в doc_pipeline.py
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 app.config['WTF_CSRF_TIME_LIMIT'] = None   # токен живёт до истечения сессии
+app.config['HISTORICAL_IMPORT_ENABLED'] = (
+    os.environ.get('HISTORICAL_IMPORT_ENABLED', '1').strip().lower()
+    not in ('0', 'false', 'no', 'off'))
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -1422,13 +1426,205 @@ def company_detail(company_id):
             total_required=len(REQUIRED_ACCOUNTS),
         )
 
+    historical_imports = []
+    historical_versions = []
+    historical_preview = None
+    historical_mappings_needed = []
+    historical_section_options = []
+    if app.config['HISTORICAL_IMPORT_ENABLED']:
+        from historical_parser import SECTION_ALIASES
+        historical_section_options = [
+            (key, aliases[0]) for key, aliases in SECTION_ALIASES.items()]
+        historical_imports = HistoricalImport.query.filter_by(
+            company_id=company_id).order_by(
+                HistoricalImport.created_at.desc()).all()
+        historical_versions = HistoricalYearVersion.query.filter_by(
+            company_id=company_id).order_by(
+                HistoricalYearVersion.year.desc(),
+                HistoricalYearVersion.version_no.desc()).all()
+        preview_id = request.args.get('historical_preview', type=int)
+        if preview_id:
+            historical_preview = HistoricalImport.query.filter_by(
+                id=preview_id, company_id=company_id).first()
+            if historical_preview:
+                parsed_preview = historical_preview.preview
+                historical_mappings_needed.extend({
+                    'kind': 'section',
+                    'source': item['raw'],
+                    'suggested': '',
+                    'label': item['raw'],
+                } for item in parsed_preview.get('unknown_sections', []))
+                historical_mappings_needed.extend({
+                    'kind': 'metric',
+                    'source': item['raw'],
+                    'suggested': item['suggested_key'],
+                    'label': item['raw'],
+                    'section': item['section'],
+                } for item in parsed_preview.get('unknown_metrics', []))
+
     return render_template('company.html', company=company, uploads=uploads,
                            uploads_with_completeness=uploads_with_completeness,
                            completeness_summary=completeness_summary,
                            audit=None, error=None, discrepancy=[],
                            annual_coverage=_annual_coverage(company_id, year),
                            ai_summary=ai_summary,
-                           ai_provider_configured=ai_provider_configured)
+                           ai_provider_configured=ai_provider_configured,
+                           historical_enabled=app.config[
+                               'HISTORICAL_IMPORT_ENABLED'],
+                           historical_imports=historical_imports,
+                           historical_versions=historical_versions,
+                           historical_preview=historical_preview,
+                           historical_mappings_needed=historical_mappings_needed,
+                           historical_section_options=historical_section_options,
+                           historical_error=request.args.get(
+                               'historical_error', ''))
+
+
+def _require_historical_import():
+    if not app.config['HISTORICAL_IMPORT_ENABLED']:
+        abort(404)
+
+
+@app.route('/company/<int:company_id>/historical/preview', methods=['POST'])
+@login_required
+def historical_preview_upload(company_id):
+    """Сохранить XLSX и показать проверяемый предпросмотр без активации."""
+    _require_historical_import()
+    _require_company_access(company_id)
+    source = request.files.get('historical_file')
+    if source is None or not source.filename:
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            historical_error='Выберите файл XLSX.'))
+    from historical_service import HistoricalImportError, stage_upload
+    try:
+        attempt = stage_upload(
+            company_id, current_user.id, source, UPLOADS)
+    except HistoricalImportError as exc:
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            historical_error=str(exc)))
+    log_event('historical_import_previewed', {
+        'company_id': company_id,
+        'import_id': attempt.id,
+        'status': attempt.status,
+        'filename': attempt.original_filename,
+    })
+    return redirect(url_for(
+        'company_detail', company_id=company_id,
+        historical_preview=attempt.id))
+
+
+@app.route(
+    '/company/<int:company_id>/historical/<int:import_id>/confirm',
+    methods=['POST'])
+@login_required
+def historical_confirm(company_id, import_id):
+    """Подтвердить сопоставления и атомарно активировать новые версии."""
+    _require_historical_import()
+    _require_company_access(company_id)
+    attempt = HistoricalImport.query.filter_by(
+        id=import_id, company_id=company_id).first_or_404()
+    from historical_parser import HistoricalParserError
+    from historical_service import (
+        HistoricalImportError, confirm_and_activate, parse_mapping_form)
+    from sqlalchemy.exc import IntegrityError
+    try:
+        additions = parse_mapping_form(request.form)
+        versions = confirm_and_activate(
+            attempt,
+            current_user.id,
+            additions,
+            confirm_partial=request.form.get('confirm_partial') == '1',
+        )
+    except (HistoricalImportError, HistoricalParserError, IntegrityError) as exc:
+        db.session.rollback()
+        message = (
+            'Версия была одновременно изменена другим пользователем. '
+            'Обновите страницу и повторите действие.'
+            if isinstance(exc, IntegrityError) else str(exc))
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            historical_preview=import_id, historical_error=message))
+    log_event('historical_import_activated', {
+        'company_id': company_id,
+        'import_id': import_id,
+        'years': [version.year for version in versions],
+        'versions': [version.version_no for version in versions],
+        'partial': attempt.is_partial,
+    })
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
+@app.route(
+    '/company/<int:company_id>/historical/<int:import_id>/cancel',
+    methods=['POST'])
+@login_required
+def historical_cancel(company_id, import_id):
+    """Отменить предпросмотр, не изменяя активные годовые срезы."""
+    _require_historical_import()
+    _require_company_access(company_id)
+    attempt = HistoricalImport.query.filter_by(
+        id=import_id, company_id=company_id).first_or_404()
+    from historical_service import HistoricalImportError, cancel_attempt
+    try:
+        cancel_attempt(attempt)
+    except HistoricalImportError as exc:
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            historical_preview=import_id, historical_error=str(exc)))
+    log_event('historical_import_cancelled', {
+        'company_id': company_id, 'import_id': import_id})
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
+@app.route(
+    '/company/<int:company_id>/historical/<int:import_id>/source')
+@login_required
+def historical_source(company_id, import_id):
+    """Скачать исходную книгу из истории загрузок."""
+    _require_historical_import()
+    _require_company_access(company_id)
+    attempt = HistoricalImport.query.filter_by(
+        id=import_id, company_id=company_id).first_or_404()
+    if not os.path.isfile(attempt.stored_path):
+        abort(404)
+    return send_from_directory(
+        os.path.dirname(attempt.stored_path),
+        os.path.basename(attempt.stored_path),
+        as_attachment=True,
+        download_name=attempt.original_filename,
+    )
+
+
+@app.route(
+    '/company/<int:company_id>/historical/version/<int:version_id>/activate',
+    methods=['POST'])
+@login_required
+def historical_version_activate(company_id, version_id):
+    """Вернуть выбранную сохранённую версию календарного года."""
+    _require_historical_import()
+    _require_company_access(company_id)
+    version = HistoricalYearVersion.query.filter_by(
+        id=version_id, company_id=company_id).first_or_404()
+    from historical_service import activate_version
+    from sqlalchemy.exc import IntegrityError
+    try:
+        activate_version(version, current_user.id)
+    except IntegrityError:
+        db.session.rollback()
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            historical_error=(
+                'Версия была одновременно изменена другим пользователем. '
+                'Обновите страницу и повторите действие.')))
+    log_event('historical_version_activated', {
+        'company_id': company_id,
+        'year': version.year,
+        'version': version.version_no,
+        'import_id': version.import_id,
+    })
+    return redirect(url_for('company_detail', company_id=company_id))
 
 
 @app.route('/company/<int:company_id>/job/<job_id>')
@@ -3528,6 +3724,19 @@ def init_db():
         # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
         from sqlalchemy import inspect as _inspect_docs, text as _text_docs
         _insp = _inspect_docs(db.engine)
+        # Инвариант годовых версий: ровно одна активная версия на предприятие
+        # и год. Для существующих аддитивных таблиц create_all индекс не создаст.
+        try:
+            with db.engine.begin() as _historical_conn:
+                _historical_conn.execute(_text_docs(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS "
+                    "uq_historical_active_year "
+                    "ON historical_year_versions(company_id, year) "
+                    "WHERE is_active"))
+        except Exception as _historical_index_exc:
+            app.logger.warning(
+                'historical active-version index migration failed: %s',
+                _historical_index_exc)
 
         def _add_missing(table, columns):
             existing = {c['name'] for c in _insp.get_columns(table)}

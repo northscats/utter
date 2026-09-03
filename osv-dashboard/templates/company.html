@@ -266,6 +266,34 @@ tr:last-child td{border-bottom:0}
   border:1px solid var(--line);border-radius:8px;padding:10px 16px;
   margin-bottom:12px;font-size:12.5px;color:var(--ink)}
 .comp-summary b{color:var(--ink)}
+/* ── Историческая аналитика ── */
+.hist-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:22px 24px;margin-bottom:20px}
+.hist-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.hist-title{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+  color:#31424f;flex:1}
+.hist-upload{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hist-file-label{background:var(--water);color:#fff;border-radius:7px;padding:7px 13px;
+  font-size:12px;font-weight:700;cursor:pointer}
+.hist-preview{border:1px solid #b9d5e2;background:#f5fbfd;border-radius:10px;
+  padding:16px 18px;margin:14px 0}
+.hist-stats{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}
+.hist-stat{background:#e8f4fb;color:#24546b;border-radius:5px;padding:4px 8px;
+  font-size:12px;font-weight:600}
+.hist-warnings{margin:10px 0;padding:10px 12px;background:#fff7ed;border:1px solid #fcd77a;
+  border-radius:7px;font-size:12px;color:#6b4300}
+.hist-map{display:grid;grid-template-columns:minmax(180px,1fr) minmax(180px,1fr);
+  gap:7px 12px;margin:10px 0}
+.hist-map input,.hist-map select{border:1px solid var(--line);border-radius:6px;
+  padding:6px 8px;font:12px 'Segoe UI',sans-serif;background:#fff;width:100%}
+.hist-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.hist-table-wrap{overflow-x:auto}
+.hist-subtitle{font-size:12px;font-weight:700;color:#31424f;margin:18px 0 8px;
+  text-transform:uppercase;letter-spacing:.05em}
+.hist-active{background:#e4f2ea;color:var(--ok)}
+.hist-old{background:#f0f3f5;color:var(--mut)}
+.hist-failed{background:#fbeae8;color:var(--bad)}
+@media(max-width:640px){.hist-map{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -511,6 +539,225 @@ tr:last-child td{border-bottom:0}
   </div>
 
   <div id="osv-panel" style="display:none" class="osv-panel"></div>
+
+  {% if historical_enabled %}
+  <!-- Независимый от ОСВ импорт годовой исторической аналитики -->
+  <section class="hist-card" id="historical-analytics">
+    <div class="hist-head">
+      <div class="hist-title">Годовая историческая аналитика</div>
+      <form class="hist-upload" method="post"
+            action="{{ url_for('historical_preview_upload', company_id=company.id) }}"
+            enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="hist-file-label" for="historical-file">Выбрать XLSX</label>
+        <input id="historical-file" name="historical_file" type="file"
+               accept=".xlsx" required
+               onchange="document.getElementById('historical-name').textContent=this.files[0] ? this.files[0].name : 'файл не выбран';document.getElementById('historical-preview-btn').disabled=!this.files.length">
+        <span id="historical-name" style="font-size:12px;color:var(--mut)">файл не выбран</span>
+        <button id="historical-preview-btn" class="ab-btn ab-btn-go" type="submit" disabled>
+          Предпросмотр
+        </button>
+      </form>
+    </div>
+    <p class="hint">Отдельный версионируемый контур. Загрузка не изменяет ОСВ и действующие дашборды.</p>
+
+    {% if historical_error %}
+      <div class="err" style="margin-top:12px;margin-bottom:0">{{ historical_error }}</div>
+    {% endif %}
+
+    {% if historical_preview %}
+      {% set hp = historical_preview.preview %}
+      {% set ps = hp.get('preview', {}) %}
+      <div class="hist-preview">
+        <strong>Предпросмотр: {{ historical_preview.original_filename }}</strong>
+        {% if historical_preview.status == 'failed' %}
+          <div class="err" style="margin-top:10px;margin-bottom:0">
+            Файл не прошёл проверку: {{ historical_preview.error_text }}
+          </div>
+        {% else %}
+          <div class="hist-stats">
+            <span class="hist-stat">Годы: {{ ps.get('years', [])|join(', ') }}</span>
+            <span class="hist-stat">Разделов: {{ ps.get('section_count', 0) }}</span>
+            <span class="hist-stat">Показателей: {{ ps.get('metric_count', 0) }}</span>
+            <span class="hist-stat">Значений: {{ ps.get('non_missing_value_count', 0) }}</span>
+            <span class="hist-stat">Пропусков: {{ ps.get('value_count', 0) - ps.get('non_missing_value_count', 0) }}</span>
+          </div>
+
+          <div class="hist-table-wrap">
+            <table>
+              <tr><th>Раздел / лист</th><th>Показателей</th><th>Статус</th></tr>
+              {% for section in hp.get('sections', []) %}
+              <tr>
+                <td>{{ section.title }}</td>
+                <td>{{ section.rows|selectattr('kind', 'equalto', 'metric')|list|length }}</td>
+                <td>
+                  {% if section.is_known %}
+                    <span class="badge badge-ok">распознан</span>
+                  {% else %}
+                    <span class="badge badge-bad">нужно сопоставить</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </div>
+
+          {% set required_ok = hp.get('validation', {}).get('ok', false) %}
+          <div style="margin-top:10px;font-size:12px">
+            Обязательные разделы:
+            {% for check in hp.get('validation', {}).get('checks', []) %}
+              <span class="badge {{ 'badge-ok' if check.ok else 'badge-bad' }}">
+                {{ {'balance':'баланс','financial_results':'финансовые результаты','liquidity':'ликвидность'}.get(check.group, check.group) }}
+              </span>
+            {% endfor %}
+            · Сводная сверка:
+            <b>{{ hp.get('reconciliation', {}).get('compared_values', 0) }}</b> знач.,
+            расхождений <b>{{ hp.get('reconciliation', {}).get('conflict_count', 0) }}</b>.
+          </div>
+
+          {% if hp.get('aliases_applied') %}
+          <details style="margin-top:10px">
+            <summary style="font-size:12px;cursor:pointer">
+              Ранее подтверждённые сопоставления ({{ hp.get('aliases_applied')|length }})
+            </summary>
+            <ul style="font-size:12px;margin:7px 0 0 18px">
+              {% for item in hp.get('aliases_applied') %}
+                <li>{{ item.raw }} → {{ item.canonical }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+
+          {% if hp.get('warnings') %}
+          <details class="hist-warnings">
+            <summary style="cursor:pointer">Предупреждения ({{ hp.get('warnings')|length }})</summary>
+            <ul style="margin:7px 0 0 18px">
+              {% for warning in hp.get('warnings') %}<li>{{ warning }}</li>{% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+
+          <form method="post"
+                action="{{ url_for('historical_confirm', company_id=company.id, import_id=historical_preview.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="mapping_count" value="{{ historical_mappings_needed|length }}">
+            {% if historical_mappings_needed %}
+              <div class="hist-subtitle">Подтвердите неизвестные названия</div>
+              <div class="hist-map">
+              {% for mapping in historical_mappings_needed %}
+                <input type="hidden" name="mapping_source_{{ loop.index0 }}" value="{{ mapping.source }}">
+                <input type="hidden" name="mapping_kind_{{ loop.index0 }}" value="{{ mapping.kind }}">
+                <input type="hidden" name="mapping_label_{{ loop.index0 }}" value="{{ mapping.label }}">
+                <label style="font-size:12px">
+                  {{ mapping.source }}
+                  {% if mapping.section %}<small style="color:var(--mut)">({{ mapping.section }})</small>{% endif %}
+                </label>
+                {% if mapping.kind == 'section' %}
+                  <select name="mapping_canonical_{{ loop.index0 }}" required>
+                    <option value="">Выберите раздел…</option>
+                    {% for key, label in historical_section_options %}
+                      <option value="{{ key }}">{{ label }} ({{ key }})</option>
+                    {% endfor %}
+                  </select>
+                {% else %}
+                  <input name="mapping_canonical_{{ loop.index0 }}"
+                         value="{{ mapping.suggested }}" required
+                         aria-label="Канонический ключ для {{ mapping.source }}">
+                {% endif %}
+              {% endfor %}
+              </div>
+            {% endif %}
+            {% if historical_preview.is_partial %}
+              <label style="display:block;font-size:12px;margin-top:10px">
+                <input type="checkbox" name="confirm_partial" value="1" required
+                       style="display:inline;width:auto">
+                Подтверждаю частичный импорт. Обязательные разделы проверены.
+              </label>
+            {% endif %}
+            <div class="hist-actions">
+              <button class="ab-btn ab-btn-go" type="submit"
+                      {% if not required_ok %}disabled title="Не пройдены обязательные проверки"{% endif %}>
+                Подтвердить и активировать версии
+              </button>
+            </div>
+          </form>
+        {% endif %}
+        {% if historical_preview.status == 'preview' %}
+        <form method="post" style="margin-top:8px"
+              action="{{ url_for('historical_cancel', company_id=company.id, import_id=historical_preview.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="ab-btn" type="submit">Отменить загрузку</button>
+        </form>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if historical_versions %}
+    <div class="hist-subtitle">Годовые версии</div>
+    <div class="hist-table-wrap">
+      <table>
+        <tr><th>Год</th><th>Версия</th><th>Состояние</th><th>Источник</th>
+            <th>Автор / дата</th><th>Действие</th></tr>
+        {% for version in historical_versions %}
+        <tr>
+          <td><strong>{{ version.year }}</strong></td>
+          <td>v{{ version.version_no }}</td>
+          <td><span class="badge {{ 'hist-active' if version.is_active else 'hist-old' }}">
+            {{ 'действующая' if version.is_active else 'сохранена' }}
+          </span></td>
+          <td>
+            <a href="{{ url_for('historical_source', company_id=company.id, import_id=version.import_id) }}">
+              {{ version.historical_import.original_filename }}
+            </a>
+          </td>
+          <td>{{ version.historical_import.author.username }} ·
+              {{ version.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>
+            {% if not version.is_active %}
+            <form method="post"
+                  action="{{ url_for('historical_version_activate', company_id=company.id, version_id=version.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="ab-btn" type="submit">Вернуть версию</button>
+            </form>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+    {% endif %}
+
+    {% if historical_imports %}
+    <details style="margin-top:14px">
+      <summary class="hist-subtitle" style="cursor:pointer;margin-bottom:8px">
+        История попыток ({{ historical_imports|length }})
+      </summary>
+      <div class="hist-table-wrap">
+        <table>
+          <tr><th>Дата</th><th>Файл</th><th>Автор</th><th>Проверка</th><th>Результат</th></tr>
+          {% for item in historical_imports %}
+          <tr>
+            <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td><a href="{{ url_for('historical_source', company_id=company.id, import_id=item.id) }}">{{ item.original_filename }}</a></td>
+            <td>{{ item.author.username }}</td>
+            <td>
+              {% if item.preview.get('validation', {}).get('ok') %}
+                <span class="badge badge-ok">пройдена</span>
+              {% elif item.status == 'failed' %}
+                <span class="badge hist-failed">ошибка XLSX</span>
+              {% else %}
+                <span class="badge badge-bad">не пройдена</span>
+              {% endif %}
+            </td>
+            <td>{{ {'preview':'ожидает подтверждения','active':'активирована','cancelled':'отменена','failed':'ошибка'}.get(item.status, item.status) }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </details>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <!-- Модальное окно подтверждения архивирования -->
   <div id="del-overlay" onclick="closeDeleteModal()"

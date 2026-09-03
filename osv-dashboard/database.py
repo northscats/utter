@@ -166,6 +166,12 @@ class Company(db.Model):
                                cascade='all, delete-orphan')
     finance_rows = db.relationship('CompanyFinance', backref='company', lazy=True,
                                    cascade='all, delete-orphan')
+    historical_imports = db.relationship(
+        'HistoricalImport', backref='company', lazy=True,
+        cascade='all, delete-orphan')
+    historical_mappings = db.relationship(
+        'HistoricalMapping', backref='company', lazy=True,
+        cascade='all, delete-orphan')
     curator = db.relationship('User', foreign_keys=[curator_user_id], lazy=True)
 
     @property
@@ -334,6 +340,147 @@ class Upload(db.Model):
             return json.loads(self.accounts_loaded)
         except Exception:
             return []
+
+
+# ---------------------------------------------------------------------------
+# Годовая историческая аналитика (независимый от ОСВ контур)
+# ---------------------------------------------------------------------------
+class HistoricalImport(db.Model):
+    """Неизменяемая попытка загрузки книги и результат её проверки."""
+    __tablename__ = 'historical_imports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    uploaded_by = db.Column(
+        db.Integer, db.ForeignKey('users.id', ondelete='RESTRICT'),
+        nullable=False)
+    original_filename = db.Column(db.String(500), nullable=False)
+    stored_path = db.Column(db.String(1000), nullable=False)
+    file_hash = db.Column(db.String(64), nullable=False, index=True)
+    status = db.Column(db.String(24), nullable=False, default='preview')
+    is_partial = db.Column(db.Boolean, nullable=False, default=False)
+    partial_confirmed = db.Column(db.Boolean, nullable=False, default=False)
+    preview_json = db.Column(db.Text, nullable=False, default='{}')
+    validation_json = db.Column(db.Text, nullable=False, default='{}')
+    error_text = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    confirmed_at = db.Column(db.DateTime(timezone=True))
+
+    author = db.relationship('User', lazy=True)
+    versions = db.relationship(
+        'HistoricalYearVersion', backref='historical_import', lazy=True,
+        cascade='all, delete-orphan')
+
+    @property
+    def preview(self):
+        try:
+            return json.loads(self.preview_json or '{}')
+        except (TypeError, ValueError):
+            return {}
+
+
+class HistoricalYearVersion(db.Model):
+    """Версия годового среза; только одна версия года может быть активной."""
+    __tablename__ = 'historical_year_versions'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'year', 'version_no',
+            name='uq_historical_year_version'),
+        db.Index(
+            'uq_historical_active_year', 'company_id', 'year', unique=True,
+            postgresql_where=db.text('is_active'),
+            sqlite_where=db.text('is_active')),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    import_id = db.Column(
+        db.Integer, db.ForeignKey('historical_imports.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    year = db.Column(db.Integer, nullable=False, index=True)
+    version_no = db.Column(db.Integer, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    activated_at = db.Column(db.DateTime(timezone=True))
+    activated_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    activator = db.relationship('User', lazy=True)
+    metrics = db.relationship(
+        'HistoricalMetricValue', backref='year_version', lazy=True,
+        cascade='all, delete-orphan')
+
+
+class HistoricalMetricValue(db.Model):
+    """Нормализованное значение одного показателя за календарный год."""
+    __tablename__ = 'historical_metric_values'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'year_version_id', 'section_key', 'metric_key', 'series_key',
+            name='uq_historical_metric_version_key'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    year_version_id = db.Column(
+        db.Integer,
+        db.ForeignKey('historical_year_versions.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    section_key = db.Column(db.String(100), nullable=False, index=True)
+    section_label = db.Column(db.String(255), nullable=False)
+    metric_key = db.Column(db.String(240), nullable=False, index=True)
+    metric_label = db.Column(db.Text, nullable=False)
+    series_key = db.Column(db.String(120), nullable=False, default='value')
+    period_label = db.Column(db.String(255), nullable=False, default='')
+    value_numeric = db.Column(db.Float)
+    value_text = db.Column(db.Text)
+    unit = db.Column(db.String(40), nullable=False, default='ratio')
+    is_missing = db.Column(db.Boolean, nullable=False, default=False)
+    is_upper_bound = db.Column(db.Boolean, nullable=False, default=False)
+
+    raw_value = db.relationship(
+        'HistoricalRawValue', backref='metric', uselist=False, lazy=True,
+        cascade='all, delete-orphan')
+
+
+class HistoricalRawValue(db.Model):
+    """Исходная строка ячейки для аудита нормализации."""
+    __tablename__ = 'historical_raw_values'
+
+    id = db.Column(db.Integer, primary_key=True)
+    metric_id = db.Column(
+        db.Integer,
+        db.ForeignKey('historical_metric_values.id', ondelete='CASCADE'),
+        nullable=False, unique=True)
+    raw_text = db.Column(db.Text, nullable=False, default='')
+    sheet_name = db.Column(db.String(255), nullable=False, default='')
+    cell_ref = db.Column(db.String(32), nullable=False, default='')
+
+
+class HistoricalMapping(db.Model):
+    """Подтверждённый пользователем вариант названия раздела или показателя."""
+    __tablename__ = 'historical_mappings'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'kind', 'source_normalized',
+            name='uq_historical_mapping_company_source'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False)  # section | metric
+    source_label = db.Column(db.Text, nullable=False)
+    source_normalized = db.Column(db.String(500), nullable=False)
+    canonical_key = db.Column(db.String(240), nullable=False)
+    canonical_label = db.Column(db.Text, nullable=False)
+    confirmed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    confirmed_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    confirmer = db.relationship('User', lazy=True)
 
 
 class AuditLog(db.Model):
