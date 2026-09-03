@@ -22,3 +22,17 @@ mtime_ms = 1788268620320
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/3af130aa-7282-47dc-aa74-853ef4df9211/9f7205c8-189d-4693-a589-395d93e3d275"
 storage_version_token = "1788268632823489"
 content_type = "text/markdown"
+
+[[outputs]]
+id = "hKcu6Gv3gh-5KIwfeBydJ"
+uri = "file://deliverables/RBAC_model_RSO_analytics.docx"
+type = "word_document"
+title = "Ролевая модель RBAC для модуля аналитики РСО"
+description = "Документ Word с организационной иерархией, ролями, матрицей прав, областями доступа, правилами согласования KPI, рейтингами, аудитом и вопросами для утверждения."
+logical_id = "9d877225-0702-4c79-babb-f28522f44712"
+content_hash = "sha256:2c1acdc2ff32ab8e740fb2ec37cb95ba1fc03e407722565288ea1ed76eff8728"
+size = 46839
+mtime_ms = 1788355711465
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9d877225-0702-4c79-babb-f28522f44712/7d849c59-325a-4799-8894-59415c4b544f"
+storage_version_token = "1788355737515989"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

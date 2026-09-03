@@ -1221,7 +1221,16 @@ function renderRating(){
        'Высокие управленческие расходы. Аудит штатной численности.'},
   ];
 
-  const computed=metrics.map(m=>({...m,signal:m.sig(m.val),disp:m.fmt(m.val),noteText:m.note(m.val)}));
+  const metricKeys=['dz_days','kz_dz','liquidity','debt_ebitda','rate',
+    'tax_burden','nvv_pct','cost_pct','comm_pct','adm_pct'];
+  const serverK=D.server_kpis||null;
+  const computed=metrics.map((m,i)=>{
+    const key=metricKeys[i];
+    const value=serverK&&serverK.metrics?serverK.metrics[key]:m.val;
+    const signal=serverK&&serverK.signals?serverK.signals[key]:m.sig(value);
+    const display=serverK&&serverK.display?serverK.display[key]:m.fmt(value);
+    return {...m,key:key,val:value,signal:signal,disp:display,noteText:m.note(value)};
+  });
   const cnts={green:0,yellow:0,red:0,na:0};
   computed.forEach(m=>{if(cnts[m.signal]!==undefined) cnts[m.signal]++;});
   const scoreable=computed.filter(m=>m.signal!=='na').length||1;

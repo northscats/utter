@@ -512,7 +512,7 @@ def build_dataset(data, company_name=''):
         has_subaccs  =has_path3,
     )
 
-    return dict(
+    dataset = dict(
         company_name   =company_name,
         months         =months,
         month_names    =[MONTH_NAMES[m[5:]] for m in months],
@@ -539,6 +539,10 @@ def build_dataset(data, company_name=''):
         sections       =sections,
         accounts_loaded=sorted(data.keys()),
     )
+    # Статический дашборд получает уже рассчитанные сервером KPI и не
+    # воспроизводит финансовые формулы в браузере.
+    dataset['server_kpis'] = extract_kpis(dataset)
+    return dataset
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -605,27 +609,8 @@ def extract_kpis(dataset):
         'adm_pct':    _safe(adm_total * 100, rev_net)           if rev_net > 0                  else None,
     }
 
-    def sig(v, g, y):
-        if v is None:
-            return 'na'
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            return 'na'
-        return 'green' if g(fv) else 'yellow' if y(fv) else 'red'
-
-    signals = {
-        'dz_days':    sig(raw['dz_days'],    lambda v: v <= 60,  lambda v: v <= 90),
-        'kz_dz':      sig(raw['kz_dz'],      lambda v: v <= 1.0, lambda v: v <= 1.5),
-        'liquidity':  sig(raw['liquidity'],  lambda v: v >= 0.5, lambda v: v >= 0.2),
-        'debt_ebitda':sig(raw['debt_ebitda'],lambda v: v <= 2.5, lambda v: v <= 4.0),
-        'rate':       sig(raw['rate'],       lambda v: v <= 18,  lambda v: v <= 22),
-        'tax_burden': sig(raw['tax_burden'], lambda v: v <= 32,  lambda v: v <= 38),
-        'nvv_pct':    'na',
-        'cost_pct':   sig(raw['cost_pct'],   lambda v: v <= 80,  lambda v: v <= 95),
-        'comm_pct':   sig(raw['comm_pct'],   lambda v: v <= 3,   lambda v: v <= 5),
-        'adm_pct':    sig(raw['adm_pct'],    lambda v: v <= 8,   lambda v: v <= 12),
-    }
+    from rating import metric_signal
+    signals = {key: metric_signal(value, key) for key, value in raw.items()}
 
     def _fmt(key, v):
         if v is None:
@@ -653,4 +638,4 @@ def extract_kpis(dataset):
     scoreable = counts['green'] + counts['yellow'] + counts['red'] or 1
     score = round((counts['green'] * 100 + counts['yellow'] * 50) / (scoreable * 100) * 100)
 
-    return dict(signals=signals, display=display, score=score, counts=counts)
+    return dict(metrics=raw, signals=signals, display=display, score=score, counts=counts)

@@ -30,7 +30,7 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        CompanyFinance, CompanyLicense, CompanyMembership,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
-                       HistoricalYearVersion, Setting, Upload, User,
+                       HistoricalYearVersion, RatingProfile, Setting, Upload, User,
                        UserModuleAccess, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
@@ -287,7 +287,9 @@ def _save_kpi_cache(dataset, out_dir):
     except Exception as exc:
         app.logger.warning(f'kpi_cache save failed: {exc}')
 
-
+def _dataset_metrics_json(dataset):
+    from builder import extract_kpis
+    return json.dumps(extract_kpis(dataset)['metrics'], ensure_ascii=False)
 def _hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
@@ -442,10 +444,8 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
         f.write(html)
     _save_kpi_cache(dataset, out_dir)
 
-    # Выясняем статус закрытия из brief
     brief = dataset.get('brief', {})
-    head = brief.get('head', '')
-    closure_status = 'закрыт' in head.lower() if head else None
+    closure_status = _dataset_closure_status(dataset)
 
     # Финансовый результат
     lead = brief.get('lead', '')
@@ -470,6 +470,7 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
         closure_status=closure_status,
         profit_sign=profit_sign,
         files_count=len(paths),
+        metrics_json=_dataset_metrics_json(dataset),
     )
     return record_kwargs, audit
 
@@ -700,15 +701,13 @@ def _do_imap_sync(uploader_id: int) -> dict:
 
                             brief = dataset.get('brief', {})
                             lead = brief.get('lead', '')
-                            head = brief.get('head', '')
                             _up = Upload(
                                 company_id=company_id,
                                 uploaded_by=uploader_id,
                                 period_label=dataset.get('period_label', ''),
                                 accounts_loaded=json.dumps(
                                     sorted(dataset.get('accounts', {}).keys())),
-                                closure_status=(
-                                    'закрыт' in head.lower() if head else None),
+                                closure_status=_dataset_closure_status(dataset),
                                 profit_sign=(
                                     'loss' if 'убыток' in lead.lower() else
                                     'profit' if 'прибыль' in lead.lower() else
@@ -716,6 +715,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 files_count=len(extracted_xls),
                                 dashboard_file='dashboard_current.html',
                                 source='auto_imap',
+                                metrics_json=_dataset_metrics_json(dataset),
                             )
                             db.session.add(_up)
                             db.session.commit()
@@ -769,14 +769,12 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             stats['companies_updated'].add(company_id)
                             brief = dataset.get('brief', {})
                             lead = brief.get('lead', '')
-                            head = brief.get('head', '')
                             _up = Upload(
                                 company_id=company_id,
                                 uploaded_by=uploader_id,
                                 period_label=dataset.get('period_label', ''),
                                 accounts_loaded=json.dumps(loaded_accounts),
-                                closure_status=(
-                                    'закрыт' in head.lower() if head else None),
+                                closure_status=_dataset_closure_status(dataset),
                                 profit_sign=(
                                     'loss' if 'убыток' in lead.lower() else
                                     'profit' if 'прибыль' in lead.lower() else
@@ -784,6 +782,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 files_count=1,
                                 dashboard_file='dashboard_current.html',
                                 source='auto_imap',
+                                metrics_json=_dataset_metrics_json(dataset),
                             )
                             db.session.add(_up)
                             db.session.commit()
@@ -972,8 +971,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             lead = brief.get('lead', '')
             profit_sign = ('loss'   if 'убыток'  in lead.lower() else
                            'profit' if 'прибыль' in lead.lower() else 'neutral')
-            head = brief.get('head', '')
-            closure_status = ('закрыт' in head.lower()) if head else None
+            closure_status = _dataset_closure_status(dataset)
 
             upload = Upload(
                 company_id=company_id,
@@ -985,6 +983,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                 files_count=total_files,
                 dashboard_file='dashboard_current.html',
                 source='manual',
+                metrics_json=_dataset_metrics_json(dataset),
             )
             db.session.add(upload)
             db.session.commit()
@@ -1187,7 +1186,7 @@ def internal_error(e):
 # ---------------------------------------------------------------------------
 # Вспомогательный эндпоинт для JS/HTMX-клиентов: получить CSRF-токен
 # ---------------------------------------------------------------------------
-@app.route('/api/auth/csrf', methods=['GET'])
+@app.route('/rating-api/csrf', methods=['GET'])
 @login_required
 def get_csrf_token():
     return jsonify(csrf_token=generate_csrf())
@@ -1273,10 +1272,12 @@ def modules_dashboard():
     ]
     return render_template('modules.html', modules=modules)
 
-
-# ---------------------------------------------------------------------------
-# Главная модуля аналитики — список предприятий
-# ---------------------------------------------------------------------------
+def _rating_profile_payload(row=None):
+    from rating import DEFAULT_PROFILE, validate_profile
+    config = validate_profile(row.config if row else DEFAULT_PROFILE)
+    return dict(id=row.id if row else 'base', name=config['name'],
+                is_default=bool(row and row.is_default), builtin=row is None,
+                config=config)
 @app.route('/home')
 @login_required
 def home():
@@ -1299,7 +1300,14 @@ def home():
             except Exception as exc:
                 app.logger.warning(f'auto kpi_cache regen failed for company {c.id}: {exc}')
     cards = [_company_summary(c) for c in companies]
-    return render_template('home.html', companies=cards)
+    response = Response(
+        render_template('home.html', companies=cards,
+                        rating_profiles=_rating_profiles_for_user()),
+        mimetype='text/html')
+    # В шаблоне находится клиент API рейтинга. Не позволяем открытой вкладке
+    # после обновления сервера продолжать выполнять устаревший JavaScript.
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1931,8 +1939,7 @@ def company_upload_all(company_id):
         profit_sign = 'profit'
     else:
         profit_sign = 'neutral'
-    head = brief.get('head', '')
-    closure_status = ('закрыт' in head.lower()) if head else None
+    closure_status = _dataset_closure_status(dataset)
 
     upload = Upload(
         company_id=company_id,
@@ -1944,6 +1951,7 @@ def company_upload_all(company_id):
         files_count=total_files,
         dashboard_file='dashboard_current.html',
         source='manual',
+        metrics_json=_dataset_metrics_json(dataset),
     )
     db.session.add(upload)
     db.session.commit()
@@ -2180,6 +2188,7 @@ def company_upload_zip(company_id):
         files_count=upserted,
         dashboard_file=out_name,
         source='manual',
+        metrics_json=_dataset_metrics_json(dataset),
     )
     db.session.add(upload)
     db.session.commit()
@@ -3880,6 +3889,9 @@ def init_db():
             ('cancel_requested_at', "TIMESTAMP WITH TIME ZONE"),
             ('cancelled_at', "TIMESTAMP WITH TIME ZONE"),
         ])
+        _add_missing('uploads', [
+            ('metrics_json', "TEXT DEFAULT '{}'"),
+        ])
         if db.engine.dialect.name == 'postgresql':
             try:
                 from sqlalchemy import text as _text_catalog_run
@@ -4029,6 +4041,147 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             print('Создан пользователь admin / admin123 — смените пароль!')
+
+
+def _dataset_closure_status(dataset):
+    """Закрытость по структурированным помесячным статусам."""
+    labels = dataset.get('closing_label') or []
+    if labels and all(label == 'закрыт' for label in labels):
+        return True
+    if any(label in ('НЕ ЗАКРЫТ', 'фин.рез. не списан') for label in labels):
+        return False
+    return None
+
+def _rating_profiles_for_user():
+    rows = RatingProfile.query.filter_by(owner_id=current_user.id)\
+        .order_by(RatingProfile.name, RatingProfile.id).all()
+    payload = [_rating_profile_payload()] + [_rating_profile_payload(row) for row in rows]
+    if not any(item['is_default'] for item in payload):
+        payload[0]['is_default'] = True
+    return payload
+
+@app.route('/rating-api/profiles', methods=['GET', 'POST'])
+@login_required
+def rating_profiles():
+    from rating import ProfileValidationError, validate_profile
+    if request.method == 'GET':
+        return jsonify(profiles=_rating_profiles_for_user())
+    try:
+        config = validate_profile(request.get_json(silent=True) or {})
+    except (ProfileValidationError, TypeError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    duplicate = RatingProfile.query.filter_by(
+        owner_id=current_user.id, name=config['name']).first()
+    if duplicate:
+        return jsonify(error='Профиль с таким названием уже существует'), 409
+    row = RatingProfile(owner_id=current_user.id, name=config['name'],
+                        config_json=json.dumps(config, ensure_ascii=False))
+    db.session.add(row)
+    db.session.commit()
+    return jsonify(profile=_rating_profile_payload(row)), 201
+
+@app.route('/rating-api/catalog')
+@login_required
+def rating_catalog():
+    from rating import METRICS
+    return jsonify(metrics=METRICS, periods=[
+        {'key': 'latest_closed', 'name': 'Последний закрытый период'},
+        {'key': 'all_closed', 'name': 'Все доступные закрытые периоды'},
+    ])
+
+@app.route('/rating-api/profiles/<int:profile_id>', methods=['PUT', 'DELETE'])
+@login_required
+def rating_profile_item(profile_id):
+    from rating import ProfileValidationError, validate_profile
+    row = RatingProfile.query.filter_by(
+        id=profile_id, owner_id=current_user.id).first_or_404()
+    if request.method == 'DELETE':
+        db.session.delete(row)
+        db.session.commit()
+        return ('', 204)
+    body = request.get_json(silent=True) or {}
+    try:
+        config = validate_profile(body.get('config', body))
+    except (ProfileValidationError, TypeError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    duplicate = RatingProfile.query.filter(
+        RatingProfile.owner_id == current_user.id,
+        RatingProfile.name == config['name'],
+        RatingProfile.id != row.id).first()
+    if duplicate:
+        return jsonify(error='Профиль с таким названием уже существует'), 409
+    row.name = config['name']
+    row.config_json = json.dumps(config, ensure_ascii=False)
+    if body.get('is_default'):
+        RatingProfile.query.filter_by(owner_id=current_user.id).update(
+            {'is_default': False})
+        row.is_default = True
+    db.session.commit()
+    return jsonify(profile=_rating_profile_payload(row))
+
+@app.route('/rating-api', methods=['GET'])
+@login_required
+def rating_results():
+    from rating import DEFAULT_PROFILE, rank_companies, score_company, validate_profile
+    profile_id = request.args.get('profile_id', 'base')
+    if profile_id == 'base':
+        profile = validate_profile(DEFAULT_PROFILE)
+        profile_ref = 'base'
+    else:
+        try:
+            numeric_id = int(profile_id)
+        except ValueError:
+            return jsonify(error='Некорректный профиль'), 400
+        row = RatingProfile.query.filter_by(
+            id=numeric_id, owner_id=current_user.id).first()
+        if not row:
+            return jsonify(error='Профиль не найден'), 404
+        profile = validate_profile(row.config)
+        profile_ref = row.id
+
+    results = []
+    for company in Company.query.order_by(Company.id).all():
+        closed = [u for u in company.uploads if u.closure_status is True]
+        selected = closed[:1] if profile['period'] == 'latest_closed' else closed
+        freshness = max((u.uploaded_at for u in selected), default=None)
+        snapshots = [upload.metrics for upload in selected if upload.metrics]
+        # Безопасная совместимость со старыми установками: текущий файловый
+        # кэш допустим только когда последняя вообще загрузка и выбранный
+        # закрытый период — одна запись. Более новый открытый период исключает
+        # такой fallback, чтобы не загрязнить рейтинг.
+        if (not snapshots and profile['period'] == 'latest_closed'
+                and len(selected) == 1 and company.uploads
+                and company.uploads[0].id == selected[0].id):
+            kpi_path = os.path.join(OUTPUT, str(company.id), 'kpi_cache.json')
+            try:
+                with open(kpi_path, encoding='utf-8') as stream:
+                    legacy = json.load(stream)
+                if isinstance(legacy.get('metrics'), dict):
+                    snapshots = [legacy['metrics']]
+            except (OSError, ValueError, TypeError):
+                pass
+        values = {}
+        # Для диапазона закрытых периодов используем среднее доступных
+        # периодических значений каждой метрики; пропуски не становятся нулями.
+        for key in profile['metrics']:
+            observed = [snapshot.get(key) for snapshot in snapshots
+                        if snapshot.get(key) is not None]
+            values[key] = (sum(observed) / len(observed)) if observed else None
+        missing = {key: ('Нет закрытого периода' if not selected
+                         else 'Недостаточно исходных счетов для формулы')
+                   for key in profile['metrics']}
+        result = score_company(values, profile, missing)
+        result.update(company_id=company.id, company_name=company.name,
+                      inn=company.inn or '',
+                      freshness=freshness.isoformat() if freshness else None,
+                      period=selected[0].period_label if len(selected) == 1 else
+                      (f'{len(selected)} закрытых периодов' if selected else None),
+                      detail_url=url_for('dashboard', company_id=company.id,
+                                         name='dashboard_current.html') + '#rating')
+        results.append(result)
+    return jsonify(profile_id=profile_ref, profile=profile,
+                   generated_at=datetime.now(timezone.utc).isoformat(),
+                   results=rank_companies(results))
 
 
 if __name__ == '__main__':

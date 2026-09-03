@@ -333,6 +333,9 @@ class Upload(db.Model):
     dashboard_file = db.Column(db.String(255), default='')      # имя HTML-файла
     files_count = db.Column(db.Integer, default=0)              # кол-во файлов в пакете
     source = db.Column(db.String(20), default='manual')         # 'manual' | 'auto_imap'
+    # Неизменяемый снимок серверных KPI на момент загрузки. Общий рейтинг
+    # никогда не читает изменяемый кэш текущего дашборда.
+    metrics_json = db.Column(db.Text, default='{}')
 
     @property
     def accounts_list(self):
@@ -340,6 +343,38 @@ class Upload(db.Model):
             return json.loads(self.accounts_loaded)
         except Exception:
             return []
+
+    @property
+    def metrics(self):
+        try:
+            value = json.loads(self.metrics_json or '{}')
+            return value if isinstance(value, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
+class RatingProfile(db.Model):
+    """Именованный пользовательский профиль общего рейтинга."""
+    __tablename__ = 'rating_profiles'
+    __table_args__ = (
+        db.UniqueConstraint('owner_id', 'name', name='uq_rating_profile_owner_name'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+                         nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    config_json = db.Column(db.Text, nullable=False, default='{}')
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow)
+
+    @property
+    def config(self):
+        try:
+            return json.loads(self.config_json)
+        except (TypeError, ValueError):
+            return {}
 
 
 # ---------------------------------------------------------------------------

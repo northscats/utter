@@ -286,6 +286,32 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 ::-webkit-scrollbar-track{background:#f5f7fa}
 ::-webkit-scrollbar-thumb{background:#b0bec5;border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:#78909c}
+.rating-shell{max-width:1400px;margin:auto}.rating-head{display:flex;gap:10px;align-items:center;
+  flex-wrap:wrap;margin-bottom:12px}.rating-head h2{font-size:18px;margin-right:auto}
+.rating-control{border:1px solid var(--line);border-radius:4px;background:#fff;padding:6px 9px;
+  font:12px 'Segoe UI',sans-serif}.rating-btn{border:0;border-radius:4px;padding:7px 11px;
+  background:var(--water);color:#fff;font-weight:600;cursor:pointer}.rating-btn.secondary{background:#607d8b}
+.rating-card{background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px;margin-bottom:12px}
+.rating-settings{display:none}.rating-settings.open{display:block}.rating-metrics{display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;margin-top:10px}
+.rating-metric{border:1px solid #e3e8ed;border-radius:4px;padding:8px}.rating-metric label{font-weight:700}
+.rating-fields{display:grid;grid-template-columns:70px 1fr 1fr;gap:6px;margin-top:7px}
+.rating-fields input{width:100%;border:1px solid var(--line);border-radius:3px;padding:4px}
+.rating-table{width:100%;border-collapse:collapse;min-width:900px}.rating-table th,.rating-table td{
+  padding:9px;border-bottom:1px solid #edf0f3;text-align:left;vertical-align:top}
+.rating-table th{background:#f5f7fa;font-size:10px;text-transform:uppercase;white-space:nowrap}
+.rating-score{font-size:18px;font-weight:800}.rating-signal{display:inline-block;padding:2px 7px;
+  border-radius:10px;font-size:10px;font-weight:700}.rating-signal.green{background:#e8f5e9;color:#2e7d32}
+.rating-signal.yellow{background:#fff8e1;color:#e67e22}.rating-signal.red{background:#ffebee;color:#c62828}
+.rating-signal.na{background:#eceff1;color:#607d8b}.coverage{height:6px;width:80px;background:#e2e8ec;
+  border-radius:3px;overflow:hidden;margin-top:3px}.coverage i{display:block;height:100%;background:var(--water)}
+.metric-breakdown{margin-top:5px;font-size:10.5px;color:#607d8b}.metric-breakdown summary{cursor:pointer}
+.rating-error{color:#c62828;font-weight:600;margin:6px 0}.rating-muted{color:#78909c;font-size:11px}
+@media(max-width:700px){.hd-menu{display:none}.sl-sidebar{width:48px!important}.sl-sidebar .sb-hide,
+  .sl-sidebar .sl-info,.sl-sidebar .comp-badge{display:none!important}.v-splitter{display:none}
+  .sl-nav-item{padding:9px 6px;justify-content:center}.sl-scroll-panel{padding:10px}
+  .rating-head{align-items:stretch}.rating-head h2{width:100%}.rating-control,.rating-btn{flex:1}
+  .rating-metrics{grid-template-columns:1fr}.rating-fields{grid-template-columns:60px 1fr 1fr}}
 </style>
 </head>
 <body>
@@ -409,6 +435,9 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
         <div class="sl-nav-item" data-nav="summary" onclick="setNavView('summary',this)">
           <span class="ico">📄</span><span>Сводная</span>
         </div>
+        <div class="sl-nav-item" data-nav="rating" onclick="setNavView('rating',this)">
+          <span class="ico">🏆</span><span>Общий рейтинг</span>
+        </div>
       </div>
     </div>
   </div>
@@ -457,6 +486,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 
       <!-- Сводная -->
       <div class="sl-scroll-panel" id="sl-summary"></div>
+      <div class="sl-scroll-panel" id="sl-rating"></div>
     </div>
   </div>
 </div>
@@ -547,6 +577,9 @@ const SIG = {
 ══════════════════════════════ */
 var currentCompanyId = null;
 var currentNavView   = 'kpi';
+var ratingProfiles = {{ rating_profiles | tojson }};
+var ratingCatalog = null;
+var ratingData = null;
 
 
 /* ══════════════════════════════
@@ -688,7 +721,7 @@ function setNavView(view, clickedEl) {
   if (clickedEl) clickedEl.classList.add('active');
   // Показываем/скрываем топбар в зависимости от вида
   if (currentCompanyId) {
-    var iframeView = view === 'history' || view === 'kpi' || view === 'cards';
+    var iframeView = view === 'history' || view === 'kpi' || view === 'cards' || view === 'rating';
     document.getElementById('sl-topbar').style.display = iframeView ? 'none' : 'flex';
   }
   renderNavView(view);
@@ -702,11 +735,17 @@ function hideAllPanels() {
   document.getElementById('sl-kpi-cards').style.display   = 'none';
   document.getElementById('sl-alerts').style.display      = 'none';
   document.getElementById('sl-summary').style.display     = 'none';
+  document.getElementById('sl-rating').style.display      = 'none';
   document.getElementById('sl-loading').style.display     = 'none';
 }
 
 function renderNavView(view) {
   hideAllPanels();
+  if (view === 'rating') {
+    document.getElementById('sl-topbar').style.display = 'none';
+    renderRatingView();
+    return;
+  }
   if (!currentCompanyId) {
     document.getElementById('sl-placeholder').style.display = 'flex';
     return;
@@ -880,6 +919,107 @@ function renderSummaryView(el) {
 
   panel.innerHTML = html;
 }
+
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+function ratingSignalText(s){return {green:'Норма',yellow:'Внимание',red:'Критично',na:'Нет данных'}[s]||s}
+async function apiJson(url, options) {
+  options = options || {};
+  options.headers = Object.assign({'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}, options.headers||{});
+  if (options.method && options.method !== 'GET') {
+    var csrfResponse = await fetch('{{ url_for("get_csrf_token") }}', {
+      headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'}
+    });
+    var csrfText = await csrfResponse.text();
+    var token;
+    try { token = csrfText ? JSON.parse(csrfText) : {}; }
+    catch(e) { throw new Error('Сервер вернул неверный ответ при проверке сессии'); }
+    if (!csrfResponse.ok || !token.csrf_token)
+      throw new Error(token.error || 'Сессия истекла. Обновите страницу и войдите снова');
+    options.headers['X-CSRFToken'] = token.csrf_token;
+    options.headers['Content-Type'] = 'application/json';
+  }
+  var response = await fetch(url, options);
+  var text = response.status === 204 ? '' : await response.text();
+  var contentType = response.headers.get('content-type') || '';
+  var data = {};
+  if (text) {
+    if (contentType.indexOf('application/json') === -1) {
+      if (response.redirected || response.url.indexOf('/login') !== -1)
+        throw new Error('Сессия истекла. Обновите страницу и войдите снова');
+      throw new Error('Сервер вернул ответ в неверном формате (' + response.status + ')');
+    }
+    try { data = JSON.parse(text); }
+    catch(e) { throw new Error('Сервер вернул повреждённый JSON-ответ'); }
+  }
+  if (!response.ok) throw new Error(data.error || 'Ошибка запроса (' + response.status + ')');
+  if (!text && response.status !== 204)
+    throw new Error('Сервер вернул пустой ответ (' + response.status + ')');
+  return data;
+}
+async function renderRatingView(force) {
+  var panel=document.getElementById('sl-rating'); panel.style.display='block';
+  panel.innerHTML='<div class="sl-no-data">Загрузка общего рейтинга…</div>';
+  try {
+    if (!ratingCatalog) ratingCatalog=await apiJson('{{ url_for("rating_catalog") }}');
+    var defaultProfile=ratingProfiles.find(function(p){return p.is_default})||ratingProfiles[0];
+    var selected=(document.getElementById('rating-profile')||{}).value||defaultProfile.id;
+    if (force || !ratingData || String(ratingData.profile_id)!==String(selected))
+      ratingData=await apiJson('{{ url_for("rating_results") }}?profile_id='+encodeURIComponent(selected));
+    drawRating(panel, selected);
+  } catch(e){panel.innerHTML='<div class="rating-error">'+esc(e.message)+'</div>'}
+}
+function drawRating(panel, selected) {
+  var profile=ratingData.profile, rows=ratingData.results||[];
+  var options=ratingProfiles.map(function(p){return '<option value="'+p.id+'" '+(String(p.id)===String(selected)?'selected':'')+'>'+esc(p.name)+(p.is_default?' · по умолчанию':'')+'</option>'}).join('');
+  panel.innerHTML='<div class="rating-shell"><div class="rating-head"><h2>Общий рейтинг предприятий</h2>'+
+    '<select id="rating-profile" class="rating-control" onchange="ratingData=null;renderRatingView(true)">'+options+'</select>'+
+    '<input id="rating-search" class="rating-control" placeholder="Поиск по названию / ИНН" oninput="filterRating()">'+
+    '<select id="rating-filter" class="rating-control" onchange="filterRating()"><option value="">Все сигналы</option>'+
+    '<option value="red">Критично</option><option value="yellow">Внимание</option><option value="green">Норма</option><option value="na">Вне рейтинга</option></select>'+
+    '<button class="rating-btn secondary" onclick="toggleRatingSettings()">Настроить</button></div>'+
+    '<div id="rating-error" class="rating-error"></div><div class="rating-card rating-settings" id="rating-settings">'+
+    ratingSettingsHtml(profile, selected)+'</div>'+
+    '<div class="rating-card rating-muted">Баллы: норма — 100, внимание — 50, критично — 0. При пропуске вес метрики исключается и оставшиеся веса нормализуются. Предприятие ранжируется только при достаточном покрытии.</div>'+
+    '<div class="table-wrap"><table class="rating-table"><thead><tr><th>Место</th><th>Предприятие</th><th>Баллы</th><th>Сигнал</th><th>Покрытие</th><th>Период / актуальность</th><th>Вклад метрик</th><th></th></tr></thead><tbody>'+
+    rows.map(ratingRowHtml).join('')+'</tbody></table></div></div>';
+}
+function ratingSettingsHtml(profile, selected) {
+  var isBase=String(selected)==='base';
+  var metrics=Object.keys(ratingCatalog.metrics).map(function(key){
+    var meta=ratingCatalog.metrics[key], cfg=profile.metrics[key], disabled=meta.available===false;
+    return '<div class="rating-metric"><label><input type="checkbox" data-rm="'+key+'" data-f="enabled" '+(cfg.enabled?'checked':'')+' '+(disabled?'disabled':'')+'> '+esc(meta.name)+'</label>'+
+      (disabled?'<div class="rating-muted">'+esc(meta.unavailable_reason)+'</div>':'<div class="rating-fields"><input type="number" data-rm="'+key+'" data-f="weight" value="'+cfg.weight+'" title="Вес, %"><input type="number" step="0.01" data-rm="'+key+'" data-f="green" value="'+cfg.green+'" title="Порог нормы"><input type="number" step="0.01" data-rm="'+key+'" data-f="yellow" value="'+cfg.yellow+'" title="Порог внимания"></div>')+'</div>';
+  }).join('');
+  return '<div class="rating-head"><input id="rp-name" class="rating-control" value="'+esc(isBase?'Новый профиль':profile.name)+'" placeholder="Название профиля">'+
+    '<select id="rp-period" class="rating-control"><option value="latest_closed" '+(profile.period==='latest_closed'?'selected':'')+'>Последний закрытый период</option><option value="all_closed" '+(profile.period==='all_closed'?'selected':'')+'>Все закрытые периоды</option></select>'+
+    '<label>Мин. покрытие <input id="rp-coverage" type="number" min="0" max="100" class="rating-control" value="'+profile.min_coverage+'" style="width:70px">%</label>'+
+    '<button class="rating-btn" onclick="saveRatingProfile('+(!isBase)+')">'+(isBase?'Сохранить как профиль':'Сохранить')+'</button>'+
+    (!isBase?'<button class="rating-btn secondary" onclick="setDefaultRatingProfile()">По умолчанию</button><button class="rating-btn secondary" onclick="deleteRatingProfile()">Удалить</button>':'')+
+    '<button class="rating-btn secondary" onclick="resetRatingProfile()">Сбросить к базовому</button></div><div class="rating-muted">Поля: вес %, порог «норма», порог «внимание». Сумма включённых весов — 100%.</div><div class="rating-metrics">'+metrics+'</div>';
+}
+function ratingRowHtml(r){
+  var contributions=r.contributions.map(function(m){return '<div><b>'+esc(m.name)+':</b> '+(m.value==null?'—':esc(m.value+' '+m.unit))+' · '+ratingSignalText(m.signal)+' · '+(m.contribution==null?'нет вклада':m.contribution.toFixed(1))+'<br><span>'+esc(m.reason)+'</span></div>'}).join('');
+  return '<tr data-q="'+esc((r.company_name+' '+r.inn).toLowerCase())+'" data-s="'+(r.ranked?r.signal:'na')+'"><td>'+(r.place||'—')+'</td><td><b>'+esc(r.company_name)+'</b><div class="rating-muted">'+esc(r.inn)+'</div></td>'+
+    '<td><span class="rating-score">'+(r.score==null?'—':r.score)+'</span>'+(r.exclusion_reason?'<div class="rating-muted">'+esc(r.exclusion_reason)+'</div>':'')+'</td>'+
+    '<td><span class="rating-signal '+(r.ranked?r.signal:'na')+'">'+ratingSignalText(r.ranked?r.signal:'na')+'</span></td>'+
+    '<td>'+r.coverage+'%<div class="coverage"><i style="width:'+r.coverage+'%"></i></div></td><td>'+esc(r.period||'Нет закрытого периода')+'<div class="rating-muted">'+esc(r.freshness?r.freshness.slice(0,10):'—')+'</div></td>'+
+    '<td><details class="metric-breakdown"><summary>Показать формулу</summary>'+contributions+'</details></td><td><a class="btn-open" href="'+esc(r.detail_url)+'">Открыть</a></td></tr>';
+}
+function filterRating(){var q=(document.getElementById('rating-search').value||'').toLowerCase(),s=document.getElementById('rating-filter').value;document.querySelectorAll('.rating-table tbody tr').forEach(function(r){r.style.display=(!q||r.dataset.q.includes(q))&&(!s||r.dataset.s===s)?'':'none'})}
+function toggleRatingSettings(){document.getElementById('rating-settings').classList.toggle('open')}
+function collectRatingProfile(){
+  var p={name:document.getElementById('rp-name').value,period:document.getElementById('rp-period').value,missing_policy:'renormalize',min_coverage:Number(document.getElementById('rp-coverage').value),metrics:{}};
+  document.querySelectorAll('[data-rm]').forEach(function(el){var k=el.dataset.rm,f=el.dataset.f;p.metrics[k]=p.metrics[k]||{};p.metrics[k][f]=f==='enabled'?el.checked:Number(el.value)});
+  return p;
+}
+async function saveRatingProfile(update){try{var id=document.getElementById('rating-profile').value,url=update?'{{ url_for("rating_profiles") }}/'+id:'{{ url_for("rating_profiles") }}',res=await apiJson(url,{method:update?'PUT':'POST',body:JSON.stringify(update?{config:collectRatingProfile()}:collectRatingProfile())});var fresh=await apiJson('{{ url_for("rating_profiles") }}');ratingProfiles=fresh.profiles;ratingData=null;await renderRatingView(true)}catch(e){document.getElementById('rating-error').textContent=e.message}}
+async function setDefaultRatingProfile(){try{var id=document.getElementById('rating-profile').value;await apiJson('{{ url_for("rating_profiles") }}/'+id,{method:'PUT',body:JSON.stringify({config:collectRatingProfile(),is_default:true})});ratingProfiles=(await apiJson('{{ url_for("rating_profiles") }}')).profiles;ratingData=null;await renderRatingView(true)}catch(e){document.getElementById('rating-error').textContent=e.message}}
+async function deleteRatingProfile(){if(!confirm('Удалить профиль?'))return;try{var id=document.getElementById('rating-profile').value;await apiJson('{{ url_for("rating_profiles") }}/'+id,{method:'DELETE'});ratingProfiles=(await apiJson('{{ url_for("rating_profiles") }}')).profiles;ratingData=null;await renderRatingView(true)}catch(e){document.getElementById('rating-error').textContent=e.message}}
+function resetRatingProfile(){document.getElementById('rating-profile').value='base';ratingData=null;renderRatingView(true)}
 
 /* ══════════════════════════════
    DETAIL IN FRAME

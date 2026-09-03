@@ -9,7 +9,7 @@ MODULES = {
         'icon': 'chart',
         'endpoint': 'home',
         'exact_paths': ('/home',),
-        'path_prefixes': ('/company/', '/dashboard/', '/ai/'),
+        'path_prefixes': ('/company/', '/dashboard/', '/ai/', '/rating-api'),
     },
     'documents': {
         'key': 'documents',
