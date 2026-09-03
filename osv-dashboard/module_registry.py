@@ -5,7 +5,7 @@ MODULES = {
     'analytics': {
         'key': 'analytics',
         'name': 'Аналитика ФХД РСО',
-        'description': 'Предприятия, оборотно-сальдовые ведомости, КПЭ и финансовые дашборды.',
+        'description': 'Портфельная сводка, предприятия, КПЭ и финансовые дашборды.',
         'icon': 'chart',
         'endpoint': 'home',
         'exact_paths': ('/home',),

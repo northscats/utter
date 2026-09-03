@@ -73,6 +73,9 @@ app.config['HISTORICAL_EXPERT_ENABLED'] = (
 app.config['HISTORICAL_EXECUTIVE_ENABLED'] = (
     os.environ.get('HISTORICAL_EXECUTIVE_ENABLED', '1').strip().lower()
     not in ('0', 'false', 'no', 'off'))
+app.config['PORTFOLIO_HOME_ENABLED'] = (
+    os.environ.get('PORTFOLIO_HOME_ENABLED', '1').strip().lower()
+    not in ('0', 'false', 'no', 'off'))
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -1287,11 +1290,21 @@ def _rating_profile_payload(row=None):
 @app.route('/home')
 @login_required
 def home():
-    query = Company.query.filter(Company.status != 'archived')
+    query = Company.query.filter(
+        Company.status != 'archived', Company.is_rso.is_(True))
     if not current_user.is_admin:
         query = query.join(CompanyMembership).filter(
             CompanyMembership.user_id == current_user.id)
     companies = query.order_by(Company.created_at.desc()).all()
+    if (app.config['PORTFOLIO_HOME_ENABLED']
+            and request.args.get('legacy') != '1'):
+        from portfolio import build_portfolio
+        portfolio = build_portfolio(
+            companies, selected_year=request.args.get('year', type=int))
+        response = Response(render_template(
+            'portfolio.html', portfolio=portfolio), mimetype='text/html')
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        return response
     # Автоматически восстанавливаем kpi_cache.json для компаний, у которых
     # уже есть дашборд, но кэш КПЭ отсутствует (например, после деплоя).
     for c in companies:

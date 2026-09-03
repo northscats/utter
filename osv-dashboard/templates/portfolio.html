@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Портфельная сводка РСО</title>
+<style>
+:root{--ink:#263746;--mut:#657786;--bg:#edf1f4;--panel:#fff;--line:#d6dde3;--blue:#1f6f8b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",sans-serif}
+.hd{height:46px;background:#2c3e50;color:white;display:flex;align-items:center;padding:0 18px;gap:18px}
+.hd b{font-size:14px}.hd a{color:#d9e5ec;text-decoration:none}.hd .right{margin-left:auto}
+main{padding:20px;max-width:1800px;margin:auto}.title{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:15px}
+h1{font-size:22px;margin:0}.sub{color:var(--mut)}select{padding:7px 10px;border:1px solid var(--line);border-radius:5px;background:white}
+.status{padding:5px 9px;border-radius:4px;font-weight:700}.ok{background:#e8f5e9;color:#28643b}.warn{background:#fff4dd;color:#8a5a00}
+.cards{display:grid;grid-template-columns:repeat(6,minmax(145px,1fr));gap:10px;margin-bottom:16px}
+.card{background:white;border:1px solid var(--line);border-radius:6px;padding:13px}.card strong{font-size:24px;display:block}.card span{color:var(--mut)}
+.table-wrap{overflow:auto;background:white;border:1px solid var(--line);border-radius:7px;max-height:calc(100vh - 230px)}
+table{border-collapse:separate;border-spacing:0;min-width:1600px;width:100%}th{position:sticky;top:0;background:#f6f8fa;z-index:2}
+th,td{padding:9px 10px;border-bottom:1px solid #e7ebef;text-align:left;vertical-align:top}th{font-size:10px;text-transform:uppercase}
+th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-index:1;min-width:230px}.name{font-weight:700}
+.meta,.delta,.quality{font-size:10px;color:var(--mut)}.actions a{font-size:11px;margin-right:8px;color:var(--blue)}
+.cell{border-left:3px solid transparent;min-width:145px}.zone-normal{border-left-color:#3f8a5a;background:#f3faf5}
+.zone-attention{border-left-color:#d4a322;background:#fffaf0}.zone-risk{border-left-color:#c87422;background:#fff6ed}
+.zone-critical{border-left-color:#b84a4a;background:#fff1f1}.zone-neutral{border-left-color:#b9c2c9}
+.flag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;background:#edf1f4}
+.nodata{color:#8997a2;font-style:italic}.legend{color:var(--mut);margin:10px 0;font-size:11px}
+@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
+</style></head>
+<body>
+<header class="hd"><b>ГИС УЗТЭР · Портфель РСО</b><a href="{{ url_for('modules_dashboard') }}">Все модули</a>
+<span class="right"><a href="{{ url_for('home', legacy=1) }}">Прежний экран</a> · {{ current_user.username }}</span></header>
+<main>
+<div class="title"><div><h1>Портфельная сводка</h1><div class="sub">Все доступные предприятия, утверждённые годовые данные</div></div>
+<form method="get"><label>Общий год <select name="year" onchange="this.form.submit()">
+{% for y in portfolio.years %}<option value="{{ y }}" {% if y == portfolio.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+</select></label></form>
+<span class="status {{ 'ok' if portfolio.threshold_met else 'warn' }}">
+{% if portfolio.year %}{{ portfolio.year }} · покрытие {{ (portfolio.coverage * 100)|round|int }}%{% else %}Нет общего года{% endif %}
+· {{ 'актуальный общий год' if portfolio.threshold_met else 'порог 80% не достигнут' }}</span></div>
+<section class="cards">
+<div class="card"><strong>{{ portfolio.total }}</strong><span>предприятий в доступе</span></div>
+<div class="card"><strong>{{ portfolio.with_data }}</strong><span>с данными за год</span></div>
+<div class="card"><strong>{{ (portfolio.coverage * 100)|round|int }}%</strong><span>покрытие портфеля</span></div>
+<div class="card"><strong>{{ portfolio.critical }}</strong><span>критические РСО</span></div>
+<div class="card"><strong>{{ portfolio.worsening }}</strong><span>ухудшающиеся РСО</span></div>
+<div class="card"><strong>{{ portfolio.conflicts }}</strong><span>расхождения источников</span></div>
+</section>
+<div class="legend">Зоны: норма · внимание · риск · критично. Нормируемые показатели оцениваются к нормативу; без нормы — по перцентилю. Показатели без направления не окрашиваются.</div>
+<div class="table-wrap"><table id="matrix"><thead><tr>
+<th data-sort="text">Предприятие</th><th data-sort="text">Актуальность / качество</th>
+{% for kpi in portfolio.kpis %}<th>{{ kpi.label }}</th>{% endfor %}</tr></thead><tbody>
+{% for row in portfolio.rows %}<tr>
+<td class="company"><div class="name">{{ row.name }}</div><div class="meta">{% if row.inn %}ИНН {{ row.inn }}{% endif %}</div>
+<div class="actions"><a href="{{ url_for('historical_expert', company_id=row.id, view='executive', year=portfolio.year) }}">Руководитель</a>
+<a href="{{ url_for('historical_expert', company_id=row.id, view='expert', year=portfolio.year) }}">Эксперт</a></div></td>
+<td data-value="{{ 1 if row.has_data else 0 }}"><span class="flag">{{ row.actuality }}</span><div class="quality">{{ row.quality }}</div>
+{% if row.worsening %}<div class="quality">Ухудшение</div>{% endif %}</td>
+{% for kpi in portfolio.kpis %}{% set cell=row.cells[kpi.key] %}
+<td class="cell zone-{{ cell.zone }}" data-value="{{ cell.value if cell.value is not none else '' }}">
+{% if cell.value is none %}<span class="nodata">Нет данных</span>{% else %}<b>{{ cell.display }}</b>
+{% if cell.status_display %}<div class="delta">Оценочный показатель: {{ cell.status_display }}</div>{% endif %}
+<div class="delta">{{ cell.zone|capitalize }} · {{ cell.norm_label }}</div>
+<div class="delta">к медиане: {% if cell.median_delta is not none %}{{ '%+.1f'|format(cell.median_delta) }}%{% else %}—{% endif %}</div>
+<div class="quality">{{ cell.quality }}{% if cell.worsening %} · ухудшение{% endif %}</div>{% endif %}</td>{% endfor %}
+</tr>{% endfor %}</tbody></table></div>
+</main>
+<script>
+document.querySelectorAll('th[data-sort]').forEach((th,i)=>th.onclick=()=>{
+ const body=th.closest('table').tBodies[0], rows=[...body.rows], asc=th.dataset.asc!=='1'; th.dataset.asc=asc?'1':'0';
+ rows.sort((a,b)=>{let x=a.cells[i].dataset.value??a.cells[i].innerText,y=b.cells[i].dataset.value??b.cells[i].innerText;
+ let nx=parseFloat(x),ny=parseFloat(y);return (Number.isNaN(nx)||Number.isNaN(ny)?x.localeCompare(y,'ru'):nx-ny)*(asc?1:-1)}).forEach(r=>body.appendChild(r));
+});
+</script></body></html>
