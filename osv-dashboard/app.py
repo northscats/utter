@@ -2432,6 +2432,11 @@ def directory_company_new():
                     )
                     db.session.add(company)
                     db.session.flush()
+                    # ID предприятия — уникальный идентификатор внутри системы.
+                    # Его можно переопределить явным кодом, но пустое поле
+                    # всегда получает системный ID после выдачи первичного ключа.
+                    if not (company.internal_code or '').strip():
+                        company.internal_code = str(company.id)
                     if form.get('confirm_dadata') == '1' and (inn or ogrn):
                         try:
                             from dadata_client import find_party
@@ -2555,6 +2560,8 @@ def directory_company_edit(company_id):
            'is_rso': company.is_rso}
     company.name = request.form.get('name', '').strip()[:255] or company.name
     company.internal_code = request.form.get('internal_code', '').strip()[:80]
+    if not company.internal_code:
+        company.internal_code = str(company.id)
     company.is_rso = request.form.get('is_rso') == '1'
     company.note = request.form.get('note', '').strip()
     company.director_phone = request.form.get('director_phone', '').strip()[:100]
@@ -3475,6 +3482,9 @@ def init_db():
             _company_conn.execute(_text_docs(
                 "UPDATE companies SET status = 'active' "
                 "WHERE status IS NULL OR status = ''"))
+            _company_conn.execute(_text_docs(
+                "UPDATE companies SET internal_code = CAST(id AS VARCHAR(80)) "
+                "WHERE COALESCE(TRIM(internal_code), '') = ''"))
         # Канонический ключ и совместимый scope для существующих установок.
         existing_keys = set()
         for _company in Company.query.order_by(Company.id).all():

@@ -119,6 +119,8 @@ r = client.post('/directories/companies/new', data={
 check('ручное создание без файлов ОСВ', r.status_code == 302)
 with app.app_context():
     company = Company.query.filter_by(name='Внутреннее имя').one()
+    check('внутренний код создан автоматически из системного ID',
+          company.internal_code == str(company.id))
     company.director_phone = '+7 000 000-00-00'
     company.classifications_json = '{"sector":"тепло"}'
     db.session.add(CompanyMembership(
@@ -211,6 +213,13 @@ with app.app_context():
         name='Второе предприятие', created_by=admin_id, status='active')
     db.session.add(second_company)
     db.session.commit()
+    second_company_id = second_company.id
+    second_company.internal_code = ''
+    db.session.commit()
+    init_db()
+    second_company = db.session.get(Company, second_company_id)
+    check('пустой код старой записи восстановлен из системного ID',
+          second_company.internal_code == str(second_company.id))
 page_one = client.get('/directories/companies?per_page=1&page=1')
 page_two = client.get('/directories/companies?per_page=1&page=2')
 search_page = client.get(
@@ -313,7 +322,7 @@ check('архивные предприятия по умолчанию скры�
       and company_profile_path in all_directory)
 blocked_write = client.post(
     f'/directories/companies/{company_id}/edit',
-    data={'name': 'Не должно сохраниться'})
+    data={'name': 'Не должно сохраниться', 'internal_code': '  '})
 check('архивное предприятие доступно только для чтения',
       blocked_write.status_code == 409)
 with app.app_context():
