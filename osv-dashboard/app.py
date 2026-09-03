@@ -18,6 +18,7 @@ from flask_login import (LoginManager, current_user, login_required,
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy import and_, func, or_
 
 from jobs import create_job, get_job, finish_job, fail_job
 
@@ -2252,8 +2253,89 @@ def _snapshot_changes(company, normalized):
 @app.route('/directories/companies')
 @login_required
 def directory_companies():
-    companies = _visible_company_query().order_by(
-        Company.status.asc(), Company.name.asc()).all()
+    q = request.args.get('q', '').strip()[:200]
+    status_filter = request.args.get('status', '').strip()
+    fill_filter = request.args.get('fill', '').strip()
+    sort = request.args.get('sort', 'name').strip()
+    requested_page = max(request.args.get('page', 1, type=int) or 1, 1)
+    per_page = min(max(request.args.get('per_page', 25, type=int) or 25, 1), 100)
+
+    if status_filter not in ('active', 'archived'):
+        status_filter = ''
+    if fill_filter not in ('full', 'partial'):
+        fill_filter = ''
+    if sort not in ('name', 'updated'):
+        sort = 'name'
+
+    visible_query = _visible_company_query()
+    total_count = visible_query.order_by(None).count()
+    active_count = visible_query.filter(Company.status != 'archived')\
+        .order_by(None).count()
+    archived_count = visible_query.filter(Company.status == 'archived')\
+        .order_by(None).count()
+
+    query = visible_query
+    if q:
+        escaped_q = q.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        pattern = f'%{escaped_q}%'
+        query = query.filter(or_(
+            Company.name.ilike(pattern, escape='\\'),
+            func.coalesce(Company.full_name, '').ilike(pattern, escape='\\'),
+            func.coalesce(Company.inn, '').ilike(pattern, escape='\\'),
+            func.coalesce(Company.ogrn, '').ilike(pattern, escape='\\'),
+            func.coalesce(Company.internal_code, '').ilike(pattern, escape='\\'),
+        ))
+    if status_filter:
+        query = query.filter(Company.status == status_filter)
+
+    has_name = func.length(func.trim(func.coalesce(Company.name, ''))) > 0
+    has_inn = func.length(func.trim(func.coalesce(Company.inn, ''))) > 0
+    has_full_name = (
+        func.length(func.trim(func.coalesce(Company.full_name, ''))) > 0)
+    address_value = func.coalesce(
+        func.nullif(func.trim(Company.legal_address), ''),
+        func.trim(func.coalesce(Company.address, '')),
+        '')
+    has_address = func.length(address_value) > 0
+    is_full = and_(has_name, has_inn, has_full_name, has_address)
+    if fill_filter == 'full':
+        query = query.filter(is_full)
+    elif fill_filter == 'partial':
+        query = query.filter(~is_full)
+
+    filtered_count = query.order_by(None).count()
+    total_pages = max(1, (filtered_count + per_page - 1) // per_page)
+    page = min(requested_page, total_pages)
+    if sort == 'updated':
+        query = query.order_by(
+            func.coalesce(Company.updated_at, Company.created_at).desc(),
+            Company.name.asc(), Company.id.asc())
+    else:
+        query = query.order_by(
+            Company.status.asc(), Company.name.asc(), Company.id.asc())
+    companies = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    company_ids = [company.id for company in companies]
+    members_by_company = {}
+    uploads_by_company = {}
+    if company_ids:
+        members_by_company = dict(
+            db.session.query(
+                CompanyMembership.company_id,
+                func.count(CompanyMembership.id),
+            ).filter(
+                CompanyMembership.company_id.in_(company_ids)
+            ).group_by(CompanyMembership.company_id).all()
+        )
+        uploads_by_company = dict(
+            db.session.query(
+                Upload.company_id,
+                func.count(Upload.id),
+            ).filter(
+                Upload.company_id.in_(company_ids)
+            ).group_by(Upload.company_id).all()
+        )
+
     rows = []
     for company in companies:
         required = [company.name, company.inn, company.full_name,
@@ -2263,14 +2345,27 @@ def directory_companies():
             'company': company,
             'filled': filled,
             'filled_label': f'{filled}/4',
-            'members_count': len(company.memberships),
-            'uploads_count': len(company.uploads),
+            'members_count': members_by_company.get(company.id, 0),
+            'uploads_count': uploads_by_company.get(company.id, 0),
         })
+    page_start = (page - 1) * per_page + 1 if filtered_count else 0
+    page_end = min(page * per_page, filtered_count)
+    page_numbers = list(range(
+        max(1, page - 2), min(total_pages, page + 2) + 1))
     return render_template(
         'directory_companies.html', rows=rows,
-        active_count=sum(1 for row in rows if not row['company'].is_archived),
-        archived_count=sum(1 for row in rows if row['company'].is_archived),
-        dadata_enabled=Setting.get('dadata_enabled', '0') == '1',
+        active_count=active_count, archived_count=archived_count,
+        total_count=total_count,
+        filters={
+            'q': q, 'status': status_filter, 'fill': fill_filter, 'sort': sort,
+        },
+        pagination={
+            'page': page, 'per_page': per_page, 'total': filtered_count,
+            'total_pages': total_pages, 'has_prev': page > 1,
+            'has_next': page < total_pages, 'start': page_start,
+            'end': page_end,
+        },
+        page_numbers=page_numbers,
     )
 
 

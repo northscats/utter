@@ -190,6 +190,25 @@ check('в списке нет упоминания провайдера',
       and 'DaData:' not in directory_body
       and 'Ручные данные' in Path(
           'templates/directory_companies.html').read_text())
+with app.app_context():
+    second_company = Company(
+        name='Второе предприятие', created_by=admin_id, status='active')
+    db.session.add(second_company)
+    db.session.commit()
+page_one = client.get('/directories/companies?per_page=1&page=1')
+page_two = client.get('/directories/companies?per_page=1&page=2')
+search_page = client.get(
+    '/directories/companies?per_page=1&q=Второе%20предприятие')
+check('список предприятий разбит на страницы на сервере',
+      page_one.status_code == 200
+      and page_two.status_code == 200
+      and page_one.get_data(as_text=True).count('class="row company-row"') == 1
+      and page_two.get_data(as_text=True).count('class="row company-row"') == 1
+      and 'page=2' in page_one.get_data(as_text=True))
+check('поиск предприятий выполняется на сервере',
+      search_page.status_code == 200
+      and 'Второе предприятие' in search_page.get_data(as_text=True)
+      and 'Внутреннее имя' not in search_page.get_data(as_text=True))
 check('дополнительные сведения отображаются без названия источника',
       r.status_code == 200
       and 'Дополнительные сведения' in body
