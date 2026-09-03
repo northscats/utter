@@ -195,6 +195,11 @@ check('в списке скрыты ненужные столбцы и есть 
       and 'Заполнено' not in directory_body
       and 'aria-label="Открыть предприятие"' in directory_body
       and '<svg viewBox="0 0 24 24"' in directory_body)
+check('в справочнике используется общая шапка модулей',
+      '<div class="hd-logo-icon">АР</div>' in directory_body
+      and 'ГИС УЗТЭР · Справочник предприятий' in directory_body
+      and '← Все модули' in directory_body
+      and 'class="hd-uname"' in directory_body)
 with app.app_context():
     second_company = Company(
         name='Второе предприятие', created_by=admin_id, status='active')
