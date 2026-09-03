@@ -122,7 +122,7 @@ with app.app_context():
     check('внутренний код создан автоматически из системного ID',
           company.internal_code == str(company.id))
     company.director_phone = '+7 000 000-00-00'
-    company.classifications_json = '{"sector":"тепло"}'
+    company.classifications_json = '{"organization_types":["РСО"]}'
     db.session.add(CompanyMembership(
         user_id=user_id, company_id=company.id,
         participation_type='auditor', is_primary=True))
@@ -164,7 +164,7 @@ with app.app_context():
     check('ручные данные не затёрты',
           company.name == 'Внутреннее имя'
           and company.director_phone == '+7 000 000-00-00'
-          and company.classifications.get('sector') == 'тепло')
+           and company.classifications.get('organization_types') == ['РСО'])
     check('дополнительные ОКВЭД нормализованы',
           {row.code for row in CompanyOkved.query.filter_by(
               company_id=company_id).all()} == {'35.30', '36.00'})
@@ -274,6 +274,8 @@ check('тип предприятия выбирается во всплываю�
       and '>Новое<' in body
       and 'class="organization-tag"' in body
       and 'class="organization-type-add"' not in body
+      and 'name="sector"' not in body
+      and 'name="ownership"' not in body
       and '>РСО<' in body
       and '>УК<' in body
       and '>ТСЖ<' in body)
@@ -283,7 +285,6 @@ type_update = client.post(
     data={
         'name': 'Внутреннее имя',
         'internal_code': str(company_id),
-        'sector': 'тепло',
         'organization_types': ['РСО', 'УК'],
         'new_organization_type': 'ЖСК',
     })

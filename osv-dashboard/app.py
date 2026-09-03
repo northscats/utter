@@ -2637,8 +2637,6 @@ def directory_company_edit(company_id):
     company.accountant_name = request.form.get('accountant_name', '').strip()[:255]
     company.accountant_phone = request.form.get('accountant_phone', '').strip()[:100]
     company.classifications_json = json.dumps({
-        'ownership': request.form.get('ownership', '').strip()[:100],
-        'sector': request.form.get('sector', '').strip()[:100],
         'organization_types': submitted_types,
     }, ensure_ascii=False)
     company.profile_version = (company.profile_version or 0) + 1
