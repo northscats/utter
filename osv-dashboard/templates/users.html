@@ -43,7 +43,8 @@ body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui
 .hd-btn.active{background:#253545;border-color:#5a8a9c;color:#c8d8e4}
 
 main{width:100%;max-width:none;margin:0;padding:28px 32px}
-.page-title{font-size:20px;font-weight:700;margin-bottom:24px;color:var(--ink)}
+.page-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+.page-title{font-size:20px;font-weight:700;color:var(--ink)}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:24px;margin-bottom:20px}
@@ -67,14 +68,30 @@ main{width:100%;max-width:none;margin:0;padding:28px 32px}
 
 .actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 
-/* Форма добавления пользователя */
-.add-user-grid{display:grid;grid-template-columns:1fr 1fr 160px auto;gap:8px;align-items:end;margin-top:16px}
-.add-user-grid label{font-size:11px;color:var(--mut);display:block;margin-bottom:3px;
-  text-transform:uppercase;letter-spacing:.06em}
-.add-user-grid input,.add-user-grid select{
-  border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+/* Модальное окно создания пользователя */
+body.modal-open{overflow:hidden}
+.modal-backdrop{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;
+  justify-content:center;padding:24px;background:rgba(27,39,51,.48)}
+.modal-backdrop[hidden]{display:none}
+.modal{width:min(760px,100%);max-height:calc(100vh - 48px);overflow:auto;
+  background:#fff;border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 18px 60px rgba(27,39,51,.3);padding:24px}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:5px}
+.modal-head h2{font-size:18px;color:var(--ink)}
+.modal-close{border:0;background:transparent;color:var(--mut);font-size:26px;
+  line-height:1;cursor:pointer;padding:2px 6px;border-radius:5px}
+.modal-close:hover{background:#f0f3f5;color:var(--ink)}
+.modal-desc{font-size:13px;color:var(--mut);margin-bottom:20px}
+.modal-fields{display:grid;grid-template-columns:1fr 1fr 160px;gap:12px}
+.modal-fields label,.modal-access label{font-size:11px;color:var(--mut);display:block;
+  margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}
+.modal-fields input,.modal-fields select{
+  border:1px solid var(--line);border-radius:7px;padding:8px 10px;
   font:14px 'Segoe UI',sans-serif;color:var(--ink);width:100%;background:#fff}
-.add-user-grid input:focus,.add-user-grid select:focus{outline:0;border-color:var(--water)}
+.modal-fields input:focus,.modal-fields select:focus{outline:0;border-color:var(--water)}
+.modal-access{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px;
+  padding-top:16px;border-top:1px solid #edf0f3}
 
 /* Inline-форма смены пароля */
 .pw-form{display:flex;gap:6px;align-items:center}
@@ -126,7 +143,11 @@ main{width:100%;max-width:none;margin:0;padding:28px 32px}
 
 @media(max-width:640px){
   main{padding:22px 14px}
-  .add-user-grid{grid-template-columns:1fr 1fr}
+  .page-title-row{align-items:flex-start;flex-direction:column}
+  .page-title-row .btn{width:100%}
+  .modal-backdrop{padding:12px}
+  .modal{max-height:calc(100vh - 24px);padding:18px}
+  .modal-fields,.modal-access{grid-template-columns:1fr}
   .actions{flex-direction:column;align-items:flex-start}
   .pw-form{flex-wrap:wrap}
   .create-access{grid-template-columns:1fr}
@@ -163,7 +184,10 @@ main{width:100%;max-width:none;margin:0;padding:28px 32px}
 {% endif %}
 
 <main>
-  <div class="page-title">Управление пользователями</div>
+  <div class="page-title-row">
+    <div class="page-title">Управление пользователями</div>
+    <button class="btn btn-primary" type="button" id="open-create-user">+ Добавить пользователя</button>
+  </div>
 
   {% if error %}
   <div class="alert alert-error">{{ error }}</div>
@@ -310,64 +334,76 @@ main{width:100%;max-width:none;margin:0;padding:28px 32px}
     </div>
   </div>
 
-  <!-- ─── Создание нового пользователя ─── -->
-  <div class="card">
-    <h3>Добавить пользователя</h3>
-    <p class="desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
-
-    <form method="post" action="{{ url_for('users_create') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="add-user-grid">
-        <div>
-          <label>Логин</label>
-          <input type="text" name="username" placeholder="ivanov" required autocomplete="off">
-        </div>
-        <div>
-          <label>Пароль</label>
-          <input type="password" name="password" placeholder="минимум 4 символа" required minlength="4">
-        </div>
-        <div>
-          <label>Роль</label>
-          <select name="role">
-            <option value="user">Пользователь</option>
-            <option value="admin">Администратор</option>
-          </select>
-        </div>
-        <div style="padding-bottom:1px">
-          <button class="btn btn-primary" type="submit">+ Создать</button>
-        </div>
+  <div class="modal-backdrop" id="create-user-modal" role="dialog" aria-modal="true"
+       aria-labelledby="create-user-title" aria-hidden="{{ 'false' if error else 'true' }}"
+       {% if not error %}hidden{% endif %}>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="create-user-title">Добавить пользователя</h2>
+        <button class="modal-close" type="button" id="close-create-user" aria-label="Закрыть">×</button>
       </div>
-      <div class="create-access">
-        <div><label>Доступ к модулям</label>
-          <details class="multi-picker">
-            <summary><span class="picker-label" data-empty-label="Нет модулей">Нет модулей</span></summary>
-            <div class="picker-panel" role="group" aria-label="Доступ к модулям">
-              {% for module in available_modules %}
-              <label class="picker-option">
-                <input type="checkbox" name="modules" value="{{ module.key }}" data-picker-name="{{ module.name }}">
-                <span>{{ module.name }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </details>
+      <p class="modal-desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
+      <form method="post" action="{{ url_for('users_create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-fields">
+          <div>
+            <label>Логин</label>
+            <input type="text" name="username" value="{{ create_form.get('username', '') }}"
+                   placeholder="ivanov" required autocomplete="off">
+          </div>
+          <div>
+            <label>Пароль</label>
+            <input type="password" name="password" placeholder="минимум 4 символа"
+                   required minlength="4">
+          </div>
+          <div>
+            <label>Роль</label>
+            <select name="role">
+              <option value="user" {% if create_form.get('role', 'user') == 'user' %}selected{% endif %}>Пользователь</option>
+              <option value="admin" {% if create_form.get('role') == 'admin' %}selected{% endif %}>Администратор</option>
+            </select>
+          </div>
         </div>
-        <div><label>Доступ к предприятиям</label>
-          <details class="multi-picker">
-            <summary><span class="picker-label" data-empty-label="Нет предприятий">Нет предприятий</span></summary>
-            <div class="picker-panel" role="group" aria-label="Доступ к предприятиям">
-              {% for company in companies %}
-              <label class="picker-option">
-                <input type="checkbox" name="companies" value="{{ company.id }}" data-picker-name="{{ company.name }}">
-                <span>{{ company.name }}</span>
-              </label>
-              {% else %}
-              <div class="picker-empty">Предприятий пока нет</div>
-              {% endfor %}
-            </div>
-          </details>
+        <div class="modal-access">
+          <div><label>Доступ к модулям</label>
+            <details class="multi-picker">
+              <summary><span class="picker-label" data-empty-label="Нет модулей">Нет модулей</span></summary>
+              <div class="picker-panel" role="group" aria-label="Доступ к модулям">
+                {% for module in available_modules %}
+                <label class="picker-option">
+                  <input type="checkbox" name="modules" value="{{ module.key }}"
+                         data-picker-name="{{ module.name }}"
+                         {% if module.key in create_form.getlist('modules') %}checked{% endif %}>
+                  <span>{{ module.name }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </details>
+          </div>
+          <div><label>Доступ к предприятиям</label>
+            <details class="multi-picker">
+              <summary><span class="picker-label" data-empty-label="Нет предприятий">Нет предприятий</span></summary>
+              <div class="picker-panel" role="group" aria-label="Доступ к предприятиям">
+                {% for company in companies %}
+                <label class="picker-option">
+                  <input type="checkbox" name="companies" value="{{ company.id }}"
+                         data-picker-name="{{ company.name }}"
+                         {% if company.id|string in create_form.getlist('companies') %}checked{% endif %}>
+                  <span>{{ company.name }}</span>
+                </label>
+                {% else %}
+                <div class="picker-empty">Предприятий пока нет</div>
+                {% endfor %}
+              </div>
+            </details>
+          </div>
         </div>
-      </div>
-    </form>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" type="button" id="cancel-create-user">Отмена</button>
+          <button class="btn btn-primary" type="submit">Создать пользователя</button>
+        </div>
+      </form>
+    </div>
   </div>
 </main>
 <script>
@@ -394,6 +430,34 @@ document.addEventListener('click',function(event){
     if(!picker.contains(event.target))picker.removeAttribute('open');
   });
 });
+var createUserModal=document.getElementById('create-user-modal');
+var openCreateUser=document.getElementById('open-create-user');
+var closeCreateUser=document.getElementById('close-create-user');
+var cancelCreateUser=document.getElementById('cancel-create-user');
+function showCreateUser(){
+  if(!createUserModal)return;
+  createUserModal.hidden=false;
+  createUserModal.setAttribute('aria-hidden','false');
+  document.body.classList.add('modal-open');
+  var username=createUserModal.querySelector('input[name="username"]');
+  if(username)username.focus();
+}
+function hideCreateUser(){
+  if(!createUserModal)return;
+  createUserModal.hidden=true;
+  createUserModal.setAttribute('aria-hidden','true');
+  document.body.classList.remove('modal-open');
+}
+if(openCreateUser)openCreateUser.addEventListener('click',showCreateUser);
+if(closeCreateUser)closeCreateUser.addEventListener('click',hideCreateUser);
+if(cancelCreateUser)cancelCreateUser.addEventListener('click',hideCreateUser);
+if(createUserModal)createUserModal.addEventListener('click',function(event){
+  if(event.target===createUserModal)hideCreateUser();
+});
+document.addEventListener('keydown',function(event){
+  if(event.key==='Escape'&&createUserModal&&!createUserModal.hidden)hideCreateUser();
+});
+if(createUserModal&&createUserModal.getAttribute('aria-hidden')==='false')showCreateUser();
 </script>
 </body>
 </html>

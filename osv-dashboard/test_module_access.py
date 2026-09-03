@@ -137,6 +137,26 @@ with app.app_context():
           CompanyMembership.query.filter_by(
               user_id=created.id, company_id=company_id).count() == 1)
 
+users_body = client.get('/users').get_data(as_text=True)
+check('создание пользователя вынесено в модальное окно',
+      'id="open-create-user"' in users_body
+      and 'Добавить пользователя' in users_body
+      and 'id="create-user-modal"' in users_body
+      and 'class="add-user-grid"' not in users_body
+      and 'Создать пользователя' in users_body)
+
+# Ошибка создания снова открывает модальное окно и не теряет логин.
+r = client.post('/users/create', data={
+    'username': 'created-with-company',
+    'password': 'pass1234',
+    'role': 'user',
+})
+error_body = r.get_data(as_text=True)
+check('ошибка создания сохраняет модальное окно',
+      r.status_code == 200
+      and 'aria-hidden="false"' in error_body
+      and 'value="created-with-company"' in error_body)
+
 r = client.get('/modules')
 body = r.get_data(as_text=True)
 check('администратор видит оба модуля',

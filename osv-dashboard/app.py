@@ -3375,7 +3375,8 @@ def users_list():
     users = User.query.order_by(User.created_at).all()
     return render_template('users.html', users=users,
                            available_modules=registered_modules(),
-                           companies=Company.query.order_by(Company.name).all())
+                           companies=Company.query.order_by(Company.name).all(),
+                           create_form=request.form)
 
 
 @app.route('/users/create', methods=['POST'])
@@ -3397,7 +3398,8 @@ def users_create():
         users = User.query.order_by(User.created_at).all()
         return render_template('users.html', users=users, error=error,
                                available_modules=registered_modules(),
-                               companies=Company.query.order_by(Company.name).all())
+                               companies=Company.query.order_by(Company.name).all(),
+                               create_form=request.form)
     new_user = User(
         username=username,
         password_hash=_hash_password(password),
