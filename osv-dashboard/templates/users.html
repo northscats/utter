@@ -42,7 +42,7 @@ body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui
 .hd-btn:hover{background:#253545}
 .hd-btn.active{background:#253545;border-color:#5a8a9c;color:#c8d8e4}
 
-main{max-width:860px;margin:0 auto;padding:28px 24px}
+main{width:100%;max-width:none;margin:0;padding:28px 32px}
 .page-title{font-size:20px;font-weight:700;margin-bottom:24px;color:var(--ink)}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
@@ -51,7 +51,8 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 .card .desc{font-size:13px;color:var(--mut);margin-bottom:20px}
 
 /* Таблица пользователей */
-.users-table{width:100%;border-collapse:collapse;margin-top:6px}
+.table-scroll{width:100%;overflow-x:auto;margin-top:6px}
+.users-table{width:100%;min-width:1120px;border-collapse:collapse}
 .users-table th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#31424f;
   padding:9px 12px;background:#f0f3f5;border-bottom:1px solid var(--line);text-align:left;
   font-weight:700}
@@ -97,15 +98,40 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 .alert-error{background:#fbeae8;color:var(--bad);border:1px solid #f0c8c3}
 
 .self-note{font-size:12px;color:var(--mut);font-style:italic}
-.module-list{display:flex;flex-wrap:wrap;gap:7px}.module-check{display:flex;align-items:center;gap:5px;
-  font-size:12px;background:#f7f9fa;border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.permission-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .company-access{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.company-access .permission-row{align-items:flex-start}
+.multi-picker{position:relative;display:inline-block;min-width:220px}
+.multi-picker summary{display:flex;align-items:center;justify-content:space-between;gap:12px;
+   list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:7px;padding:6px 10px;
+   min-height:31px;background:#fff;color:var(--ink);font-size:12px;font-weight:600}
+.multi-picker summary::-webkit-details-marker{display:none}
+.multi-picker summary:after{content:'▾';color:var(--mut);font-size:12px}
+.multi-picker[open] summary{border-color:var(--water);box-shadow:0 0 0 2px rgba(31,122,156,.12)}
+.picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker-panel{position:absolute;z-index:30;top:calc(100% + 5px);left:0;width:300px;max-width:calc(100vw - 48px);
+   max-height:290px;overflow-y:auto;padding:6px;background:#fff;border:1px solid var(--line);
+   border-radius:8px;box-shadow:0 8px 24px rgba(27,39,51,.18)}
+.picker-option{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:5px;
+   font-size:12px;line-height:1.35;cursor:pointer}
+.picker-option:hover{background:#f0f5f7}
+.picker-option input{margin-top:2px;accent-color:var(--water)}
+.picker-empty{padding:8px;color:var(--mut);font-size:12px}
+.picker-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .company-access select{border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:12px 'Segoe UI';max-width:220px}
+.create-access{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.create-access>div{min-width:0}
+.create-access label{font-size:11px;color:var(--mut);display:block;margin-bottom:5px;
+   text-transform:uppercase;letter-spacing:.06em}
 
 @media(max-width:640px){
+  main{padding:22px 14px}
   .add-user-grid{grid-template-columns:1fr 1fr}
   .actions{flex-direction:column;align-items:flex-start}
   .pw-form{flex-wrap:wrap}
+  .create-access{grid-template-columns:1fr}
+  .multi-picker{min-width:0;width:100%}
+  .picker-panel{width:min(300px,calc(100vw - 28px))}
 }
 </style>
 </head>
@@ -148,6 +174,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     <h3>Учётные записи</h3>
     <p class="desc">Все зарегистрированные пользователи системы.</p>
 
+    <div class="table-scroll">
     <table class="users-table">
       <thead>
         <tr>
@@ -178,13 +205,21 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
           <td>
             <form method="post" action="{{ url_for('users_set_modules', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <div class="module-list">
-              {% for module in available_modules %}
-                <label class="module-check"><input type="checkbox" name="modules" value="{{ module.key }}"
-                  {% if module.key in u.assigned_module_keys %}checked{% endif %}>
-                  {{ module.name }}</label>
-              {% endfor %}
-              <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
+              <div class="permission-row">
+                <details class="multi-picker">
+                  <summary><span class="picker-label" data-empty-label="{{ 'Все модули (администратор)' if u.is_admin else 'Нет модулей' }}">{{ 'Все модули (администратор)' if u.is_admin else 'Нет модулей' }}</span></summary>
+                  <div class="picker-panel" role="group" aria-label="Доступ к модулям">
+                    {% for module in available_modules %}
+                    <label class="picker-option">
+                      <input type="checkbox" name="modules" value="{{ module.key }}"
+                        data-picker-name="{{ module.name }}"
+                        {% if module.key in u.assigned_module_keys %}checked{% endif %}>
+                      <span>{{ module.name }}</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </details>
+                <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
               </div>
               {% if u.is_admin %}<span class="self-note">Администратору доступны все модули; назначения сохраняются на случай понижения.</span>{% endif %}
             </form>
@@ -192,29 +227,37 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               {% set membership_ids = u.company_memberships|map(attribute='company_id')|list %}
               {% set primary = u.company_memberships|selectattr('is_primary')|list|first %}
-              <div class="module-list">
-                {% for company in companies %}
-                <label class="module-check">
-                  <input type="checkbox" name="companies" value="{{ company.id }}"
-                         {% if company.id in membership_ids %}checked{% endif %}>
-                  {{ company.name }}
-                </label>
-                {% endfor %}
-              </div>
-              <div style="margin-top:7px;display:flex;gap:7px;align-items:center;flex-wrap:wrap">
-                <select name="primary_company_id">
-                  <option value="">Без основного предприятия</option>
-                  {% for company in companies %}
-                  <option value="{{ company.id }}" {% if primary and primary.company_id == company.id %}selected{% endif %}>Основное: {{ company.name }}</option>
-                  {% endfor %}
-                </select>
-                <select name="participation_type">
-                  <option value="employee">Сотрудник</option>
-                  <option value="curator">Куратор</option>
-                  <option value="contractor">Подрядчик</option>
-                  <option value="auditor">Аудитор</option>
-                </select>
-                <button class="btn btn-ghost btn-sm" type="submit">Назначить предприятия</button>
+              <div class="permission-row">
+                <details class="multi-picker">
+                  <summary><span class="picker-label" data-empty-label="Нет предприятий">Нет предприятий</span></summary>
+                  <div class="picker-panel" role="group" aria-label="Доступ к предприятиям">
+                    {% for company in companies %}
+                    <label class="picker-option">
+                      <input type="checkbox" name="companies" value="{{ company.id }}"
+                             data-picker-name="{{ company.name }}"
+                             {% if company.id in membership_ids %}checked{% endif %}>
+                      <span>{{ company.name }}</span>
+                    </label>
+                    {% else %}
+                    <div class="picker-empty">Предприятий пока нет</div>
+                    {% endfor %}
+                  </div>
+                </details>
+                <div class="picker-actions">
+                  <select name="primary_company_id" aria-label="Основное предприятие">
+                    <option value="">Без основного предприятия</option>
+                    {% for company in companies %}
+                    <option value="{{ company.id }}" {% if primary and primary.company_id == company.id %}selected{% endif %}>Основное: {{ company.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <select name="participation_type" aria-label="Тип участия">
+                    <option value="employee">Сотрудник</option>
+                    <option value="curator">Куратор</option>
+                    <option value="contractor">Подрядчик</option>
+                    <option value="auditor">Аудитор</option>
+                  </select>
+                  <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
+                </div>
               </div>
               <span class="self-note">Назначение определяет область видимости, но не выдаёт доступ к модулям.</span>
             </form>
@@ -264,6 +307,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <!-- ─── Создание нового пользователя ─── -->
@@ -293,16 +337,63 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
           <button class="btn btn-primary" type="submit">+ Создать</button>
         </div>
       </div>
-      <div style="margin-top:14px"><label>Доступ к модулям</label>
-        <div class="module-list">{% for module in available_modules %}
-          <label class="module-check"><input type="checkbox" name="modules" value="{{ module.key }}"> {{ module.name }}</label>
-        {% endfor %}</div>
+      <div class="create-access">
+        <div><label>Доступ к модулям</label>
+          <details class="multi-picker">
+            <summary><span class="picker-label" data-empty-label="Нет модулей">Нет модулей</span></summary>
+            <div class="picker-panel" role="group" aria-label="Доступ к модулям">
+              {% for module in available_modules %}
+              <label class="picker-option">
+                <input type="checkbox" name="modules" value="{{ module.key }}" data-picker-name="{{ module.name }}">
+                <span>{{ module.name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
+        <div><label>Доступ к предприятиям</label>
+          <details class="multi-picker">
+            <summary><span class="picker-label" data-empty-label="Нет предприятий">Нет предприятий</span></summary>
+            <div class="picker-panel" role="group" aria-label="Доступ к предприятиям">
+              {% for company in companies %}
+              <label class="picker-option">
+                <input type="checkbox" name="companies" value="{{ company.id }}" data-picker-name="{{ company.name }}">
+                <span>{{ company.name }}</span>
+              </label>
+              {% else %}
+              <div class="picker-empty">Предприятий пока нет</div>
+              {% endfor %}
+            </div>
+          </details>
+        </div>
       </div>
     </form>
   </div>
 </main>
 <script>
-document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
+document.querySelectorAll('.multi-picker').forEach(function(picker){
+  var label=picker.querySelector('.picker-label');
+  var checks=Array.from(picker.querySelectorAll('input[type="checkbox"]'));
+  if(!label||!checks.length)return;
+  function updateLabel(){
+    var selected=checks.filter(function(check){return check.checked;});
+    if(!selected.length){
+      label.textContent=label.getAttribute('data-empty-label')||'Не выбрано';
+      return;
+    }
+    var names=selected.map(function(check){return check.getAttribute('data-picker-name')||'';});
+    label.textContent=names.length<=2?names.join(', '):'Выбрано: '+names.length;
+  }
+  checks.forEach(function(check){check.addEventListener('change',updateLabel);});
+  updateLabel();
+});
+document.addEventListener('click',function(event){
+  var userMenu=document.getElementById('hd-uname');
+  if(userMenu&&!userMenu.contains(event.target))userMenu.classList.remove('open');
+  document.querySelectorAll('.multi-picker[open]').forEach(function(picker){
+    if(!picker.contains(event.target))picker.removeAttribute('open');
+  });
+});
 </script>
 </body>
 </html>

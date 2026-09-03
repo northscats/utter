@@ -13,7 +13,7 @@ os.environ.setdefault(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db
-from database import User, UserModuleAccess, db
+from database import Company, CompanyMembership, User, UserModuleAccess, db
 from module_registry import MODULES, module_key_for_path
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
@@ -44,8 +44,12 @@ with app.app_context():
         UserModuleAccess(user_id=both.id, module_key='analytics'),
         UserModuleAccess(user_id=both.id, module_key='documents'),
     ])
+    company = Company(
+        name='Тестовое предприятие', created_by=admin.id, status='active')
+    db.session.add(company)
     db.session.commit()
     ids = {u.username: u.id for u in (admin, no_access, analytics, both)}
+    company_id = company.id
 
 client = app.test_client()
 
@@ -93,6 +97,46 @@ check('повторное открытие ведёт в каталог моду
 with app.app_context():
     admin = db.session.get(User, ids['admin'])
 login_as(client, admin)
+users_page = client.get('/users')
+users_body = users_page.get_data(as_text=True)
+check('страница пользователей использует всю ширину',
+      users_page.status_code == 200
+      and 'main{width:100%;max-width:none' in users_body)
+check('модули и предприятия выбираются во всплывающих списках',
+      users_body.count('class="multi-picker"') >= 4
+      and 'aria-label="Доступ к модулям"' in users_body
+      and 'aria-label="Доступ к предприятиям"' in users_body)
+
+r = client.post(
+    f"/users/{ids['none']}/set-companies",
+    data={
+        'companies': [str(company_id)],
+        'primary_company_id': str(company_id),
+        'participation_type': 'curator',
+    })
+check('назначение предприятия сохраняется из мультиселекта',
+      r.status_code == 302)
+with app.app_context():
+    membership = CompanyMembership.query.filter_by(
+        user_id=ids['none'], company_id=company_id).one()
+    check('основное предприятие и тип участия сохранены',
+          membership.is_primary and membership.participation_type == 'curator')
+
+r = client.post('/users/create', data={
+    'username': 'created-with-company',
+    'password': 'pass1234',
+    'role': 'user',
+    'modules': ['documents'],
+    'companies': [str(company_id)],
+})
+check('при создании можно назначить предприятие',
+      r.status_code == 302)
+with app.app_context():
+    created = User.query.filter_by(username='created-with-company').one()
+    check('предприятие назначено новому пользователю',
+          CompanyMembership.query.filter_by(
+              user_id=created.id, company_id=company_id).count() == 1)
+
 r = client.get('/modules')
 body = r.get_data(as_text=True)
 check('администратор видит оба модуля',

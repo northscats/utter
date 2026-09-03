@@ -3327,6 +3327,22 @@ def users_create():
     db.session.flush()
     for key in valid_module_keys(request.form.getlist('modules')):
         db.session.add(UserModuleAccess(user_id=new_user.id, module_key=key))
+    selected_company_ids = {
+        int(value) for value in request.form.getlist('companies')
+        if str(value).isdigit()
+    }
+    valid_company_ids = {
+        item.id for item in Company.query.filter(
+            Company.id.in_(selected_company_ids)
+        ).all()
+    } if selected_company_ids else set()
+    for company_id in sorted(valid_company_ids):
+        db.session.add(CompanyMembership(
+            user_id=new_user.id,
+            company_id=company_id,
+            participation_type='employee',
+            is_primary=False,
+        ))
     db.session.commit()
     log_event('user_created', {'username': username, 'role': role})
     return redirect(url_for('users_list'))
