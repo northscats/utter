@@ -270,6 +270,10 @@ check('тип предприятия выбирается во всплываю�
       'class="organization-type-picker"' in body
       and 'name="organization_types"' in body
       and 'id="new-organization-type"' in body
+      and 'id="new-organization-type-button"' in body
+      and '>Новое<' in body
+      and 'class="organization-tag"' in body
+      and 'class="organization-type-add"' not in body
       and '>РСО<' in body
       and '>УК<' in body
       and '>ТСЖ<' in body)
@@ -296,7 +300,9 @@ with app.app_context():
 updated_profile = client.get(
     f'/directories/companies/{company_id}').get_data(as_text=True)
 check('созданный тип отображается в карточке',
-      'ЖСК' in updated_profile and 'РСО, УК, ЖСК' in updated_profile)
+      'data-tag-value="РСО"' in updated_profile
+      and 'data-tag-value="УК"' in updated_profile
+      and 'data-tag-value="ЖСК"' in updated_profile)
 profile_api = client.get(
     f'/api/companies/{company_id}/profile').get_json()
 check('API возвращает несколько типов предприятия',

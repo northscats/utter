@@ -10,7 +10,7 @@
 {% if current_user.is_admin and latest and latest.status == 'success' and changes %}<div class="source" style="margin-top:14px"><b>Найдены изменения в реквизитах</b> · {{ changes|length }} полей <form method="post" action="{{ url_for('directory_company_dadata_accept', company_id=company.id) }}" style="display:inline-block;margin-left:8px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="snapshot_id" value="{{ latest.id }}"><button class="btn primary" style="padding:5px 10px;font-size:12px">Принять изменения</button></form></div>{% endif %}
 {% if current_user.is_admin and company.dadata_last_error %}<div class="source" style="margin-top:10px;color:var(--bad)">Ошибка обновления: {{ company.dadata_last_error }}</div>{% endif %}
 </section>
- <section class="card" id="overview"><h2>Внутренние данные системы</h2>{% if current_user.is_admin %}<form method="post" action="{{ url_for('directory_company_edit', company_id=company.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="formgrid"><div><label>Отображаемое имя</label><input name="name" value="{{ company.name }}"></div><div><label>Внутренний код</label><input name="internal_code" value="{{ company.internal_code or company.id }}"><div class="mut" style="font-size:11px;margin-top:3px">По умолчанию — уникальный ID предприятия в системе.</div></div><div><label>Телефон директора</label><input name="director_phone" value="{{ company.director_phone or '' }}"></div><div><label>Главный бухгалтер</label><input name="accountant_name" value="{{ company.accountant_name or '' }}"></div><div><label>Телефон бухгалтера</label><input name="accountant_phone" value="{{ company.accountant_phone or '' }}"></div><div><label>Сектор</label><input name="sector" value="{{ company.classifications.get('sector','') }}"></div><div><label>Форма собственности</label><input name="ownership" value="{{ company.classifications.get('ownership','') }}"></div><div class="full"><label>Типы предприятия</label><details class="organization-type-picker"><summary><span class="organization-type-label">{{ organization_types|join(', ') if organization_types else 'Тип не выбран' }}</span></summary><div class="organization-type-panel">{% for organization_type in organization_type_options %}<label class="organization-type-option"><input type="checkbox" name="organization_types" value="{{ organization_type }}" data-type-name="{{ organization_type }}" {% if organization_type in organization_types %}checked{% endif %}><span>{{ organization_type }}</span></label>{% endfor %}</div></details><div class="organization-type-add"><input id="new-organization-type" name="new_organization_type" maxlength="80" placeholder="Новый тип, например ЖСК"><button id="add-organization-type" type="button">Добавить тип</button></div><div class="mut" style="font-size:11px;margin-top:3px">Можно выбрать несколько типов. Новый тип появится в общем списке после сохранения.</div></div><div class="full"><label>Примечание</label><textarea name="note">{{ company.note or '' }}</textarea></div></div><button class="btn primary" style="margin-top:12px">Сохранить внутренние данные</button></form>{% else %}<div class="facts"><div class="fact"><span>Внутренний код</span>{{ company.internal_code or company.id }}</div><div class="fact"><span>Типы предприятия</span>{{ organization_types|join(', ') or '—' }}</div><div class="fact full"><span>Примечание</span>{{ company.note or '—' }}</div></div>{% endif %}</section>
+ <section class="card" id="overview"><h2>Внутренние данные системы</h2>{% if current_user.is_admin %}<form method="post" action="{{ url_for('directory_company_edit', company_id=company.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="formgrid"><div><label>Отображаемое имя</label><input name="name" value="{{ company.name }}"></div><div><label>Внутренний код</label><input name="internal_code" value="{{ company.internal_code or company.id }}"><div class="mut" style="font-size:11px;margin-top:3px">По умолчанию — уникальный ID предприятия в системе.</div></div><div><label>Телефон директора</label><input name="director_phone" value="{{ company.director_phone or '' }}"></div><div><label>Главный бухгалтер</label><input name="accountant_name" value="{{ company.accountant_name or '' }}"></div><div><label>Телефон бухгалтера</label><input name="accountant_phone" value="{{ company.accountant_phone or '' }}"></div><div><label>Сектор</label><input name="sector" value="{{ company.classifications.get('sector','') }}"></div><div><label>Форма собственности</label><input name="ownership" value="{{ company.classifications.get('ownership','') }}"></div><div class="full"><label>Типы предприятия</label><div class="organization-type-control"><div class="organization-tags" id="organization-tags" aria-live="polite">{% for organization_type in organization_types %}<span class="organization-tag" data-tag-value="{{ organization_type }}">{{ organization_type }}<button type="button" data-remove-type="{{ organization_type }}" aria-label="Удалить тип {{ organization_type }}">×</button></span>{% endfor %}</div><details class="organization-type-picker"><summary><span>Выбрать типы</span><span class="organization-type-caret">▾</span></summary><div class="organization-type-panel"><div class="organization-type-panel-head"><span>Типы предприятия</span><button id="new-organization-type-button" type="button">Новое</button></div><div id="organization-type-options">{% for organization_type in organization_type_options %}<label class="organization-type-option"><input type="checkbox" name="organization_types" value="{{ organization_type }}" data-type-name="{{ organization_type }}" {% if organization_type in organization_types %}checked{% endif %}><span>{{ organization_type }}</span></label>{% endfor %}</div><div class="organization-type-new" id="organization-type-new" hidden><div class="organization-type-new-row"><input id="new-organization-type" name="new_organization_type" maxlength="80" placeholder="Название нового типа"><button id="add-organization-type" type="button">Добавить</button></div></div></div></details></div><div class="mut" style="font-size:11px;margin-top:3px">Выбранные типы отображаются тегами. Для добавления типа откройте список и нажмите «Новое».</div></div><div class="full"><label>Примечание</label><textarea name="note">{{ company.note or '' }}</textarea></div></div><button class="btn primary" style="margin-top:12px">Сохранить внутренние данные</button></form>{% else %}<div class="facts"><div class="fact"><span>Внутренний код</span>{{ company.internal_code or company.id }}</div><div class="fact"><span>Типы предприятия</span>{{ organization_types|join(', ') or '—' }}</div><div class="fact full"><span>Примечание</span>{{ company.note or '—' }}</div></div>{% endif %}</section>
 <section class="card wide" id="dadata"><h2>Дополнительные сведения</h2>
 {% if company.dadata_profile %}
 <div class="source">Актуальность сведений: {{ company.dadata_received_at.strftime('%d.%m.%Y %H:%M') if company.dadata_received_at else '—' }}. Пустые значения означают, что поле не было предоставлено.</div>
@@ -62,29 +62,52 @@
 <section class="card wide" id="linked"><h2>Связанные данные</h2><div class="counts"><div class="count"><b>{{ linked.uploads }}</b>загрузок ОСВ</div><div class="count"><b>{{ linked.daily_rows }}</b>суточных строк</div><div class="count"><b>{{ linked.ai_summaries }}</b>ИИ-сводок</div><div class="count"><b>{{ linked.mail_rules }}</b>почтовых правил</div></div>{% if current_user.has_module_access('analytics') %}<a class="btn primary" style="margin-top:12px" href="{{ url_for('company_detail', company_id=company.id) }}">Открыть аналитику</a>{% endif %}</section>
 <section class="card wide"><h2>История обновлений</h2>{% for s in snapshots %}<div class="history"><b>{{ s.received_at.strftime('%d.%m.%Y %H:%M') }}</b> · {{ s.status }} · ИНН {{ s.query_inn or '—' }} · хэш {{ s.response_hash[:12] }}…</div>{% else %}<p class="mut">История обновлений пока пуста.</p>{% endfor %}</section>
 </div></main>
+<style>
+.organization-type-control{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:38px}.organization-tags{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.organization-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:14px;background:#e5f1f5;color:#245d73;font-size:12px;font-weight:650}.organization-tag button{border:0;background:transparent;color:#507688;padding:0;line-height:1;font-size:16px;cursor:pointer}.organization-tag button:hover{color:var(--bad)}.organization-type-picker{display:inline-block;position:relative;width:auto;min-width:150px;border-top:0;padding-top:0;margin-top:0}.organization-type-picker summary{display:flex;align-items:center;gap:16px;list-style:none;cursor:pointer;border:1px dashed #aebfc8;border-radius:14px;padding:5px 10px;background:#fff;color:var(--blue);font-size:12px;font-weight:650}.organization-type-picker summary::-webkit-details-marker{display:none}.organization-type-picker[open] summary{border-style:solid;border-color:var(--blue);box-shadow:0 0 0 2px rgba(23,111,147,.12)}.organization-type-caret{color:var(--mut);font-size:13px}.organization-type-panel{position:absolute;z-index:20;top:calc(100% + 5px);left:0;width:280px;max-height:280px;overflow-y:auto;padding:7px;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(32,50,70,.18)}.organization-type-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 4px 7px;border-bottom:1px solid #edf1f4;color:var(--mut);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.organization-type-panel-head button{border:0;background:transparent;color:var(--blue);padding:3px 4px;font:inherit;font-size:12px;text-transform:none;letter-spacing:normal;cursor:pointer}.organization-type-panel-head button:hover{text-decoration:underline}.organization-type-option{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:5px;cursor:pointer}.organization-type-option:hover{background:#f2f6f8}.organization-type-option input{width:auto;accent-color:var(--blue)}.organization-type-new{padding:7px 0 1px;border-top:1px solid #edf1f4}.organization-type-new[hidden]{display:none}.organization-type-new-row{display:flex;gap:6px}.organization-type-new-row input{min-width:0;padding:6px 8px;font-size:12px}.organization-type-new-row button{flex-shrink:0;border:0;border-radius:6px;padding:6px 8px;background:var(--blue);color:#fff;font-size:12px;font-weight:650;cursor:pointer}@media(max-width:760px){.organization-type-panel{width:min(280px,calc(100vw - 64px))}.organization-type-control{align-items:flex-start;flex-direction:column}.organization-type-picker{align-self:flex-start}}
+</style>
 <script>
 (function(){
   var picker=document.querySelector('.organization-type-picker');
   if(!picker)return;
   var panel=picker.querySelector('.organization-type-panel');
-  var label=picker.querySelector('.organization-type-label');
+  var options=document.getElementById('organization-type-options');
+  var tags=document.getElementById('organization-tags');
+  var newButton=document.getElementById('new-organization-type-button');
+  var newForm=document.getElementById('organization-type-new');
   var input=document.getElementById('new-organization-type');
   var addButton=document.getElementById('add-organization-type');
 
   function checkboxes(){
-    return Array.from(panel.querySelectorAll('input[name="organization_types"]'));
+    return Array.from(options.querySelectorAll('input[name="organization_types"]'));
   }
-  function updateLabel(){
-    var selected=checkboxes().filter(function(item){return item.checked;})
-      .map(function(item){return item.getAttribute('data-type-name')||item.value;});
-    label.textContent=selected.length?selected.join(', '):'Тип не выбран';
+  function sameType(first,second){
+    return first.toLocaleLowerCase('ru')===second.toLocaleLowerCase('ru');
+  }
+  function syncTags(){
+    tags.textContent='';
+    checkboxes().filter(function(item){return item.checked;}).forEach(function(item){
+      var value=item.getAttribute('data-type-name')||item.value;
+      var tag=document.createElement('span');
+      tag.className='organization-tag';
+      tag.setAttribute('data-tag-value',value);
+      tag.appendChild(document.createTextNode(value));
+      var remove=document.createElement('button');
+      remove.type='button';
+      remove.textContent='×';
+      remove.setAttribute('data-remove-type',value);
+      remove.setAttribute('aria-label','Удалить тип '+value);
+      remove.addEventListener('click',function(){
+        item.checked=false;
+        syncTags();
+      });
+      tag.appendChild(remove);
+      tags.appendChild(tag);
+    });
   }
   function addType(){
     var value=(input.value||'').trim().slice(0,80);
     if(!value)return;
-    var existing=checkboxes().find(function(item){
-      return item.value.toLocaleLowerCase('ru')===value.toLocaleLowerCase('ru');
-    });
+    var existing=checkboxes().find(function(item){return sameType(item.value,value);});
     if(existing){
       existing.checked=true;
     }else{
@@ -96,18 +119,24 @@
       checkbox.value=value;
       checkbox.checked=true;
       checkbox.setAttribute('data-type-name',value);
-      checkbox.addEventListener('change',updateLabel);
+      checkbox.addEventListener('change',syncTags);
       var text=document.createElement('span');
       text.textContent=value;
       option.appendChild(checkbox);
       option.appendChild(text);
-      panel.appendChild(option);
+      options.appendChild(option);
     }
     input.value='';
+    newForm.hidden=true;
     picker.open=true;
-    updateLabel();
+    syncTags();
   }
-  checkboxes().forEach(function(item){item.addEventListener('change',updateLabel);});
+  checkboxes().forEach(function(item){item.addEventListener('change',syncTags);});
+  newButton.addEventListener('click',function(){
+    newForm.hidden=false;
+    picker.open=true;
+    input.focus();
+  });
   addButton.addEventListener('click',addType);
   input.addEventListener('keydown',function(event){
     if(event.key==='Enter'){
@@ -116,11 +145,12 @@
     }
   });
   document.addEventListener('click',function(event){
-    if(!picker.contains(event.target)&&event.target!==input&&event.target!==addButton){
+    if(!picker.contains(event.target)){
       picker.removeAttribute('open');
+      newForm.hidden=true;
     }
   });
-  updateLabel();
+  syncTags();
 })();
 </script>
 </body></html>
