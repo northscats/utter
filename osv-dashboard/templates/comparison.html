@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сравнение предприятий</title>
+<style>
+:root{--ink:#263746;--mut:#657786;--bg:#edf1f4;--panel:#fff;--line:#d6dde3;--blue:#1f6f8b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",sans-serif}
+.hd{height:46px;background:#2c3e50;color:#fff;display:flex;align-items:center;padding:0 18px;gap:18px}.hd a{color:#d9e5ec;text-decoration:none}
+main{padding:20px;max-width:1600px;margin:auto}h1{margin:0;font-size:22px}.head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.head .sub{color:var(--mut)}.filters,.card{background:#fff;border:1px solid var(--line);border-radius:7px;padding:13px;margin-bottom:12px}
+.filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.filters label{display:flex;flex-direction:column;gap:4px;color:var(--mut);font-size:11px}
+select,button{padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:#fff;font:12px inherit}select[multiple]{height:90px;min-width:330px}
+button{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;cursor:pointer}.note{color:var(--mut);font-size:11px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:12px}.chart{height:260px}.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px}
+.legend button{background:none;border:0;color:var(--ink);padding:2px;display:flex;align-items:center;gap:5px}.sw{width:10px;height:10px;border-radius:50%}
+svg{width:100%;height:100%}.dim{opacity:.16}.table-wrap{overflow:auto;max-height:520px}table{border-collapse:collapse;width:100%;min-width:1200px}
+th{position:sticky;top:0;background:#f5f7f9;z-index:2;text-align:left;font-size:10px;text-transform:uppercase}th,td{padding:8px;border-bottom:1px solid #e7ebef}
+.zone-normal{color:#287042}.zone-outside{color:#ad3d35}.zone-neutral{color:var(--mut)}.bad{color:#ad3d35;font-weight:700}
+@media(max-width:700px){.grid{grid-template-columns:1fr}.chart{height:220px}select[multiple]{min-width:260px}}
+</style></head><body>
+<header class="hd"><b>ГИС УЗТЭР · Сравнение РСО</b><a href="{{ url_for('home', year=comparison.end_year) }}">← Портфель</a></header>
+<main><div class="head"><div><h1>Сравнение предприятий</h1><div class="sub">2–5 предприятий, годы с утверждённой отчётностью без интерполяции; источник значения определяется профилем</div></div></div>
+<form class="filters" method="get">
+<label>Предприятия<select name="company" multiple required>
+{% for company in visible_companies %}<option value="{{ company.id }}" {% if company.id in selected_ids %}selected{% endif %}>{{ company.name }}</option>{% endfor %}
+</select></label>
+<label>С&nbsp;года<select name="start_year">{% for y in comparison.available_years %}<option {% if y==comparison.start_year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
+<label>По&nbsp;год<select name="end_year">{% for y in comparison.available_years %}<option {% if y==comparison.end_year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
+<label>Представление<select name="mode">{% for key,label in comparison.modes.items() %}<option value="{{ key }}" {% if key==comparison.mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+<label>Метрики (до 6)<select name="metric" multiple>{% for metric in comparison.metrics %}<option value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}selected{% endif %}>{{ metric.section_label }} · {{ metric.label }}</option>{% endfor %}</select></label>
+<input type="hidden" name="profile_key" value="{{ comparison.profile_key }}"><button>Сравнить</button>
+</form>
+<div class="note">В режиме по умолчанию знак «+» означает лучше нормы; если нормы нет, показан перцентиль среди выбранных предприятий этого года. Нейтральные зоны не окрашиваются.</div>
+{% if not comparison.years %}<div class="card">Нет утверждённых годовых данных для выбранных предприятий.</div>{% endif %}
+<div class="grid">{% for chart in comparison.series %}<section class="card"><b>{{ chart.label }}</b><div class="chart" data-chart='{{ chart|tojson|e }}'></div>
+<div class="legend">{% for line in chart.lines %}<button type="button" data-company="{{ line.company_id }}"><i class="sw"></i>{{ line.name }}</button>{% endfor %}</div></section>{% endfor %}</div>
+{% if comparison.table %}<section class="card"><b>Итоговая таблица</b><div class="table-wrap"><table><thead><tr><th>Метрика</th><th>Предприятие</th><th>Год</th><th>Значение</th><th>Изменение</th><th>Норма</th><th>Медиана</th><th>Зона</th><th>Качество</th><th>Источник</th></tr></thead><tbody>
+{% for row in comparison.table %}<tr data-company="{{ row.company_id }}"><td>{{ row.metric }}</td><td><b>{{ row.company }}</b></td><td>{{ row.year or '—' }}</td><td>{{ row.value_display }}</td><td>{{ row.change_display }}</td><td>{{ row.norm }}</td><td>{{ row.median_display }}</td><td class="zone-{{ row.zone }}">{{ {'normal':'Норма','outside':'Отклонение','neutral':'Без оценки'}.get(row.zone,'Без оценки') }}</td><td class="{{ 'bad' if row.quality=='Конфликт источников' else '' }}">{{ row.quality }}</td><td>{{ row.source }}</td></tr>{% endfor %}
+</tbody></table></div></section>{% endif %}
+</main><script>
+const colors=['#1f6f8b','#c45b35','#3f8a5a','#845f9b','#b48722'], years={{ comparison.years|tojson }};
+const htmlEscape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+document.querySelectorAll('.chart').forEach(box=>{const data=JSON.parse(box.dataset.chart),W=620,H=230,p={l:48,r:15,t:15,b:28};
+ const vals=data.lines.flatMap(l=>l.points.map(x=>x.value).filter(Number.isFinite));if(!vals.length){box.textContent='Нет сопоставимых значений';return}
+ let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){lo-=1;hi+=1}let x=i=>p.l+i*(W-p.l-p.r)/Math.max(1,years.length-1),y=v=>p.t+(hi-v)*(H-p.t-p.b)/(hi-lo);
+ let s=`<svg viewBox="0 0 ${W} ${H}">`;for(let i=0;i<years.length;i++)s+=`<text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="10" fill="#657786">${years[i]}</text>`;
+ for(let j=0;j<5;j++){let v=lo+(hi-lo)*j/4,yy=y(v);s+=`<line x1="${p.l}" x2="${W-p.r}" y1="${yy}" y2="${yy}" stroke="#e3e8ec"/><text x="${p.l-5}" y="${yy+4}" text-anchor="end" font-size="9" fill="#657786">${v.toFixed(1)}</text>`}
+ data.lines.forEach((l,li)=>{let segments=[],cur=[];l.points.forEach((pt,i)=>{if(Number.isFinite(pt.value))cur.push(`${x(i)},${y(pt.value)}`);else if(cur.length){segments.push(cur);cur=[]}});if(cur.length)segments.push(cur);
+ segments.forEach(seg=>{if(seg.length>1)s+=`<polyline data-company="${l.company_id}" points="${seg.join(' ')}" fill="none" stroke="${colors[li]}" stroke-width="2.5"/>`});
+ l.points.forEach((pt,i)=>{if(Number.isFinite(pt.value)){let bounded=pt.quality==='Верхняя граница';s+=`<circle data-company="${Number(l.company_id)}" cx="${x(i)}" cy="${y(pt.value)}" r="${bounded?5:3.5}" fill="${bounded?'#fff':colors[li]}" stroke="${colors[li]}" stroke-width="${bounded?2:0}"><title>${htmlEscape(l.name)}, ${Number(pt.year)}: ${htmlEscape(pt.display)} · ${htmlEscape(pt.source)} · ${htmlEscape(pt.quality)}</title></circle>`}})});box.innerHTML=s+'</svg>';
+ box.parentElement.querySelectorAll('.legend button').forEach((b,i)=>b.querySelector('i').style.background=colors[i])});
+document.querySelectorAll('.legend button').forEach(b=>b.onclick=()=>{let id=b.dataset.company,active=b.classList.toggle('active');document.querySelectorAll('[data-company]').forEach(e=>{if(e.closest('.filters'))return;e.classList.toggle('dim',active&&e.dataset.company!==id)})});
+</script></body></html>

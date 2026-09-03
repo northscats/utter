@@ -521,6 +521,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
     <div class="hd-title">{{ company.name }} — Резюме руководителя</div>
     
     <div class="hd-toggle">
+        {% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}
+        <a href="{{ url_for('company_comparison', company=company.id, start_year=current_year, end_year=current_year, profile_key=selected_profile_key) }}" class="tgl-btn">Сравнить</a>
+        {% endif %}
         <a href="{{ url_for('historical_expert', company_id=company.id, view='executive', year=current_year, profile_key=selected_profile_key, embedded=1 if embedded else None) }}" class="tgl-btn active">Руководитель</a>
         <a href="{{ url_for('historical_expert', company_id=company.id, view='expert', year=current_year, profile_key=selected_profile_key, embedded=1 if embedded else None) }}" class="tgl-btn">Эксперт</a>
     </div>

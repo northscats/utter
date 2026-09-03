@@ -8,7 +8,7 @@ MODULES = {
         'description': 'Портфельная сводка, предприятия, КПЭ и финансовые дашборды.',
         'icon': 'chart',
         'endpoint': 'home',
-        'exact_paths': ('/home',),
+        'exact_paths': ('/home', '/comparison'),
         'path_prefixes': ('/company/', '/dashboard/', '/ai/', '/rating-api'),
     },
     'documents': {

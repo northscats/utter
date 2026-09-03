@@ -76,6 +76,9 @@ app.config['HISTORICAL_EXECUTIVE_ENABLED'] = (
 app.config['PORTFOLIO_HOME_ENABLED'] = (
     os.environ.get('PORTFOLIO_HOME_ENABLED', '1').strip().lower()
     not in ('0', 'false', 'no', 'off'))
+app.config['COMPANY_COMPARISON_ENABLED'] = (
+    os.environ.get('COMPANY_COMPARISON_ENABLED', '1').strip().lower()
+    not in ('0', 'false', 'no', 'off'))
 
 # Если задан подпуть — сообщаем Flask, где он «живёт»
 if SCRIPT_NAME:
@@ -1522,6 +1525,51 @@ def _require_historical_expert():
     if (not app.config['HISTORICAL_IMPORT_ENABLED']
             or not app.config['HISTORICAL_EXPERT_ENABLED']):
         abort(404)
+
+
+@app.route('/comparison')
+@login_required
+def company_comparison():
+    """Изолированный режим сравнения только доступных пользователю РСО."""
+    if (not app.config['COMPANY_COMPARISON_ENABLED']
+            or not app.config['HISTORICAL_IMPORT_ENABLED']
+            or not app.config['HISTORICAL_EXPERT_ENABLED']):
+        abort(404)
+    query = Company.query.filter(
+        Company.status != 'archived', Company.is_rso.is_(True))
+    if not current_user.is_admin:
+        query = query.join(CompanyMembership).filter(
+            CompanyMembership.user_id == current_user.id)
+    visible = query.order_by(Company.name, Company.id).all()
+    visible_by_id = {company.id: company for company in visible}
+    selected_ids = list(dict.fromkeys(request.args.getlist('company', type=int)))
+    if not selected_ids:
+        selected_ids = [company.id for company in visible[:2]]
+    elif len(selected_ids) == 1:
+        companion = next((
+            company.id for company in visible
+            if company.id != selected_ids[0]), None)
+        if companion is not None:
+            selected_ids.append(companion)
+    if not 2 <= len(selected_ids) <= 5:
+        abort(400, description='Выберите от двух до пяти предприятий')
+    if any(company_id not in visible_by_id for company_id in selected_ids):
+        abort(403, description='Нет доступа к одному из предприятий')
+    from comparison import build_comparison
+    comparison = build_comparison(
+        [visible_by_id[company_id] for company_id in selected_ids],
+        metric_refs=request.args.getlist('metric'),
+        start_year=request.args.get('start_year', type=int),
+        end_year=request.args.get('end_year', type=int),
+        mode=request.args.get('mode', 'normalized'),
+        profile_key=request.args.get('profile_key', 'methodical'),
+    )
+    response = Response(render_template(
+        'comparison.html', comparison=comparison,
+        visible_companies=visible, selected_ids=selected_ids),
+        mimetype='text/html')
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    return response
 
 
 @app.route('/company/<int:company_id>/historical/preview', methods=['POST'])

@@ -1,0 +1,248 @@
+# -*- coding: utf-8 -*-
+"""Сопоставление утверждённых годовых показателей нескольких предприятий."""
+from __future__ import annotations
+
+import math
+import statistics
+from urllib.parse import quote
+
+from historical_analytics import build_expert_analytics, validate_profile_key
+
+MODES = {
+    "normalized": "Отклонение от нормы / перцентиль",
+    "absolute": "Абсолютные значения",
+    "median": "Отклонение от медианы",
+    "change": "Изменение за период",
+    "index": "Индекс 100 к базовому году",
+}
+
+
+def metric_ref(metric):
+    return "|".join((metric["section_key"], metric["key"], metric["series_key"]))
+
+
+def _finite(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _pct_delta(value, base):
+    if not (_finite(value) and _finite(base)) or base == 0:
+        return None
+    return (value - base) * 100.0 / abs(base)
+
+
+def _percentile(value, population):
+    if not _finite(value) or len(population) < 2:
+        return None
+    below = sum(1 for item in population if item < value)
+    equal = sum(1 for item in population if item == value)
+    return 100.0 * (below + max(0, equal - 1) / 2.0) / max(1, len(population) - 1)
+
+
+def _display(value, unit, mode):
+    if not _finite(value):
+        return "—"
+    if mode == "index":
+        return "{:.1f}".format(value)
+    if mode in ("normalized", "median", "change"):
+        return "{:+.1f}%".format(value)
+    suffix = {"percent": "%", "thousand_rubles": " тыс. руб.",
+              "ratio": ""}.get(unit, " " + (unit or ""))
+    return "{:,.2f}{}".format(value, suffix).replace(",", " ").replace(".", ",")
+
+
+def build_comparison(companies, metric_refs=None, start_year=None, end_year=None,
+                     mode="normalized", profile_key="methodical"):
+    """Строит проверяемую модель без интерполяции пропущенных годов."""
+    if not 2 <= len(companies) <= 5:
+        raise ValueError("Выберите от двух до пяти предприятий")
+    mode = mode if mode in MODES else "normalized"
+    profile_key = validate_profile_key(profile_key)
+    analytics = {
+        company.id: build_expert_analytics(company.id, profile_key)
+        for company in companies
+    }
+    all_years = sorted({
+        year for payload in analytics.values() for year in payload["years"]
+    })
+    if not all_years:
+        return {
+            "companies": companies, "years": [], "available_years": [],
+            "metrics": [], "selected_refs": [], "series": [], "table": [],
+            "mode": mode, "modes": MODES, "profile_key": profile_key,
+        }
+    start_year = start_year if start_year in all_years else min(all_years)
+    end_year = end_year if end_year in all_years else max(all_years)
+    if start_year > end_year:
+        start_year, end_year = end_year, start_year
+    years = list(range(start_year, end_year + 1))
+
+    catalog = {}
+    for payload in analytics.values():
+        for metric in payload["metrics"]:
+            ref = metric_ref(metric)
+            catalog.setdefault(ref, {
+                "ref": ref, "label": metric["label"],
+                "section_label": metric["section_label"], "unit": metric["unit"],
+            })
+    selected = [ref for ref in (metric_refs or []) if ref in catalog]
+    if not selected:
+        preferred = [
+            ref for ref in catalog
+            if any(m["norm"] is not None for p in analytics.values()
+                   for m in p["metrics"] if metric_ref(m) == ref)
+        ]
+        selected = (preferred or list(catalog))[:1]
+    selected = selected[:6]
+
+    lookup = {
+        company_id: {metric_ref(metric): metric for metric in payload["metrics"]}
+        for company_id, payload in analytics.items()
+    }
+    raw = {}
+    peer_eligible = {}
+    for company in companies:
+        for ref in selected:
+            metric = lookup[company.id].get(ref)
+            for year in years:
+                cell = metric["values_by_year"].get(year, {}) if metric else {}
+                primary = cell.get("primary")
+                # Сравнение годовой отчётности не заполняет разрыв одним только
+                # снимком ОСВ. ОСВ допустима как выбранный источник профиля лишь
+                # когда утверждённая версия этого календарного года существует.
+                approved = bool(cell.get("historical_year_available"))
+                value = (
+                    primary.get("value") if primary and not primary.get("missing")
+                    and approved else None)
+                raw[(company.id, ref, year)] = value
+                conflict = bool(
+                    (cell.get("discrepancy") or {}).get("significant"))
+                peer_eligible[(company.id, ref, year)] = (
+                    _finite(value) and not conflict)
+
+    medians = {}
+    populations = {}
+    for ref in selected:
+        for year in years:
+            values = [
+                raw[(company.id, ref, year)] for company in companies
+                if peer_eligible[(company.id, ref, year)]
+            ]
+            values = [value for value in values if _finite(value)]
+            populations[(ref, year)] = values
+            medians[(ref, year)] = (
+                statistics.median(values) if len(values) >= 2 else None)
+
+    series = []
+    table = []
+    for ref in selected:
+        meta = catalog[ref]
+        chart = {"ref": ref, "label": meta["label"], "unit": meta["unit"],
+                 "lines": []}
+        for company in companies:
+            metric = lookup[company.id].get(ref)
+            first = next((
+                raw[(company.id, ref, year)] for year in years
+                if peer_eligible[(company.id, ref, year)]), None)
+            points = []
+            for year in years:
+                value = raw[(company.id, ref, year)]
+                eligible = peer_eligible[(company.id, ref, year)]
+                computed = value if eligible else None
+                if mode == "median" and eligible:
+                    computed = _pct_delta(value, medians[(ref, year)])
+                elif mode == "change" and eligible:
+                    computed = _pct_delta(value, first)
+                elif mode == "index" and eligible:
+                    computed = (value * 100.0 / first
+                                if _finite(value) and _finite(first) and first else None)
+                elif mode == "normalized":
+                    norm = metric.get("norm") if metric else None
+                    direction = metric.get("direction") if metric else "neutral"
+                    if not peer_eligible[(company.id, ref, year)]:
+                        computed = None
+                    elif _finite(norm) and direction in ("higher", "lower"):
+                        # Для порога 0 (например ROE/ROA > 0%) относительное
+                        # отклонение не определено: используем процентные пункты.
+                        computed = (
+                            value - norm if norm == 0
+                            else _pct_delta(value, norm))
+                        if computed is not None and direction == "lower":
+                            computed *= -1
+                    else:
+                        computed = _percentile(
+                            value, populations[(ref, year)])
+                point_cell = (
+                    metric["values_by_year"].get(year, {}) if metric else {})
+                point_primary = point_cell.get("primary") or {}
+                point_display = _display(computed, meta["unit"], mode)
+                if (mode == "normalized" and metric
+                        and metric.get("norm") == 0
+                        and meta["unit"] == "percent"
+                        and _finite(computed)):
+                    point_display = "{:+.1f} п.п.".format(computed)
+                points.append({
+                    "year": year, "value": computed,
+                    "display": point_display,
+                    "raw": value,
+                    "source": point_primary.get(
+                        "provenance", {}).get("source", "—"),
+                    "quality": (
+                        "Конфликт источников" if value is not None and not eligible
+                        else "Верхняя граница"
+                        if point_primary.get("upper_bound")
+                        else "Контроль по ОСВ"
+                        if point_cell.get("primary_source") == "osv"
+                        else "Проверено" if value is not None
+                        else "Нет утверждённых данных"),
+                })
+            chart["lines"].append({
+                "company_id": company.id, "name": company.name, "points": points,
+            })
+
+            last_year = next((year for year in reversed(years)
+                              if _finite(raw[(company.id, ref, year)])), None)
+            value = raw[(company.id, ref, last_year)] if last_year else None
+            cell = (metric["values_by_year"].get(last_year, {})
+                    if metric and last_year else {})
+            primary = cell.get("primary") or {}
+            source = primary.get("provenance", {}).get("source", "—")
+            conflict = bool((cell.get("discrepancy") or {}).get("significant"))
+            quality = ("Нет утверждённых данных" if last_year is None else
+                       "Конфликт источников" if conflict else
+                       "Верхняя граница" if primary.get("upper_bound") else
+                        "Верхняя граница" if point_primary.get("upper_bound")
+                        else "Контроль по ОСВ"
+                       if cell.get("primary_source") == "osv" else
+                       "Проверено")
+            zone = cell.get("zone", "neutral")
+            table.append({
+                "metric_ref": ref, "metric": meta["label"],
+                "company_id": company.id, "company": company.name,
+                "year": last_year, "value": value,
+                "value_display": _display(value, meta["unit"], "absolute"),
+                "change": _pct_delta(value, first),
+                "change_display": _display(_pct_delta(value, first),
+                                           meta["unit"], "change"),
+                "norm": metric.get("norm_label", "Норма не задана")
+                if metric else "Норма не задана",
+                "median": medians.get((ref, last_year)),
+                "median_display": _display(
+                    medians.get((ref, last_year)), meta["unit"], "absolute"),
+                "zone": zone, "quality": quality, "source": source,
+                "comparable": bool(metric and (
+                    metric.get("direction") in ("higher", "lower")
+                    or metric.get("norm") is None)),
+            })
+        series.append(chart)
+
+    return {
+        "companies": companies, "years": years, "available_years": all_years,
+        "metrics": sorted(catalog.values(), key=lambda item: (
+            item["section_label"], item["label"])),
+        "selected_refs": selected, "series": series, "table": table,
+        "mode": mode, "modes": MODES, "profile_key": profile_key,
+        "start_year": start_year, "end_year": end_year,
+        "query_refs": [quote(ref, safe="") for ref in selected],
+    }

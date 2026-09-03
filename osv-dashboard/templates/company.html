@@ -439,6 +439,11 @@ tr:last-child td{border-bottom:0}
       Руководитель / Эксперт
     </a>
     <div class="ab-sep"></div>
+    {% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}
+    <a class="ab-btn" href="{{ url_for('company_comparison', company=company.id) }}"
+       title="Выбрать ещё одно предприятие и сопоставить годовые метрики">Сравнить</a>
+    <div class="ab-sep"></div>
+    {% endif %}
     {% endif %}
 
     <!-- Кнопка дашборда -->

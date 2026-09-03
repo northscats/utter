@@ -157,6 +157,9 @@ body { display: flex; flex-direction: column; }
     <div class="hd-title">{{ company.name }} — Историческая аналитика</div>
     
     <div class="hd-controls">
+        {% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}
+        <a class="mode-link" href="{{ url_for('company_comparison', company=company.id, start_year=selected_year, end_year=selected_year, profile_key=selected_profile_key) }}">Сравнить</a>
+        {% endif %}
         {% if executive_enabled %}
         <div class="mode-switch" aria-label="Режим просмотра">
             <a class="mode-link" href="{{ url_for('historical_expert', company_id=company.id, view='executive', year=selected_year, profile_key=selected_profile_key, embedded=1 if embedded else None) }}">Руководитель</a>

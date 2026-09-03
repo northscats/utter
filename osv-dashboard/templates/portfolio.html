@@ -23,6 +23,7 @@ th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-
 .zone-critical{border-left-color:#b84a4a;background:#fff1f1}.zone-neutral{border-left-color:#b9c2c9}
 .flag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;background:#edf1f4}
 .nodata{color:#8997a2;font-style:italic}.legend{color:var(--mut);margin:10px 0;font-size:11px}
+.compare-bar{display:flex;gap:10px;align-items:center;margin:10px 0}.compare-bar button{padding:7px 12px;border:0;border-radius:5px;background:var(--blue);color:#fff;font-weight:700}.pick{width:16px;height:16px}
 @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
 </style></head>
 <body>
@@ -45,10 +46,14 @@ th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-
 <div class="card"><strong>{{ portfolio.conflicts }}</strong><span>расхождения источников</span></div>
 </section>
 <div class="legend">Зоны: норма · внимание · риск · критично. Нормируемые показатели оцениваются к нормативу; без нормы — по перцентилю. Показатели без направления не окрашиваются.</div>
+{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}<form id="compare-form" action="{{ url_for('company_comparison') }}" method="get">
+<input type="hidden" name="start_year" value="{{ portfolio.year }}"><input type="hidden" name="end_year" value="{{ portfolio.year }}">
+<div class="compare-bar"><button id="compare-submit" disabled>Сравнить выбранные</button><span id="compare-count">Выберите от 2 до 5 предприятий</span></div>{% endif %}
 <div class="table-wrap"><table id="matrix"><thead><tr>
-<th data-sort="text">Предприятие</th><th data-sort="text">Актуальность / качество</th>
+<th>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}Выбор{% endif %}</th><th data-sort="text">Предприятие</th><th data-sort="text">Актуальность / качество</th>
 {% for kpi in portfolio.kpis %}<th>{{ kpi.label }}</th>{% endfor %}</tr></thead><tbody>
 {% for row in portfolio.rows %}<tr>
+<td>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}<input class="pick" type="checkbox" name="company" value="{{ row.id }}" aria-label="Выбрать {{ row.name }}">{% endif %}</td>
 <td class="company"><div class="name">{{ row.name }}</div><div class="meta">{% if row.inn %}ИНН {{ row.inn }}{% endif %}</div>
 <div class="actions"><a href="{{ url_for('historical_expert', company_id=row.id, view='executive', year=portfolio.year) }}">Руководитель</a>
 <a href="{{ url_for('historical_expert', company_id=row.id, view='expert', year=portfolio.year) }}">Эксперт</a></div></td>
@@ -61,12 +66,15 @@ th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-
 <div class="delta">{{ cell.zone|capitalize }} · {{ cell.norm_label }}</div>
 <div class="delta">к медиане: {% if cell.median_delta is not none %}{{ '%+.1f'|format(cell.median_delta) }}%{% else %}—{% endif %}</div>
 <div class="quality">{{ cell.quality }}{% if cell.worsening %} · ухудшение{% endif %}</div>{% endif %}</td>{% endfor %}
-</tr>{% endfor %}</tbody></table></div>
+</tr>{% endfor %}</tbody></table></div>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}</form>{% endif %}
 </main>
 <script>
-document.querySelectorAll('th[data-sort]').forEach((th,i)=>th.onclick=()=>{
+document.querySelectorAll('th[data-sort]').forEach(th=>th.onclick=()=>{
+ const i=th.cellIndex;
  const body=th.closest('table').tBodies[0], rows=[...body.rows], asc=th.dataset.asc!=='1'; th.dataset.asc=asc?'1':'0';
  rows.sort((a,b)=>{let x=a.cells[i].dataset.value??a.cells[i].innerText,y=b.cells[i].dataset.value??b.cells[i].innerText;
  let nx=parseFloat(x),ny=parseFloat(y);return (Number.isNaN(nx)||Number.isNaN(ny)?x.localeCompare(y,'ru'):nx-ny)*(asc?1:-1)}).forEach(r=>body.appendChild(r));
 });
+const picks=[...document.querySelectorAll('.pick')], submit=document.getElementById('compare-submit'), count=document.getElementById('compare-count');
+picks.forEach(p=>p.onchange=()=>{const n=picks.filter(x=>x.checked).length;picks.forEach(x=>x.disabled=!x.checked&&n>=5);submit.disabled=n<2||n>5;count.textContent=n?`Выбрано: ${n}`:'Выберите от 2 до 5 предприятий'});
 </script></body></html>
