@@ -3391,6 +3391,9 @@ def settings_test_imap():
     port     = request.form.get('imap_port', '993').strip()
     login    = request.form.get('imap_login', '').strip()
     password = request.form.get('imap_password', '').strip()
+    if not password:
+        saved_password = Setting.get('imap_password', '')
+        password = decrypt_value(saved_password) if saved_password else ''
     folder   = request.form.get('imap_folder', 'INBOX').strip() or 'INBOX'
 
     if not host or not login or not password:
@@ -3655,7 +3658,9 @@ def settings():
         if action == 'save_imap':
             for key, _, _ in IMAP_KEYS:
                 val = request.form.get(key, '').strip()
-                if key == 'imap_password' and val:
+                if key == 'imap_password':
+                    if not val:
+                        continue
                     val = encrypt_value(val)
                 Setting.set(key, val)
             db.session.commit()
@@ -3774,12 +3779,29 @@ def settings():
                 'token_changed': bool(token),
             })
 
-        return redirect(url_for('settings'))
+        action_locations = {
+            'save_landing': ('general', 'landing'),
+            'save_imap': ('mail', 'imap'),
+            'add_rule': ('mail', 'rules'),
+            'delete_rule': ('mail', 'rules'),
+            'add_ai_provider': ('integrations', 'ai'),
+            'update_ai_provider': ('integrations', 'ai'),
+            'delete_ai_provider': ('integrations', 'ai'),
+            'set_default_ai_provider': ('integrations', 'ai'),
+            'save_dadata': ('integrations', 'dadata'),
+        }
+        tab, anchor = action_locations.get(action, ('general', 'landing'))
+        target = url_for(
+            'settings',
+            tab=tab,
+            embedded=request.args.get('embedded') or None,
+        )
+        return redirect(f'{target}#{anchor}')
 
     imap_cfg = {key: Setting.get(key, default) for key, _, default in IMAP_KEYS}
-    # Расшифровываем пароль для отображения в форме (страница только для admin)
-    if imap_cfg.get('imap_password'):
-        imap_cfg['imap_password'] = decrypt_value(imap_cfg['imap_password'])
+    imap_password_configured = bool(imap_cfg.get('imap_password'))
+    # Секрет не возвращается в HTML; пустое поле означает «не менять».
+    imap_cfg['imap_password'] = ''
     rules = EmailRule.query.order_by(EmailRule.id).all()
     ai_providers = AiProvider.query.order_by(AiProvider.created_at).all()
     landing_cfg = {
@@ -3795,6 +3817,7 @@ def settings():
     }
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
+                           imap_password_configured=imap_password_configured,
                            imap_cfg=imap_cfg,
                            rules=rules,
                            companies=companies,

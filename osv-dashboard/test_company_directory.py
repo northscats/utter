@@ -13,7 +13,7 @@ os.environ['ENCRYPTION_KEY'] = (
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import app, encrypt_value, init_db
+from app import app, decrypt_value, encrypt_value, init_db
 from database import (AiSummary, AuditLog, Company, CompanyContact,
                       CompanyDadataSnapshot, CompanyMembership, CompanyOkved,
                       DailyRow, EmailRule, Setting, Upload, User,
@@ -322,6 +322,19 @@ with app.app_context():
 r = client.get('/settings')
 body = r.get_data(as_text=True)
 check('токен отсутствует в HTML', 'secret-dadata-token' not in body)
+check('настройки полноширинные и разделены на доступные вкладки',
+      'max-width:none' in body
+      and body.count('role="tab"') == 3
+      and 'data-settings-panel="general"' in body
+      and 'data-settings-panel="mail"' in body
+      and 'data-settings-panel="integrations"' in body
+      and 'settingsTabFromLocation' in body)
+check('прямая ссылка на ИИ поддерживается',
+      'id="ai"' in body and "hash === 'ai'" in body)
+embedded_settings = client.get('/settings?embedded=1&tab=integrations')
+check('встроенные настройки открываются без собственной шапки',
+      embedded_settings.status_code == 200
+      and '<div class="hd">' not in embedded_settings.get_data(as_text=True))
 with app.app_context():
     check('токен отсутствует в аудите',
           all('secret-dadata-token' not in (row.details or '')
@@ -335,6 +348,39 @@ client.post('/settings', data={'action': 'save_dadata', 'dadata_enabled': '1',
 with app.app_context():
     check('пустой токен не затирает сохранённый',
           Setting.get('dadata_api_token') == previous)
+
+# Секрет IMAP также не возвращается в HTML и не стирается пустым полем.
+with app.app_context():
+    Setting.set('imap_password', encrypt_value('secret-imap-password'))
+    db.session.commit()
+imap_settings = client.get('/settings').get_data(as_text=True)
+check('пароль IMAP отсутствует в HTML',
+      'secret-imap-password' not in imap_settings
+      and 'Пустое поле не меняет сохранённый пароль' in imap_settings)
+imap_redirect = client.post(
+    '/settings?embedded=1',
+    data={'action': 'save_imap', 'imap_password': '', 'imap_host': 'imap.test'})
+check('после сохранения почты открывается почтовая вкладка',
+      imap_redirect.status_code == 302
+      and 'embedded=1' in imap_redirect.headers['Location']
+      and 'tab=mail' in imap_redirect.headers['Location']
+      and imap_redirect.headers['Location'].endswith('#imap'))
+with app.app_context():
+    check('пустой пароль IMAP не затирает сохранённый',
+          decrypt_value(Setting.get('imap_password')) == 'secret-imap-password')
+with patch('imaplib.IMAP4_SSL') as imap_ssl:
+    connection = imap_ssl.return_value.__enter__.return_value
+    connection.select.return_value = ('OK', [b'3'])
+    imap_test = client.post('/settings/test-imap', data={
+        'imap_host': 'imap.test', 'imap_port': '993',
+        'imap_login': 'mailbox@test', 'imap_password': '',
+        'imap_folder': 'INBOX',
+    })
+check('проверка IMAP использует сохранённый пароль без раскрытия',
+      imap_test.status_code == 200
+      and imap_test.get_json()['ok']
+      and connection.login.call_args.args
+      == ('mailbox@test', 'secret-imap-password'))
 
 # Серверный scope применяется к каталогу и API.
 login_as(client, user_id)

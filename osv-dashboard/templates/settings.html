@@ -43,8 +43,17 @@ body{background:var(--paper);color:var(--ink);font:15px/1.5 'Segoe UI',system-ui
 .hd-btn:hover{background:#253545}
 .hd-btn.active{background:#253545;border-color:#5a8a9c;color:#c8d8e4}
 
-main{max-width:860px;margin:0 auto;padding:28px 24px}
-.page-title{font-size:20px;font-weight:700;margin-bottom:24px;color:var(--ink)}
+main{width:100%;max-width:none;margin:0 auto;padding:24px clamp(14px,2.5vw,36px) 40px}
+.page-title{font-size:20px;font-weight:700;margin-bottom:16px;color:var(--ink)}
+.settings-tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin-bottom:20px;
+  overflow-x:auto;scrollbar-width:thin}
+.settings-tab{border:0;background:transparent;padding:10px 18px;
+  font:600 13px 'Segoe UI',sans-serif;color:var(--mut);cursor:pointer;
+  border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap}
+.settings-tab:hover{color:var(--ink);background:#f4f7f8}
+.settings-tab:focus-visible{outline:2px solid var(--water);outline-offset:-2px}
+.settings-tab[aria-selected="true"]{color:#c8780a;border-bottom-color:#f39c12;background:#fffaf0}
+.settings-panel[hidden]{display:none}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:24px;margin-bottom:20px}
@@ -78,6 +87,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 
 /* Таблица правил */
 .rules-table{width:100%;border-collapse:collapse;margin-top:6px}
+.table-scroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .rules-table th{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#31424f;
   padding:9px 12px;background:#f0f3f5;border-bottom:1px solid var(--line);text-align:left;
   font-weight:700}
@@ -107,10 +117,21 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 .dot-off{background:#bbb}
 
 @media(max-width:640px){
+  main{padding:16px 10px 28px}
+  .settings-tabs{margin-bottom:14px}
+  .settings-tab{padding:9px 12px}
+  .card{padding:16px;border-radius:8px}
   .field-grid{grid-template-columns:1fr}
   .field-grid label{text-align:left}
+  .hint{grid-column:1}
   .add-rule-grid{grid-template-columns:1fr 1fr}
   .add-ai-grid{grid-template-columns:1fr}
+  .form-actions,.ai-checks{flex-wrap:wrap}
+  .rules-table,.ai-table{min-width:720px}
+}
+@media(max-width:430px){
+  .add-rule-grid{grid-template-columns:1fr}
+  .btn{max-width:100%}
 }
 /* ─── AI-провайдеры ─── */
 .ai-table{width:100%;border-collapse:collapse;margin-top:6px}
@@ -163,9 +184,48 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
 
 <main>
   <div class="page-title">Настройки</div>
+  <div class="settings-tabs" role="tablist" aria-label="Разделы настроек">
+    <button class="settings-tab" type="button" role="tab" id="tab-general"
+            aria-controls="panel-general" aria-selected="true" tabindex="0"
+            data-settings-tab="general">Общее</button>
+    <button class="settings-tab" type="button" role="tab" id="tab-mail"
+            aria-controls="panel-mail" aria-selected="false" tabindex="-1"
+            data-settings-tab="mail">Почтовый сервер</button>
+    <button class="settings-tab" type="button" role="tab" id="tab-integrations"
+            aria-controls="panel-integrations" aria-selected="false" tabindex="-1"
+            data-settings-tab="integrations">Интеграции</button>
+  </div>
 
+  <section class="settings-panel" id="panel-general" role="tabpanel"
+           aria-labelledby="tab-general" data-settings-panel="general">
+    <div class="card" id="landing">
+      <h3>Посадочная страница</h3>
+      <p class="desc">
+        Настройка кнопки альтернативной версии в меню входа на посадочной странице («Войти в систему» → выпадающий список).
+      </p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="save_landing">
+        <div class="field-grid">
+          <label for="landing_v09_label">Название кнопки</label>
+          <input type="text" id="landing_v09_label" name="landing_v09_label"
+                 value="{{ landing_cfg.v09_label }}" placeholder="Версия 0.9 alfa">
+          <label for="landing_v09_url">URL (в текущей вкладке)</label>
+          <input type="text" id="landing_v09_url" name="landing_v09_url"
+                 value="{{ landing_cfg.v09_url }}" placeholder="https://...">
+          <div class="hint">Оставьте пустым — кнопка будет неактивна.</div>
+        </div>
+        <div style="margin-top:18px">
+          <button type="submit" class="btn btn-primary">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="settings-panel" id="panel-mail" role="tabpanel"
+           aria-labelledby="tab-mail" data-settings-panel="mail" hidden>
   <!-- ─── IMAP ─── -->
-  <div class="card">
+  <div class="card" id="imap">
     <h3>Почтовый сервер IMAP</h3>
     <p class="desc">
       Параметры подключения к ящику, с которого система будет забирать входящие письма
@@ -183,13 +243,13 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
             type="{{ 'password' if key == 'imap_password' else 'text' }}"
             id="{{ key }}" name="{{ key }}"
             value="{{ imap_cfg[key] }}"
-            placeholder="{{ placeholder }}"
-            autocomplete="{{ 'current-password' if key == 'imap_password' else 'off' }}"
+             placeholder="{{ '•••••••••••• (настроен)' if key == 'imap_password' and imap_password_configured else placeholder }}"
+             autocomplete="{{ 'new-password' if key == 'imap_password' else 'off' }}"
           >
           {% if key == 'imap_host' %}
             <div class="hint">Для Яндекс 360: <code>imap.yandex.ru</code></div>
           {% elif key == 'imap_password' %}
-            <div class="hint">Используйте «пароль приложения» — Яндекс: Аккаунт → Безопасность → Пароли приложений</div>
+            <div class="hint">Пустое поле не меняет сохранённый пароль. Используйте «пароль приложения» — Яндекс: Аккаунт → Безопасность → Пароли приложений</div>
           {% elif key == 'imap_interval' %}
             <div class="hint">Минимум 5, рекомендуется 15–60</div>
           {% endif %}
@@ -224,7 +284,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
   </div>
 
   <!-- ─── Правила маршрутизации ─── -->
-  <div class="card">
+  <div class="card" id="rules">
     <h3>Правила маршрутизации писем</h3>
     <p class="desc">
       Определяют, к какому предприятию относить входящее письмо.
@@ -233,6 +293,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </p>
 
     {% if rules %}
+    <div class="table-scroll">
     <table class="rules-table">
       <thead>
         <tr>
@@ -262,6 +323,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="empty-rules">Правила ещё не добавлены</div>
     {% endif %}
@@ -301,9 +363,12 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       </p>
     </form>
   </div>
+  </section>
 
+  <section class="settings-panel" id="panel-integrations" role="tabpanel"
+           aria-labelledby="tab-integrations" data-settings-panel="integrations" hidden>
   <!-- ─── ИИ-провайдер ─── -->
-  <div class="card">
+  <div class="card" id="ai">
     <h3>ИИ-провайдер</h3>
     <p class="desc">
       Подключение к OpenAI-совместимому LLM-провайдеру (vLLM, Yandex GPT, Azure OpenAI и др.).
@@ -312,6 +377,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
     </p>
 
     {% if ai_providers %}
+    <div class="table-scroll">
     <table class="ai-table">
       <thead>
         <tr>
@@ -360,6 +426,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
     <div class="empty-rules">Провайдеры не добавлены</div>
     {% endif %}
@@ -454,7 +521,7 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
   </div>
 
   <!-- ─── Посадочная страница ─── -->
-  <div class="card">
+  <div class="card" id="dadata">
     <h3>Интеграция DaData</h3>
     <p class="desc">
       Точный серверный поиск организации только по ИНН и/или ОГРН.
@@ -495,34 +562,65 @@ main{max-width:860px;margin:0 auto;padding:28px 24px}
       </span>
     </div>
   </div>
-
-  <!-- ─── Посадочная страница ─── -->
-  <div class="card">
-    <h3>Посадочная страница</h3>
-    <p class="desc">
-      Настройка кнопки альтернативной версии в меню входа на посадочной странице («Войти в систему» → выпадающий список).
-    </p>
-    <form method="post">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="save_landing">
-      <div class="field-grid">
-        <label for="landing_v09_label">Название кнопки</label>
-        <input type="text" id="landing_v09_label" name="landing_v09_label"
-               value="{{ landing_cfg.v09_label }}" placeholder="Версия 0.9 alfa">
-
-        <label for="landing_v09_url">URL (в текущей вкладке)</label>
-        <input type="text" id="landing_v09_url" name="landing_v09_url"
-               value="{{ landing_cfg.v09_url }}" placeholder="https://...">
-        <div class="hint">Оставьте пустым — кнопка будет неактивна.</div>
-      </div>
-      <div style="margin-top:18px">
-        <button type="submit" class="btn btn-primary">Сохранить</button>
-      </div>
-    </form>
-  </div>
+  </section>
 
 </main>
 <script>
+const SETTINGS_TABS = ['general', 'mail', 'integrations'];
+function settingsTabFromLocation() {
+  const queryTab = new URLSearchParams(window.location.search).get('tab');
+  const hash = window.location.hash.slice(1);
+  if (SETTINGS_TABS.includes(hash)) return hash;
+  if (hash === 'ai' || hash === 'dadata') return 'integrations';
+  if (hash === 'imap' || hash === 'rules') return 'mail';
+  if (hash === 'landing') return 'general';
+  return SETTINGS_TABS.includes(queryTab) ? queryTab : 'general';
+}
+function activateSettingsTab(name, options) {
+  if (!SETTINGS_TABS.includes(name)) name = 'general';
+  document.querySelectorAll('[data-settings-tab]').forEach(function(tab) {
+    const active = tab.dataset.settingsTab === name;
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    tab.tabIndex = active ? 0 : -1;
+  });
+  document.querySelectorAll('[data-settings-panel]').forEach(function(panel) {
+    panel.hidden = panel.dataset.settingsPanel !== name;
+  });
+  if (options && options.focus) {
+    document.querySelector('[data-settings-tab="' + name + '"]').focus();
+  }
+}
+function updateSettingsLocation(name) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('tab', name);
+  url.hash = name;
+  history.replaceState(null, '', url.pathname + url.search + url.hash);
+}
+function initializeSettingsTabs() {
+  const tabs = Array.from(document.querySelectorAll('[data-settings-tab]'));
+  tabs.forEach(function(tab, index) {
+    tab.addEventListener('click', function() {
+      const name = tab.dataset.settingsTab;
+      activateSettingsTab(name);
+      updateSettingsLocation(name);
+    });
+    tab.addEventListener('keydown', function(event) {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      let next = index;
+      if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+      if (event.key === 'Home') next = 0;
+      if (event.key === 'End') next = tabs.length - 1;
+      activateSettingsTab(tabs[next].dataset.settingsTab, {focus: true});
+      updateSettingsLocation(tabs[next].dataset.settingsTab);
+    });
+  });
+  activateSettingsTab(settingsTabFromLocation());
+  window.addEventListener('hashchange', function() {
+    activateSettingsTab(settingsTabFromLocation());
+  });
+}
 function testImap() {
   const btn = document.getElementById('btn-test');
   const result = document.getElementById('test-result');
@@ -627,6 +725,7 @@ function closeEditAi() {
   document.getElementById('ai-edit-overlay').style.display = 'none';
 }
 document.addEventListener('DOMContentLoaded', function() {
+  initializeSettingsTabs();
   document.querySelectorAll('.btn-edit-ai').forEach(function(btn) {
     btn.addEventListener('click', function() { openEditAi(btn); });
   });
