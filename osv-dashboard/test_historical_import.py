@@ -117,6 +117,14 @@ check("карточка отображает полный предпросмот
       and "Годовая историческая аналитика" in preview_body
       and "Разделов: 15" in preview_body
       and "Подтвердить и активировать версии" in preview_body)
+check("длительные исторические операции показывают прогресс",
+      'id="historical-preview-form"' in preview_body
+      and 'id="historical-preview-status"' in preview_body
+      and "Загружаем XLSX и формируем предпросмотр" in preview_body
+      and 'id="historical-confirm-form"' in preview_body
+      and 'id="historical-confirm-status"' in preview_body
+      and "Проверяем данные и активируем годовые версии" in preview_body
+      and "bindHistoricalProgress" in preview_body)
 
 r = client.post(
     f"/company/{company_id}/historical/{attempt_id}/confirm",

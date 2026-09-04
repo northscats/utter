@@ -8,9 +8,9 @@ description: PostgreSQL sometimes isn't ready when Flask starts in Replit, causi
 ## The rule
 Always wrap `init_db()` (or any DB call at startup) in a retry loop with `time.sleep(2)` between attempts (up to 10 tries). Without this, the workflow shows as NOT_STARTED / fails to open a port whenever PostgreSQL lags behind Flask.
 
-**Why:** In the Replit container, `postgresql-16` and the Flask process start concurrently. PostgreSQL can take 2–10 s to accept connections. If `db.create_all()` or any migration SQL runs before PG is ready, SQLAlchemy raises a connection error and the process exits before binding to `PORT` — the workflow manager then marks it NOT_STARTED.
+**Why:** In the Replit container, `postgresql-16` and the Flask process start concurrently. PostgreSQL and startup migrations can occasionally take well beyond the default 30-second readiness window. Gunicorn may already be listening while its worker is still initializing, so the workflow check fails without an application exception. If a DB call runs before PG is ready, SQLAlchemy can also exit before the application becomes responsive.
 
-**How to apply:** In `app.py` (or equivalent entry point), replace bare `init_db()` call with:
+**How to apply:** Keep the retry loop below. When logs show Gunicorn listening with no traceback but HTTP still times out, allow a longer workflow readiness window before changing ports or application code; verify the later `DB ready` message and an HTTP 200 response.
 ```python
 for _attempt in range(10):
     try:

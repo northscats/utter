@@ -287,6 +287,13 @@ tr:last-child td{border-bottom:0}
 .hist-map input,.hist-map select{border:1px solid var(--line);border-radius:6px;
   padding:6px 8px;font:12px 'Segoe UI',sans-serif;background:#fff;width:100%}
 .hist-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.hist-submit-status{display:none;align-items:center;gap:8px;color:#45616f;
+  font-size:12px;font-weight:600}
+.hist-submit-status.is-active{display:inline-flex}
+.hist-spinner{width:15px;height:15px;border:2px solid #c9d9e1;border-top-color:var(--water);
+  border-radius:50%;animation:hist-spin .7s linear infinite;flex:0 0 auto}
+.hist-busy{cursor:wait!important;opacity:.78}
+@keyframes hist-spin{to{transform:rotate(360deg)}}
 .hist-table-wrap{overflow-x:auto}
 .hist-subtitle{font-size:12px;font-weight:700;color:#31424f;margin:18px 0 8px;
   text-transform:uppercase;letter-spacing:.05em}
@@ -559,7 +566,7 @@ tr:last-child td{border-bottom:0}
   <section class="hist-card" id="historical-analytics">
     <div class="hist-head">
       <div class="hist-title">Годовая историческая аналитика</div>
-      <form class="hist-upload" method="post"
+      <form class="hist-upload" id="historical-preview-form" method="post"
             action="{{ url_for('historical_preview_upload', company_id=company.id) }}"
             enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -571,6 +578,11 @@ tr:last-child td{border-bottom:0}
         <button id="historical-preview-btn" class="ab-btn ab-btn-go" type="submit" disabled>
           Предпросмотр
         </button>
+        <span class="hist-submit-status" id="historical-preview-status"
+              role="status" aria-live="polite">
+          <span class="hist-spinner" aria-hidden="true"></span>
+          <span>Загружаем XLSX и формируем предпросмотр…</span>
+        </span>
       </form>
     </div>
     <p class="hint">Отдельный версионируемый контур. Загрузка не изменяет ОСВ и действующие дашборды.</p>
@@ -651,7 +663,7 @@ tr:last-child td{border-bottom:0}
           </details>
           {% endif %}
 
-          <form method="post"
+          <form method="post" id="historical-confirm-form"
                 action="{{ url_for('historical_confirm', company_id=company.id, import_id=historical_preview.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="mapping_count" value="{{ historical_mappings_needed|length }}">
@@ -689,10 +701,15 @@ tr:last-child td{border-bottom:0}
               </label>
             {% endif %}
             <div class="hist-actions">
-              <button class="ab-btn ab-btn-go" type="submit"
+              <button class="ab-btn ab-btn-go" id="historical-confirm-btn" type="submit"
                       {% if not required_ok %}disabled title="Не пройдены обязательные проверки"{% endif %}>
                 Подтвердить и активировать версии
               </button>
+              <span class="hist-submit-status" id="historical-confirm-status"
+                    role="status" aria-live="polite">
+                <span class="hist-spinner" aria-hidden="true"></span>
+                <span>Проверяем данные и активируем годовые версии…</span>
+              </span>
             </div>
           </form>
         {% endif %}
@@ -1176,6 +1193,45 @@ document.getElementById('frm').addEventListener('submit',function(event){
   if (go) { go.disabled = true; go.title = 'Дождитесь завершения текущей обработки'; }
 
   setTimeout(poll, 800);
+})();
+
+// --- Состояния длительных операций годовой аналитики ---
+(function(){
+  function bindHistoricalProgress(formId, buttonId, statusId, busyLabel) {
+    var form = document.getElementById(formId);
+    if (!form) return;
+    var button = document.getElementById(buttonId);
+    var status = document.getElementById(statusId);
+    var submitted = false;
+    form.addEventListener('submit', function(event) {
+      if (submitted) {
+        event.preventDefault();
+        return;
+      }
+      submitted = true;
+      if (button) {
+        button.disabled = true;
+        button.classList.add('hist-busy');
+        button.textContent = busyLabel;
+        button.setAttribute('aria-busy', 'true');
+      }
+      if (status) status.classList.add('is-active');
+      form.setAttribute('aria-busy', 'true');
+    });
+  }
+
+  bindHistoricalProgress(
+    'historical-preview-form',
+    'historical-preview-btn',
+    'historical-preview-status',
+    'Формируем предпросмотр…'
+  );
+  bindHistoricalProgress(
+    'historical-confirm-form',
+    'historical-confirm-btn',
+    'historical-confirm-status',
+    'Активируем версии…'
+  );
 })();
 
 // --- Реквизиты предприятия ---
