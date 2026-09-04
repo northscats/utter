@@ -55,7 +55,7 @@ METRICS = {
 
 DEFAULT_PROFILE = {
     'name': 'Базовый профиль',
-    'period': 'latest_closed',
+    'period': 'latest_available',
     'missing_policy': 'renormalize',
     'min_coverage': 70,
     'metrics': {
@@ -94,7 +94,8 @@ def validate_profile(payload):
     if not 1 <= len(name) <= 120:
         raise ProfileValidationError('Название должно содержать от 1 до 120 символов')
     profile['name'] = name
-    if src.get('period', profile['period']) not in ('latest_closed', 'all_closed'):
+    if src.get('period', profile['period']) not in (
+            'latest_available', 'latest_closed', 'all_closed'):
         raise ProfileValidationError('Неизвестное правило периода')
     profile['period'] = src.get('period', profile['period'])
     if src.get('missing_policy', profile['missing_policy']) != 'renormalize':

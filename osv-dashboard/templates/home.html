@@ -1007,7 +1007,7 @@ function ratingSettingsHtml(profile, selected) {
       (disabled?'<div class="rating-muted">'+esc(meta.unavailable_reason)+'</div>':'<div class="rating-fields"><input type="number" data-rm="'+key+'" data-f="weight" value="'+cfg.weight+'" title="Вес, %"><input type="number" step="0.01" data-rm="'+key+'" data-f="green" value="'+cfg.green+'" title="Порог нормы"><input type="number" step="0.01" data-rm="'+key+'" data-f="yellow" value="'+cfg.yellow+'" title="Порог внимания"></div>')+'</div>';
   }).join('');
   return '<div class="rating-head"><input id="rp-name" class="rating-control" value="'+esc(isBase?'Новый профиль':profile.name)+'" placeholder="Название профиля">'+
-    '<select id="rp-period" class="rating-control"><option value="latest_closed" '+(profile.period==='latest_closed'?'selected':'')+'>Последний закрытый период</option><option value="all_closed" '+(profile.period==='all_closed'?'selected':'')+'>Все закрытые периоды</option></select>'+
+    '<select id="rp-period" class="rating-control"><option value="latest_available" '+(profile.period==='latest_available'?'selected':'')+'>Последний доступный период</option><option value="latest_closed" '+(profile.period==='latest_closed'?'selected':'')+'>Последний закрытый период</option><option value="all_closed" '+(profile.period==='all_closed'?'selected':'')+'>Все закрытые периоды</option></select>'+
     '<label>Мин. покрытие <input id="rp-coverage" type="number" min="0" max="100" class="rating-control" value="'+profile.min_coverage+'" style="width:70px">%</label>'+
     '<button class="rating-btn" onclick="saveRatingProfile('+(!isBase)+')">'+(isBase?'Сохранить как профиль':'Сохранить')+'</button>'+
     (!isBase?'<button class="rating-btn secondary" onclick="setDefaultRatingProfile()">По умолчанию</button><button class="rating-btn secondary" onclick="deleteRatingProfile()">Удалить</button>':'')+
@@ -1018,7 +1018,7 @@ function ratingRowHtml(r){
   return '<tr data-q="'+esc((r.company_name+' '+r.inn).toLowerCase())+'" data-s="'+(r.ranked?r.signal:'na')+'"><td>'+(r.place||'—')+'</td><td><b>'+esc(r.company_name)+'</b><div class="rating-muted">'+esc(r.inn)+'</div></td>'+
     '<td><span class="rating-score">'+(r.score==null?'—':r.score)+'</span>'+(r.exclusion_reason?'<div class="rating-muted">'+esc(r.exclusion_reason)+'</div>':'')+'</td>'+
     '<td><span class="rating-signal '+(r.ranked?r.signal:'na')+'">'+ratingSignalText(r.ranked?r.signal:'na')+'</span></td>'+
-    '<td>'+r.coverage+'%<div class="coverage"><i style="width:'+r.coverage+'%"></i></div></td><td>'+esc(r.period||'Нет закрытого периода')+'<div class="rating-muted">'+esc(r.freshness?r.freshness.slice(0,10):'—')+'</div></td>'+
+    '<td>'+r.coverage+'%<div class="coverage"><i style="width:'+r.coverage+'%"></i></div></td><td>'+esc(r.period||'Нет доступного периода')+'<div class="rating-muted">'+esc(r.freshness?r.freshness.slice(0,10):'—')+'</div></td>'+
     '<td><details class="metric-breakdown"><summary>Показать формулу</summary>'+contributions+'</details></td><td><a class="btn-open" href="'+esc(r.detail_url)+'">Открыть</a></td></tr>';
 }
 function filterRating(){var q=(document.getElementById('rating-search').value||'').toLowerCase(),s=document.getElementById('rating-filter').value;document.querySelectorAll('.rating-table tbody tr').forEach(function(r){r.style.display=(!q||r.dataset.q.includes(q))&&(!s||r.dataset.s===s)?'':'none'})}

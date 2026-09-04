@@ -4381,6 +4381,7 @@ def rating_profiles():
 def rating_catalog():
     from rating import METRICS
     return jsonify(metrics=METRICS, periods=[
+        {'key': 'latest_available', 'name': 'Последний доступный период'},
         {'key': 'latest_closed', 'name': 'Последний закрытый период'},
         {'key': 'all_closed', 'name': 'Все доступные закрытые периоды'},
     ])
@@ -4436,16 +4437,26 @@ def rating_results():
         profile_ref = row.id
 
     results = []
-    for company in Company.query.order_by(Company.id).all():
+    companies_query = Company.query.filter(
+        Company.status != 'archived', Company.is_rso.is_(True))
+    if not current_user.is_admin:
+        companies_query = companies_query.join(CompanyMembership).filter(
+            CompanyMembership.user_id == current_user.id)
+    for company in companies_query.order_by(Company.id).all():
         closed = [u for u in company.uploads if u.closure_status is True]
-        selected = closed[:1] if profile['period'] == 'latest_closed' else closed
+        if profile['period'] == 'latest_available':
+            selected = company.uploads[:1]
+        elif profile['period'] == 'latest_closed':
+            selected = closed[:1]
+        else:
+            selected = closed
         freshness = max((u.uploaded_at for u in selected), default=None)
         snapshots = [upload.metrics for upload in selected if upload.metrics]
         # Безопасная совместимость со старыми установками: текущий файловый
         # кэш допустим только когда последняя вообще загрузка и выбранный
         # закрытый период — одна запись. Более новый открытый период исключает
         # такой fallback, чтобы не загрязнить рейтинг.
-        if (not snapshots and profile['period'] == 'latest_closed'
+        if (not snapshots and profile['period'] != 'all_closed'
                 and len(selected) == 1 and company.uploads
                 and company.uploads[0].id == selected[0].id):
             kpi_path = os.path.join(OUTPUT, str(company.id), 'kpi_cache.json')
@@ -4463,7 +4474,10 @@ def rating_results():
             observed = [snapshot.get(key) for snapshot in snapshots
                         if snapshot.get(key) is not None]
             values[key] = (sum(observed) / len(observed)) if observed else None
-        missing = {key: ('Нет закрытого периода' if not selected
+        no_period_reason = ('Нет доступного периода'
+                            if profile['period'] == 'latest_available'
+                            else 'Нет закрытого периода')
+        missing = {key: (no_period_reason if not selected
                          else 'Недостаточно исходных счетов для формулы')
                    for key in profile['metrics']}
         result = score_company(values, profile, missing)

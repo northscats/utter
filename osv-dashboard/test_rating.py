@@ -117,7 +117,9 @@ with app.app_context():
     c_closed = Company(name='Закрытый период', created_by=admin.id)
     c_open = Company(name='Незакрытый период', created_by=admin.id)
     c_legacy = Company(name='Старые снимки', created_by=admin.id)
-    db.session.add_all([c_closed, c_open, c_legacy])
+    c_archived = Company(name='Архивное предприятие', created_by=admin.id,
+                         status='archived')
+    db.session.add_all([c_closed, c_open, c_legacy, c_archived])
     db.session.flush()
     open_values = dict(values)
     open_values['dz_days'] = 999
@@ -147,10 +149,14 @@ with app.app_context():
         Upload(company_id=c_legacy.id, uploaded_by=admin.id,
                period_label='декабрь 2025', closure_status=True,
                uploaded_at=now - timedelta(days=31), metrics_json='{}'),
+        Upload(company_id=c_archived.id, uploaded_by=admin.id,
+               period_label='январь 2026', closure_status=True,
+               uploaded_at=now, metrics_json=json.dumps(values)),
     ])
     db.session.commit()
     admin_id, other_id, no_access_id = admin.id, other.id, no_access.id
     closed_id, open_id, legacy_id = c_closed.id, c_open.id, c_legacy.id
+    archived_id = c_archived.id
     for company_id in (closed_id, open_id):
         out = os.path.join(OUTPUT, str(company_id))
         os.makedirs(out, exist_ok=True)
@@ -166,7 +172,7 @@ login_as(client, no_access_id)
 check('API рейтинга закрыт без права на аналитику',
       client.get('/rating-api').status_code == 403)
 login_as(client, admin_id)
-r = client.get('/home')
+r = client.get('/home?legacy=1')
 check('экран общего рейтинга встроен в главную аналитику',
       r.status_code == 200 and 'Общий рейтинг' in r.get_data(as_text=True))
 check('домашняя страница не кэширует старый JSON-клиент',
@@ -177,12 +183,27 @@ check('CSRF-токен рейтинга доступен вне зарезерв
 r = client.get('/rating-api')
 check('авторизованный API рейтинга доступен', r.status_code == 200)
 by_id = {row['company_id']: row for row in r.get_json()['results']}
-check('закрытый период участвует в рейтинге', by_id[closed_id]['ranked'])
+check('архивное предприятие исключено из рейтинга', archived_id not in by_id)
+check('последний доступный период участвует в базовом рейтинге',
+      by_id[closed_id]['ranked'] and by_id[open_id]['ranked'])
 dz = next(x for x in by_id[closed_id]['contributions'] if x['key'] == 'dz_days')
-check('последующий незакрытый снимок не влияет на рейтинг',
-      dz['value'] == values['dz_days'])
-check('незакрытый период не участвует',
-      not by_id[open_id]['ranked'] and by_id[open_id]['freshness'] is None)
+check('базовый рейтинг использует свежие KPI незакрытого периода',
+      dz['value'] == open_values['dz_days'])
+
+latest_closed = deepcopy(DEFAULT_PROFILE)
+latest_closed['name'] = 'Последний закрытый'
+latest_closed['period'] = 'latest_closed'
+r = client.post('/rating-api/profiles', json=latest_closed)
+latest_closed_id = r.get_json()['profile']['id']
+r = client.get(f'/rating-api?profile_id={latest_closed_id}')
+closed_by_id = {row['company_id']: row for row in r.get_json()['results']}
+closed_dz = next(x for x in closed_by_id[closed_id]['contributions']
+                 if x['key'] == 'dz_days')
+check('режим закрытого периода не использует последующий незакрытый снимок',
+      closed_dz['value'] == values['dz_days'])
+check('предприятие без закрытого периода не ранжируется в закрытом режиме',
+      not closed_by_id[open_id]['ranked']
+      and closed_by_id[open_id]['freshness'] is None)
 
 all_closed = deepcopy(DEFAULT_PROFILE)
 all_closed['name'] = 'Все закрытые'
@@ -204,6 +225,8 @@ r = client.post('/rating-api/profiles', json=custom)
 check('валидный профиль сохраняется', r.status_code == 201)
 profile_id = r.get_json()['profile']['id']
 login_as(client, other_id)
+check('обычный пользователь не видит незакреплённые предприятия в рейтинге',
+      client.get('/rating-api').get_json()['results'] == [])
 check('чужой профиль недоступен',
       client.get(f'/rating-api?profile_id={profile_id}').status_code == 404)
 check('чужой профиль нельзя изменить',
