@@ -324,6 +324,15 @@ def _compute_completeness(upload):
     return _compute_completeness_from_accounts(upload.accounts_list)
 
 
+def _dataset_accounts(dataset):
+    """Нормализованный список счетов, фактически вошедших в dataset."""
+    return sorted({
+        str(account).strip()
+        for account in (dataset.get('accounts_loaded', []) or [])
+        if account is not None and str(account).strip()
+    })
+
+
 def _compute_completeness_from_accounts(accounts):
     """Оценивает комплектность по совокупному набору номеров счетов."""
     loaded = set(str(a) for a in accounts)
@@ -340,12 +349,13 @@ def _compute_completeness_from_accounts(accounts):
     return dict(found=found, total=total, missing=missing, status=status)
 
 
-def _compute_company_completeness(uploads):
+def _compute_company_completeness(uploads, additional_accounts=None):
     """Комплектность предприятия по всем принятым загрузкам, а не последней."""
     loaded = set()
     for upload in uploads:
         loaded.update(str(a) for a in upload.accounts_list)
-    if not uploads:
+    loaded.update(str(a) for a in (additional_accounts or []))
+    if not uploads and not loaded:
         return None
     return _compute_completeness_from_accounts(loaded)
 
@@ -367,6 +377,7 @@ def _save_kpi_cache(dataset, out_dir):
     from builder import extract_kpis
     try:
         kpis = extract_kpis(dataset)
+        kpis['accounts_loaded'] = _dataset_accounts(dataset)
         with open(os.path.join(out_dir, 'kpi_cache.json'), 'w', encoding='utf-8') as f:
             json.dump(kpis, f, ensure_ascii=False)
     except Exception as exc:
@@ -392,11 +403,29 @@ def _company_summary(company):
     dash_path = os.path.join(out_dir, 'dashboard_current.html')
     kpi_path  = os.path.join(out_dir, 'kpi_cache.json')
     kpis = None
+    dashboard_accounts = []
     if os.path.isfile(kpi_path):
         try:
             with open(kpi_path, encoding='utf-8') as _kf:
                 kpis = json.load(_kf)
+            dashboard_accounts = (
+                kpis.get('accounts_loaded', [])
+                if isinstance(kpis, dict) else [])
         except Exception:
+            pass
+    if not dashboard_accounts and os.path.isfile(dash_path):
+        # Совместимость с дашбордами, созданными до сохранения accounts_loaded
+        # в KPI-кэше. В HTML dataset уже содержит фактический список счетов.
+        try:
+            with open(dash_path, encoding='utf-8') as _df:
+                match = re.search(
+                    r'"accounts_loaded"\s*:\s*(\[[^\]]*\])',
+                    _df.read())
+            if match:
+                parsed_accounts = json.loads(match.group(1))
+                if isinstance(parsed_accounts, list):
+                    dashboard_accounts = parsed_accounts
+        except (OSError, ValueError, TypeError):
             pass
     return dict(
         id=company.id,
@@ -417,7 +446,8 @@ def _company_summary(company):
         has_dashboard=os.path.isfile(dash_path),
         kpis=kpis,
         status_color=_compute_status_color(kpis),
-        last_completeness=_compute_company_completeness(uploads),
+        last_completeness=_compute_company_completeness(
+            uploads, dashboard_accounts),
     )
 
 
@@ -791,7 +821,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 uploaded_by=uploader_id,
                                 period_label=dataset.get('period_label', ''),
                                 accounts_loaded=json.dumps(
-                                    sorted(dataset.get('accounts', {}).keys())),
+                                    _dataset_accounts(dataset)),
                                 closure_status=_dataset_closure_status(dataset),
                                 profit_sign=(
                                     'loss' if 'убыток' in lead.lower() else
@@ -1066,7 +1096,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                 company_id=company_id,
                 uploaded_by=uploader_id,
                 period_label=period_lbl,
-                accounts_loaded=json.dumps(sorted(dataset.get('accounts', {}).keys())),
+                accounts_loaded=json.dumps(_dataset_accounts(dataset)),
                 closure_status=closure_status,
                 profit_sign=profit_sign,
                 files_count=total_files,
@@ -2178,7 +2208,7 @@ def company_upload_all(company_id):
         company_id=company_id,
         uploaded_by=current_user.id,
         period_label=period_lbl,
-        accounts_loaded=json.dumps(sorted(dataset.get('accounts', {}).keys())),
+        accounts_loaded=json.dumps(_dataset_accounts(dataset)),
         closure_status=closure_status,
         profit_sign=profit_sign,
         files_count=total_files,

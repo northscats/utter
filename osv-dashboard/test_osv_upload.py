@@ -14,8 +14,14 @@ os.environ.setdefault(
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app as app_module
-from app import app, init_db
-from database import Company, User, db
+from app import (
+    _company_summary,
+    _compute_company_completeness,
+    _dataset_accounts,
+    app,
+    init_db,
+)
+from database import Company, Upload, User, db
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
 init_db()
@@ -80,5 +86,41 @@ check('форма обновляет токен перед загрузкой',
       "cache:'no-store'" in page
       and 'form.requestSubmit()' in page
       and 'Загрузка не началась:' in page)
+
+check('список счетов берётся из фактического dataset',
+      _dataset_accounts({
+          'accounts_loaded': ['91', 20, '20', '', None],
+          'accounts': {'ошибочное старое поле': {}},
+      }) == ['20', '91'])
+
+with app.app_context():
+    company = db.session.get(Company, company_id)
+    db.session.add(Upload(
+        company_id=company_id,
+        uploaded_by=admin_id,
+        period_label='Январь–Август 2026',
+        accounts_loaded='[]',
+        files_count=17,
+    ))
+    db.session.commit()
+
+    original_output = app_module.OUTPUT
+    app_module.OUTPUT = os.path.join(_TMP, 'output')
+    company_output = os.path.join(app_module.OUTPUT, str(company_id))
+    os.makedirs(company_output, exist_ok=True)
+    with open(os.path.join(company_output, 'dashboard_current.html'),
+              'w', encoding='utf-8') as dashboard:
+        dashboard.write(
+            '<script>const D={"accounts_loaded":'
+            '["20","26","44","50","51","52","55","60","62","66",'
+            '"67","68","69","70","76","90","91"]};</script>')
+    try:
+        completeness = _company_summary(company)['last_completeness']
+    finally:
+        app_module.OUTPUT = original_output
+
+check('старые загрузки с пустым метаданным читают счета из дашборда',
+      completeness['status'] == 'full'
+      and completeness['found'] == completeness['total'] == 17)
 
 print('\\nВСЕ ТЕСТЫ ЗАГРУЗКИ ОСВ ПРОЙДЕНЫ')
