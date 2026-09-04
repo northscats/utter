@@ -25,24 +25,38 @@ loglevel   = 'info'
 def post_fork(server, worker):
     """Called in each worker process after forking from the master.
 
-    Initialises the database and starts the IMAP background thread.
-    Retries up to 10 times if PostgreSQL is not yet available.
+    Runs schema work before serving, but keeps slow App Storage restore/backup
+    out of the readiness path. IMAP starts only after durable recovery ends.
     """
-    import time, sys
+    import threading, time, sys
     sys.path.insert(0, os.path.dirname(__file__))
 
-    from app import app, init_db, _ensure_imap_thread
+    from app import app, init_db, _finish_durable_startup, _ensure_imap_thread
 
     for attempt in range(10):
         try:
-            with app.app_context():
-                init_db()
-            _ensure_imap_thread()
-            server.log.info(f'[worker {worker.pid}] DB ready, IMAP thread started')
-            return
+            init_db(perform_durable=False)
+            server.log.info(f'[worker {worker.pid}] DB ready')
+            break
         except Exception as exc:
             server.log.warning(
                 f'[worker {worker.pid}] DB not ready (attempt {attempt + 1}/10): {exc}')
             if attempt == 9:
                 raise
             time.sleep(2)
+
+    def finish_startup():
+        try:
+            _finish_durable_startup(restore=True)
+            _ensure_imap_thread()
+            server.log.info(
+                f'[worker {worker.pid}] durable recovery ready, IMAP thread started')
+        except Exception:
+            server.log.exception(
+                f'[worker {worker.pid}] background startup failed')
+
+    threading.Thread(
+        target=finish_startup,
+        name='durable-startup',
+        daemon=True,
+    ).start()

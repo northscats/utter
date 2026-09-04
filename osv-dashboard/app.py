@@ -4013,12 +4013,19 @@ def users_set_companies(user_id):
 # ---------------------------------------------------------------------------
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
-def init_db():
+def init_db(perform_durable=True):
+    """Prepare the database, optionally including slow App Storage recovery.
+
+    Gunicorn runs the schema/migrations synchronously, then performs the
+    additive durable restore and startup snapshot in one background thread.
+    CLI and deployment entrypoints keep the safer all-in-one default.
+    """
     with app.app_context():
         db.create_all()
         # Safe merge recovery precedes hand-written migrations. Existing rows
         # always win; only missing protected data and files are restored.
-        _durable_restore()
+        if perform_durable:
+            _durable_restore()
         # Миграция: новые колонки парсера документов и ИИ-провайдера.
         # Диалектобезопасно: колонки добавляются только если их нет
         # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
@@ -4332,6 +4339,15 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
             print('Создан пользователь admin / admin123 — смените пароль!')
+        if perform_durable:
+            _finish_durable_startup()
+
+
+def _finish_durable_startup(restore=False):
+    """Complete slow durable maintenance after the app can answer HTTP."""
+    with app.app_context():
+        if restore:
+            _durable_restore()
         if not app.config.get('TESTING'):
             from durable_data import has_snapshot
             _durable_backup(
