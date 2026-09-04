@@ -36,3 +36,17 @@ mtime_ms = 1788355711465
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9d877225-0702-4c79-babb-f28522f44712/7d849c59-325a-4799-8894-59415c4b544f"
 storage_version_token = "1788355737515989"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "WCGmsnsM9vyQRMfQiunFO"
+uri = "file://exports/portfolio_summary_description.doc"
+type = "word_document"
+title = "Подробное описание портфельной сводки"
+description = "Функциональное и методическое описание портфельной сводки РСО в формате Microsoft Word 97 DOC."
+logical_id = "fc8226e5-9a26-47c5-8324-d11201181c71"
+content_hash = "sha256:96629602ebc25f90932aa6f48c51d7f2d20756a180c4d642a4338b4cab323930"
+size = 54784
+mtime_ms = 1788519191578
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/fc8226e5-9a26-47c5-8324-d11201181c71/1a1944ef-d9e2-41aa-a492-afbf6f081796"
+storage_version_token = "1788519194427579"
+content_type = "application/msword"
