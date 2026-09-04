@@ -1084,8 +1084,37 @@ inp.addEventListener('change',function(){
   go.disabled=false;
   _osvRenderPanel(fs,'osv-panel');
 });
-document.getElementById('frm').addEventListener('submit',function(){
-  go.disabled=true;go.innerHTML='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8" stroke-dasharray="50" stroke-dashoffset="25"/></svg> Загружаю…';
+let _uploadSubmitting=false;
+document.getElementById('frm').addEventListener('submit',function(event){
+  const form=this;
+  const loading='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8" stroke-dasharray="50" stroke-dashoffset="25"/></svg> Загружаю…';
+  if(_uploadSubmitting){
+    go.disabled=true;go.innerHTML=loading;
+    return;
+  }
+  event.preventDefault();
+  go.disabled=true;go.innerHTML=loading;
+  fetch('{{ url_for("get_csrf_token") }}',{
+    method:'GET',
+    credentials:'same-origin',
+    cache:'no-store',
+    headers:{'X-Requested-With':'XMLHttpRequest'}
+  })
+  .then(function(response){
+    if(!response.ok) throw new Error('Не удалось обновить защитный токен');
+    return response.json();
+  })
+  .then(function(data){
+    if(!data.csrf_token) throw new Error('Защитный токен не получен');
+    form.querySelector('input[name="csrf_token"]').value=data.csrf_token;
+    _uploadSubmitting=true;
+    form.requestSubmit();
+  })
+  .catch(function(error){
+    go.disabled=false;
+    go.innerHTML='<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/></svg>';
+    alert('Загрузка не началась: '+error.message+'. Обновите страницу и повторите попытку.');
+  });
 });
 
 // --- Индикатор фонового задания ---

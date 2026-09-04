@@ -2130,6 +2130,9 @@ def company_upload_all(company_id):
         daemon=True,
     ).start()
 
+    # Долговечные снимки делает сам worker после сохранения строк и итоговой
+    # загрузки. Не блокируем быстрый ответ браузеру общим after_request backup.
+    g.durable_backup_done = True
     return redirect(url_for('company_detail', company_id=company_id, job=job_id))
 
     # Пересобираем дашборд: месячные XLS + суточные из БД

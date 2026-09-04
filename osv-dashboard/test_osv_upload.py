@@ -1,0 +1,84 @@
+# -*- coding: utf-8 -*-
+"""Регрессия CSRF и быстрого запуска фоновой загрузки ОСВ."""
+import io
+import os
+import re
+import sys
+import tempfile
+
+_TMP = tempfile.mkdtemp(prefix='osv_upload_test_')
+os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
+os.environ.setdefault(
+    'ENCRYPTION_KEY',
+    'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import app as app_module
+from app import app, init_db
+from database import Company, User, db
+
+app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
+init_db()
+
+
+def check(label, condition):
+    print(('PASS' if condition else 'FAIL'), label)
+    if not condition:
+        raise AssertionError(label)
+
+
+class FakeThread:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def start(self):
+        pass
+
+
+app_module.threading.Thread = FakeThread
+backup_calls = []
+app_module._durable_backup = lambda *args, **kwargs: backup_calls.append(
+    (args, kwargs))
+
+with app.app_context():
+    admin = User.query.filter_by(role='admin').first()
+    company = Company(name='Тест загрузки ОСВ', created_by=admin.id)
+    db.session.add(company)
+    db.session.commit()
+    admin_id, company_id = admin.id, company.id
+
+client = app.test_client()
+with client.session_transaction() as session:
+    session['_user_id'] = str(admin_id)
+    session['_fresh'] = True
+
+page = client.get(f'/company/{company_id}').get_data(as_text=True)
+stale_token = re.search(
+    r'name="csrf_token" value="([^"]+)"', page).group(1)
+with client.session_transaction() as session:
+    session['csrf_token'] = 'token-refreshed-before-upload'
+
+check('старый токен отклоняется', client.post(
+    f'/company/{company_id}/upload-all',
+    data={'csrf_token': stale_token,
+          'files': (io.BytesIO(b'PK\\x03\\x04test'), 'osv.xlsx')},
+    content_type='multipart/form-data').status_code == 403)
+
+fresh = client.get('/rating-api/csrf').get_json()['csrf_token']
+response = client.post(
+    f'/company/{company_id}/upload-all',
+    data={'csrf_token': fresh,
+          'files': (io.BytesIO(b'PK\\x03\\x04test'), 'osv.xlsx')},
+    content_type='multipart/form-data')
+check('свежий токен принимает multipart-загрузку',
+      response.status_code == 302 and 'job=' in response.headers['Location'])
+check('ответ не ждёт резервную копию', not backup_calls)
+
+page = client.get(f'/company/{company_id}').get_data(as_text=True)
+check('форма обновляет токен перед загрузкой',
+      "cache:'no-store'" in page
+      and 'form.requestSubmit()' in page
+      and 'Загрузка не началась:' in page)
+
+print('\\nВСЕ ТЕСТЫ ЗАГРУЗКИ ОСВ ПРОЙДЕНЫ')
