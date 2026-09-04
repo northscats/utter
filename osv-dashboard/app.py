@@ -2625,9 +2625,6 @@ def company_rename(company_id):
 @admin_required
 def company_delete(company_id):
     company = db.session.get(Company, company_id) or abort(404)
-    confirmation_name = request.form.get('confirmation_name', '').strip()
-    if confirmation_name != company.name:
-        abort(400, description='Для архивирования необходимо точно ввести название предприятия.')
     company.status = 'archived'
     company.updated_at = datetime.now(timezone.utc)
     db.session.commit()
