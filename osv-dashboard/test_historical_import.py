@@ -97,6 +97,8 @@ sample = Path(
 # Пример: предпросмотр не затрагивает действующие данные.
 r = post_file(client, company_id, sample, "Балашиха.xlsx")
 check("пример принят в предпросмотр", r.status_code == 302)
+check("после загрузки открывается блок предпросмотра",
+      r.headers["Location"].endswith("#historical-analytics"))
 with app.app_context():
     attempt = HistoricalImport.query.order_by(HistoricalImport.id.desc()).first()
     attempt_id = attempt.id

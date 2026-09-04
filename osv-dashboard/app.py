@@ -1653,7 +1653,8 @@ def historical_preview_upload(company_id):
     if source is None or not source.filename:
         return redirect(url_for(
             'company_detail', company_id=company_id,
-            historical_error='Выберите файл XLSX.'))
+            historical_error='Выберите файл XLSX.',
+            _anchor='historical-analytics'))
     from historical_service import HistoricalImportError, stage_upload
     try:
         attempt = stage_upload(
@@ -1661,7 +1662,8 @@ def historical_preview_upload(company_id):
     except HistoricalImportError as exc:
         return redirect(url_for(
             'company_detail', company_id=company_id,
-            historical_error=str(exc)))
+            historical_error=str(exc),
+            _anchor='historical-analytics'))
     _durable_backup('предпросмотр годовой отчётности')
     log_event('historical_import_previewed', {
         'company_id': company_id,
@@ -1671,7 +1673,8 @@ def historical_preview_upload(company_id):
     })
     return redirect(url_for(
         'company_detail', company_id=company_id,
-        historical_preview=attempt.id))
+        historical_preview=attempt.id,
+        _anchor='historical-analytics'))
 
 
 @app.route(
@@ -1704,7 +1707,8 @@ def historical_confirm(company_id, import_id):
             if isinstance(exc, IntegrityError) else str(exc))
         return redirect(url_for(
             'company_detail', company_id=company_id,
-            historical_preview=import_id, historical_error=message))
+            historical_preview=import_id, historical_error=message,
+            _anchor='historical-analytics'))
     _durable_backup('активация годовой отчётности')
     log_event('historical_import_activated', {
         'company_id': company_id,
@@ -1732,7 +1736,8 @@ def historical_cancel(company_id, import_id):
     except HistoricalImportError as exc:
         return redirect(url_for(
             'company_detail', company_id=company_id,
-            historical_preview=import_id, historical_error=str(exc)))
+            historical_preview=import_id, historical_error=str(exc),
+            _anchor='historical-analytics'))
     _durable_backup('отмена годового предпросмотра', allow_removals=True)
     log_event('historical_import_cancelled', {
         'company_id': company_id, 'import_id': import_id})
