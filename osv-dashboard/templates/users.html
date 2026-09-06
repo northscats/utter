@@ -250,7 +250,6 @@ body.modal-open{overflow:hidden}
             <form class="company-access" method="post" action="{{ url_for('users_set_companies', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               {% set membership_ids = u.company_memberships|map(attribute='company_id')|list %}
-              {% set primary = u.company_memberships|selectattr('is_primary')|list|first %}
               <div class="permission-row">
                 <details class="multi-picker">
                   <summary><span class="picker-label" data-empty-label="Нет предприятий">Нет предприятий</span></summary>
@@ -267,21 +266,7 @@ body.modal-open{overflow:hidden}
                     {% endfor %}
                   </div>
                 </details>
-                <div class="picker-actions">
-                  <select name="primary_company_id" aria-label="Основное предприятие">
-                    <option value="">Без основного предприятия</option>
-                    {% for company in companies %}
-                    <option value="{{ company.id }}" {% if primary and primary.company_id == company.id %}selected{% endif %}>Основное: {{ company.name }}</option>
-                    {% endfor %}
-                  </select>
-                  <select name="participation_type" aria-label="Тип участия">
-                    <option value="employee">Сотрудник</option>
-                    <option value="curator">Куратор</option>
-                    <option value="contractor">Подрядчик</option>
-                    <option value="auditor">Аудитор</option>
-                  </select>
-                  <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
-                </div>
+                <button class="btn btn-ghost btn-sm" type="submit">Сохранить</button>
               </div>
               <span class="self-note">Назначение определяет область видимости, но не выдаёт доступ к модулям.</span>
             </form>

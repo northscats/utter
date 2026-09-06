@@ -4040,31 +4040,31 @@ def users_set_modules(user_id):
 @app.route('/users/<int:user_id>/set-companies', methods=['POST'])
 @admin_required
 def users_set_companies(user_id):
-    """Назначает одно основное и дополнительные предприятия без выдачи модулей."""
+    """Обновляет доступные предприятия без изменения внутренних типов участия."""
     user = db.session.get(User, user_id) or abort(404)
     selected = {
         int(value) for value in request.form.getlist('companies')
         if str(value).isdigit()
     }
-    primary_id = request.form.get('primary_company_id', type=int)
-    participation = request.form.get('participation_type', 'employee').strip()[:40]
     valid_ids = {
         item.id for item in Company.query.filter(Company.id.in_(selected)).all()
     } if selected else set()
-    if primary_id and primary_id not in valid_ids:
-        primary_id = None
-    CompanyMembership.query.filter_by(user_id=user.id).delete()
-    for company_id in sorted(valid_ids):
+    existing = {
+        membership.company_id: membership
+        for membership in CompanyMembership.query.filter_by(user_id=user.id).all()
+    }
+    for company_id, membership in existing.items():
+        if company_id not in valid_ids:
+            db.session.delete(membership)
+    for company_id in sorted(valid_ids - existing.keys()):
         db.session.add(CompanyMembership(
             user_id=user.id, company_id=company_id,
-            participation_type=participation or 'employee',
-            is_primary=company_id == primary_id,
+            participation_type='employee',
+            is_primary=False,
         ))
     db.session.commit()
     log_event('user_company_memberships_changed', {
         'user_id': user.id, 'company_ids': sorted(valid_ids),
-        'primary_company_id': primary_id,
-        'participation_type': participation or 'employee',
     })
     return redirect(url_for('users_list'))
 

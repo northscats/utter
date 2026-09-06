@@ -109,21 +109,22 @@ check('модули и предприятия выбираются во вспл
       users_body.count('class="multi-picker"') >= 4
       and 'aria-label="Доступ к модулям"' in users_body
       and 'aria-label="Доступ к предприятиям"' in users_body)
+check('в управлении доступом нет основного предприятия и типа участия',
+      'name="primary_company_id"' not in users_body
+      and 'name="participation_type"' not in users_body)
 
 r = client.post(
     f"/users/{ids['none']}/set-companies",
     data={
         'companies': [str(company_id)],
-        'primary_company_id': str(company_id),
-        'participation_type': 'curator',
     })
 check('назначение предприятия сохраняется из мультиселекта',
       r.status_code == 302)
 with app.app_context():
     membership = CompanyMembership.query.filter_by(
         user_id=ids['none'], company_id=company_id).one()
-    check('основное предприятие и тип участия сохранены',
-          membership.is_primary and membership.participation_type == 'curator')
+    check('новое назначение получает нейтральные параметры',
+          not membership.is_primary and membership.participation_type == 'employee')
 
 backup_started = threading.Event()
 backup_release = threading.Event()
