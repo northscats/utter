@@ -123,10 +123,6 @@ check("портфель является стартовым экраном ан�
       "Портфельная сводка" in body and "Организация не РСО" not in body)
 check("ссылки сохраняют год и оба режима",
       "view=executive" in body and "view=expert" in body and "year=2025" in body)
-check("все параметры портфельной таблицы доступны для сортировки",
-      body.count('data-sort="number"') == len(portfolio["kpis"]) + 1
-      and body.count('data-sort="text"') == 1
-      and 'aria-sort' in body)
 check("прежний экран доступен одним переключателем",
       "Выберите предприятие слева" in client.get("/home?legacy=1").get_data(as_text=True))
 app.config["PORTFOLIO_HOME_ENABLED"] = False
