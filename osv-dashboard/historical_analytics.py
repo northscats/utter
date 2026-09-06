@@ -54,22 +54,29 @@ UNIT_LABELS = {
 
 
 def _unit_label(unit):
-    return UNIT_LABELS.get(unit, unit or "—")
+    # Parser storage may use ``text`` to distinguish non-numeric values, but it
+    # is not a unit of measurement and must never leak into the expert table.
+    return UNIT_LABELS.get(unit, "—")
 
 
 def _source_display_value(raw_text, unit):
     """Separate a unit suffix from source text without changing storage."""
     text = str(raw_text or "").strip()
     if unit == "percent":
-        return re.sub(r"\s*%\s*$", "", text).rstrip()
-    if unit == "thousand_rubles":
-        return re.sub(
+        text = re.sub(r"\s*%\s*$", "", text).rstrip()
+    elif unit == "thousand_rubles":
+        text = re.sub(
             r"\s*(?:тыс\.?\s*руб\.?|thousand_rubles)\s*$",
             "",
             text,
             flags=re.IGNORECASE,
         ).rstrip()
-    return text
+    return re.sub(
+        r"\bнеудовлетворительное\b",
+        "неудовл.",
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 def _number_display_value(value):

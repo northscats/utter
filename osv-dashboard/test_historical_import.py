@@ -18,6 +18,7 @@ os.environ["ENCRYPTION_KEY"] = (
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db
+from historical_analytics import _source_display_value, _unit_label
 from database import (
     Company,
     HistoricalImport,
@@ -44,6 +45,14 @@ def login_as(client, user_id):
     with client.session_transaction() as session:
         session["_user_id"] = str(user_id)
         session["_fresh"] = True
+
+
+check("служебный тип text не отображается как единица измерения",
+      _unit_label("text") == "—" and _unit_label("unknown") == "—"
+      and _unit_label(None) == "—")
+check("неудовлетворительное сокращается только при отображении",
+      _source_display_value(
+          "CCC (неудовлетворительное)", "text") == "CCC (неудовл.)")
 
 
 def post_file(client, company_id, data, name="history.xlsx"):
