@@ -15,7 +15,10 @@ import os
 import signal
 import threading
 import time
+import json
 import urllib.request
+import uuid
+from datetime import datetime, timezone
 
 # ── Process model ──────────────────────────────────────────────────────────
 workers = 1          # one process → shared JobStore + single IMAP thread
@@ -38,6 +41,11 @@ health_watchdog_timeout = float(
     os.environ.get('HEALTH_WATCHDOG_TIMEOUT', '3'))
 health_watchdog_startup_grace = float(
     os.environ.get('HEALTH_WATCHDOG_STARTUP_GRACE', '30'))
+health_watchdog_event_spool = os.environ.get(
+    'HEALTH_WATCHDOG_EVENT_SPOOL',
+    f'/tmp/osv-watchdog-recoveries-{os.environ.get("PORT", "8080")}.json',
+)
+_pending_recovery_events = []
 
 
 def _health_url():
@@ -56,6 +64,70 @@ def _probe_health(timeout=None):
         return False
 
 
+def _persist_pending_recovery_events():
+    """Atomically persist undelivered events across Gunicorn master restarts."""
+    temp_path = f'{health_watchdog_event_spool}.tmp'
+    with open(temp_path, 'w', encoding='utf-8') as spool:
+        json.dump(_pending_recovery_events, spool, ensure_ascii=False)
+        spool.flush()
+        os.fsync(spool.fileno())
+    os.replace(temp_path, health_watchdog_event_spool)
+
+
+def _restore_pending_recovery_events(server):
+    try:
+        with open(health_watchdog_event_spool, encoding='utf-8') as spool:
+            events = json.load(spool)
+        if isinstance(events, list):
+            _pending_recovery_events[:] = [
+                event for event in events
+                if isinstance(event, dict)
+                and event.get('event_id')
+                and event.get('occurred_at')
+                and isinstance(event.get('worker_pid'), int)
+            ]
+    except FileNotFoundError:
+        return
+    except Exception:
+        server.log.exception(
+            'health watchdog could not restore pending recovery events')
+
+
+def _deliver_recovery_events(server):
+    """Persist queued recovery events through the responsive Flask worker."""
+    while _pending_recovery_events:
+        event = _pending_recovery_events[0]
+        request = urllib.request.Request(
+            f'http://127.0.0.1:{os.environ.get("PORT", "8080")}'
+            '/healthz/watchdog-recovery',
+            data=json.dumps(event).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json',
+                'X-Watchdog-Event': '1',
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(
+                    request, timeout=health_watchdog_timeout) as response:
+                if response.status != 204:
+                    return False
+        except Exception:
+            return False
+        _pending_recovery_events.pop(0)
+        try:
+            _persist_pending_recovery_events()
+        except Exception:
+            # The database has already accepted the event. A stale spool may
+            # cause a harmless retry after restart; the endpoint deduplicates it.
+            server.log.exception(
+                'health watchdog could not update recovery event spool')
+        server.log.info(
+            'health watchdog recovery event persisted for worker %s',
+            event['worker_pid'])
+    return True
+
+
 def _terminate_unresponsive_worker(server):
     """Terminate the sole worker and let the Gunicorn master replace it."""
     worker_list = list(server.WORKERS.values())
@@ -68,10 +140,32 @@ def _terminate_unresponsive_worker(server):
     server.log.error(
         '[worker %s] health probe timed out; terminating for recovery',
         worker.pid)
-    # SIGTERM is graceful and can leave a worker waiting on the same stuck
-    # threads. SIGABRT is Gunicorn's own worker-timeout signal and makes the
-    # master reap and replace the unresponsive process promptly.
-    os.kill(worker.pid, signal.SIGABRT)
+    event = {
+        'event_id': str(uuid.uuid4()),
+        'occurred_at': datetime.now(timezone.utc).isoformat(),
+        'worker_pid': worker.pid,
+    }
+    _pending_recovery_events.append(event)
+    try:
+        _persist_pending_recovery_events()
+    except Exception:
+        # Observability must never disable the recovery itself. The event
+        # remains queued in master memory and delivery will still be retried.
+        server.log.exception(
+            'health watchdog could not persist queued recovery event')
+    try:
+        # SIGTERM is graceful and can leave a worker waiting on the same stuck
+        # threads. SIGABRT is Gunicorn's own worker-timeout signal and makes the
+        # master reap and replace the unresponsive process promptly.
+        os.kill(worker.pid, signal.SIGABRT)
+    except Exception:
+        _pending_recovery_events.remove(event)
+        try:
+            _persist_pending_recovery_events()
+        except Exception:
+            server.log.exception(
+                'health watchdog could not roll back recovery event spool')
+        raise
     return True
 
 
@@ -88,12 +182,15 @@ def _watchdog_loop(server, stop_event=None):
             if stop_event.wait(max(health_watchdog_interval, 1)):
                 return
             continue
+        if _pending_recovery_events:
+            _deliver_recovery_events(server)
         if stop_event.wait(health_watchdog_interval):
             return
 
 
 def when_ready(server):
     """Start one watchdog thread in the Gunicorn master process."""
+    _restore_pending_recovery_events(server)
     thread = threading.Thread(
         target=_watchdog_loop,
         args=(server,),

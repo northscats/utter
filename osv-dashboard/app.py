@@ -3,7 +3,7 @@
 import json
 import os
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 import time
 import traceback
@@ -274,7 +274,7 @@ def _ensure_imap_thread() -> None:
 @app.before_request
 def _maybe_start_imap_thread():
     """Lazy IMAP thread starter — fires on the first HTTP request."""
-    if request.endpoint == 'healthz':
+    if request.endpoint in ('healthz', 'healthz_watchdog_recovery'):
         return None
     _ensure_imap_thread()
 
@@ -1228,7 +1228,7 @@ def decrypt_value(cipher: str) -> str:
 
 
 def log_event(action: str, details=None, user_id: int | None = None,
-              ip: str | None = None) -> None:
+              ip: str | None = None) -> bool:
     """Записывает событие безопасности в таблицу audit_log.
     Никогда не вызывает исключений — ошибки ведения журнала не должны ломать запросы."""
     from sqlalchemy.orm import Session as _AuditSession
@@ -1256,8 +1256,9 @@ def log_event(action: str, details=None, user_id: int | None = None,
         with _AuditSession(db.engine) as _sess:
             _sess.add(entry)
             _sess.commit()
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _validate_upload(path: str, filename: str) -> tuple[bool, str]:
@@ -3911,6 +3912,34 @@ def settings():
         'last_sync': Setting.get('dadata_last_sync', ''),
         'last_error': Setting.get('dadata_last_error', ''),
     }
+    watchdog_query = AuditLog.query.filter_by(
+        action='http_worker_watchdog_recovery')
+    watchdog_recent_events = watchdog_query.order_by(
+        AuditLog.created_at.desc()).limit(10).all()
+    watchdog_event_items = []
+    for event in watchdog_recent_events:
+        display_at = event.created_at
+        try:
+            event_details = json.loads(event.details or '{}')
+            display_at = datetime.fromisoformat(event_details['occurred_at'])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            pass
+        watchdog_event_items.append({
+            'display_at': display_at,
+            'action': event.action,
+        })
+    watchdog_recent_count = watchdog_query.filter(
+        AuditLog.created_at >= datetime.now(timezone.utc) - timedelta(days=1),
+    ).count()
+    watchdog_total = watchdog_query.count()
+    watchdog_status = {
+        'total': watchdog_total,
+        'recent_count': watchdog_recent_count,
+        'is_frequent': watchdog_recent_count >= 3,
+        'last_at': (watchdog_event_items[0]['display_at']
+                    if watchdog_event_items else None),
+        'events': watchdog_event_items,
+    }
     return render_template('settings.html',
                            imap_keys=IMAP_KEYS,
                            imap_password_configured=imap_password_configured,
@@ -3919,7 +3948,35 @@ def settings():
                            companies=companies,
                            ai_providers=ai_providers,
                            landing_cfg=landing_cfg,
-                           dadata_cfg=dadata_cfg)
+                           dadata_cfg=dadata_cfg,
+                           watchdog_status=watchdog_status)
+
+
+@app.route('/healthz/watchdog-recovery', methods=['POST'])
+@csrf.exempt
+def healthz_watchdog_recovery():
+    """Accept a recovery event only from the local Gunicorn master."""
+    if (request.remote_addr not in ('127.0.0.1', '::1')
+            or request.headers.get('X-Watchdog-Event') != '1'):
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    event_id = str(payload.get('event_id', ''))[:80]
+    occurred_at = str(payload.get('occurred_at', ''))[:80]
+    worker_pid = payload.get('worker_pid')
+    if not event_id or not occurred_at or not isinstance(worker_pid, int):
+        abort(400)
+    duplicate = AuditLog.query.filter_by(
+        action='http_worker_watchdog_recovery',
+    ).filter(AuditLog.details.contains(f'"event_id": "{event_id}"')).first()
+    if duplicate is None:
+        persisted = log_event('http_worker_watchdog_recovery', {
+            'event_id': event_id,
+            'occurred_at': occurred_at,
+            'worker_pid': worker_pid,
+        }, ip='127.0.0.1')
+        if not persisted:
+            return '', 503
+    return '', 204
 
 
 # ---------------------------------------------------------------------------
