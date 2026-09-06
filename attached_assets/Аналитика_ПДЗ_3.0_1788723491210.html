@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Аналитика ПДЗ</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; color: #1f2937; background: #f3f4f6; height: 100vh; overflow: hidden; }
+
+/* ===== TOP MENU ===== */
+.top-menu { background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%); color: #fff; padding: 0 16px; display: flex; align-items: center; height: 50px; box-shadow: 0 2px 4px rgba(0,0,0,.15); flex-shrink: 0; }
+.logo { font-weight: 700; font-size: 15px; margin-right: 28px; display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.menu-btn { background: transparent; color: #fff; border: none; padding: 8px 13px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; border-radius: 3px; margin-right: 2px; white-space: nowrap; }
+.menu-btn:hover { background: rgba(255,255,255,.16); }
+.menu-btn.danger:hover { background: rgba(220,38,38,.55); }
+.top-info { margin-left: auto; font-size: 12px; opacity: .85; white-space: nowrap; }
+
+/* ===== LAYOUT ===== */
+.main-layout { display: flex; height: calc(100vh - 50px); }
+.sidebar { width: 280px; min-width: 200px; background: #fff; border-right: 1px solid #d1d5db; display: flex; flex-direction: column; position: relative; flex-shrink: 0; }
+.sidebar-header { padding: 8px 10px; background: #e5e7eb; font-weight: 600; font-size: 12px; color: #374151; border-bottom: 1px solid #d1d5db; }
+.sidebar-search { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+.sidebar-search input { width: 100%; padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 3px; font-size: 12px; }
+.ent-list { flex: 1; overflow-y: auto; }
+.ent-item { padding: 8px 10px; cursor: pointer; font-size: 12px; border-left: 3px solid transparent; display: flex; align-items: flex-start; gap: 6px; }
+.ent-item:hover { background: #f3f4f6; }
+.ent-item.active { background: #dbeafe; border-left-color: #1e40af; }
+.ent-item .info { flex: 1; min-width: 0; }
+.ent-name { font-weight: 600; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ent-inn { font-size: 10px; color: #6b7280; margin-top: 2px; }
+.ent-del { border: none; background: transparent; color: #9ca3af; cursor: pointer; font-size: 14px; line-height: 1; padding: 2px 4px; border-radius: 3px; flex-shrink: 0; }
+.ent-del:hover { background: #fee2e2; color: #dc2626; }
+.h-resizer { height: 7px; background: #e5e7eb; cursor: ns-resize; border-top: 1px solid #d1d5db; flex-shrink: 0; }
+.h-resizer:hover { background: #93c5fd; }
+.sections { flex: 1; padding: 8px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.section-btn { background: transparent; color: #1f2937; border: 1px solid #e5e7eb; padding: 10px 12px; text-align: left; cursor: pointer; border-radius: 3px; font-size: 12px; display: flex; align-items: center; gap: 8px; }
+.section-btn:hover { background: #f3f4f6; }
+.section-btn.active { background: #1e40af; color: #fff; border-color: #1e40af; font-weight: 600; }
+.v-resizer { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 10; }
+.v-resizer:hover { background: rgba(59,130,246,.35); }
+
+/* ===== CONTENT ===== */
+.content { flex: 1; overflow: auto; padding: 16px; min-width: 0; }
+.panel { background: #fff; border: 1px solid #d1d5db; border-radius: 4px; margin-bottom: 16px; }
+.panel-head { padding: 10px 14px; background: #1e3a8a; color: #fff; font-weight: 600; font-size: 13px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-body { padding: 14px; }
+.ent-header { margin-bottom: 16px; padding: 10px 14px; background: #fff; border: 1px solid #d1d5db; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.small-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; }
+
+/* ===== KPI ===== */
+.kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.kpi { background: #fff; border: 1px solid #d1d5db; border-radius: 4px; padding: 14px; flex: 1; min-width: 220px; }
+.kpi-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.kpi-value { font-size: 22px; font-weight: 700; margin-top: 6px; }
+.kpi-value small { font-size: 12px; color: #6b7280; font-weight: 400; }
+.kpi-short { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+.delta-block { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e5e7eb; }
+.delta-label { font-size: 10px; color: #6b7280; margin-bottom: 3px; }
+.delta-val { font-size: 11px; display: flex; align-items: center; gap: 4px; font-weight: 600; flex-wrap: wrap; }
+.delta-val .pct { color: #6b7280; font-weight: 400; }
+.pos { color: #dc2626; }
+.neg { color: #10b981; }
+
+/* ===== TABLES ===== */
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { padding: 8px 10px; text-align: left; font-weight: 600; background: #e5e7eb; border-bottom: 2px solid #d1d5db; }
+td { padding: 7px 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: #f3f4f6; }
+tr.selected { background: #dbeafe; }
+.r { text-align: right; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { background: #d1d5db; }
+.sort-arrow { color: #1e40af; font-size: 10px; margin-left: 3px; }
+
+/* ===== MATRIX ===== */
+.matrix { border-collapse: collapse; font-size: 11px; }
+.matrix th { padding: 6px 8px; background: #e5e7eb; border: 1px solid #d1d5db; text-align: center; position: sticky; top: 0; }
+.matrix td { padding: 0; border: 1px solid #e5e7eb; text-align: center; }
+.matrix .ent-col { padding: 6px 8px; font-weight: 500; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; background: #fff; position: sticky; left: 0; }
+.cell-btn { width: 100%; height: 32px; border: none; cursor: pointer; font-weight: 700; font-size: 12px; }
+.cell-btn:hover { outline: 2px solid #1e40af; outline-offset: -2px; }
+.cell-empty { height: 32px; display: flex; align-items: center; justify-content: center; color: #d1d5db; }
+.matrix .total-cell { background: #fef3c7; font-weight: 700; padding: 6px 8px; }
+
+/* ===== FORMS ===== */
+select.ctl, input.ctl { padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 3px; font-size: 12px; }
+.btn { padding: 6px 12px; border: 1px solid #d1d5db; background: #fff; border-radius: 3px; cursor: pointer; font-size: 12px; }
+.btn:hover { background: #f3f4f6; }
+.btn.primary { background: #1e40af; color: #fff; border-color: #1e40af; }
+.btn.primary:hover { background: #1e3a8a; }
+.btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+.btn.danger:hover { background: #b91c1c; }
+
+/* ===== TABS ===== */
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid #d1d5db; flex-wrap: wrap; }
+.tab { padding: 6px 12px; border: none; background: transparent; border-bottom: 2px solid transparent; cursor: pointer; font-size: 12px; color: #6b7280; }
+.tab.active { color: #1e40af; border-bottom-color: #1e40af; font-weight: 600; }
+
+/* ===== MODAL ===== */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: #fff; border-radius: 6px; width: 900px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,.3); }
+.modal.wide { width: 1150px; }
+.modal.narrow { width: 480px; }
+.modal-head { padding: 12px 16px; background: #1e40af; color: #fff; font-weight: 600; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.modal-close { background: transparent; border: none; color: #fff; cursor: pointer; font-size: 18px; }
+.modal-body { padding: 16px; overflow: auto; flex: 1; }
+.modal-foot { padding: 12px 16px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* ===== MISC ===== */
+.notification { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; color: #fff; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.2); z-index: 1000; max-width: 420px; font-size: 13px; }
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; color: #6b7280; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; border: 1px solid; }
+.badge.ok { color: #166534; border-color: #166534; background: #f0fdf4; }
+.badge.warn { color: #b45309; border-color: #b45309; background: #fffbeb; }
+.badge.err { color: #b91c1c; border-color: #b91c1c; background: #fef2f2; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-color { width: 12px; height: 12px; border-radius: 2px; }
+.filter-box { padding: 12px 14px; border-bottom: 1px solid #e5e7eb; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.checkbox-list { display: flex; flex-wrap: wrap; gap: 4px; max-height: 110px; overflow-y: auto; }
+.cb-item { display: flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f3f4f6; border-radius: 3px; font-size: 11px; cursor: pointer; }
+.cb-item.checked { background: #dbeafe; }
+.cb-item span { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proto-status-ok { color: #166534; font-weight: 700; }
+.proto-status-err { color: #b91c1c; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- ===== TOP MENU ===== -->
+<div class="top-menu">
+  <div class="logo">
+    <svg width="26" height="26" viewBox="0 0 64 64"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#60a5fa"/><stop offset="100%" stop-color="#1e3a8a"/></linearGradient></defs><circle cx="32" cy="32" r="30" fill="url(#lg)" stroke="#93c5fd" stroke-width="1.5"/><path d="M17 45 L26 30 L34 36 L46 19" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="46" cy="19" r="3.5" fill="#fbbf24"/><path d="M14 49 h36" stroke="#fbbf24" stroke-width="2.5" stroke-linecap="round"/></svg>
+    Аналитика ПДЗ
+  </div>
+  <button class="menu-btn" onclick="fileInput.click()">📂 Загрузка данных</button>
+  <button class="menu-btn" onclick="openRegistry()">📋 Реестр</button>
+  <button class="menu-btn" onclick="saveData()">💾 Сохранение данных</button>
+  <button class="menu-btn" onclick="summaryInput.click()">📥 Загрузка сводных данных</button>
+  <button class="menu-btn danger" onclick="confirmClearAll()">🗑 Очистить</button>
+  <input type="file" id="fileInput" accept=".json" multiple style="display:none">
+  <input type="file" id="summaryInput" accept=".json" multiple style="display:none">
+  <div class="top-info" id="topInfo">Предприятий загружено: 0</div>
+</div>
+
+<div class="main-layout">
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar" id="sidebar">
+    <div style="display:flex;flex-direction:column;" id="sidebarTop">
+      <div style="height:300px;display:flex;flex-direction:column;" id="entPane">
+        <div class="sidebar-header">ПРЕДПРИЯТИЯ</div>
+        <div class="sidebar-search"><input type="text" id="entSearch" placeholder="Поиск предприятия..." oninput="state.searchEnterprise=this.value;renderEntList()"></div>
+        <div class="ent-list" id="entList"></div>
+      </div>
+      <div class="h-resizer" id="hResizer" title="Потяните для изменения высоты"></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-height:120px;">
+      <div class="sidebar-header">АНАЛИТИЧЕСКИЕ БЛОКИ</div>
+      <div class="sections" id="sections"></div>
+    </div>
+    <div class="v-resizer" id="vResizer" title="Потяните для изменения ширины"></div>
+  </div>
+
+  <!-- ===== CONTENT ===== -->
+  <div class="content" id="content"></div>
+</div>
+
+<div id="modalRoot"></div>
+<div id="notifyRoot"></div>
+
+<script>
+'use strict';
+
+/* ================= STATE ================= */
+let state = {
+  enterprises: [],            // { id, data, loadedAt, protocol }
+  selectedId: null,
+  section: 'main',            // main | cards | summary | claims | recs
+  searchEnterprise: '',
+  searchContractor: '',
+  openCardIdx: null,
+  cardTab: 'debt',
+  openDocIdx: null,
+  sortField: null,            // 'contractor' | 'initialPDZ' | 'currentPDZ'
+  sortDir: 1,                 // 1 asc, -1 desc
+  summaryFilter: 'all',       // 'all' | id
+  claimsFilter: 'all',
+  claimsYear: new Date().getFullYear(),
+  recFilter: 'all'
+};
+let confirmCb = null;
+
+/* ================= UTILS ================= */
+const $ = id => document.getElementById(id);
+function num(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+function fmt(v){ return num(v).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtShort(v){
+  const a = Math.abs(num(v));
+  if (a >= 1e9) return (num(v)/1e9).toFixed(2)+' млрд';
+  if (a >= 1e6) return (num(v)/1e6).toFixed(2)+' млн';
+  if (a >= 1e3) return (num(v)/1e3).toFixed(1)+' тыс';
+  return num(v).toFixed(2);
+}
+function fmtDate(d){ if(!d) return ''; const t=new Date(d); return isNaN(t)?String(d):t.toLocaleDateString('ru-RU'); }
+function todayStr(){ const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getFullYear()).slice(-2)}`; }
+function esc(s){ return s==null?'':String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function isEmpty(v){ return v===null || v===undefined || String(v).trim()===''; }
+
+function normalize(obj){
+  if (Array.isArray(obj)) return obj.map(normalize);
+  if (obj && typeof obj==='object'){
+    const out={};
+    for (const k in obj){
+      const nk = String(k).trim();
+      let v = obj[k];
+      if (typeof v==='string') v = v.trim();
+      else if (v && typeof v==='object') v = normalize(v);
+      out[nk]=v;
+    }
+    return out;
+  }
+  return obj;
+}
+
+function notify(msg, type){
+  const el = document.createElement('div');
+  el.className = 'notification';
+  el.style.background = type==='error' ? '#dc2626' : type==='warning' ? '#d97706' : type==='success' ? '#059669' : '#2563eb';
+  el.textContent = msg;
+  $('notifyRoot').appendChild(el);
+  setTimeout(()=>el.remove(), 4000);
+}
+
+function closeModal(){ $('modalRoot').innerHTML=''; confirmCb=null; }
+function openModal(title, bodyHtml, footHtml, wide){
+  $('modalRoot').innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal ${wide?'wide':''}" onclick="event.stopPropagation()">
+        <div class="modal-head"><span>${title}</span><button class="modal-close" onclick="closeModal()">✕</button></div>
+        <div class="modal-body">${bodyHtml}</div>
+        ${footHtml?`<div class="modal-foot">${footHtml}</div>`:''}
+      </div>
+    </div>`;
+}
+function confirmDialog(title, message, okText, cb, danger){
+  confirmCb = cb;
+  $('modalRoot').innerHTML = `
+    <div class="modal-overlay">
+      <div class="modal narrow" onclick="event.stopPropagation()">
+        <div class="modal-head" style="background:${danger?'#b91c1c':'#1e40af'}"><span>⚠ ${esc(title)}</span></div>
+        <div class="modal-body" style="font-size:13px;line-height:1.6">${message}</div>
+        <div class="modal-foot">
+          <button class="btn" onclick="closeModal()">Отмена</button>
+          <button class="btn ${danger?'danger':'primary'}" onclick="runConfirm()">${esc(okText||'Подтвердить')}</button>
+        </div>
+      </div>
+    </div>`;
+}
+function runConfirm(){ const cb=confirmCb; confirmCb=null; $('modalRoot').innerHTML=''; if(cb) cb(); }
+
+/* ================= PROTOCOL ================= */
+const REQ_FIELDS = [
+  ['legalAddress','Юридический адрес'], ['actualAddress','Фактический адрес'],
+  ['director','Руководитель'], ['directorPhone','Телефон руководителя'],
+  ['accountant','Бухгалтер'], ['accountantPhone','Телефон бухгалтера'],
+  ['contact1','Контактное лицо'], ['contact1Phone','Телефон контактного лица']
+];
+
+function getCardContracts(card){
+  const set = new Set();
+  (card.debtRows||[]).forEach(d=>{ if(d.contractNumber) set.add(String(d.contractNumber).trim()); });
+  return set.size ? Array.from(set).join(', ') : '—';
+}
+function getCardLastDebt(card){
+  const rows = (card.debtRows||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  return rows.length ? rows[rows.length-1] : null;
+}
+function changesAreEmpty(rows){
+  if (!rows || rows.length===0) return 'empty';
+  const hasData = rows.some(c =>
+    num(c.paidSum)||num(c.pdzClaim)||num(c.pdzCourtOrder)||num(c.pdzInCourt)||
+    num(c.pdzCourtDecision)||num(c.pdzFssp)||num(c.pdzUnrecoverable)||num(c.pdzWriteOff)||!isEmpty(c.specialist));
+  return hasData ? 'filled' : 'blank';
+}
+
+function buildProtocol(data){
+  const ent = data.enterprise || {};
+  const acc = (data.accounting||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const lastAcc = acc.length ? acc[acc.length-1] : null;
+  const accPDZ = lastAcc ? num(lastAcc.sumPDZ) : null;
+
+  const cards = (data.pdzCards||[]).map(card=>{
+    const last = getCardLastDebt(card);
+    const emptyReqs = REQ_FIELDS.filter(([k])=>isEmpty(card[k])).map(([,label])=>label);
+    const chState = changesAreEmpty(card.changesRows);
+    const docs = card.documentsRows||[];
+    const docsWithEmptyFields = docs.filter(d=>isEmpty(d.date)||isEmpty(d.docNumber)||isEmpty(d.docName)).length;
+    return {
+      contractor: card.companyShortName || card.companyName || '—',
+      contract: getCardContracts(card),
+      pdz: last ? num(last.pdzSum) : 0,
+      emptyReqs,
+      changesRows: (card.changesRows||[]).length,
+      changesState: chState,
+      docsCount: docs.length,
+      docsWithEmptyFields
+    };
+  });
+
+  const cardsSum = cards.reduce((s,c)=>s+c.pdz, 0);
+  const diff = accPDZ===null ? null : cardsSum - accPDZ;
+
+  return {
+    enterprise: ent.name || '—',
+    inn: ent.inn || '—',
+    director: ent.directorName || '',
+    loadDate: new Date(),
+    accDate: lastAcc ? lastAcc.date : null,
+    accPDZ, cardsSum, diff,
+    matches: diff===null ? null : Math.abs(diff) < 1,
+    cards
+  };
+}
+
+function protocolHTML(p){
+  const rows = p.cards.map((c,i)=>{
+    const req = c.emptyReqs.length
+      ? `<span style="color:#b91c1c">Не заполнены: ${c.emptyReqs.join(', ')}</span>`
+      : '<span style="color:#166534">Заполнены</span>';
+    const ch = c.changesState==='empty'
+      ? '<span style="color:#b91c1c">Раздел не заполнен</span>'
+      : c.changesState==='blank'
+        ? '<span style="color:#b45309">Записи есть, данные не заполнены</span>'
+        : `<span style="color:#166534">Заполнен (${c.changesRows} запис.)</span>`;
+    let doc;
+    if (c.docsCount===0) doc = '<span style="color:#b91c1c">Не заполнен</span>';
+    else doc = `<span style="color:#166534">Заполнен (${c.docsCount} док.)</span>` +
+      (c.docsWithEmptyFields?`<br><span style="color:#b45309;font-size:11px">У ${c.docsWithEmptyFields} док. есть пустые поля</span>`:'');
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${esc(c.contractor)}</td>
+      <td>${esc(c.contract)}</td>
+      <td style="text-align:right">${fmt(c.pdz)}</td>
+      <td>${req}</td>
+      <td>${ch}</td>
+      <td>${doc}</td>
+    </tr>`;
+  }).join('');
+
+  const checkBlock = p.accPDZ===null
+    ? '<p style="color:#b45309">В файле отсутствуют данные бухгалтерского учёта — сверка общей суммы ПДЗ не выполнена.</p>'
+    : `<table>
+        <tr><td style="width:420px">Сумма ПДЗ по данным бухгалтерского учёта (на ${fmtDate(p.accDate)}):</td><td style="text-align:right"><b>${fmt(p.accPDZ)} ₽</b></td></tr>
+        <tr><td>Сумма ПДЗ по карточкам контрагентов:</td><td style="text-align:right"><b>${fmt(p.cardsSum)} ₽</b></td></tr>
+        <tr><td>Отклонение:</td><td style="text-align:right"><b>${p.diff>0?'+':''}${fmt(p.diff)} ₽</b></td></tr>
+        <tr><td>Результат сверки:</td><td style="text-align:right">${p.matches
+            ? '<span class="proto-status-ok">✔ СООТВЕТСТВУЕТ</span>'
+            : '<span class="proto-status-err">✘ НЕ СООТВЕТСТВУЕТ</span>'}</td></tr>
+      </table>`;
+
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Протокол загрузки данных — ${esc(p.enterprise)}</title>
+  <style>
+    body{font-family:'Segoe UI',Tahoma,sans-serif;font-size:12px;color:#1f2937;padding:24px;}
+    h1{font-size:16px;color:#1e3a8a;margin:0 0 4px}
+    h2{font-size:13px;color:#1e3a8a;margin:18px 0 8px;border-bottom:2px solid #1e3a8a;padding-bottom:4px}
+    table{border-collapse:collapse;width:100%}
+    td,th{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;vertical-align:top}
+    thead th{background:#e5e7eb}
+    .meta{font-size:12px;color:#374151;margin-bottom:2px}
+  </style></head><body>
+  <h1>ПРОТОКОЛ ЗАГРУЗКИ ДАННЫХ</h1>
+  <div class="meta"><b>Предприятие:</b> ${esc(p.enterprise)}</div>
+  <div class="meta"><b>ИНН:</b> ${esc(p.inn)}${p.director?` &nbsp;|&nbsp; <b>Директор:</b> ${esc(p.director)}`:''}</div>
+  <div class="meta"><b>Дата загрузки:</b> ${p.loadDate.toLocaleString('ru-RU')}</div>
+
+  <h2>1. Контроль общей суммы ПДЗ</h2>
+  ${checkBlock}
+
+  <h2>2. Анализ карточек контрагентов (всего: ${p.cards.length})</h2>
+  <table>
+    <thead><tr>
+      <th style="width:26px">№</th><th>Контрагент</th><th>Договор</th>
+      <th style="text-align:right">Текущая ПДЗ, ₽</th>
+      <th>Раздел «Реквизиты»</th><th>Раздел «Движение»</th><th>Раздел «Документы»</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <p style="margin-top:14px;font-size:11px;color:#6b7280">Протокол сформирован автоматически системой «Аналитика ПДЗ».</p>
+  </body></html>`;
+}
+
+function openProtocolModal(enterpriseId){
+  const ent = state.enterprises.find(e=>e.id===enterpriseId);
+  if (!ent || !ent.protocol){ notify('Протокол не найден','warning'); return; }
+  const p = ent.protocol;
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText='position:fixed;width:0;height:0;border:0;';
+  const body = `
+    <div style="margin-bottom:10px;font-size:12px;color:#6b7280">
+      Протокол сформирован: ${p.loadDate.toLocaleString('ru-RU')}
+    </div>
+    <div id="protoHolder"></div>`;
+  const foot = `
+    <button class="btn" onclick="closeModal()">Закрыть</button>
+    <button class="btn" onclick="saveProtocol(${enterpriseId})">💾 Сохранить протокол</button>
+    <button class="btn primary" onclick="printProtocol(${enterpriseId})">🖨 Печать</button>`;
+  openModal(`Протокол загрузки данных — ${esc(p.enterprise)}`, body, foot, true);
+  const holder = $('protoHolder');
+  holder.innerHTML = protocolHTML(p)
+    .replace('<!DOCTYPE html>','').replace(/<\/?html[^>]*>/g,'').replace(/<head>[\s\S]*?<\/head>/,'')
+    .replace(/<\/?body>/g,'')
+    .replace(/<style>[\s\S]*?<\/style>/, `<style>
+      #protoHolder table{border-collapse:collapse;width:100%}
+      #protoHolder td,#protoHolder th{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;vertical-align:top}
+      #protoHolder thead th{background:#e5e7eb}
+      #protoHolder h1{font-size:15px;color:#1e3a8a;margin:0 0 4px}
+      #protoHolder h2{font-size:13px;color:#1e3a8a;margin:16px 0 8px;border-bottom:2px solid #1e3a8a;padding-bottom:4px}
+      .proto-status-ok{color:#166534;font-weight:700}.proto-status-err{color:#b91c1c;font-weight:700}
+    </style>`);
+  window._protoCache = { id: enterpriseId, html: protocolHTML(p) };
+}
+
+function printProtocol(id){
+  const ent = state.enterprises.find(e=>e.id===id);
+  if (!ent || !ent.protocol) return;
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentDocument;
+  doc.open(); doc.write(protocolHTML(ent.protocol)); doc.close();
+  setTimeout(()=>{ iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(()=>iframe.remove(),3000); }, 400);
+}
+function saveProtocol(id){
+  const ent = state.enterprises.find(e=>e.id===id);
+  if (!ent || !ent.protocol) return;
+  const blob = new Blob([protocolHTML(ent.protocol)], {type:'text/html;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const safeName = String(ent.protocol.enterprise).replace(/[\\/:*?"<>|]/g,'_').slice(0,80);
+  a.download = `Протокол загрузки данных ${safeName} ${todayStr()}.html`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  notify('Протокол сохранён', 'success');
+}
+
+/* ================= DATA LOADING ================= */
+function addEnterprise(data, silent){
+  const name = String(data.enterprise.name).trim();
+  if (state.enterprises.some(e=>String(e.data.enterprise.name).trim()===name)){
+    if (!silent) notify(`Предприятие «${name}» уже загружено. Дублирование исключено.`, 'warning');
+    return { duplicate: true, name };
+  }
+  const rec = {
+    id: Date.now() + Math.random(),
+    data,
+    loadedAt: new Date(),
+    protocol: buildProtocol(data)
+  };
+  state.enterprises.push(rec);
+  if (!state.selectedId) state.selectedId = rec.id;
+  return { added: true, rec, name };
+}
+
+function handleFiles(files, isSummary){
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      try{
+        const raw = JSON.parse(ev.target.result);
+        const data = normalize(raw);
+        if (isSummary && Array.isArray(data)){
+          let added=0, skipped=0;
+          data.forEach(item=>{
+            if (!item.enterprise || isEmpty(item.enterprise.name)){ skipped++; return; }
+            const r = addEnterprise(item, true);
+            if (r.added) added++; else skipped++;
+          });
+          notify(`Сводный файл: загружено ${added}, пропущено (дубли) ${skipped}`, added?'success':'warning');
+          render();
+        } else {
+          if (!data.enterprise || isEmpty(data.enterprise.name)){
+            notify('Ошибка: в файле отсутствует наименование предприятия. Данные некорректны.', 'error');
+            return;
+          }
+          const r = addEnterprise(data);
+          if (r.added){
+            notify(`Данные предприятия «${r.name}» загружены`, 'success');
+            render();
+            openProtocolModal(r.rec.id); // автопоказ протокола
+          }
+        }
+      }catch(err){
+        notify('Ошибка чтения файла: '+err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
+$('fileInput').addEventListener('change', e=>{ handleFiles(Array.from(e.target.files), false); e.target.value=''; });
+$('summaryInput').addEventListener('change', e=>{ handleFiles(Array.from(e.target.files), true); e.target.value=''; });
+
+function saveData(){
+  if (!state.enterprises.length){ notify('Нет данных для сохранения','warning'); return; }
+  const exportData = state.enterprises.map(e=>e.data);
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Свод ПДЗ ${todayStr()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  notify(`Данные сохранены в файл «Свод ПДЗ ${todayStr()}.json»`, 'success');
+}
+
+/* ================= DELETE / CLEAR ================= */
+function deleteEnterprise(id){
+  const ent = state.enterprises.find(e=>e.id===id);
+  if (!ent) return;
+  const name = String(ent.data.enterprise.name).trim();
+  confirmDialog('Удаление предприятия',
+    `Будут удалены все данные по предприятию:<br><b>«${esc(name)}»</b><br><br>Продолжить?`,
+    'Удалить', ()=>{
+      state.enterprises = state.enterprises.filter(e=>e.id!==id);
+      if (state.selectedId===id) state.selectedId = state.enterprises.length ? state.enterprises[0].id : null;
+      notify(`Данные предприятия «${name}» удалены`, 'success');
+      render();
+    }, true);
+}
+
+function confirmClearAll(){
+  if (!state.enterprises.length){ notify('Данные отсутствуют','warning'); return; }
+  confirmDialog('Очистка всех данных',
+    `<b>ВНИМАНИЕ!</b><br><br>Вся ранее загруженная информация (<b>${state.enterprises.length}</b> предпр.) будет <b>безвозвратно удалена</b>.<br><br>Подтвердите удаление всех данных.`,
+    'Подтвердить удаление', ()=>{
+      state.enterprises = [];
+      state.selectedId = null;
+      state.openCardIdx = null;
+      state.summaryFilter = 'all';
+      state.claimsFilter = 'all';
+      state.recFilter = 'all';
+      notify('Все данные очищены', 'success');
+      render();
+    }, true);
+}
+
+/* ================= HELPERS ================= */
+function getEnt(id){ return state.enterprises.find(e=>e.id===id) || null; }
+function currentEnt(){ return getEnt(state.selectedId) || state.enterprises[0] || null; }
+function accData(ent){
+  if (!ent || !ent.data.accounting || !ent.data.accounting.length) return null;
+  const sorted = ent.data.accounting.slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  return { sorted, first: sorted[0], last: sorted[sorted.length-1], prev: sorted.length>1 ? sorted[sorted.length-2] : sorted[0] };
+}
+function cardsOf(ent){
+  if (!ent || !ent.data.pdzCards) return [];
+  return ent.data.pdzCards.map(card=>{
+    const rows = (card.debtRows||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+    return {
+      card,
+      contractor: card.companyShortName || card.companyName || '—',
+      contractNum: rows[0]?.contractNumber || '—',
+      contractSubject: rows[0]?.contractSubject || '',
+      initialPDZ: rows[0] ? num(rows[0].pdzSum) : 0,
+      currentPDZ: rows.length ? num(rows[rows.length-1].pdzSum) : 0
+    };
+  });
+}
+function isoWeek(dateStr){
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const ys = new Date(Date.UTC(t.getUTCFullYear(),0,1));
+  return { year: t.getUTCFullYear(), week: Math.ceil((((t - ys)/86400000) + 1)/7) };
+}
+function weekRange(year, week){
+  const jan4 = new Date(year,0,4);
+  const dow = jan4.getDay() || 7;
+  const mon = new Date(jan4); mon.setDate(jan4.getDate() - (dow-1) + (week-1)*7);
+  const sun = new Date(mon); sun.setDate(mon.getDate()+6);
+  const f = d=>`${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`;
+  return `${f(mon)}–${f(sun)}`;
+}
+
+/* ================= CHART ================= */
+function lineChartSVG(rows, keys, colors, height){
+  const W = 980, H = height || 340;
+  const padL = 62, padR = 14, padT = 14, padB = 34;
+  const cw = W-padL-padR, ch = H-padT-padB;
+  let maxV = 0;
+  rows.forEach(r=>keys.forEach(k=>{ maxV = Math.max(maxV, num(r[k])); }));
+  if (maxV<=0) maxV = 1;
+  maxV *= 1.05;
+  const x = i => rows.length>1 ? padL + cw*i/(rows.length-1) : padL + cw/2;
+  const y = v => padT + ch - (v/maxV)*ch;
+  let s = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
+  for (let g=0; g<=5; g++){
+    const gy = padT + ch*g/5, gv = maxV*(1-g/5);
+    s += `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="#e5e7eb"/>`;
+    s += `<text x="${padL-8}" y="${gy+4}" font-size="10" fill="#6b7280" text-anchor="end">${fmtShort(gv)}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(rows.length/14));
+  rows.forEach((r,i)=>{
+    if (i%step===0 || i===rows.length-1)
+      s += `<text x="${x(i)}" y="${H-10}" font-size="9.5" fill="#6b7280" text-anchor="middle">${esc(r._label)}</text>`;
+  });
+  keys.forEach((k,ki)=>{
+    let path='';
+    rows.forEach((r,i)=>{ path += (i?'L':'M') + x(i).toFixed(1) + ',' + y(num(r[k])).toFixed(1) + ' '; });
+    s += `<path d="${path}" fill="none" stroke="${colors[ki]}" stroke-width="2"/>`;
+    rows.forEach((r,i)=>{
+      s += `<circle cx="${x(i).toFixed(1)}" cy="${y(num(r[k])).toFixed(1)}" r="2.5" fill="${colors[ki]}"><title>${esc(r._label)} • ${k}: ${fmt(num(r[k]))} ₽</title></circle>`;
+    });
+  });
+  s += '</svg>';
+  return s;
+}
+
+/* ================= RENDER: SIDEBAR ================= */
+function renderEntList(){
+  const q = state.searchEnterprise.toLowerCase();
+  const list = state.enterprises.filter(e=>!q || String(e.data.enterprise.name).toLowerCase().includes(q));
+  const cur = currentEnt();
+  $('entList').innerHTML = list.length ? list.map(ent=>`
+    <div class="ent-item ${cur && cur.id===ent.id ? 'active':''}" onclick="selectEnterprise(${ent.id})">
+      <div class="info">
+        <div class="ent-name" title="${esc(ent.data.enterprise.name)}">${esc(ent.data.enterprise.name)}</div>
+        <div class="ent-inn">ИНН: ${esc(ent.data.enterprise.inn||'—')}</div>
+      </div>
+      <button class="ent-del" title="Удалить данные предприятия" onclick="event.stopPropagation();deleteEnterprise(${ent.id})">✕</button>
+    </div>`).join('')
+    : `<div style="padding:12px;color:#9ca3af;font-size:12px;text-align:center">${state.enterprises.length?'Ничего не найдено':'Нет загруженных предприятий'}</div>`;
+}
+
+function selectEnterprise(id){
+  state.selectedId = id;
+  state.openCardIdx = null;
+  state.openDocIdx = null;
+  render();
+}
+
+function renderSections(){
+  const items = [
+    ['main','📊','Основные показатели ДЗ'],
+    ['cards','📇','Карточки работы с ПДЗ'],
+    ['summary','📑','Сводная информация'],
+    ['claims','📜','Претензионная работа'],
+    ['recs','💡','Рекомендации']
+  ];
+  $('sections').innerHTML = items.map(([id,ico,label])=>
+    `<button class="section-btn ${state.section===id?'active':''}" onclick="setSection('${id}')"><span>${ico}</span>${label}</button>`).join('');
+}
+function setSection(id){ state.section = id; state.openCardIdx = null; state.openDocIdx = null; render(); }
+
+/* ================= RENDER: MAIN ================= */
+function kpiHtml(label, value, dStart, dPrev, color){
+  const pStart = (value - dStart) !== 0 && (value - dStart) !== 0 && (value - dStart) !== 0 ? null : null;
+  const pctOf = (cur, delta) => { const base = cur - delta; return (!base) ? null : (delta/Math.abs(base))*100; };
+  const ps = pctOf(value, dStart), pp = pctOf(value, dPrev);
+  const upS = dStart > 0, upP = dPrev > 0;
+  return `
+  <div class="kpi">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value" style="color:${color}">${fmt(value)} <small>₽</small></div>
+    <div class="kpi-short">${fmtShort(value)}</div>
+    <div class="delta-block">
+      <div class="delta-label">Δ к началу года:</div>
+      <div class="delta-val ${upS?'pos':'neg'}">
+        <span>${upS?'▲':'▼'}</span><span>${fmt(Math.abs(dStart))} ₽</span>
+        ${ps!==null?`<span class="pct">(${ps>=0?'+':''}${ps.toFixed(2)}%)</span>`:''}
+      </div>
+    </div>
+    <div style="margin-top:6px">
+      <div class="delta-label">Δ к пред. дате:</div>
+      <div class="delta-val ${upP?'pos':'neg'}">
+        <span>${upP?'▲':'▼'}</span><span>${fmt(Math.abs(dPrev))} ₽</span>
+        ${pp!==null?`<span class="pct">(${pp>=0?'+':''}${pp.toFixed(2)}%)</span>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
+const AGE_KEYS = ['age0_1','age1_3','age3_6','age6_12','age12_36','age36plus'];
+const AGE_LABELS = ['0-1 мес','1-3 мес','3-6 мес','6-12 мес','1-3 года','>3 лет'];
+const AGE_COLORS = ['#1e40af','#3b82f6','#60a5fa','#f59e0b','#ef4444','#7c2d12'];
+
+function renderMain(ent){
+  const acc = accData(ent);
+  if (!acc) return '<div class="panel"><div class="panel-body">Нет данных бухгалтерского учёта</div></div>';
+  const { first, last, prev, sorted } = acc;
+  const rows = sorted.map(r=>({ ...r, _label: fmtDate(r.date) }));
+
+  return `
+    <div class="kpi-row">
+      ${kpiHtml('ДЗ', num(last.sumDZ), num(last.sumDZ)-num(first.sumDZ), num(last.sumDZ)-num(prev.sumDZ), '#1e40af')}
+      ${kpiHtml('ПДЗ', num(last.sumPDZ), num(last.sumPDZ)-num(first.sumPDZ), num(last.sumPDZ)-num(prev.sumPDZ), '#b45309')}
+      ${kpiHtml('ПДЗ НКВ', num(last.sumNKV), num(last.sumNKV)-num(first.sumNKV), num(last.sumNKV)-num(prev.sumNKV), '#dc2626')}
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><span>Динамика задолженности по срокам</span><span style="font-size:11px;font-weight:400;opacity:.85">линейный график</span></div>
+      <div class="panel-body">
+        ${lineChartSVG(rows, AGE_KEYS, AGE_COLORS, 340)}
+        <div class="legend">
+          ${AGE_LABELS.map((l,i)=>`<div class="legend-item"><div class="legend-color" style="background:${AGE_COLORS[i]}"></div>${l}</div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><span>Отклонения от начала года</span></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Показатель</th><th class="r">Начало года</th><th class="r">Текущая</th>
+          <th class="r">Δ абс.</th><th class="r">Δ %</th>
+        </tr></thead>
+        <tbody>
+          ${[['ДЗ',first.sumDZ,last.sumDZ],['ПДЗ',first.sumPDZ,last.sumPDZ],['ПДЗ НКВ',first.sumNKV,last.sumNKV],
+             ...AGE_LABELS.map((l,i)=>[l, first[AGE_KEYS[i]], last[AGE_KEYS[i]]])].map(([n,f,l])=>{
+            f=num(f); l=num(l);
+            const d=l-f, pct = f ? (d/Math.abs(f))*100 : null;
+            return `<tr>
+              <td>${n}</td>
+              <td class="r">${fmt(f)}</td>
+              <td class="r">${fmt(l)}</td>
+              <td class="r ${d>0?'pos':'neg'}" style="font-weight:600">${d>0?'+':''}${fmt(d)}</td>
+              <td class="r ${d>0?'pos':'neg'}" style="font-weight:600">${pct!==null?`${pct>=0?'+':''}${pct.toFixed(2)}%`:'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+/* ================= RENDER: CARDS ================= */
+function sortIndicator(field){
+  if (state.sortField!==field) return '<span class="sort-arrow" style="opacity:.35">▲▼</span>';
+  return `<span class="sort-arrow">${state.sortDir===1?'▲':'▼'}</span>`;
+}
+function toggleSort(field){
+  if (state.sortField===field) state.sortDir *= -1;
+  else { state.sortField = field; state.sortDir = 1; }
+  render();
+}
+
+function renderCards(ent){
+  let cards = cardsOf(ent);
+  const q = state.searchContractor.toLowerCase();
+  if (q) cards = cards.filter(c=>String(c.contractor).toLowerCase().includes(q));
+
+  if (state.sortField){
+    cards = cards.slice().sort((a,b)=>{
+      let res;
+      if (state.sortField==='contractor') res = String(a.contractor).localeCompare(String(b.contractor), 'ru');
+      else if (state.sortField==='initialPDZ') res = a.initialPDZ - b.initialPDZ;
+      else res = a.currentPDZ - b.currentPDZ;
+      return res * state.sortDir;
+    });
+  }
+
+  let rowsHtml = '';
+  if (!cards.length){
+    rowsHtml = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px">Нет данных</td></tr>';
+  } else {
+    cards.forEach((c, idx)=>{
+      const isOpen = state.openCardIdx === idx;
+      rowsHtml += `
+        <tr class="clickable ${isOpen?'selected':''}" onclick="toggleCard(${idx})">
+          <td style="font-weight:500">${esc(c.contractor)}</td>
+          <td>${esc(c.contractNum)}</td>
+          <td class="r">${fmt(c.initialPDZ)}</td>
+          <td class="r" style="font-weight:600;color:${c.currentPDZ>0?'#b45309':'#10b981'}">${fmt(c.currentPDZ)}</td>
+          <td>${esc(c.contractSubject)}</td>
+        </tr>`;
+      if (isOpen) rowsHtml += `<tr><td colspan="5" style="padding:0;background:#f9fafb">${cardDetailsHtml(c.card, idx)}</td></tr>`;
+    });
+  }
+
+  return `
+    <div class="panel">
+      <div class="panel-head"><span>Карточки работы с ПДЗ</span><span style="font-size:11px;font-weight:400;opacity:.85">Найдено: ${cards.length}</span></div>
+      <div class="filter-box">
+        <span style="font-size:12px;color:#6b7280">Отбор по контрагенту:</span>
+        <input class="ctl" style="flex:1;min-width:200px" placeholder="Введите наименование..." value="${esc(state.searchContractor)}" oninput="state.searchContractor=this.value;renderCardsOnly()">
+        ${state.sortField?`<button class="btn" onclick="state.sortField=null;render()">Сбросить сортировку</button>`:''}
+      </div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="toggleSort('contractor')">Контрагент ${sortIndicator('contractor')}</th>
+          <th>Номер дог.</th>
+          <th class="sortable r" onclick="toggleSort('initialPDZ')">Первоначальная ПДЗ ${sortIndicator('initialPDZ')}</th>
+          <th class="sortable r" onclick="toggleSort('currentPDZ')">Текущая ПДЗ ${sortIndicator('currentPDZ')}</th>
+          <th>Предмет договора</th>
+        </tr></thead>
+        <tbody id="cardsTbody">${rowsHtml}</tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+function toggleCard(idx){
+  state.openCardIdx = state.openCardIdx===idx ? null : idx;
+  state.openDocIdx = null;
+  render();
+}
+function renderCardsOnly(){
+  // локальный перерендер области карточек без сброса открытых вкладок
+  const panel = document.querySelector('#content .panel');
+  if (!panel) { render(); return; }
+  render();
+}
+
+function cardDetailsHtml(card, cardIdx){
+  const tab = state.cardTab;
+  const debts = (card.debtRows||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const changes = (card.changesRows||[]).slice().sort((a,b)=>new Date(a.period)-new Date(b.period));
+  const docs = card.documentsRows || [];
+  const problems = card.problemsRows || [];
+
+  let body = '';
+  if (tab==='debt'){
+    body = `<table><thead><tr>
+      <th>Дата</th><th class="r">ПДЗ</th><th class="r">0-1 мес</th><th class="r">1-3 мес</th><th class="r">3-6 мес</th>
+      <th class="r">6-12 мес</th><th class="r">1-3 года</th><th class="r">&gt;3 лет</th></tr></thead><tbody>
+      ${debts.map(d=>`<tr>
+        <td>${fmtDate(d.date)}</td>
+        <td class="r" style="font-weight:600">${fmt(d.pdzSum)}</td>
+        <td class="r">${fmt(d.age0_1)}</td><td class="r">${fmt(d.age1_3)}</td><td class="r">${fmt(d.age3_6)}</td>
+        <td class="r">${fmt(d.age6_12)}</td><td class="r">${fmt(d.age12_36)}</td><td class="r">${fmt(d.age36plus)}</td>
+      </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:#9ca3af">Нет данных</td></tr>'}
+      </tbody></table>`;
+  } else if (tab==='changes'){
+    body = `<table><thead><tr>
+      <th>Период</th><th class="r">Оплачено</th><th class="r">Претензия</th><th class="r">В суде</th>
+      <th class="r">Решение суда</th><th class="r">ФССП</th><th>Специалист</th></tr></thead><tbody>
+      ${changes.map(c=>`<tr>
+        <td>${fmtDate(c.period)}</td>
+        <td class="r" style="color:${num(c.paidSum)>0?'#10b981':'#6b7280'}">${fmt(c.paidSum)}</td>
+        <td class="r">${fmt(c.pdzClaim)}</td><td class="r">${fmt(c.pdzInCourt)}</td>
+        <td class="r">${fmt(c.pdzCourtDecision)}</td><td class="r">${fmt(c.pdzFssp)}</td>
+        <td>${esc(c.specialist)||'—'}</td>
+      </tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:#9ca3af">Раздел не заполнен</td></tr>'}
+      </tbody></table>`;
+  } else if (tab==='docs'){
+    body = `<table><thead><tr><th>Дата</th><th>Номер</th><th>Наименование</th><th>Описание</th><th>Специалист</th></tr></thead><tbody>
+      ${docs.map((d,i)=>`<tr class="clickable ${state.openDocIdx===i?'selected':''}" onclick="state.openDocIdx=state.openDocIdx===${i}?null:${i};render()">
+        <td>${fmtDate(d.date)}</td><td>${esc(d.docNumber)||'—'}</td>
+        <td style="font-weight:500">${esc(d.docName)}</td><td>${esc(d.description)}</td><td>${esc(d.specialist)||'—'}</td>
+      </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:#9ca3af">Документы отсутствуют</td></tr>'}
+      </tbody></table>`;
+    if (state.openDocIdx!==null && docs[state.openDocIdx]){
+      const d = docs[state.openDocIdx];
+      body += `<div style="margin-top:12px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px">
+        <div style="font-weight:600;color:#1e3a8a;margin-bottom:6px">Детали документа</div>
+        <div><b>Номер:</b> ${esc(d.docNumber)||'—'}</div>
+        <div><b>Дата:</b> ${fmtDate(d.date)}</div>
+        <div><b>Наименование:</b> ${esc(d.docName)}</div>
+        <div style="margin-top:6px"><b>Описание:</b> ${esc(d.description)}</div>
+      </div>`;
+    }
+  } else if (tab==='problems'){
+    body = `<table><thead><tr><th>Дата</th><th>Описание</th><th>Решение</th><th>Дата решения</th></tr></thead><tbody>
+      ${problems.map(p=>`<tr>
+        <td>${fmtDate(p.date)}</td>
+        <td style="color:#dc2626;font-weight:500">${esc(p.description)}</td>
+        <td>${esc(p.solution)||'—'}</td>
+        <td>${p.solutionDate?fmtDate(p.solutionDate):'—'}</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:#9ca3af">Проблем не выявлено</td></tr>'}
+      </tbody></table>`;
+  } else if (tab==='info'){
+    const fields = [
+      ['Полное наименование', card.companyName], ['Краткое наименование', card.companyShortName],
+      ['ИНН', card.companyInn], ['Юридический адрес', card.legalAddress],
+      ['Фактический адрес', card.actualAddress], ['Руководитель', card.director],
+      ['Телефон руководителя', card.directorPhone], ['Бухгалтер', card.accountant],
+      ['Контактное лицо', card.contact1], ['Телефон контакта', card.contact1Phone]
+    ];
+    body = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
+      ${fields.map(([l,v])=>`<div style="padding:8px;background:#f9fafb;border-radius:3px;border:1px solid #e5e7eb">
+        <div style="font-size:10px;color:#6b7280;text-transform:uppercase">${l}</div>
+        <div style="margin-top:3px;${isEmpty(v)?'color:#dc2626':''}">${isEmpty(v)?'не заполнено':esc(v)}</div>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  const tabs = [['debt',`Динамика ПДЗ (${debts.length})`],['changes',`Движение (${changes.length})`],['docs',`Документы (${docs.length})`],['problems',`Проблемы (${problems.length})`],['info','Реквизиты']];
+  return `<div style="padding:14px">
+    <div class="tabs">
+      ${tabs.map(([id,label])=>`<button class="tab ${tab===id?'active':''}" onclick="state.cardTab='${id}';state.openDocIdx=null;render()">${label}</button>`).join('')}
+    </div>
+    ${body}
+  </div>`;
+}
+
+/* ================= RENDER: SUMMARY ================= */
+function entFilterSelect(filterKey, filterVal){
+  const opts = [`<option value="all">Все предприятия</option>`]
+    .concat(state.enterprises.map(e=>`<option value="${e.id}" ${String(e.id)===String(filterVal)?'selected':''}>${esc(e.data.enterprise.name)}</option>`));
+  return `<select class="ctl" style="min-width:320px" onchange="state.${filterKey}=this.value;render()">${opts.join('')}</select>`;
+}
+
+function filteredBy(key){
+  const f = state[key];
+  if (f==='all' || !f) return state.enterprises;
+  return state.enterprises.filter(e=>String(e.id)===String(f));
+}
+
+function renderSummary(){
+  const list = filteredBy('summaryFilter');
+  const rows = list.map(ent=>{
+    const acc = accData(ent);
+    if (!acc) return { name: ent.data.enterprise.name, empty: true };
+    const { first, last, prev } = acc;
+    return {
+      name: ent.data.enterprise.name,
+      currentDZ: num(last.sumDZ), currentPDZ: num(last.sumPDZ), currentNKV: num(last.sumNKV),
+      devStartDZ: num(last.sumDZ)-num(first.sumDZ), devStartPDZ: num(last.sumPDZ)-num(first.sumPDZ), devStartNKV: num(last.sumNKV)-num(first.sumNKV),
+      devPrevDZ: num(last.sumDZ)-num(prev.sumDZ),
+      lastDate: last.date
+    };
+  });
+  const T = rows.reduce((a,r)=>({
+    dz:a.dz+(r.currentDZ||0), pdz:a.pdz+(r.currentPDZ||0), nkv:a.nkv+(r.currentNKV||0),
+    dsDZ:a.dsDZ+(r.devStartDZ||0), dsPDZ:a.dsPDZ+(r.devStartPDZ||0), dsNKV:a.dsNKV+(r.devStartNKV||0),
+    dpDZ:a.dpDZ+(r.devPrevDZ||0)
+  }), {dz:0,pdz:0,nkv:0,dsDZ:0,dsPDZ:0,dsNKV:0,dpDZ:0});
+
+  const cellDev = v => `<td class="r ${v>0?'pos':'neg'}">${v>0?'+':''}${fmt(v)}</td>`;
+
+  return `
+    <div class="panel">
+      <div class="panel-head"><span>Сводная информация</span></div>
+      <div class="filter-box">
+        <span style="font-size:12px;color:#6b7280">Предприятие:</span>
+        ${entFilterSelect('summaryFilter', state.summaryFilter)}
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      ${kpiHtml('Общая ДЗ', T.dz, T.dsDZ, T.dpDZ, '#1e40af')}
+      ${kpiHtml('Общая ПДЗ', T.pdz, T.dsPDZ, 0, '#b45309')}
+      ${kpiHtml('ПДЗ НКВ', T.nkv, T.dsNKV, 0, '#dc2626')}
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><span>Сводная таблица по предприятиям</span><span style="font-size:11px;font-weight:400;opacity:.85">Предприятий: ${rows.length}</span></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Предприятие</th><th class="r">Текущая ДЗ</th><th class="r">Текущая ПДЗ</th><th class="r">ПДЗ НКВ</th>
+          <th class="r">Откл. ДЗ с н.г.</th><th class="r">Откл. ПДЗ с н.г.</th>
+          <th class="r">Откл. ДЗ к пред. дате</th><th>Отчетная дата</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>r.empty
+            ? `<tr><td>${esc(r.name)}</td><td colspan="7" style="color:#9ca3af">нет данных учёта</td></tr>`
+            : `<tr>
+                <td style="font-weight:500;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.name)}">${esc(r.name)}</td>
+                <td class="r">${fmt(r.currentDZ)}</td><td class="r">${fmt(r.currentPDZ)}</td><td class="r">${fmt(r.currentNKV)}</td>
+                ${cellDev(r.devStartDZ)}${cellDev(r.devStartPDZ)}${cellDev(r.devPrevDZ)}
+                <td>${fmtDate(r.lastDate)}</td>
+              </tr>`).join('')}
+          <tr style="background:#fef3c7;font-weight:700">
+            <td>ИТОГО</td>
+            <td class="r">${fmt(T.dz)}</td><td class="r">${fmt(T.pdz)}</td><td class="r">${fmt(T.nkv)}</td>
+            <td class="r">${fmt(T.dsDZ)}</td><td class="r">${fmt(T.dsPDZ)}</td><td class="r">${fmt(T.dpDZ)}</td><td></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+/* ================= RENDER: CLAIMS ================= */
+function renderClaims(){
+  const list = filteredBy('claimsFilter');
+  // years from docs
+  const years = new Set();
+  state.enterprises.forEach(ent=>(ent.data.pdzCards||[]).forEach(card=>(card.documentsRows||[]).forEach(d=>{
+    const t = new Date(d.date); if (!isNaN(t)) years.add(t.getFullYear());
+  })));
+  const yearsArr = Array.from(years).sort((a,b)=>b-a);
+  if (!yearsArr.includes(state.claimsYear) && yearsArr.length) state.claimsYear = yearsArr[0];
+
+  // collect docs
+  const docs = [];
+  list.forEach(ent=>{
+    const entName = String(ent.data.enterprise.name).trim();
+    (ent.data.pdzCards||[]).forEach(card=>{
+      (card.documentsRows||[]).forEach(doc=>{
+        const w = isoWeek(doc.date);
+        if (!w || w.year!==state.claimsYear) return;
+        docs.push({ ...doc, enterprise: entName, contractor: card.companyShortName||card.companyName||'—' });
+      });
+    });
+  });
+  const weeks = Array.from(new Set(docs.map(d=>isoWeek(d.date).week))).sort((a,b)=>a-b);
+  const byCell = {};
+  docs.forEach(d=>{
+    const w = isoWeek(d.date).week;
+    const key = d.enterprise + '|||' + w;
+    (byCell[key] = byCell[key] || []).push(d);
+  });
+  const weekTotals = {};
+  weeks.forEach(w=>{ weekTotals[w] = docs.filter(d=>isoWeek(d.date).week===w).length; });
+
+  const cellColor = n => n===0 ? null : n===1 ? {bg:'#dbeafe',c:'#1e40af'} : n<=3 ? {bg:'#93c5fd',c:'#1e3a8a'} : n<=6 ? {bg:'#3b82f6',c:'#fff'} : {bg:'#1e40af',c:'#fff'};
+
+  window._claimsDocs = byCell;
+  window._claimsYear = state.claimsYear;
+
+  return `
+    <div class="panel">
+      <div class="panel-head"><span>📜 Претензионная работа — шахматка документов</span>
+        <span style="font-size:11px;font-weight:400;opacity:.85">Документов: ${docs.length}</span></div>
+      <div class="filter-box">
+        <span style="font-size:12px;color:#6b7280">Предприятие:</span>
+        ${entFilterSelect('claimsFilter', state.claimsFilter)}
+        <span style="font-size:12px;color:#6b7280;margin-left:12px">Год:</span>
+        <select class="ctl" onchange="state.claimsYear=Number(this.value);render()">
+          ${(yearsArr.length?yearsArr:[state.claimsYear]).map(y=>`<option value="${y}" ${y===state.claimsYear?'selected':''}>${y}</option>`).join('')}
+        </select>
+      </div>
+      <div style="overflow:auto;max-height:62vh">
+        ${!list.length ? '<div style="padding:30px;text-align:center;color:#9ca3af">Нет данных</div>' : !weeks.length ? '<div style="padding:30px;text-align:center;color:#9ca3af">Нет документов за выбранный год</div>' : `
+        <table class="matrix">
+          <thead><tr>
+            <th style="text-align:left;min-width:240px;left:0;position:sticky">Предприятие</th>
+            ${weeks.map(w=>`<th style="min-width:66px"><div style="font-weight:700">W${String(w).padStart(2,'0')}</div><div style="font-weight:400;color:#6b7280;font-size:9px">${weekRange(state.claimsYear, w)}</div></th>`).join('')}
+            <th style="background:#fbbf24">Итого</th>
+          </tr></thead>
+          <tbody>
+            ${list.map(ent=>{
+              const entName = String(ent.data.enterprise.name).trim();
+              let rowTotal = 0;
+              const cells = weeks.map(w=>{
+                const key = entName + '|||' + w;
+                const arr = byCell[key] || [];
+                rowTotal += arr.length;
+                if (!arr.length) return '<td><div class="cell-empty">·</div></td>';
+                const cc = cellColor(arr.length);
+                return `<td><button class="cell-btn" style="background:${cc.bg};color:${cc.c}"
+                  onclick="openClaimsCell('${key.replace(/'/g,"\\'")}', ${w})" title="Открыть список документов">${arr.length}</button></td>`;
+              }).join('');
+              return `<tr><td class="ent-col" title="${esc(entName)}">${esc(entName)}</td>${cells}<td class="total-cell">${rowTotal}</td></tr>`;
+            }).join('')}
+            <tr style="background:#e5e7eb;font-weight:700">
+              <td class="ent-col" style="background:#e5e7eb">ИТОГО</td>
+              ${weeks.map(w=>`<td class="total-cell" style="background:#e5e7eb">${weekTotals[w]||0}</td>`).join('')}
+              <td class="total-cell" style="background:#fbbf24">${docs.length}</td>
+            </tr>
+          </tbody>
+        </table>`}
+      </div>
+    </div>`;
+}
+
+function openClaimsCell(key, week){
+  const arr = window._claimsDocs[key] || [];
+  const entName = key.split('|||')[0];
+  const body = `
+    <div style="margin-bottom:10px;font-size:12px;color:#6b7280">Неделя <b>W${String(week).padStart(2,'0')}</b> (${weekRange(window._claimsYear, week)}) • документов: <b>${arr.length}</b></div>
+    <table>
+      <thead><tr><th>Дата</th><th>Номер</th><th>Наименование</th><th>Контрагент</th><th>Описание</th></tr></thead>
+      <tbody>
+        ${arr.map(d=>`<tr>
+          <td>${fmtDate(d.date)}</td><td>${esc(d.docNumber)||'—'}</td>
+          <td style="font-weight:500">${esc(d.docName)}</td><td>${esc(d.contractor)}</td>
+          <td>${esc(d.description)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  openModal(`Документы — ${esc(entName)}`, body, '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+}
+
+/* ================= RENDER: RECOMMENDATIONS ================= */
+function generateRecommendations(card){
+  const recs = [];
+  const debts = (card.debtRows||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date));
+  if (!debts.length) return recs;
+  const first = debts[0], last = debts[debts.length-1];
+  const cur = num(last.pdzSum), ini = num(first.pdzSum);
+  if (cur <= 0) return recs;
+
+  const problems = card.problemsRows || [];
+  const bankruptcy = problems.some(p=>/банкрот/i.test(p.description||''));
+  const terminated = problems.some(p=>/расторг/i.test(p.description||''));
+  const changes = card.changesRows || [];
+  const hasCourtDecision = changes.some(c=>num(c.pdzCourtDecision)>0);
+  const hasFssp = changes.some(c=>num(c.pdzFssp)>0);
+  const hasInCourt = changes.some(c=>num(c.pdzInCourt)>0);
+  const docs = card.documentsRows || [];
+  const hasClaimDoc = docs.some(d=>/претенз/i.test(d.docName||''));
+  const hasCourtDoc = docs.some(d=>/судебн|исковое|исполнительн/i.test(d.docName||''));
+  const age3p = num(last.age36plus);
+  const age1p = num(last.age12_36) + age3p;
+
+  if (bankruptcy) recs.push({ p:'critical', t:'Контрагент в процедуре банкротства',
+    txt: `Подать (проверить) заявление о включении в реестр требований кредиторов на сумму ${fmt(cur)} ₽; контролировать ход процедуры, участвовать в собраниях кредиторов.` });
+  if (terminated && !bankruptcy && cur > 100000) recs.push({ p:'critical', t:'Договор расторгнут, задолженность не погашена',
+    txt: `Подготовить исковое заявление в арбитражный суд на сумму ${fmt(cur)} ₽ с ходатайством об обеспечительных мерах (арест счетов).` });
+  if (hasCourtDecision && !hasFssp && cur > 50000) recs.push({ p:'critical', t:'Решение суда не исполняется',
+    txt: `Получить исполнительный лист и направить его в ФССП либо в банк должника. Сумма взыскания: ${fmt(cur)} ₽.` });
+  if (age1p > cur*0.5 && cur > 200000 && !bankruptcy) recs.push({ p:'high', t:'Высокая доля задолженности со сроком свыше 1 года',
+    txt: `Доля задолженности свыше 1 года — ${((age1p/cur)*100).toFixed(0)}% (${fmtShort(age1p)} ₽). Усилить претензионно-исковую работу; при отсутствии перспектив взыскания подготовить материалы для признания задолженности невозможной к взысканию.` });
+  if (!hasClaimDoc && cur > 200000 && !bankruptcy && !hasCourtDoc) recs.push({ p:'high', t:'Отсутствует претензионная работа',
+    txt: `Претензия не направлялась. Направить претензию в порядке досудебного урегулирования на сумму ${fmt(cur)} ₽ со сроком ответа 10–15 дней.` });
+  if (hasClaimDoc && !hasCourtDoc && !hasInCourt && cur > 300000 && !bankruptcy) recs.push({ p:'high', t:'Претензия не дала результата',
+    txt: `Подготовить исковое заявление на сумму ${fmt(cur)} ₽. При сумме до 500 тыс. ₽ рассмотреть приказное производство.` });
+
+  // целевое сокращение 20%
+  if (ini > 0){
+    const target = ini * 0.8;
+    if (cur > target){
+      recs.push({ p:'medium', t:'Не достигается целевое сокращение 20%',
+        txt: `Для выполнения задачи сокращения ПДЗ на 20% к концу года целевой уровень — ${fmt(target)} ₽ (−20% от ${fmt(ini)} ₽). Осталось сократить: ${fmt(cur - target)} ₽.` });
+    } else {
+      recs.push({ p:'ok', t:'Целевое сокращение выполняется',
+        txt: `Задолженность снижена до ${fmt(cur)} ₽ при целевом уровне ${fmt(target)} ₽ (−20% от начала года). Продолжить контроль.` });
+    }
+  }
+  return recs;
+}
+
+function renderRecs(){
+  const list = filteredBy('recFilter');
+  const badge = p => p==='critical' ? '<span class="badge err">Критично</span>'
+    : p==='high' ? '<span class="badge warn">Высокий</span>'
+    : p==='ok' ? '<span class="badge ok">Выполняется</span>'
+    : '<span class="badge" style="color:#475569;border-color:#475569;background:#f8fafc">Средний</span>';
+  const border = p => p==='critical' ? '#dc2626' : p==='high' ? '#d97706' : p==='ok' ? '#16a34a' : '#ca8a04';
+  const bg = p => p==='critical' ? '#fef2f2' : p==='high' ? '#fff7ed' : p==='ok' ? '#f0fdf4' : '#fefce8';
+
+  let totalRecs = 0, critical = 0;
+
+  const blocks = list.map(ent=>{
+    const cards = cardsOf(ent);
+    const cardBlocks = cards.map(c=>{
+      const recs = generateRecommendations(c.card);
+      if (!recs.length) return '';
+      totalRecs += recs.length;
+      critical += recs.filter(r=>r.p==='critical').length;
+      return `<div style="border:1px solid #e5e7eb;border-radius:4px;overflow:hidden">
+        <div style="padding:9px 12px;background:#f9fafb;border-left:4px solid #64748b;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="font-weight:600">${esc(c.contractor)} <span style="color:#6b7280;font-weight:400">• договор ${esc(c.contractNum)}</span></div>
+          <div style="font-size:11px;color:#6b7280">Текущая ПДЗ: <b style="color:#b45309">${fmt(c.currentPDZ)} ₽</b></div>
+        </div>
+        <div style="padding:10px;display:flex;flex-direction:column;gap:8px">
+          ${recs.map(r=>`<div style="background:${bg(r.p)};border-left:4px solid ${border(r.p)};padding:10px 12px;border-radius:0 4px 4px 0">
+            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:5px">
+              <div style="font-weight:700;font-size:12px">${esc(r.t)}</div>${badge(r.p)}
+            </div>
+            <div style="font-size:12px;color:#374151;line-height:1.5">${esc(r.txt)}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    }).filter(Boolean).join('');
+
+    if (!cardBlocks) return `<div class="panel" style="margin-bottom:12px">
+      <div class="panel-head"><span>${esc(ent.data.enterprise.name)}</span></div>
+      <div class="panel-body" style="color:#9ca3af">Проблемных вопросов не выявлено</div>
+    </div>`;
+
+    return `<div class="panel" style="margin-bottom:12px">
+      <div class="panel-head"><span>${esc(ent.data.enterprise.name)}</span>
+        <span style="font-size:11px;font-weight:400;opacity:.85">ИНН: ${esc(ent.data.enterprise.inn||'—')}</span></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:10px">${cardBlocks}</div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="panel">
+      <div class="panel-head"><span>💡 Рекомендации</span>
+        <span style="font-size:11px;font-weight:400;opacity:.85">Рекомендаций: ${totalRecs} • критичных: ${critical}</span></div>
+      <div class="filter-box">
+        <span style="font-size:12px;color:#6b7280">Предприятие:</span>
+        ${entFilterSelect('recFilter', state.recFilter)}
+      </div>
+    </div>
+    ${blocks || '<div class="panel"><div class="panel-body" style="color:#9ca3af;text-align:center">Нет данных</div></div>'}`;
+}
+
+/* ================= REGISTRY ================= */
+function openRegistry(){
+  const q = state.searchEnterprise.toLowerCase();
+  const list = state.enterprises.filter(e=>!q || String(e.data.enterprise.name).toLowerCase().includes(q));
+  const body = `
+    <div style="margin-bottom:12px">
+      <input class="ctl" style="width:100%" placeholder="Отбор по наименованию..." value="${esc(state.searchEnterprise)}"
+        oninput="state.searchEnterprise=this.value;openRegistry()">
+    </div>
+    <table>
+      <thead><tr><th>№</th><th>Наименование</th><th>ИНН</th><th>Директор</th><th>Контрагентов</th><th></th></tr></thead>
+      <tbody>
+        ${list.map((ent,i)=>`<tr class="clickable" onclick="selectEnterprise(${ent.id});closeModal()">
+          <td>${i+1}</td>
+          <td>${esc(ent.data.enterprise.name)}</td>
+          <td>${esc(ent.data.enterprise.inn||'—')}</td>
+          <td>${esc(ent.data.enterprise.directorName||'—')}</td>
+          <td>${(ent.data.pdzCards||[]).length}</td>
+          <td onclick="event.stopPropagation()">
+            <button class="btn" style="padding:3px 8px;font-size:11px" onclick="closeModal();openProtocolModal(${ent.id})">Протокол</button>
+            <button class="btn" style="padding:3px 8px;font-size:11px;color:#dc2626;border-color:#fca5a5" onclick="closeModal();deleteEnterprise(${ent.id})">Удалить</button>
+          </td>
+        </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:20px">Нет данных</td></tr>'}
+      </tbody>
+    </table>`;
+  openModal('Реестр загруженных предприятий', body, '<button class="btn" onclick="closeModal()">Закрыть</button>', true);
+}
+
+/* ================= MAIN RENDER ================= */
+function render(){
+  $('topInfo').textContent = `Предприятий загружено: ${state.enterprises.length}`;
+  renderEntList();
+  renderSections();
+
+  const content = $('content');
+  const ent = currentEnt();
+
+  if (state.section === 'summary'){ content.innerHTML = renderSummary(); return; }
+  if (state.section === 'claims'){ content.innerHTML = renderClaims(); return; }
+  if (state.section === 'recs'){ content.innerHTML = renderRecs(); return; }
+
+  if (!ent){
+    content.innerHTML = `<div class="empty-state">
+      <div style="font-size:48px;margin-bottom:16px">📂</div>
+      <div style="font-size:16px;font-weight:600">Загрузите данные для начала работы</div>
+      <div style="font-size:13px;margin-top:8px">Используйте кнопку «Загрузка данных» в верхнем меню</div>
+    </div>`;
+    return;
+  }
+
+  const acc = accData(ent);
+  const header = `
+    <div class="ent-header">
+      <div>
+        <div class="small-label">Предприятие</div>
+        <div style="font-size:15px;font-weight:700;color:#1e3a8a;margin-top:2px">${esc(ent.data.enterprise.name)}</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px">
+          ИНН: ${esc(ent.data.enterprise.inn||'—')} | Директор: ${esc(ent.data.enterprise.directorName||'—')} | Контрагентов: ${(ent.data.pdzCards||[]).length}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="font-size:11px;color:#6b7280;text-align:right">
+          <div>Раздел: <b style="color:#1e40af">${state.section==='main'?'Основные показатели ДЗ':'Карточки работы с ПДЗ'}</b></div>
+          ${acc?`<div>Отчетная дата: ${fmtDate(acc.last.date)}</div>`:''}
+        </div>
+        <button class="btn" onclick="openProtocolModal(${ent.id})" title="Протокол загрузки данных">📄 Протокол загрузки</button>
+      </div>
+    </div>`;
+
+  content.innerHTML = header + (state.section==='main' ? renderMain(ent) : renderCards(ent));
+}
+
+/* ================= RESIZERS ================= */
+(function(){
+  const sidebar = $('sidebar'), entPane = $('entPane');
+  $('vResizer').addEventListener('mousedown', e=>{
+    e.preventDefault();
+    const sx = e.clientX, sw = sidebar.offsetWidth;
+    const move = ev => { sidebar.style.width = Math.max(200, Math.min(520, sw + ev.clientX - sx)) + 'px'; };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
+  $('hResizer').addEventListener('mousedown', e=>{
+    e.preventDefault();
+    const sy = e.clientY, sh = entPane.offsetHeight;
+    const move = ev => { entPane.style.height = Math.max(120, Math.min(640, sh + ev.clientY - sy)) + 'px'; };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  });
+})();
+
+/* ================= INIT ================= */
+render();
+</script>
+</body>
+</html>

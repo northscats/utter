@@ -1,0 +1,2074 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Аналитика РСО — Оперативная аналитика</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    font-size: 13px;
+    color: #2c3e50;
+    background: #eef1f5;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ===== TOP BAR ===== */
+  .topbar {
+    height: 48px;
+    background: linear-gradient(to bottom, #3a4a5c 0%, #2c3e50 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    z-index: 100;
+  }
+  .logo {
+    font-weight: 700;
+    font-size: 15px;
+    margin-right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-icon {
+    width: 28px; height: 28px;
+    background: #f39c12;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    color: #2c3e50;
+    font-weight: 900;
+  }
+  .topmenu { display: flex; gap: 4px; flex: 1; }
+  .topmenu button {
+    background: transparent;
+    color: #e8eef5;
+    border: 1px solid transparent;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .topmenu button:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.2);
+  }
+  .topmenu button .ico { font-size: 15px; }
+  .topright {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 12px; color: #b0bec5;
+  }
+  .topright .user {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #f39c12; color: #2c3e50;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 11px;
+  }
+
+  /* ===== LAYOUT ===== */
+  .layout {
+    display: flex;
+    height: calc(100vh - 48px);
+  }
+
+  /* ===== SIDEBAR ===== */
+  .sidebar {
+    width: 300px;
+    background: #fff;
+    border-right: 1px solid #d5dce4;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: relative;
+    transition: width 0.25s ease;
+    min-width: 48px;
+    max-width: 500px;
+  }
+  .sidebar.collapsed { width: 48px; }
+  .sidebar.collapsed .sb-section,
+  .sidebar.collapsed .sb-search,
+  .sidebar.collapsed .rso-list,
+  .sidebar.collapsed .nav-menu,
+  .sidebar.collapsed .sb-header span,
+  .sidebar.collapsed .nav-item span:not(.ico),
+  .sidebar.collapsed .nav-badge,
+  .sidebar.collapsed .splitter { display: none; }
+  .sidebar.collapsed .sb-toggle-main { transform: rotate(180deg); }
+  .sidebar.collapsed .nav-item { justify-content: center; padding: 10px 6px; }
+  .sidebar.collapsed .rso-item { justify-content: center; padding: 6px; }
+  .sidebar.collapsed .rso-item span:not(.rso-dot) { display: none; }
+
+  .sb-section {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 80px;
+  }
+  .sb-section.rso-section { flex: 1 1 50%; }
+  .sb-section.nav-section { flex: 1 1 50%; }
+
+  .sb-header {
+    padding: 8px 12px;
+    background: #f5f7fa;
+    font-size: 11px;
+    font-weight: 700;
+    color: #546e7a;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    border-bottom: 1px solid #e1e7ee;
+  }
+  .sb-toggle-main {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: #f5f7fa;
+    border: 1px solid #cfd8dc;
+    width: 22px; height: 22px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: #78909c;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s;
+    z-index: 10;
+  }
+  .sb-toggle-main:hover { background: #eceff1; }
+
+  /* ===== VERTICAL SPLITTER (horizontal resize) ===== */
+  .v-splitter {
+    width: 6px;
+    background: #e1e7ee;
+    cursor: col-resize;
+    flex-shrink: 0;
+    transition: background 0.15s;
+    position: relative;
+  }
+  .v-splitter:hover, .v-splitter.active {
+    background: #f39c12;
+  }
+  .v-splitter::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px; height: 30px;
+    background: #90a4ae;
+    border-radius: 1px;
+  }
+  .v-splitter:hover::after, .v-splitter.active::after { background: #fff; }
+
+  /* ===== HORIZONTAL SPLITTER (vertical resize) ===== */
+  .splitter {
+    height: 6px;
+    background: #e1e7ee;
+    cursor: row-resize;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .splitter:hover, .splitter.active {
+    background: #f39c12;
+  }
+  .splitter::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px; height: 2px;
+    background: #90a4ae;
+    border-radius: 1px;
+  }
+  .splitter:hover::after, .splitter.active::after { background: #fff; }
+
+  .sb-search {
+    padding: 8px;
+    background: #f5f7fa;
+    flex-shrink: 0;
+  }
+  .sb-search input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid #cfd8dc;
+    border-radius: 3px;
+    font-size: 12px;
+    outline: none;
+  }
+  .sb-search input:focus { border-color: #f39c12; }
+
+  .rso-list {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .rso-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .rso-item:hover { background: #f5f7fa; }
+  .rso-item.active {
+    background: #fff8e1;
+    border-left-color: #f39c12;
+    font-weight: 600;
+  }
+  .rso-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4caf50;
+    flex-shrink: 0;
+  }
+  .rso-dot.warn { background: #ff9800; }
+  .rso-dot.err { background: #f44336; }
+
+  .nav-menu {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .nav-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-left: 3px solid transparent;
+    font-size: 13px;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .nav-item:hover { background: #f5f7fa; }
+  .nav-item.active {
+    background: linear-gradient(to right, #fff3d6, #fff);
+    border-left-color: #f39c12;
+    color: #d68910;
+    font-weight: 600;
+  }
+  .nav-item .ico { font-size: 16px; width: 20px; text-align: center; }
+  .nav-badge {
+    margin-left: auto;
+    background: #e74c3c;
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+
+  /* ===== MAIN CONTENT ===== */
+  .main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    min-width: 0;
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e1e7ee;
+  }
+  .page-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+  }
+  .page-subtitle {
+    font-size: 12px;
+    color: #78909c;
+    margin-top: 2px;
+  }
+  .page-actions {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .date-picker {
+    padding: 6px 10px;
+    border: 1px solid #cfd8dc;
+    border-radius: 3px;
+    font-size: 12px;
+    background: #fff;
+  }
+
+  /* ===== KPI CARDS ===== */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .kpi-card {
+    background: #fff;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-card:hover {
+    border-color: #f39c12;
+    box-shadow: 0 4px 12px rgba(243,156,18,0.15);
+    transform: translateY(-2px);
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: #f39c12;
+  }
+  .kpi-card.good::before { background: #27ae60; }
+  .kpi-card.bad::before { background: #e74c3c; }
+  .kpi-card.warn::before { background: #f39c12; }
+
+  .kpi-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .kpi-name {
+    font-size: 12px;
+    color: #546e7a;
+    font-weight: 500;
+    flex: 1;
+  }
+  .kpi-num {
+    font-size: 11px;
+    color: #90a4ae;
+  }
+  .kpi-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 10px;
+  }
+  .kpi-value .unit {
+    font-size: 13px;
+    color: #78909c;
+    font-weight: 500;
+    margin-left: 4px;
+  }
+  .kpi-changes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .kpi-change {
+    padding: 4px 8px;
+    background: #f5f7fa;
+    border-radius: 3px;
+  }
+  .kpi-change .lbl {
+    color: #78909c;
+    display: block;
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+  .kpi-change .val { font-weight: 600; }
+  .up { color: #27ae60; }
+  .down { color: #e74c3c; }
+  .neutral { color: #78909c; }
+
+  /* ===== DASHBOARD BLOCKS ===== */
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 14px;
+  }
+  .dash-card {
+    background: #fff;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    padding: 16px;
+  }
+  .dash-card h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: #2c3e50;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eceff1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dash-card h3 .ico { font-size: 16px; }
+
+  /* ===== METRIC BLOCK ===== */
+  .metric-block {
+    padding: 12px 0;
+    border-bottom: 1px dashed #eceff1;
+  }
+  .metric-block:last-child { border-bottom: none; padding-bottom: 0; }
+  .metric-block:first-child { padding-top: 0; }
+
+  .metric-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .metric-name {
+    font-size: 12px;
+    color: #546e7a;
+    font-weight: 500;
+    flex: 1;
+    min-width: 180px;
+  }
+  .metric-val {
+    font-size: 15px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0 10px;
+  }
+  .metric-bench {
+    font-size: 11px;
+    color: #78909c;
+    padding: 2px 8px;
+    background: #f5f7fa;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .metric-avg {
+    font-size: 11px;
+    color: #1976d2;
+    padding: 2px 8px;
+    background: #e3f2fd;
+    border-radius: 10px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+    white-space: nowrap;
+  }
+  .badge-red { background: #ffebee; color: #c62828; }
+  .badge-yellow { background: #fff8e1; color: #f57c00; }
+  .badge-green { background: #e8f5e9; color: #2e7d32; }
+
+  /* Dual bar comparison */
+  .metric-bars {
+    margin-top: 8px;
+    position: relative;
+  }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+  .bar-label {
+    width: 80px;
+    color: #78909c;
+    flex-shrink: 0;
+    font-size: 10px;
+  }
+  .bar-track {
+    flex: 1;
+    height: 12px;
+    background: #eceff1;
+    border-radius: 6px;
+    overflow: visible;
+    position: relative;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.6s ease;
+    position: relative;
+  }
+  .bar-fill.fact { background: linear-gradient(to right, #f39c12, #e67e22); }
+  .bar-fill.fact.good { background: linear-gradient(to right, #27ae60, #2ecc71); }
+  .bar-fill.fact.bad { background: linear-gradient(to right, #e74c3c, #c0392b); }
+  .bar-fill.avg { background: linear-gradient(to right, #42a5f5, #1976d2); }
+  .bar-value {
+    width: 60px;
+    text-align: right;
+    font-weight: 600;
+    color: #2c3e50;
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+  /* Benchmark marker on fact bar */
+  .bench-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 18px;
+    background: #c62828;
+    z-index: 5;
+    transform: translateX(-50%);
+  }
+  .bench-marker::after {
+    content: 'N';
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 700;
+    color: #c62828;
+    background: #fff;
+    padding: 0 3px;
+    border-radius: 2px;
+    border: 1px solid #c62828;
+  }
+  .deviation {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 8px;
+  }
+  .deviation.pos { background: #e8f5e9; color: #2e7d32; }
+  .deviation.neg { background: #ffebee; color: #c62828; }
+  .deviation.warn { background: #fff8e1; color: #f57c00; }
+
+  /* ===== TABLES ===== */
+  .data-table {
+    width: 100%;
+    background: #fff;
+    border-collapse: collapse;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .data-table th {
+    background: #f5f7fa;
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    color: #546e7a;
+    border-bottom: 2px solid #e1e7ee;
+  }
+  .data-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #eceff1;
+    font-size: 12px;
+  }
+  .data-table tr:hover td { background: #fafbfc; }
+  .data-table tr:last-child td { border-bottom: none; }
+
+  /* ===== ALERTS ===== */
+  .alert-card {
+    background: #fff;
+    border: 1px solid #e1e7ee;
+    border-left: 4px solid;
+    border-radius: 4px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: all 0.15s;
+  }
+  .alert-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .alert-card.critical { border-left-color: #e74c3c; }
+  .alert-card.warning { border-left-color: #f39c12; }
+  .alert-card.info { border-left-color: #3498db; }
+  .alert-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .alert-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2c3e50;
+  }
+  .alert-body {
+    font-size: 12px;
+    color: #546e7a;
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+  .alert-action {
+    display: inline-block;
+    padding: 5px 12px;
+    background: #f5f7fa;
+    border: 1px solid #cfd8dc;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    color: #2c3e50;
+    transition: all 0.15s;
+  }
+  .alert-action:hover {
+    background: #f39c12;
+    color: #fff;
+    border-color: #f39c12;
+  }
+
+  /* ===== MODAL ===== */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 4px;
+    width: 90%;
+    max-width: 1100px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+  .modal-header {
+    padding: 12px 16px;
+    background: #2c3e50;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-radius: 4px 4px 0 0;
+  }
+  .modal-title { font-size: 14px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; color: #fff;
+    font-size: 20px; cursor: pointer;
+  }
+  .modal-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-toolbar {
+    padding: 10px 16px;
+    background: #f5f7fa;
+    border-bottom: 1px solid #e1e7ee;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 6px 14px;
+    border: 1px solid #cfd8dc;
+    background: #fff;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: #f5f7fa; border-color: #90a4ae; }
+  .btn-primary {
+    background: #f39c12;
+    color: #fff;
+    border-color: #f39c12;
+  }
+  .btn-primary:hover { background: #e67e22; }
+
+  /* ===== CALENDAR ===== */
+  .calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+  }
+  .cal-head {
+    padding: 6px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #546e7a;
+    background: #f5f7fa;
+  }
+  .cal-day {
+    aspect-ratio: 1;
+    padding: 6px;
+    border: 1px solid #e1e7ee;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .cal-day:hover { border-color: #f39c12; }
+  .cal-day.empty { background: transparent; border: none; cursor: default; }
+  .cal-day.full { background: #e8f5e9; color: #2e7d32; }
+  .cal-day.partial { background: #fff8e1; color: #f57c00; }
+  .cal-day.empty-data { background: #ffebee; color: #c62828; }
+  .cal-day .num { font-weight: 700; }
+  .cal-day .pct { font-size: 10px; }
+
+  /* ===== DRILLDOWN ===== */
+  .drill-panel {
+    background: #fff;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .drill-panel h3 {
+    font-size: 14px;
+    margin-bottom: 12px;
+    color: #2c3e50;
+  }
+  .chart-box {
+    height: 280px;
+    position: relative;
+  }
+  .tabs {
+    display: flex;
+    border-bottom: 2px solid #e1e7ee;
+    margin-bottom: 14px;
+  }
+  .tab {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #546e7a;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: all 0.15s;
+  }
+  .tab:hover { color: #2c3e50; }
+  .tab.active {
+    color: #d68910;
+    border-bottom-color: #f39c12;
+    font-weight: 600;
+  }
+
+  /* ===== SCROLLBAR ===== */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #f5f7fa; }
+  ::-webkit-scrollbar-thumb { background: #b0bec5; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #78909c; }
+
+  .legend-row {
+    display: flex; gap: 16px;
+    font-size: 11px; color: #546e7a;
+    margin-top: 8px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-sq { width: 12px; height: 12px; border-radius: 2px; }
+
+  .formula-hint {
+    font-size: 10px;
+    color: #90a4ae;
+    font-style: italic;
+    margin-top: 2px;
+    font-weight: 400;
+  }
+
+  .metric-info {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  /* ===== UNDER CONSTRUCTION ===== */
+  .construction-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    padding: 40px 20px;
+    text-align: center;
+  }
+  .construction-icon {
+    font-size: 80px;
+    margin-bottom: 20px;
+    opacity: 0.85;
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.85; }
+    50% { transform: scale(1.05); opacity: 1; }
+  }
+  .construction-title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 10px;
+  }
+  .construction-subtitle {
+    font-size: 14px;
+    color: #78909c;
+    max-width: 560px;
+    line-height: 1.6;
+    margin-bottom: 24px;
+  }
+  .construction-steps {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+  .construction-step {
+    background: #fff;
+    border: 1px solid #e1e7ee;
+    border-radius: 4px;
+    padding: 12px 18px;
+    min-width: 180px;
+    text-align: left;
+    position: relative;
+  }
+  .construction-step .step-num {
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    width: 24px;
+    height: 24px;
+    background: #f39c12;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .construction-step .step-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin-bottom: 4px;
+  }
+  .construction-step .step-desc {
+    font-size: 11px;
+    color: #78909c;
+    line-height: 1.4;
+  }
+  .construction-progress {
+    width: 100%;
+    max-width: 480px;
+    margin-bottom: 12px;
+  }
+  .progress-bar-track {
+    height: 10px;
+    background: #eceff1;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(to right, #f39c12, #e67e22);
+    border-radius: 5px;
+    width: 35%;
+    transition: width 0.6s ease;
+  }
+  .progress-label {
+    font-size: 11px;
+    color: #78909c;
+    margin-top: 6px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .construction-contact {
+    font-size: 11px;
+    color: #90a4ae;
+    margin-top: 12px;
+  }
+  .construction-contact a {
+    color: #1976d2;
+    text-decoration: none;
+  }
+  .construction-contact a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<!-- ===== TOP BAR ===== -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">АР</div>
+    Аналитика РСО
+  </div>
+  <div class="topmenu">
+    <button onclick="openModal('rsoModal')"><span class="ico">📁</span>Справочник РСО</button>
+    <button onclick="openModal('docsModal')"><span class="ico">📂</span>Реестр документов</button>
+    <button onclick="openModal('calModal')"><span class="ico">📅</span>Календарь загрузки</button>
+  </div>
+  <div class="topright">
+    <span id="currentDate"></span>
+    <div class="user">
+      <div class="avatar">ИП</div>
+      <span>Иванов П.С.</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== LAYOUT ===== -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <button class="sb-toggle-main" onclick="toggleSidebar()" title="Свернуть/развернуть панель">◀</button>
+
+    <!-- RSO list -->
+    <div class="sb-section rso-section" id="rsoSection">
+      <div class="sb-header">
+        <span>Предприятия</span>
+      </div>
+      <div class="sb-search">
+        <input type="text" id="rsoSearch" placeholder="🔍 Поиск по названию / ИНН..." oninput="filterRso()">
+      </div>
+      <div class="rso-list" id="rsoList"></div>
+    </div>
+
+    <!-- Horizontal splitter -->
+    <div class="splitter" id="splitter"></div>
+
+    <!-- Navigation -->
+    <div class="sb-section nav-section" id="navSection">
+      <div class="sb-header">
+        <span>Аналитика</span>
+      </div>
+      <div class="nav-menu">
+        <div class="nav-item active" data-view="main" onclick="switchView('main', this)">
+          <span class="ico">📊</span><span>Основные показатели ФХД</span>
+        </div>
+        <div class="nav-item" data-view="analytics" onclick="switchView('analytics', this)">
+          <span class="ico">📈</span><span>Аналитика по показателям</span>
+        </div>
+        <div class="nav-item" data-view="slices" onclick="switchView('slices', this)">
+          <span class="ico">📑</span><span>Аналитические срезы</span>
+        </div>
+        <div class="nav-item" data-view="alerts" onclick="switchView('alerts', this)">
+          <span class="ico">🚨</span><span>Алерты</span>
+          <span class="nav-badge" id="alertBadge">5</span>
+        </div>
+        <div class="nav-item" data-view="summary" onclick="switchView('summary', this)">
+          <span class="ico">📋</span><span>Сводная информация</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vertical splitter for horizontal resize -->
+  <div class="v-splitter" id="vSplitter"></div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main" id="mainContent">
+    <!-- Views will be injected here -->
+  </div>
+</div>
+
+<!-- ===== MODAL: СПРАВОЧНИК РСО ===== -->
+<div class="modal-overlay" id="rsoModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📁 Справочник ресурсоснабжающих организаций</div>
+      <button class="modal-close" onclick="closeModal('rsoModal')">×</button>
+    </div>
+    <div class="modal-toolbar">
+      <button class="btn btn-primary" onclick="exportRsoExcel()">📥 Экспорт в Excel</button>
+      <button class="btn" onclick="window.print()">🖨 Печать реестра</button>
+      <button class="btn">➕ Добавить РСО</button>
+    </div>
+    <div class="modal-body">
+      <table class="data-table" id="rsoTable">
+        <thead>
+          <tr>
+            <th>№</th>
+            <th>Полное наименование</th>
+            <th>Сокр. наим.</th>
+            <th>ИНН</th>
+            <th>Юр. адрес</th>
+            <th>ФИО Руководителя</th>
+            <th>Тел. руководителя</th>
+            <th>ФИО Гл. бухгалтера</th>
+            <th>Тел. гл. бух.</th>
+            <th>Примечание</th>
+          </tr>
+        </thead>
+        <tbody id="rsoTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: РЕЕСТР ДОКУМЕНТОВ ===== -->
+<div class="modal-overlay" id="docsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📂 Реестр загруженных ОСВ</div>
+      <button class="modal-close" onclick="closeModal('docsModal')">×</button>
+    </div>
+    <div class="modal-toolbar">
+      <select class="date-picker" id="docFilterRso" onchange="renderDocs()">
+        <option value="all">Все предприятия</option>
+      </select>
+      <select class="date-picker" id="docFilterPeriod" onchange="renderDocs()">
+        <option value="all">Все периоды</option>
+        <option value="2026-07">Июль 2026</option>
+        <option value="2026-06">Июнь 2026</option>
+        <option value="2026-05">Май 2026</option>
+      </select>
+      <select class="date-picker" id="docFilterStatus" onchange="renderDocs()">
+        <option value="all">Все статусы</option>
+        <option value="full">Полный комплект</option>
+        <option value="partial">Неполный</option>
+        <option value="missing">Отсутствует</option>
+      </select>
+    </div>
+    <div class="modal-body">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Предприятие</th>
+            <th>Период ОСВ</th>
+            <th>Дата загрузки</th>
+            <th>Счетов в комплекте</th>
+            <th>Отсутствующие счета</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody id="docsTableBody"></tbody>
+      </table>
+      <div class="legend-row">
+        <div class="legend-item"><div class="legend-sq" style="background:#27ae60"></div>Полный комплект (17 счетов)</div>
+        <div class="legend-item"><div class="legend-sq" style="background:#f39c12"></div>Неполный комплект</div>
+        <div class="legend-item"><div class="legend-sq" style="background:#e74c3c"></div>Данные отсутствуют</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: КАЛЕНДАРЬ ===== -->
+<div class="modal-overlay" id="calModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📅 Календарь загрузки данных — Июль 2026</div>
+      <button class="modal-close" onclick="closeModal('calModal')">×</button>
+    </div>
+    <div class="modal-toolbar">
+      <button class="btn">◀ Июнь</button>
+      <strong style="padding:6px 12px;">Июль 2026</strong>
+      <button class="btn">Август ▶</button>
+    </div>
+    <div class="modal-body">
+      <div class="calendar" id="calendarGrid"></div>
+      <div class="legend-row" style="margin-top:16px;">
+        <div class="legend-item"><div class="legend-sq" style="background:#e8f5e9;border:1px solid #a5d6a7"></div>Полная загрузка (100%)</div>
+        <div class="legend-item"><div class="legend-sq" style="background:#fff8e1;border:1px solid #ffcc80"></div>Частичная загрузка</div>
+        <div class="legend-item"><div class="legend-sq" style="background:#ffebee;border:1px solid #ef9a9a"></div>Нет данных / Пробелы</div>
+      </div>
+      <div id="calDetails" style="margin-top:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: ДЕТАЛИ ДНЯ ===== -->
+<div class="modal-overlay" id="dayModal">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-header">
+      <div class="modal-title" id="dayModalTitle">Детали загрузки</div>
+      <button class="modal-close" onclick="closeModal('dayModal')">×</button>
+    </div>
+    <div class="modal-body" id="dayModalBody"></div>
+  </div>
+</div>
+
+<script>
+// ============ DATA ============
+const ACCOUNTS = [20,26,44,50,51,52,55,60,62,66,67,68,69,70,76,90,91];
+
+const RSO_DATA = [
+  {
+    id: 1, short: 'ТеплоЭнерго', full: 'ООО "ТеплоЭнерго"', inn: '7701234567',
+    address: 'г. Москва, ул. Энергетическая, 15', dir: 'Петров А.В.', dirPhone: '+7 (495) 123-45-67',
+    acc: 'Сидорова Е.Н.', accPhone: '+7 (495) 123-45-68', note: 'Головное предприятие',
+    status: 'ok',
+    kpi: {
+      'ДЗ': { val: 452.5, unit: 'млн ₽', ytd: {abs: 45.2, pct: 11.1, dir: 'up'}, mtd: {abs: 12.1, pct: 2.7, dir: 'up'}, trend: 'bad' },
+      'КЗ': { val: 310.8, unit: 'млн ₽', ytd: {abs: -15.4, pct: -4.7, dir: 'down'}, mtd: {abs: 8.5, pct: 2.8, dir: 'up'}, trend: 'good' },
+      'ДС': { val: 84.2, unit: 'млн ₽', ytd: {abs: 12.0, pct: 16.6, dir: 'up'}, mtd: {abs: -5.4, pct: -6.0, dir: 'down'}, trend: 'warn' },
+      'Кредиты': { val: 620.0, unit: 'млн ₽', ytd: {abs: -40.0, pct: -6.0, dir: 'down'}, mtd: {abs: -10.0, pct: -1.5, dir: 'down'}, trend: 'good' },
+      'Проценты': { val: 18.4, unit: 'млн ₽', ytd: {abs: 3.1, pct: 20.2, dir: 'up'}, mtd: {abs: 1.2, pct: 6.9, dir: 'up'}, trend: 'bad' },
+      'Налоги': { val: 12.5, unit: 'млн ₽', ytd: {abs: 1.2, pct: 10.6, dir: 'up'}, mtd: {abs: 0.8, pct: 6.8, dir: 'up'}, trend: 'warn' },
+      'Выручка': { val: 1240.0, unit: 'млн ₽', ytd: {abs: 180.0, pct: 17.0, dir: 'up'}, mtd: {abs: 145.0, pct: 13.2, dir: 'up'}, trend: 'good' },
+      'Себестоимость': { val: 980.5, unit: 'млн ₽', ytd: {abs: 140.5, pct: 16.7, dir: 'up'}, mtd: {abs: 110.0, pct: 12.6, dir: 'up'}, trend: 'warn' },
+      'Комм. расх.': { val: 45.2, unit: 'млн ₽', ytd: {abs: 5.2, pct: 13.0, dir: 'up'}, mtd: {abs: 1.1, pct: 2.4, dir: 'up'}, trend: 'bad' },
+      'Упр. расх.': { val: 68.5, unit: 'млн ₽', ytd: {abs: 2.5, pct: 3.7, dir: 'up'}, mtd: {abs: 0.5, pct: 0.7, dir: 'up'}, trend: 'warn' }
+    }
+  },
+  {
+    id: 2, short: 'ГорВодоканал', full: 'АО "ГорВодоканал"', inn: '7702345678',
+    address: 'г. Москва, ул. Водопроводная, 7', dir: 'Кузнецов И.П.', dirPhone: '+7 (495) 234-56-78',
+    acc: 'Морозова Т.И.', accPhone: '+7 (495) 234-56-79', note: 'Водоснабжение и водоотведение',
+    status: 'warn',
+    kpi: {
+      'ДЗ': { val: 312.4, unit: 'млн ₽', ytd: {abs: 22.1, pct: 7.6, dir: 'up'}, mtd: {abs: 8.4, pct: 2.8, dir: 'up'}, trend: 'warn' },
+      'КЗ': { val: 198.7, unit: 'млн ₽', ytd: {abs: -8.2, pct: -4.0, dir: 'down'}, mtd: {abs: 5.1, pct: 2.6, dir: 'up'}, trend: 'good' },
+      'ДС': { val: 56.8, unit: 'млн ₽', ytd: {abs: 4.2, pct: 8.0, dir: 'up'}, mtd: {abs: -2.1, pct: -3.6, dir: 'down'}, trend: 'warn' },
+      'Кредиты': { val: 410.0, unit: 'млн ₽', ytd: {abs: -25.0, pct: -5.7, dir: 'down'}, mtd: {abs: -5.0, pct: -1.2, dir: 'down'}, trend: 'good' },
+      'Проценты': { val: 12.8, unit: 'млн ₽', ytd: {abs: 1.8, pct: 16.4, dir: 'up'}, mtd: {abs: 0.9, pct: 7.6, dir: 'up'}, trend: 'bad' },
+      'Налоги': { val: 8.4, unit: 'млн ₽', ytd: {abs: 0.6, pct: 7.7, dir: 'up'}, mtd: {abs: 0.4, pct: 5.0, dir: 'up'}, trend: 'warn' },
+      'Выручка': { val: 890.2, unit: 'млн ₽', ytd: {abs: 95.0, pct: 11.9, dir: 'up'}, mtd: {abs: 78.5, pct: 9.7, dir: 'up'}, trend: 'good' },
+      'Себестоимость': { val: 712.3, unit: 'млн ₽', ytd: {abs: 82.1, pct: 13.0, dir: 'up'}, mtd: {abs: 65.4, pct: 10.1, dir: 'up'}, trend: 'warn' },
+      'Комм. расх.': { val: 32.1, unit: 'млн ₽', ytd: {abs: 2.8, pct: 9.5, dir: 'up'}, mtd: {abs: 0.7, pct: 2.2, dir: 'up'}, trend: 'warn' },
+      'Упр. расх.': { val: 54.2, unit: 'млн ₽', ytd: {abs: 1.9, pct: 3.6, dir: 'up'}, mtd: {abs: 0.3, pct: 0.6, dir: 'up'}, trend: 'good' }
+    }
+  },
+  {
+    id: 3, short: 'Сети-Сервис', full: 'МУП "Сети-Сервис"', inn: '7703456789',
+    address: 'г. Москва, пр-т Сетевой, 22', dir: 'Волков С.М.', dirPhone: '+7 (495) 345-67-89',
+    acc: 'Белова О.К.', accPhone: '+7 (495) 345-67-90', note: 'Электросети',
+    status: 'ok',
+    kpi: {
+      'ДЗ': { val: 198.6, unit: 'млн ₽', ytd: {abs: 8.4, pct: 4.4, dir: 'up'}, mtd: {abs: 3.2, pct: 1.6, dir: 'up'}, trend: 'good' },
+      'КЗ': { val: 142.3, unit: 'млн ₽', ytd: {abs: -12.1, pct: -7.8, dir: 'down'}, mtd: {abs: -2.4, pct: -1.7, dir: 'down'}, trend: 'good' },
+      'ДС': { val: 72.5, unit: 'млн ₽', ytd: {abs: 18.3, pct: 33.9, dir: 'up'}, mtd: {abs: 6.8, pct: 10.3, dir: 'up'}, trend: 'good' },
+      'Кредиты': { val: 280.0, unit: 'млн ₽', ytd: {abs: -55.0, pct: -16.4, dir: 'down'}, mtd: {abs: -15.0, pct: -5.1, dir: 'down'}, trend: 'good' },
+      'Проценты': { val: 8.2, unit: 'млн ₽', ytd: {abs: -1.4, pct: -14.6, dir: 'down'}, mtd: {abs: -0.5, pct: -5.7, dir: 'down'}, trend: 'good' },
+      'Налоги': { val: 6.8, unit: 'млн ₽', ytd: {abs: 0.4, pct: 6.3, dir: 'up'}, mtd: {abs: 0.2, pct: 3.0, dir: 'up'}, trend: 'good' },
+      'Выручка': { val: 645.8, unit: 'млн ₽', ytd: {abs: 88.4, pct: 15.8, dir: 'up'}, mtd: {abs: 62.1, pct: 10.6, dir: 'up'}, trend: 'good' },
+      'Себестоимость': { val: 498.2, unit: 'млн ₽', ytd: {abs: 58.7, pct: 13.4, dir: 'up'}, mtd: {abs: 42.3, pct: 9.3, dir: 'up'}, trend: 'good' },
+      'Комм. расх.': { val: 21.4, unit: 'млн ₽', ytd: {abs: 1.2, pct: 5.9, dir: 'up'}, mtd: {abs: 0.3, pct: 1.4, dir: 'up'}, trend: 'good' },
+      'Упр. расх.': { val: 38.7, unit: 'млн ₽', ytd: {abs: 0.8, pct: 2.1, dir: 'up'}, mtd: {abs: 0.1, pct: 0.3, dir: 'up'}, trend: 'good' }
+    }
+  },
+  {
+    id: 4, short: 'ТеплоСети', full: 'ООО "ТеплоСети"', inn: '7704567890',
+    address: 'г. Москва, ул. Теплотрасс, 45', dir: 'Соколов Д.А.', dirPhone: '+7 (495) 456-78-90',
+    acc: 'Григорьева Л.В.', accPhone: '+7 (495) 456-78-91', note: 'Тепловые сети, филиал',
+    status: 'err',
+    kpi: {
+      'ДЗ': { val: 587.2, unit: 'млн ₽', ytd: {abs: 92.4, pct: 18.7, dir: 'up'}, mtd: {abs: 28.5, pct: 5.1, dir: 'up'}, trend: 'bad' },
+      'КЗ': { val: 425.1, unit: 'млн ₽', ytd: {abs: 48.2, pct: 12.8, dir: 'up'}, mtd: {abs: 18.7, pct: 4.6, dir: 'up'}, trend: 'bad' },
+      'ДС': { val: 42.3, unit: 'млн ₽', ytd: {abs: -18.5, pct: -30.4, dir: 'down'}, mtd: {abs: -12.4, pct: -22.7, dir: 'down'}, trend: 'bad' },
+      'Кредиты': { val: 780.0, unit: 'млн ₽', ytd: {abs: 80.0, pct: 11.4, dir: 'up'}, mtd: {abs: 25.0, pct: 3.3, dir: 'up'}, trend: 'bad' },
+      'Проценты': { val: 28.6, unit: 'млн ₽', ytd: {abs: 8.4, pct: 41.6, dir: 'up'}, mtd: {abs: 3.8, pct: 15.3, dir: 'up'}, trend: 'bad' },
+      'Налоги': { val: 15.8, unit: 'млн ₽', ytd: {abs: 2.4, pct: 17.9, dir: 'up'}, mtd: {abs: 1.2, pct: 8.2, dir: 'up'}, trend: 'bad' },
+      'Выручка': { val: 1085.4, unit: 'млн ₽', ytd: {abs: 98.2, pct: 9.9, dir: 'up'}, mtd: {abs: 72.4, pct: 7.1, dir: 'up'}, trend: 'warn' },
+      'Себестоимость': { val: 945.8, unit: 'млн ₽', ytd: {abs: 148.5, pct: 18.6, dir: 'up'}, mtd: {abs: 95.2, pct: 11.2, dir: 'up'}, trend: 'bad' },
+      'Комм. расх.': { val: 58.9, unit: 'млн ₽', ytd: {abs: 12.4, pct: 26.7, dir: 'up'}, mtd: {abs: 4.8, pct: 8.9, dir: 'up'}, trend: 'bad' },
+      'Упр. расх.': { val: 82.3, unit: 'млн ₽', ytd: {abs: 8.7, pct: 11.8, dir: 'up'}, mtd: {abs: 2.4, pct: 3.0, dir: 'up'}, trend: 'bad' }
+    }
+  }
+];
+
+const KPI_NAMES = {
+  'ДЗ': 'Дебиторская задолженность',
+  'КЗ': 'Кредиторская задолженность',
+  'ДС': 'Денежные средства',
+  'Кредиты': 'Кредиты и займы (тело долга)',
+  'Проценты': 'Проценты по кредитам',
+  'Налоги': 'Налоги и сборы',
+  'Выручка': 'Выручка (накоп. итог)',
+  'Себестоимость': 'Себестоимость (реал. + НЗП)',
+  'Комм. расх.': 'Коммерческие расходы',
+  'Упр. расх.': 'Управленческие расходы'
+};
+
+const KPI_DESC = {
+  'ДЗ': 'Общая и просроченная дебиторская задолженность в разрезе контрагентов. Счета: 62, 76, 60.02, 68.',
+  'КЗ': 'Общая и просроченная кредиторская задолженность. Счета: 60, 62.02, 76, 68, 69, 70.',
+  'ДС': 'Остатки и динамика движения денежных средств. Счета: 50, 51, 52, 55.',
+  'Кредиты': 'Тело долга по кредитам и займам. Счета: 66, 67.',
+  'Проценты': 'Начисленные проценты по кредитам и займам. Счета: 91.02, 66.03, 67.03.',
+  'Налоги': 'Задолженность и уплата налогов и сборов. Счет: 68.',
+  'Выручка': 'Выручка основная и прочая накопительным итогом. Счета: 90.01, 91.01.',
+  'Себестоимость': 'Реализованная себестоимость и НЗП. Счета: 90.02, 20, 26, 44.',
+  'Комм. расх.': 'Коммерческие расходы периода. Счет: 44.',
+  'Упр. расх.': 'Управленческие расходы периода. Счет: 26.'
+};
+
+// ============ STATE ============
+let currentRsoId = 1;
+let currentView = 'main';
+let currentDrillKpi = null;
+let charts = {};
+
+// ============ INIT ============
+function init() {
+  document.getElementById('currentDate').textContent = 'Среда, 29 июля 2026';
+  renderRsoList();
+  renderRsoTable();
+  fillDocFilter();
+  switchView('main', document.querySelector('.nav-item[data-view="main"]'));
+  initSplitters();
+}
+
+// ============ SPLITTERS ============
+function initSplitters() {
+  const splitter = document.getElementById('splitter');
+  const rsoSec = document.getElementById('rsoSection');
+  const navSec = document.getElementById('navSection');
+  let isDragging = false;
+  let startY = 0, startRsoFlex = 0, startNavFlex = 0;
+
+  splitter.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    splitter.classList.add('active');
+    startY = e.clientY;
+    startRsoFlex = rsoSec.getBoundingClientRect().height;
+    startNavFlex = navSec.getBoundingClientRect().height;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dy = e.clientY - startY;
+    const newRso = Math.max(80, startRsoFlex + dy);
+    const newNav = Math.max(80, startNavFlex - dy);
+    rsoSec.style.flex = `0 0 ${newRso}px`;
+    navSec.style.flex = `0 0 ${newNav}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      splitter.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+
+  const vSplitter = document.getElementById('vSplitter');
+  const sidebar = document.getElementById('sidebar');
+  let vDragging = false;
+  let startX = 0, startWidth = 0;
+
+  vSplitter.addEventListener('mousedown', (e) => {
+    vDragging = true;
+    vSplitter.classList.add('active');
+    startX = e.clientX;
+    startWidth = sidebar.getBoundingClientRect().width;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!vDragging) return;
+    const dx = e.clientX - startX;
+    const newWidth = Math.min(500, Math.max(48, startWidth + dx));
+    sidebar.style.width = newWidth + 'px';
+    if (newWidth <= 60) {
+      sidebar.classList.add('collapsed');
+    } else {
+      sidebar.classList.remove('collapsed');
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (vDragging) {
+      vDragging = false;
+      vSplitter.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+}
+
+// ============ SIDEBAR ============
+function renderRsoList() {
+  const list = document.getElementById('rsoList');
+  const search = document.getElementById('rsoSearch').value.toLowerCase();
+  list.innerHTML = '';
+  RSO_DATA.filter(r =>
+    r.short.toLowerCase().includes(search) ||
+    r.full.toLowerCase().includes(search) ||
+    r.inn.includes(search)
+  ).forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'rso-item' + (r.id === currentRsoId ? ' active' : '');
+    div.innerHTML = `<div class="rso-dot ${r.status === 'ok' ? '' : r.status}"></div><span>${r.short}</span>`;
+    div.onclick = () => { currentRsoId = r.id; renderRsoList(); renderCurrentView(); };
+    list.appendChild(div);
+  });
+}
+function filterRso() { renderRsoList(); }
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar.classList.contains('collapsed')) {
+    sidebar.classList.remove('collapsed');
+    sidebar.style.width = '300px';
+  } else {
+    sidebar.classList.add('collapsed');
+    sidebar.style.width = '48px';
+  }
+}
+
+// ============ VIEW SWITCH ============
+function switchView(view, el) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (el) el.classList.add('active');
+  renderCurrentView();
+}
+function renderCurrentView() {
+  if (currentView === 'main') renderMainView();
+  else if (currentView === 'analytics') renderAnalyticsView();
+  else if (currentView === 'slices') renderSlicesView();
+  else if (currentView === 'alerts') renderAlertsView();
+  else if (currentView === 'summary') renderSummaryView();
+}
+
+// ============ MAIN VIEW (10 KPI) ============
+function renderMainView() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Основные показатели ФХД</div>
+        <div class="page-subtitle">Данные на 29.07.2026 · Нажмите на показатель для детализации</div>
+      </div>
+      <div class="page-actions">
+        <input type="date" class="date-picker" value="2026-07-29">
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpiGrid"></div>
+  `;
+  const rso = RSO_DATA.find(r => r.id === currentRsoId);
+  const grid = document.getElementById('kpiGrid');
+  Object.entries(rso.kpi).forEach(([k, v]) => {
+    const card = document.createElement('div');
+    card.className = 'kpi-card ' + v.trend;
+    card.innerHTML = `
+      <div class="kpi-top">
+        <div class="kpi-name">${KPI_NAMES[k]}</div>
+        <div class="kpi-num">№${Object.keys(rso.kpi).indexOf(k)+1}</div>
+      </div>
+      <div class="kpi-value">${v.val.toLocaleString('ru-RU', {maximumFractionDigits:1})}<span class="unit">${v.unit}</span></div>
+      <div class="kpi-changes">
+        <div class="kpi-change">
+          <span class="lbl">С начала года</span>
+          <span class="val ${v.ytd.dir === 'up' ? (v.trend==='bad'?'down':'up') : (v.trend==='bad'?'up':'down')}">
+            ${v.ytd.abs > 0 ? '▲' : '▼'} ${Math.abs(v.ytd.abs).toFixed(1)} / ${v.ytd.pct > 0 ? '+' : ''}${v.ytd.pct.toFixed(1)}%
+          </span>
+        </div>
+        <div class="kpi-change">
+          <span class="lbl">К началу месяца</span>
+          <span class="val ${v.mtd.dir === 'up' ? (v.trend==='bad'?'down':'up') : (v.trend==='bad'?'up':'down')}">
+            ${v.mtd.abs > 0 ? '▲' : '▼'} ${Math.abs(v.mtd.abs).toFixed(1)} / ${v.mtd.pct > 0 ? '+' : ''}${v.mtd.pct.toFixed(1)}%
+          </span>
+        </div>
+      </div>
+    `;
+    card.onclick = () => openDrilldown(k);
+    grid.appendChild(card);
+  });
+}
+
+// ============ DRILLDOWN ============
+function openDrilldown(kpiKey) {
+  currentDrillKpi = kpiKey;
+  const rso = RSO_DATA.find(r => r.id === currentRsoId);
+  const v = rso.kpi[kpiKey];
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">${KPI_NAMES[kpiKey]}</div>
+        <div class="page-subtitle">${KPI_DESC[kpiKey]}</div>
+      </div>
+      <div class="page-actions">
+        <button class="btn" onclick="renderMainView()">← Назад к показателям</button>
+      </div>
+    </div>
+    <div class="drill-panel">
+      <h3>Динамика показателя</h3>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <label style="font-size:12px;">Период с: <input type="date" class="date-picker" value="2026-01-01" id="drillFrom"></label>
+        <label style="font-size:12px;">по: <input type="date" class="date-picker" value="2026-07-29" id="drillTo"></label>
+        <button class="btn btn-primary" onclick="updateDrillChart()">Применить</button>
+      </div>
+      <div class="chart-box"><canvas id="drillChart"></canvas></div>
+    </div>
+    <div class="drill-panel">
+      <h3>Аналитические срезы</h3>
+      <div class="tabs" id="sliceTabs"></div>
+      <div id="sliceContent"></div>
+    </div>
+  `;
+  renderSliceTabs(kpiKey);
+  drawDrillChart(kpiKey, v.val);
+}
+
+function drawDrillChart(kpiKey, currentVal) {
+  if (charts.drill) charts.drill.destroy();
+  const ctx = document.getElementById('drillChart').getContext('2d');
+  const months = ['Янв','Фев','Мар','Апр','Май','Июн','Июл'];
+  const base = currentVal * 0.72;
+  const data = months.map((m,i) => +(base + (currentVal - base) * (i/6) + (Math.random()-0.5)*currentVal*0.05).toFixed(1));
+  data[data.length-1] = currentVal;
+  charts.drill = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [{
+        label: KPI_NAMES[kpiKey] + ', млн ₽',
+        data: data,
+        borderColor: '#f39c12',
+        backgroundColor: 'rgba(243,156,18,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: '#f39c12'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: false, grid: { color: '#eceff1' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+function updateDrillChart() {
+  const rso = RSO_DATA.find(r => r.id === currentRsoId);
+  drawDrillChart(currentDrillKpi, rso.kpi[currentDrillKpi].val);
+}
+
+const SLICES_DATA = {
+  'ДЗ': {
+    tabs: ['По категориям', 'По возрасту'],
+    content: {
+      'По категориям': [
+        {name:'Население (физ. лица)', val:'210.4 млн ₽', pct:'46.5%'},
+        {name:'УК и ТСЖ', val:'150.2 млн ₽', pct:'33.2%'},
+        {name:'Бизнес и промышленность', val:'79.4 млн ₽', pct:'17.6%'},
+        {name:'Бюджетные организации', val:'12.5 млн ₽', pct:'2.8%'}
+      ],
+      'По возрасту': [
+        {name:'Текущая (не просрочена)', val:'120.0 млн ₽', pct:'26.5%'},
+        {name:'1–30 дней', val:'80.5 млн ₽', pct:'17.8%'},
+        {name:'31–90 дней', val:'110.2 млн ₽', pct:'24.4%'},
+        {name:'91–365 дней', val:'90.3 млн ₽', pct:'19.9%'},
+        {name:'Свыше 1 года', val:'51.5 млн ₽', pct:'11.4%'}
+      ]
+    }
+  },
+  'КЗ': {
+    tabs: ['По категориям', 'По возрасту'],
+    content: {
+      'По категориям': [
+        {name:'Генерирующие компании (газ, э/э)', val:'145.8 млн ₽', pct:'46.9%'},
+        {name:'Бюджет (налоги, взносы)', val:'52.4 млн ₽', pct:'16.9%'},
+        {name:'Персонал (зарплата)', val:'38.2 млн ₽', pct:'12.3%'},
+        {name:'Подрядчики', val:'48.7 млн ₽', pct:'15.7%'},
+        {name:'Прочие поставщики', val:'25.7 млн ₽', pct:'8.3%'}
+      ],
+      'По возрасту': [
+        {name:'Текущая (в рамках отсрочки)', val:'198.4 млн ₽', pct:'63.8%'},
+        {name:'1–30 дней просрочки', val:'62.5 млн ₽', pct:'20.1%'},
+        {name:'31–90 дней просрочки', val:'35.8 млн ₽', pct:'11.5%'},
+        {name:'Свыше 90 дней', val:'14.1 млн ₽', pct:'4.5%'}
+      ]
+    }
+  },
+  'ДС': {
+    tabs: ['По направлениям', 'По местам хранения'],
+    content: {
+      'По направлениям': [
+        {name:'Операционная деятельность', val:'+142.5 млн ₽', pct:'68.2%'},
+        {name:'Инвестиционная деятельность', val:'-38.4 млн ₽', pct:'18.4%'},
+        {name:'Финансовая деятельность', val:'-19.7 млн ₽', pct:'9.4%'}
+      ],
+      'По местам хранения': [
+        {name:'Расчетные счета (51)', val:'68.4 млн ₽', pct:'81.2%'},
+        {name:'Валютные счета (52)', val:'4.2 млн ₽', pct:'5.0%'},
+        {name:'Специальные счета (55)', val:'8.5 млн ₽', pct:'10.1%'},
+        {name:'Касса (50)', val:'3.1 млн ₽', pct:'3.7%'}
+      ]
+    }
+  },
+  'Кредиты': {
+    tabs: ['По срокам', 'По целям'],
+    content: {
+      'По срокам': [
+        {name:'Краткосрочные (до 12 мес.)', val:'148.0 млн ₽', pct:'23.9%'},
+        {name:'Долгосрочные (свыше 12 мес.)', val:'472.0 млн ₽', pct:'76.1%'}
+      ],
+      'По целям': [
+        {name:'Инвестиционные (капвложения)', val:'385.0 млн ₽', pct:'62.1%'},
+        {name:'Пополнение оборотных средств', val:'180.0 млн ₽', pct:'29.0%'},
+        {name:'Рефинансирование', val:'55.0 млн ₽', pct:'8.9%'}
+      ]
+    }
+  },
+  'Выручка': {
+    tabs: ['По видам услуг', 'По потребителям'],
+    content: {
+      'По видам услуг': [
+        {name:'Тепловая энергия', val:'685.4 млн ₽', pct:'55.3%'},
+        {name:'Горячее водоснабжение', val:'312.8 млн ₽', pct:'25.2%'},
+        {name:'Технологическое присоединение', val:'142.5 млн ₽', pct:'11.5%'},
+        {name:'Прочие услуги', val:'99.3 млн ₽', pct:'8.0%'}
+      ],
+      'По потребителям': [
+        {name:'Население', val:'548.2 млн ₽', pct:'44.2%'},
+        {name:'УК и ТСЖ', val:'385.4 млн ₽', pct:'31.1%'},
+        {name:'Промышленность и бизнес', val:'245.8 млн ₽', pct:'19.8%'},
+        {name:'Бюджетные организации', val:'61.0 млн ₽', pct:'4.9%'}
+      ]
+    }
+  },
+  'Себестоимость': {
+    tabs: ['По элементам', 'По местам возникновения'],
+    content: {
+      'По элементам': [
+        {name:'Материальные затраты (ресурс)', val:'512.4 млн ₽', pct:'52.3%'},
+        {name:'Расходы на оплату труда', val:'218.5 млн ₽', pct:'22.3%'},
+        {name:'Отчисления на ФОТ', val:'65.2 млн ₽', pct:'6.6%'},
+        {name:'Амортизация', val:'98.4 млн ₽', pct:'10.0%'},
+        {name:'Услуги сторонних организаций', val:'62.8 млн ₽', pct:'6.4%'},
+        {name:'Прочие затраты', val:'23.2 млн ₽', pct:'2.4%'}
+      ],
+      'По местам возникновения': [
+        {name:'Основное производство (сч. 20)', val:'812.4 млн ₽', pct:'82.8%'},
+        {name:'Общехозяйственные (сч. 26)', val:'68.5 млн ₽', pct:'7.0%'},
+        {name:'Коммерческие (сч. 44)', val:'45.2 млн ₽', pct:'4.6%'},
+        {name:'НЗП (остаток сч. 20)', val:'54.4 млн ₽', pct:'5.5%'}
+      ]
+    }
+  }
+};
+
+['Проценты','Налоги','Комм. расх.','Упр. расх.'].forEach(k => {
+  if (!SLICES_DATA[k]) {
+    SLICES_DATA[k] = {
+      tabs: ['Детализация'],
+      content: {
+        'Детализация': [
+          {name:'По договорам / статьям', val:'см. реестр документов', pct:'—'},
+          {name:'Итого', val: RSO_DATA.find(r=>r.id===currentRsoId).kpi[k].val + ' млн ₽', pct:'100%'}
+        ]
+      }
+    };
+  }
+});
+
+function renderSliceTabs(kpiKey) {
+  const slices = SLICES_DATA[kpiKey];
+  const tabs = document.getElementById('sliceTabs');
+  tabs.innerHTML = '';
+  slices.tabs.forEach((t,i) => {
+    const d = document.createElement('div');
+    d.className = 'tab' + (i===0 ? ' active' : '');
+    d.textContent = t;
+    d.onclick = () => {
+      document.querySelectorAll('#sliceTabs .tab').forEach(x => x.classList.remove('active'));
+      d.classList.add('active');
+      renderSliceContent(kpiKey, t);
+    };
+    tabs.appendChild(d);
+  });
+  renderSliceContent(kpiKey, slices.tabs[0]);
+}
+function renderSliceContent(kpiKey, tabName) {
+  const data = SLICES_DATA[kpiKey].content[tabName];
+  const c = document.getElementById('sliceContent');
+  let html = '<table class="data-table"><thead><tr><th>Группировка</th><th style="text-align:right;">Сумма</th><th style="text-align:right;">Доля</th></tr></thead><tbody>';
+  data.forEach(row => {
+    html += `<tr><td>${row.name}</td><td style="text-align:right; font-weight:600;">${row.val}</td><td style="text-align:right;">${row.pct}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  c.innerHTML = html;
+}
+
+// ============ ANALYTICS VIEW ============
+const ANALYTICS_DATA = {
+  liquidity: {
+    title: 'Ликвидность и оборачиваемость',
+    icon: '🔄',
+    color: '#3498db',
+    metrics: [
+      { name: 'Период оборачиваемости ДЗ', fact: 132, bench: 95, avg: 118, unit: 'дн', lowerBetter: true, formula: '(ДЗ / Выручка) × Кол-во дней' },
+      { name: 'Коэф. абсолютной ликвидности (ДС/КЗ)', fact: 0.27, bench: 0.40, avg: 0.33, unit: '', lowerBetter: true, formula: 'ДС / КЗ' },
+      { name: 'Коэф. платежного дефицита (ДЗ/КЗ)', fact: 1.45, bench: 1.10, avg: 1.28, unit: '', lowerBetter: true, formula: 'ДЗ / КЗ' },
+      { name: 'Период оборачиваемости КЗ', fact: 87, bench: 65, avg: 78, unit: 'дн', lowerBetter: false, formula: '(КЗ / Себестоимость) × Кол-во дней' }
+    ]
+  },
+  debt: {
+    title: 'Долговая нагрузка',
+    icon: '💰',
+    color: '#9b59b6',
+    metrics: [
+      { name: 'Чистый долг / EBITDA', fact: 3.8, bench: 2.5, avg: 3.2, unit: 'x', lowerBetter: true, formula: '(Кредиты - ДС) / EBITDA' },
+      { name: 'Доля краткосрочного долга', fact: 24, bench: 35, avg: 29, unit: '%', lowerBetter: true, formula: 'Краткоср. кредиты (сч. 66) / Общие кредиты' },
+      { name: 'Коэф. покрытия процентов', fact: 4.2, bench: 5.0, avg: 4.6, unit: 'x', lowerBetter: false, formula: 'EBITDA / Проценты по кредитам' },
+      { name: 'Эффективная ставка долга', fact: 18.4, bench: 16.0, avg: 17.1, unit: '%', lowerBetter: true, formula: '(Проценты / Средн. остаток тела) × 100%' }
+    ]
+  },
+  tariff: {
+    title: 'Тариф и эффективность',
+    icon: '📊',
+    color: '#e67e22',
+    metrics: [
+      { name: '% выполнения НВВ', fact: 94, bench: 100, avg: 96, unit: '%', lowerBetter: false, formula: 'Факт выручка / Утверждённая НВВ' },
+      { name: 'Стоимость сбора 1 рубля', fact: 0.04, bench: 0.06, avg: 0.05, unit: '₽', lowerBetter: true, formula: 'Комм. расх. / Сумма выставленных счетов' },
+      { name: 'Валовая маржа на ресурс', fact: 22.4, bench: 25.0, avg: 23.8, unit: '%', lowerBetter: false, formula: '(Выручка - Стоимость ресурса) / Выручка' },
+      { name: 'Доля сверхнормативных затрат', fact: 6.8, bench: 3.0, avg: 4.9, unit: '%', lowerBetter: true, formula: '(Факт себестоимость - План) / План' }
+    ]
+  },
+  financial: {
+    title: 'Финансовые результаты',
+    icon: '📈',
+    color: '#27ae60',
+    metrics: [
+      { name: 'Рентабельность по EBITDA', fact: 18.2, bench: 22.0, avg: 20.1, unit: '%', lowerBetter: false, formula: 'EBITDA / Выручка × 100%' },
+      { name: 'Эффективная ставка налога', fact: 12.4, bench: 14.0, avg: 13.2, unit: '%', lowerBetter: true, formula: '(Налоги / EBITDA) × 100%' },
+      { name: 'Налоговая нагрузка на ФОТ', fact: 32.8, bench: 30.2, avg: 31.4, unit: '%', lowerBetter: true, formula: '(НДФЛ + Взносы) / ФОТ' },
+      { name: 'Доля управленческих расходов', fact: 5.5, bench: 7.0, avg: 6.2, unit: '%', lowerBetter: true, formula: 'Упр. расх. / Выручка × 100%' }
+    ]
+  },
+  operational: {
+    title: 'Операционная эффективность',
+    icon: '💧',
+    color: '#16a085',
+    metrics: [
+      { name: 'Коэф. сбора платежей', fact: 82.4, bench: 95.0, avg: 87.6, unit: '%', lowerBetter: false, formula: 'Факт поступлений / Начисления' },
+      { name: 'Уровень потерь (небаланс)', fact: 14.2, bench: 10.0, avg: 12.1, unit: '%', lowerBetter: true, formula: 'Потери / Отпуск в сеть' },
+      { name: 'Удельные комм. расходы', fact: 3.6, bench: 4.5, avg: 4.1, unit: '%', lowerBetter: true, formula: 'Комм. расх. / Выручка' },
+      { name: 'Коэф. надстройки АУП', fact: 0.38, bench: 0.25, avg: 0.31, unit: '', lowerBetter: true, formula: 'ФОТ управленцев / Общий ФОТ' }
+    ]
+  },
+  budget: {
+    title: 'Сравнение с планом (БДДС)',
+    icon: '⚖️',
+    color: '#c0392b',
+    metrics: [
+      { name: 'Поступления ДС факт/план', fact: 88.5, bench: 100, avg: 93.2, unit: '%', lowerBetter: false, formula: 'Факт поступлений / План БДДС' },
+      { name: 'Платежи факт/план', fact: 92.4, bench: 100, avg: 95.8, unit: '%', lowerBetter: false, formula: 'Факт платежей / План БДДС' },
+      { name: 'Чистый денежный поток', fact: -12.4, bench: 18, avg: 4.6, unit: 'млн ₽', lowerBetter: false, formula: 'Поступления - Выбытия' },
+      { name: 'Фин. прочность (в днях)', fact: 28, bench: 45, avg: 36, unit: 'дн', lowerBetter: false, formula: 'ДС / Среднедневные опер. расходы' }
+    ]
+  }
+};
+
+function renderAnalyticsView() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Аналитика по показателям</div>
+        <div class="page-subtitle">Расчетные метрики в сравнении со средними по системе · Шкала относительно предельного (нормативного) значения</div>
+      </div>
+    </div>
+    <div class="dashboard-grid" id="analyticsGrid"></div>
+  `;
+  const grid = document.getElementById('analyticsGrid');
+  Object.entries(ANALYTICS_DATA).forEach(([key, section]) => {
+    const card = document.createElement('div');
+    card.className = 'dash-card';
+    card.innerHTML = `
+      <h3><span class="ico">${section.icon}</span>${section.title}</h3>
+      <div id="metrics-${key}"></div>
+    `;
+    grid.appendChild(card);
+    renderMetricsBlock(key, section);
+  });
+}
+
+function renderMetricsBlock(key, section) {
+  const container = document.getElementById('metrics-' + key);
+  container.innerHTML = '';
+
+  section.metrics.forEach(m => {
+    const block = document.createElement('div');
+    block.className = 'metric-block';
+
+    const factAbs = Math.abs(m.fact);
+    const benchAbs = Math.abs(m.bench);
+    const avgAbs = Math.abs(m.avg);
+
+    let status, statusClass, deviationClass, deviationText;
+    const diff = m.fact - m.bench;
+    const diffPct = m.bench !== 0 ? ((m.fact - m.bench) / Math.abs(m.bench) * 100) : 0;
+
+    const isGood = m.lowerBetter ? (m.fact <= m.bench) : (m.fact >= m.bench);
+    const isBad = m.lowerBetter ? (diffPct > 20) : (diffPct < -20);
+
+    if (isGood) {
+      status = 'В норме'; statusClass = 'badge-green'; deviationClass = 'pos';
+    } else if (isBad) {
+      status = 'Критично'; statusClass = 'badge-red'; deviationClass = 'neg';
+    } else {
+      status = 'Внимание'; statusClass = 'badge-yellow'; deviationClass = 'warn';
+    }
+
+    const factFormatted = m.unit === 'млн ₽' ? m.fact.toFixed(1) : (Math.abs(m.fact) < 1 ? m.fact.toFixed(2) : m.fact.toFixed(1));
+    const benchFormatted = m.unit === 'млн ₽' ? m.bench.toFixed(1) : (Math.abs(m.bench) < 1 ? m.bench.toFixed(2) : m.bench.toFixed(1));
+    const avgFormatted = m.unit === 'млн ₽' ? m.avg.toFixed(1) : (Math.abs(m.avg) < 1 ? m.avg.toFixed(2) : m.avg.toFixed(1));
+
+    const scaleBase = Math.max(benchAbs, factAbs, avgAbs) * 1.05;
+
+    const factBarPct = scaleBase > 0 ? (factAbs / scaleBase) * 100 : 0;
+    const benchBarPct = scaleBase > 0 ? (benchAbs / scaleBase) * 100 : 0;
+    const avgBarPct = scaleBase > 0 ? (avgAbs / scaleBase) * 100 : 0;
+
+    const factBarClass = isGood ? 'fact good' : isBad ? 'fact bad' : 'fact';
+
+    const sign = diff > 0 ? '+' : '';
+    deviationText = `${sign}${diffPct.toFixed(1)}%`;
+
+    const benchMarkerPct = benchBarPct;
+
+    block.innerHTML = `
+      <div class="metric-head">
+        <div class="metric-info">
+          <div class="metric-name">${m.name}</div>
+          <div class="formula-hint">${m.formula}</div>
+        </div>
+        <div class="metric-val">${factFormatted}<span style="font-size:11px;color:#78909c;font-weight:500;">${m.unit}</span></div>
+        <div class="metric-bench">Норма: ${benchFormatted}${m.unit}</div>
+        <div class="metric-avg">Среднее по РСО: ${avgFormatted}${m.unit}</div>
+        <span class="status-badge ${statusClass}">${status}</span>
+        <span class="deviation ${deviationClass}">${deviationText}</span>
+      </div>
+      <div class="metric-bars">
+        <div class="bar-row">
+          <div class="bar-label">Факт</div>
+          <div class="bar-track">
+            <div class="bar-fill ${factBarClass}" style="width:${factBarPct}%"></div>
+            <div class="bench-marker" style="left:${benchMarkerPct}%" title="Норматив: ${benchFormatted}${m.unit}"></div>
+          </div>
+          <div class="bar-value">${factFormatted}</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Среднее по РСО</div>
+          <div class="bar-track">
+            <div class="bar-fill avg" style="width:${avgBarPct}%"></div>
+            <div class="bench-marker" style="left:${benchMarkerPct}%" title="Норматив: ${benchFormatted}${m.unit}"></div>
+          </div>
+          <div class="bar-value">${avgFormatted}</div>
+        </div>
+      </div>
+    `;
+    container.appendChild(block);
+  });
+}
+
+// ============ SLICES VIEW — UNDER CONSTRUCTION ============
+function renderSlicesView() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Аналитические срезы</div>
+        <div class="page-subtitle">Бенчмаркинг и рейтинги РСО по ключевым метрикам</div>
+      </div>
+    </div>
+    <div class="construction-wrap">
+      <div class="construction-icon">🚧</div>
+      <div class="construction-title">Раздел находится в разработке</div>
+      <div class="construction-subtitle">
+        Мы работаем над функционалом бенчмаркинга РСО и аналитических срезов.
+        В скором времени здесь появятся рейтинги предприятий по уровню просроченной ДЗ, КЗ,
+        доле сверхнормативных затрат и коэффициенту сбора платежей.
+      </div>
+      <div class="construction-steps">
+        <div class="construction-step">
+          <div class="step-num">1</div>
+          <div class="step-title">Сбор методологии</div>
+          <div class="step-desc">Утверждение формул и ключевых метрик бенчмаркинга</div>
+        </div>
+        <div class="construction-step">
+          <div class="step-num">2</div>
+          <div class="step-title">Настройка витрин данных</div>
+          <div class="step-desc">Консолидация данных по 50+ РСО в единое хранилище</div>
+        </div>
+        <div class="construction-step">
+          <div class="step-num">3</div>
+          <div class="step-title">Тестирование и запуск</div>
+          <div class="step-desc">Пилотная эксплуатация и ввод в промышленный режим</div>
+        </div>
+      </div>
+      <div class="construction-progress">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill"></div>
+        </div>
+        <div class="progress-label">
+          <span>Готовность раздела</span>
+          <span><strong>35%</strong></span>
+        </div>
+      </div>
+      <div class="construction-contact">
+        По вопросам функционала обращайтесь: <a href="#">отдел методологии и аналитики</a>
+      </div>
+    </div>
+  `;
+}
+
+// ============ ALERTS VIEW ============
+function renderAlertsView() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Центр управления рисками</div>
+        <div class="page-subtitle">Превентивные уведомления по уровню критичности</div>
+      </div>
+      <div class="page-actions">
+        <span class="status-badge badge-red">🔴 Критично: 2</span>
+        <span class="status-badge badge-yellow">🟡 Внимание: 3</span>
+        <span class="status-badge badge-green">🟢 Норма: 12</span>
+      </div>
+    </div>
+    <div id="alertsList"></div>
+  `;
+  const list = document.getElementById('alertsList');
+  const alerts = [
+    { level: 'critical', title: 'Кассовый разрыв через 10 дней', body: '08.08.2026 платеж за газ 50 млн ₽, на счетах прогнозируется только 30 млн ₽. ДЗ от УК не поступает. Требуется приоритизация платежей или открытие овердрафта.', action: 'Сформировать платежный календарь' },
+    { level: 'critical', title: 'Фокус претензионной работы', body: 'Выявлен пул ТОП-50 должников (УК "Жилком"), которые формируют 80% суммы просрочки — 185 млн ₽. Рекомендуется инициировать процедуру банкротства или передачу в специализированное агентство.', action: 'Выгрузить реестр ТОП-50 для юристов' },
+    { level: 'warning', title: 'Тарифное обоснование', body: 'Факт налога на имущество превысил план, заложенный в тарифе, на 4.2 млн ₽. Необходимо подготовить пояснительную записку для Регулятора для включения в НВВ на следующий период.', action: 'Подготовить пояснительную записку' },
+    { level: 'warning', title: 'Убыточные направления', body: 'Фактическая себестоимость по направлению "ГВС" превысила плановую тарифную смету на 8%. Выявлен рост небаланса (потерь) до 14% при норме 10%.', action: 'Проверить акты закупки ресурса' },
+    { level: 'warning', title: 'Санкции по договорам', body: 'Через 3 дня истекает срок оплаты по крупному договору с Генерирующей компанией (28 млн ₽). При просрочке будут начислены пени 0.1% за каждый день.', action: 'Поставить в приоритет платежей' },
+    { level: 'info', title: 'Рефинансирование кредита', body: 'Ставка по действующему кредиту 18.4%, рынок снизился. Доступны предложения от банков-партнеров от 15.2%. Потенциальная экономия — 8.4 млн ₽ в год.', action: 'Получить предложения банков' },
+    { level: 'info', title: 'Закрытие НЗП', body: 'Договор №145 от 15.11.2025 висит на 20 счете 8 месяцев на сумму 12.4 млн ₽. Требуется закрыть акты или перевести в расходы периода.', action: 'Сформировать справку-расчет' }
+  ];
+  alerts.forEach(a => {
+    const div = document.createElement('div');
+    div.className = 'alert-card ' + a.level;
+    const lvl = a.level === 'critical' ? '🔴 КРИТИЧНО' : a.level === 'warning' ? '🟡 ВНИМАНИЕ' : '🔵 ИНФОРМАЦИЯ';
+    div.innerHTML = `
+      <div class="alert-header">
+        <div class="alert-title">${a.title}</div>
+        <span class="status-badge ${a.level === 'critical' ? 'badge-red' : a.level === 'warning' ? 'badge-yellow' : 'badge-green'}">${lvl}</span>
+      </div>
+      <div class="alert-body">${a.body}</div>
+      <button class="alert-action">→ ${a.action}</button>
+    `;
+    list.appendChild(div);
+  });
+}
+
+// ============ SUMMARY VIEW — UNDER CONSTRUCTION ============
+function renderSummaryView() {
+  const main = document.getElementById('mainContent');
+  main.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Сводная информация</div>
+        <div class="page-subtitle">Карточка предприятия и ключевые параметры</div>
+      </div>
+    </div>
+    <div class="construction-wrap">
+      <div class="construction-icon">🛠️</div>
+      <div class="construction-title">Раздел находится в разработке</div>
+      <div class="construction-subtitle">
+        Мы формируем единое окно сводной информации по предприятиям.
+        Здесь будут представлены карточки РСО, структура баланса,
+        динамика выручки и себестоимости, а также комплектность данных по счетам учета.
+      </div>
+      <div class="construction-steps">
+        <div class="construction-step">
+          <div class="step-num">1</div>
+          <div class="step-title">Карточка РСО</div>
+          <div class="step-desc">Реквизиты, руководство, контакты, структура</div>
+        </div>
+        <div class="construction-step">
+          <div class="step-num">2</div>
+          <div class="step-title">Финансовые сводки</div>
+          <div class="step-desc">Структура баланса и динамика ключевых показателей</div>
+        </div>
+        <div class="construction-step">
+          <div class="step-num">3</div>
+          <div class="step-title">Контроль данных</div>
+          <div class="step-desc">Комплектность ОСВ по 17 счетам бухгалтерского учета</div>
+        </div>
+      </div>
+      <div class="construction-progress">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" style="width: 25%;"></div>
+        </div>
+        <div class="progress-label">
+          <span>Готовность раздела</span>
+          <span><strong>25%</strong></span>
+        </div>
+      </div>
+      <div class="construction-contact">
+        По вопросам функционала обращайтесь: <a href="#">отдел методологии и аналитики</a>
+      </div>
+    </div>
+  `;
+}
+
+// ============ MODALS ============
+function openModal(id) {
+  document.getElementById(id).classList.add('show');
+  if (id === 'docsModal') renderDocs();
+  if (id === 'calModal') renderCalendar();
+}
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+function renderRsoTable() {
+  const tbody = document.getElementById('rsoTableBody');
+  tbody.innerHTML = RSO_DATA.map((r,i) => `
+    <tr>
+      <td>${i+1}</td>
+      <td>${r.full}</td>
+      <td><strong>${r.short}</strong></td>
+      <td>${r.inn}</td>
+      <td>${r.address}</td>
+      <td>${r.dir}</td>
+      <td>${r.dirPhone}</td>
+      <td>${r.acc}</td>
+      <td>${r.accPhone}</td>
+      <td>${r.note}</td>
+    </tr>
+  `).join('');
+}
+function exportRsoExcel() {
+  let csv = '№;Полное наименование;Сокр. наим.;ИНН;Юр. адрес;Руководитель;Тел. руководителя;Гл. бухгалтер;Тел. гл. бух.;Примечание\n';
+  RSO_DATA.forEach((r,i) => {
+    csv += `${i+1};${r.full};${r.short};${r.inn};${r.address};${r.dir};${r.dirPhone};${r.acc};${r.accPhone};${r.note}\n`;
+  });
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'Реестр_РСО.csv'; a.click();
+}
+
+function fillDocFilter() {
+  const sel = document.getElementById('docFilterRso');
+  RSO_DATA.forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r.id; opt.textContent = r.short;
+    sel.appendChild(opt);
+  });
+}
+function renderDocs() {
+  const rsoF = document.getElementById('docFilterRso').value;
+  const perF = document.getElementById('docFilterPeriod').value;
+  const stF = document.getElementById('docFilterStatus').value;
+  const tbody = document.getElementById('docsTableBody');
+  const data = [];
+  RSO_DATA.forEach(r => {
+    ['2026-07','2026-06','2026-05'].forEach(p => {
+      const missing = Math.random() > 0.7 ? [ACCOUNTS[Math.floor(Math.random()*ACCOUNTS.length)]] : [];
+      const status = missing.length === 0 ? 'full' : (Math.random() > 0.5 ? 'partial' : 'missing');
+      data.push({ rso: r, period: p, missing, status, loadDate: '28.07.2026 23:45' });
+    });
+  });
+  const filtered = data.filter(d =>
+    (rsoF === 'all' || d.rso.id == rsoF) &&
+    (perF === 'all' || d.period === perF) &&
+    (stF === 'all' || d.status === stF)
+  );
+  tbody.innerHTML = filtered.map(d => {
+    const badge = d.status === 'full' ? 'badge-green' : d.status === 'partial' ? 'badge-yellow' : 'badge-red';
+    const label = d.status === 'full' ? 'Полный' : d.status === 'partial' ? 'Неполный' : 'Отсутствует';
+    const cnt = d.status === 'missing' ? 0 : ACCOUNTS.length - d.missing.length;
+    return `<tr>
+      <td><strong>${d.rso.short}</strong></td>
+      <td>${d.period === '2026-07' ? 'Июль 2026' : d.period === '2026-06' ? 'Июнь 2026' : 'Май 2026'}</td>
+      <td>${d.loadDate}</td>
+      <td>${cnt} из 17</td>
+      <td>${d.missing.length ? d.missing.join(', ') : '—'}</td>
+      <td><span class="status-badge ${badge}">${label}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('calendarGrid');
+  grid.innerHTML = '';
+  ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(d => {
+    const h = document.createElement('div');
+    h.className = 'cal-head'; h.textContent = d;
+    grid.appendChild(h);
+  });
+  const startOffset = 2;
+  for (let i = 0; i < startOffset; i++) {
+    const e = document.createElement('div');
+    e.className = 'cal-day empty';
+    grid.appendChild(e);
+  }
+  for (let day = 1; day <= 31; day++) {
+    const d = document.createElement('div');
+    let cls = 'cal-day';
+    let pct = '';
+    let status = 'full';
+    if (day > 29) { cls += ' empty-data'; pct = '—'; status = 'future'; }
+    else {
+      const r = Math.random();
+      if (r > 0.75) { cls += ' full'; pct = '100%'; status = 'full'; }
+      else if (r > 0.25) { cls += ' partial'; pct = (60 + Math.floor(Math.random()*35)) + '%'; status = 'partial'; }
+      else { cls += ' empty-data'; pct = '0%'; status = 'empty'; }
+    }
+    d.className = cls;
+    d.innerHTML = `<div class="num">${day}</div><div class="pct">${pct}</div>`;
+    d.onclick = () => showDayDetails(day, status, pct);
+    grid.appendChild(d);
+  }
+}
+function showDayDetails(day, status, pct) {
+  document.getElementById('dayModalTitle').textContent = `Детали загрузки — ${day} июля 2026`;
+  const body = document.getElementById('dayModalBody');
+  let html = `<p style="margin-bottom:12px;"><strong>Общая полнота загрузки:</strong> ${pct}</p>`;
+  if (status === 'full') {
+    html += '<p style="color:#2e7d32;">✅ По всем предприятиям загружены полные комплекты ОСВ (17 счетов).</p>';
+  } else if (status === 'future') {
+    html += '<p style="color:#78909c;">Данные еще не поступили (будущая дата).</p>';
+  } else {
+    html += '<table class="data-table"><thead><tr><th>Предприятие</th><th>Статус</th><th>Проблемные счета / ОСВ</th></tr></thead><tbody>';
+    RSO_DATA.forEach(r => {
+      const rStatus = Math.random();
+      let st, issues;
+      if (rStatus > 0.6) { st = '<span class="status-badge badge-green">Полный комплект</span>'; issues = '—'; }
+      else if (rStatus > 0.25) {
+        st = '<span class="status-badge badge-yellow">Неполный</span>';
+        const miss = [ACCOUNTS[Math.floor(Math.random()*ACCOUNTS.length)], ACCOUNTS[Math.floor(Math.random()*ACCOUNTS.length)]];
+        issues = 'Отсутствуют счета: ' + [...new Set(miss)].join(', ');
+      } else {
+        st = '<span class="status-badge badge-red">Данные не загружены</span>';
+        issues = 'Полное отсутствие ОСВ за период';
+      }
+      html += `<tr><td><strong>${r.short}</strong></td><td>${st}</td><td>${issues}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  body.innerHTML = html;
+  openModal('dayModal');
+}
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); });
+});
+
+init();
+</script>
+</body>
+</html>
