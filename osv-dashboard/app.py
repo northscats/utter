@@ -274,9 +274,14 @@ def _ensure_imap_thread() -> None:
 @app.before_request
 def _maybe_start_imap_thread():
     """Lazy IMAP thread starter — fires on the first HTTP request."""
+    if request.endpoint == 'healthz':
+        return None
     _ensure_imap_thread()
 
-
+@app.route('/healthz', methods=['GET'])
+def healthz():
+    """Process-local liveness probe with no database or storage access."""
+    return {'status': 'ok'}, 200
 def admin_required(f):
     """Декоратор: доступ только для администраторов."""
     @wraps(f)
