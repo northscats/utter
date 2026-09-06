@@ -53,6 +53,9 @@ check("служебный тип text не отображается как ед�
 check("неудовлетворительное сокращается только при отображении",
       _source_display_value(
           "CCC (неудовлетворительное)", "text") == "CCC (неудовл.)")
+check("удовлетворительное сокращается только при отображении",
+      _source_display_value(
+          "B (удовлетворительное)", "text") == "B (удовл.)")
 
 
 def post_file(client, company_id, data, name="history.xlsx"):

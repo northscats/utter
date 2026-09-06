@@ -71,9 +71,15 @@ def _source_display_value(raw_text, unit):
             text,
             flags=re.IGNORECASE,
         ).rstrip()
-    return re.sub(
+    text = re.sub(
         r"\bнеудовлетворительное\b",
         "неудовл.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"\bудовлетворительное\b",
+        "удовл.",
         text,
         flags=re.IGNORECASE,
     )
