@@ -189,8 +189,8 @@ body.modal-open{overflow:hidden}
     <button class="btn btn-primary" type="button" id="open-create-user">+ Добавить пользователя</button>
   </div>
 
-  {% if error %}
-  <div class="alert alert-error">{{ error }}</div>
+  {% if created_username %}
+  <div class="alert alert-success">Пользователь «{{ created_username }}» создан.</div>
   {% endif %}
 
   <!-- ─── Список пользователей ─── -->
@@ -345,6 +345,9 @@ body.modal-open{overflow:hidden}
       <p class="modal-desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
       <form method="post" action="{{ url_for('users_create') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if error %}
+        <div class="alert alert-error" role="alert">{{ error }}</div>
+        {% endif %}
         <div class="modal-fields">
           <div>
             <label>Логин</label>
@@ -400,7 +403,7 @@ body.modal-open{overflow:hidden}
         </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" type="button" id="cancel-create-user">Отмена</button>
-          <button class="btn btn-primary" type="submit">Создать пользователя</button>
+          <button class="btn btn-primary" type="submit" id="submit-create-user">Создать пользователя</button>
         </div>
       </form>
     </div>
@@ -434,6 +437,8 @@ var createUserModal=document.getElementById('create-user-modal');
 var openCreateUser=document.getElementById('open-create-user');
 var closeCreateUser=document.getElementById('close-create-user');
 var cancelCreateUser=document.getElementById('cancel-create-user');
+var createUserForm=createUserModal?createUserModal.querySelector('form'):null;
+var submitCreateUser=document.getElementById('submit-create-user');
 function showCreateUser(){
   if(!createUserModal)return;
   createUserModal.hidden=false;
@@ -451,6 +456,11 @@ function hideCreateUser(){
 if(openCreateUser)openCreateUser.addEventListener('click',showCreateUser);
 if(closeCreateUser)closeCreateUser.addEventListener('click',hideCreateUser);
 if(cancelCreateUser)cancelCreateUser.addEventListener('click',hideCreateUser);
+if(createUserForm)createUserForm.addEventListener('submit',function(){
+  if(!createUserForm.checkValidity()||!submitCreateUser)return;
+  submitCreateUser.disabled=true;
+  submitCreateUser.textContent='Создание…';
+});
 if(createUserModal)createUserModal.addEventListener('click',function(event){
   if(event.target===createUserModal)hideCreateUser();
 });

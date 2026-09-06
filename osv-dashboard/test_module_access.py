@@ -130,7 +130,7 @@ r = client.post('/users/create', data={
     'companies': [str(company_id)],
 })
 check('при создании можно назначить предприятие',
-      r.status_code == 302)
+      r.status_code == 303)
 with app.app_context():
     created = User.query.filter_by(username='created-with-company').one()
     check('предприятие назначено новому пользователю',
@@ -144,6 +144,9 @@ check('создание пользователя вынесено в модал�
       and 'id="create-user-modal"' in users_body
       and 'class="add-user-grid"' not in users_body
       and 'Создать пользователя' in users_body)
+check('после создания показывается подтверждение',
+      'Пользователь «created-with-company» создан.' in
+      client.get('/users?created=created-with-company').get_data(as_text=True))
 
 # Ошибка создания снова открывает модальное окно и не теряет логин.
 r = client.post('/users/create', data={
@@ -155,7 +158,8 @@ error_body = r.get_data(as_text=True)
 check('ошибка создания сохраняет модальное окно',
       r.status_code == 200
       and 'aria-hidden="false"' in error_body
-      and 'value="created-with-company"' in error_body)
+      and 'value="created-with-company"' in error_body
+      and '<div class="alert alert-error" role="alert">' in error_body)
 
 r = client.get('/modules')
 body = r.get_data(as_text=True)

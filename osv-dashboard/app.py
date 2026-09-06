@@ -3865,11 +3865,12 @@ def settings():
 @app.route('/users')
 @admin_required
 def users_list():
-    users = User.query.order_by(User.created_at).all()
+    users = User.query.order_by(User.created_at.desc()).all()
     return render_template('users.html', users=users,
                            available_modules=registered_modules(),
                            companies=Company.query.order_by(Company.name).all(),
-                           create_form=request.form)
+                           create_form=request.form,
+                           created_username=request.args.get('created', '').strip())
 
 
 @app.route('/users/create', methods=['POST'])
@@ -3888,7 +3889,7 @@ def users_create():
     elif User.query.filter_by(username=username).first():
         error = f'Пользователь «{username}» уже существует.'
     if error:
-        users = User.query.order_by(User.created_at).all()
+        users = User.query.order_by(User.created_at.desc()).all()
         return render_template('users.html', users=users, error=error,
                                available_modules=registered_modules(),
                                companies=Company.query.order_by(Company.name).all(),
@@ -3920,7 +3921,7 @@ def users_create():
         ))
     db.session.commit()
     log_event('user_created', {'username': username, 'role': role})
-    return redirect(url_for('users_list'))
+    return redirect(url_for('users_list', created=username), code=303)
 
 
 @app.route('/users/<int:user_id>/delete', methods=['POST'])
