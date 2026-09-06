@@ -4,6 +4,8 @@ import os
 import sys
 import tempfile
 import re
+import threading
+import time
 
 _TMP = tempfile.mkdtemp(prefix='module_access_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
@@ -12,6 +14,7 @@ os.environ.setdefault(
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import app as app_module
 from app import app, init_db
 from database import Company, CompanyMembership, User, UserModuleAccess, db
 from module_registry import MODULES, module_key_for_path
@@ -122,6 +125,19 @@ with app.app_context():
     check('основное предприятие и тип участия сохранены',
           membership.is_primary and membership.participation_type == 'curator')
 
+backup_started = threading.Event()
+backup_release = threading.Event()
+original_durable_backup = app_module._durable_backup
+
+
+def blocking_durable_backup(*_args, **_kwargs):
+    backup_started.set()
+    backup_release.wait(2)
+
+
+app_module._durable_backup = blocking_durable_backup
+app.config['DURABLE_BACKUP_ASYNC_TEST'] = True
+started_at = time.monotonic()
 r = client.post('/users/create', data={
     'username': 'created-with-company',
     'password': 'pass1234',
@@ -129,6 +145,16 @@ r = client.post('/users/create', data={
     'modules': ['documents'],
     'companies': [str(company_id)],
 })
+response_elapsed = time.monotonic() - started_at
+check('резервный снимок не задерживает создание пользователя',
+      r.status_code == 303 and response_elapsed < 0.5
+      and backup_started.wait(1))
+backup_thread = app_module._durable_safety_thread
+backup_release.set()
+if backup_thread:
+    backup_thread.join(timeout=2)
+app.config.pop('DURABLE_BACKUP_ASYNC_TEST', None)
+app_module._durable_backup = original_durable_backup
 check('при создании можно назначить предприятие',
       r.status_code == 303)
 with app.app_context():

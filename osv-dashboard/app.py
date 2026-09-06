@@ -95,6 +95,47 @@ def _durable_backup(reason, allow_removals=False, required=False):
         return None
 
 
+_durable_safety_lock = threading.Lock()
+_durable_safety_pending = []
+_durable_safety_thread = None
+
+
+def _run_durable_safety_backups():
+    """Serialize and coalesce safety-net snapshots outside HTTP workers."""
+    global _durable_safety_thread
+    while True:
+        with _durable_safety_lock:
+            reasons = list(dict.fromkeys(_durable_safety_pending))
+            _durable_safety_pending.clear()
+            if not reasons:
+                _durable_safety_thread = None
+                return
+        reason = '; '.join(reasons[:5])
+        if len(reasons) > 5:
+            reason += f'; ещё изменений: {len(reasons) - 5}'
+        with app.app_context():
+            _durable_backup(f'асинхронная страховка: {reason}')
+
+
+def _schedule_durable_safety_backup(reason):
+    """Queue one background snapshot without delaying the browser response."""
+    global _durable_safety_thread
+    if (app.config.get('TESTING')
+            and not app.config.get('DURABLE_BACKUP_ASYNC_TEST')):
+        _durable_backup(reason)
+        return
+    with _durable_safety_lock:
+        _durable_safety_pending.append(reason)
+        if _durable_safety_thread and _durable_safety_thread.is_alive():
+            return
+        _durable_safety_thread = threading.Thread(
+            target=_run_durable_safety_backups,
+            name='durable-safety-backup',
+            daemon=True,
+        )
+        _durable_safety_thread.start()
+
+
 def _durable_restore():
     """Merge durable data after schema creation; never block application start."""
     if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
@@ -164,7 +205,8 @@ def _durable_mutation_safety_net(response):
     if (request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
             and response.status_code < 400
             and not getattr(g, 'durable_backup_done', False)):
-        _durable_backup(f'http_{request.method.lower()}:{request.endpoint or "unknown"}')
+        _schedule_durable_safety_backup(
+            f'http_{request.method.lower()}:{request.endpoint or "unknown"}')
     return response
 _LOGIN_CSRF = URLSafeTimedSerializer(
     app.secret_key, salt='login-csrf-v1')
@@ -1369,6 +1411,22 @@ def landing():
     v09_url   = Setting.get('landing_v09_url', '')
     return render_template('landing.html', second_url=None,
                            v09_label=v09_label, v09_url=v09_url)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve a lightweight built-in icon without a missing static asset."""
+    icon = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<rect width="64" height="64" rx="14" fill="#0757a6"/>'
+        '<path d="M35 8 19 35h11l-3 21 18-30H34z" fill="#fff"/>'
+        '</svg>'
+    )
+    return Response(
+        icon,
+        mimetype='image/svg+xml',
+        headers={'Cache-Control': 'public, max-age=86400'},
+    )
 
 
 # ---------------------------------------------------------------------------
