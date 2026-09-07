@@ -157,6 +157,11 @@ check("аналитическое меню использует новые на�
       and "renderAlertsView" not in legacy_body
       and 'data-nav="summary"' not in legacy_body
       and "renderSummaryView" not in legacy_body)
+check("разделители освобождают указатель и не залипают на iframe",
+      "setPointerCapture(pointerId)" in legacy_body
+      and "lostpointercapture" in legacy_body
+      and "pointercancel" in legacy_body
+      and "splitter-dragging iframe{pointer-events:none}" in legacy_body)
 app.config["PORTFOLIO_HOME_ENABLED"] = False
 check("флаг возвращает прежний стартовый экран",
       "Выберите предприятие слева" in client.get("/home").get_data(as_text=True))

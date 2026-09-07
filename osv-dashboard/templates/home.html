@@ -125,6 +125,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   transform:translate(-50%,-50%);width:2px;height:28px;
   background:#90a4ae;border-radius:1px}
 .v-splitter:hover::after,.v-splitter.active::after{background:#fff}
+body.splitter-dragging iframe{pointer-events:none}
 
 /* ══ CONTENT PANEL ══ */
 .sl-content{flex:1;display:flex;flex-direction:column;overflow:hidden;background:#dce2e8;min-width:0}
@@ -596,47 +597,71 @@ function initVSplitter() {
   var vs = document.getElementById('v-splitter');
   var sb = document.getElementById('sl-sidebar');
   if (!vs || !sb) return;
-  var dragging = false, startX = 0, startW = 0;
-  vs.addEventListener('mousedown', function(e){
-    dragging = true; startX = e.clientX; startW = sb.offsetWidth;
+  var pointerId = null, startX = 0, startW = 0;
+  function stopDragging(e) {
+    if (pointerId === null) return;
+    if (e && e.pointerId !== undefined && e.pointerId !== pointerId) return;
+    if (vs.hasPointerCapture && vs.hasPointerCapture(pointerId)) {
+      try { vs.releasePointerCapture(pointerId); } catch (err) {}
+    }
+    pointerId = null; vs.classList.remove('active');
+    document.body.classList.remove('splitter-dragging');
+    document.body.style.cursor = ''; document.body.style.userSelect = '';
+    try { localStorage.setItem('sl_width', sb.offsetWidth); } catch(err){}
+  }
+  vs.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || pointerId !== null) return;
+    pointerId = e.pointerId; startX = e.clientX; startW = sb.offsetWidth;
+    vs.setPointerCapture(pointerId);
     vs.classList.add('active'); document.body.style.cursor = 'col-resize';
+    document.body.classList.add('splitter-dragging');
     document.body.style.userSelect = 'none'; e.preventDefault();
   });
-  document.addEventListener('mousemove', function(e){
-    if (!dragging) return;
+  vs.addEventListener('pointermove', function(e){
+    if (e.pointerId !== pointerId) return;
     var w = Math.max(48, Math.min(520, startW + e.clientX - startX));
     sb.style.width = w + 'px';
     sb.classList.toggle('collapsed', w <= 60);
     document.getElementById('sb-collapse-btn').textContent = w <= 60 ? '▶' : '◀';
   });
-  document.addEventListener('mouseup', function(){
-    if (!dragging) return;
-    dragging = false; vs.classList.remove('active');
-    document.body.style.cursor = ''; document.body.style.userSelect = '';
-    try { localStorage.setItem('sl_width', sb.offsetWidth); } catch(e){}
-  });
+  vs.addEventListener('pointerup', stopDragging);
+  vs.addEventListener('pointercancel', stopDragging);
+  vs.addEventListener('lostpointercapture', stopDragging);
+  window.addEventListener('blur', function(){ stopDragging(); });
 }
 
 function initHSplitter() {
   var hs = document.getElementById('h-splitter');
   var top = document.getElementById('sl-top-section');
   if (!hs || !top) return;
-  var dragging = false, startY = 0, startH = 0;
-  hs.addEventListener('mousedown', function(e){
-    dragging = true; startY = e.clientY; startH = top.offsetHeight;
+  var pointerId = null, startY = 0, startH = 0;
+  function stopDragging(e) {
+    if (pointerId === null) return;
+    if (e && e.pointerId !== undefined && e.pointerId !== pointerId) return;
+    if (hs.hasPointerCapture && hs.hasPointerCapture(pointerId)) {
+      try { hs.releasePointerCapture(pointerId); } catch (err) {}
+    }
+    pointerId = null; hs.classList.remove('active');
+    document.body.classList.remove('splitter-dragging');
+    document.body.style.cursor = ''; document.body.style.userSelect = '';
+  }
+  hs.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || pointerId !== null) return;
+    pointerId = e.pointerId; startY = e.clientY; startH = top.offsetHeight;
+    hs.setPointerCapture(pointerId);
     hs.classList.add('active'); document.body.style.cursor = 'row-resize';
+    document.body.classList.add('splitter-dragging');
     document.body.style.userSelect = 'none'; e.preventDefault();
   });
-  document.addEventListener('mousemove', function(e){
-    if (!dragging) return;
+  hs.addEventListener('pointermove', function(e){
+    if (e.pointerId !== pointerId) return;
     var h = Math.max(60, startH + e.clientY - startY);
     top.style.flex = '0 0 ' + h + 'px';
   });
-  document.addEventListener('mouseup', function(){
-    if (!dragging) return;
-    dragging = false; hs.classList.remove('active');
-    document.body.style.cursor = ''; document.body.style.userSelect = '';
-  });
+  hs.addEventListener('pointerup', stopDragging);
+  hs.addEventListener('pointercancel', stopDragging);
+  hs.addEventListener('lostpointercapture', stopDragging);
+  window.addEventListener('blur', function(){ stopDragging(); });
 }
 
 /* ══════════════════════════════
