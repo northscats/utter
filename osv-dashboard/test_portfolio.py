@@ -137,6 +137,12 @@ legacy_body = client.get("/home?legacy=1").get_data(as_text=True)
 check("в аналитике есть отдельный раздел портфельной сводки",
       'data-nav="portfolio"' in legacy_body
       and "view === 'portfolio'" in legacy_body)
+check("аналитическое меню использует новые названия без раздела алертов",
+      "Анализ ОСВ" in legacy_body
+      and "Данные и отчетность" in legacy_body
+      and "Финансовый анализ" in legacy_body
+      and 'data-nav="alerts"' not in legacy_body
+      and "renderAlertsView" not in legacy_body)
 app.config["PORTFOLIO_HOME_ENABLED"] = False
 check("флаг возвращает прежний стартовый экран",
       "Выберите предприятие слева" in client.get("/home").get_data(as_text=True))

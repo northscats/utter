@@ -186,19 +186,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 .kpi-c-desc{font-size:10px;color:#90a4ae;line-height:1.4;font-style:italic}
 .sl-no-data{text-align:center;padding:48px 24px;color:var(--mut);font-size:13px}
 
-/* ══ ALERTS ══ */
-.alert-card{background:#fff;border:1px solid var(--line);border-left:4px solid;
-  border-radius:4px;padding:12px 14px;margin-bottom:8px;transition:box-shadow .15s}
-.alert-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
-.alert-critical{border-left-color:#e74c3c}
-.alert-warn{border-left-color:#f39c12}
-.alert-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:8px}
-.alert-title{font-size:12.5px;font-weight:700;color:var(--ink);flex:1}
-.alert-val{font-size:12px;font-weight:700;color:#546e7a;white-space:nowrap}
-.alert-desc{font-size:11px;color:#78909c;line-height:1.45}
-.sl-no-alerts{display:flex;flex-direction:column;align-items:center;
-  justify-content:center;min-height:180px;gap:8px}
-
 /* ══ SUMMARY ══ */
 .sl-summary-card{background:#fff;border:1px solid var(--line);border-radius:4px;
   padding:14px 16px;margin-bottom:12px}
@@ -429,20 +416,16 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
           <span class="ico">📊</span><span>Основные показатели</span>
         </div>
         <div class="sl-nav-item active" data-nav="kpi" onclick="setNavView('kpi',this)">
-          <span class="ico">🖥️</span><span>Дашборд</span>
+          <span class="ico">🖥️</span><span>Анализ ОСВ</span>
         </div>
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
-          <span class="ico">📋</span><span>История загрузок</span>
+          <span class="ico">📋</span><span>Данные и отчетность</span>
         </div>
         {% if historical_expert_enabled %}
         <div class="sl-nav-item" data-nav="expert" onclick="setNavView('expert',this)">
-          <span class="ico">◫</span><span>Эксперт</span>
+          <span class="ico">◫</span><span>Финансовый анализ</span>
         </div>
         {% endif %}
-        <div class="sl-nav-item" data-nav="alerts" onclick="setNavView('alerts',this)">
-          <span class="ico">🚨</span><span>Алерты</span>
-          <span class="sl-nav-badge sb-hide" id="alerts-badge" style="display:none"></span>
-        </div>
         <div class="sl-nav-item" data-nav="summary" onclick="setNavView('summary',this)">
           <span class="ico">📄</span><span>Сводная</span>
         </div>
@@ -475,25 +458,22 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
       <div class="sl-state sl-placeholder" id="sl-placeholder">
         <div class="sl-ph-icon">📊</div>
         <div class="sl-ph-text">Выберите предприятие слева</div>
-        <div class="sl-ph-sub">Аналитика, дашборд и история загрузок откроются в этой области</div>
+        <div class="sl-ph-sub">Аналитика, анализ ОСВ и данные предприятия откроются в этой области</div>
       </div>
 
-      <!-- Нет дашборда -->
+      <!-- Нет анализа ОСВ -->
       <div class="sl-state sl-nodash" id="sl-nodash">
         <div class="sl-nodash-icon">📂</div>
-        <div class="sl-nodash-title">Дашборд ещё не сформирован</div>
-        <div class="sl-nodash-sub" id="sl-nodash-sub">Загрузите ОСВ-файлы, чтобы получить дашборд</div>
+        <div class="sl-nodash-title">Анализ ОСВ ещё не сформирован</div>
+        <div class="sl-nodash-sub" id="sl-nodash-sub">Загрузите ОСВ-файлы, чтобы сформировать анализ</div>
         <a class="sl-nodash-link" id="sl-nodash-link" href="#">📤 Загрузить файлы</a>
       </div>
 
-      <!-- iframe (дашборд / история) -->
-      <iframe id="sl-iframe" title="Дашборд предприятия"></iframe>
+      <!-- iframe (анализ ОСВ / данные и отчётность) -->
+      <iframe id="sl-iframe" title="Анализ ОСВ предприятия"></iframe>
 
       <!-- KPI-карточки -->
       <div class="sl-scroll-panel" id="sl-kpi-cards"></div>
-
-      <!-- Алерты -->
-      <div class="sl-scroll-panel" id="sl-alerts"></div>
 
       <!-- Сводная -->
       <div class="sl-scroll-panel" id="sl-summary"></div>
@@ -705,22 +685,6 @@ function selectCompany(el) {
   // Re-render current nav view
   renderNavView(currentNavView);
 
-  // Update alerts badge
-  updateAlertsBadge(el);
-}
-
-function updateAlertsBadge(el) {
-  var badge = document.getElementById('alerts-badge');
-  if (!badge) return;
-  var kpisJson = el.dataset.kpis;
-  if (!kpisJson || kpisJson === 'null') { badge.style.display = 'none'; return; }
-  try {
-    var kpis = JSON.parse(kpisJson);
-    var sigs = kpis.signals || {};
-    var cnt = Object.values(sigs).filter(function(s){ return s === 'red' || s === 'yellow'; }).length;
-    if (cnt > 0) { badge.textContent = cnt; badge.style.display = ''; }
-    else badge.style.display = 'none';
-  } catch(e) { badge.style.display = 'none'; }
 }
 
 /* ══════════════════════════════
@@ -744,7 +708,6 @@ function hideAllPanels() {
   document.getElementById('sl-nodash').style.display      = 'none';
   document.getElementById('sl-iframe').style.display      = 'none';
   document.getElementById('sl-kpi-cards').style.display   = 'none';
-  document.getElementById('sl-alerts').style.display      = 'none';
   document.getElementById('sl-summary').style.display     = 'none';
   document.getElementById('sl-rating').style.display      = 'none';
   document.getElementById('sl-loading').style.display     = 'none';
@@ -782,17 +745,16 @@ function renderNavView(view) {
     renderDashView(el);
   }
   else if (view === 'cards')   renderCardsView(el);
-  else if (view === 'alerts')  renderAlertsView(el);
   else if (view === 'summary') renderSummaryView(el);
 }
 
-/* ── Дашборд (iframe) ── */
+/* ── Анализ ОСВ (iframe) ── */
 function renderDashView(el) {
   var hasDash = el.dataset.hasDash === '1';
   var dash    = el.dataset.dash;
   if (!hasDash) {
     document.getElementById('sl-nodash-sub').textContent =
-      'Загрузите ОСВ-файлы для «' + el.dataset.label + '», чтобы сформировать дашборд';
+      'Загрузите ОСВ-файлы для «' + el.dataset.label + '», чтобы сформировать анализ';
     document.getElementById('sl-nodash-link').href = el.dataset.detail;
     document.getElementById('sl-open-btn').style.display = 'none';
     document.getElementById('sl-nodash').style.display = 'flex';
@@ -843,7 +805,7 @@ function renderCardsView(el) {
   if (!el.dataset.hasDash || el.dataset.hasDash !== '1') {
     var panel = document.getElementById('sl-kpi-cards');
     panel.style.display = 'block';
-    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">Дашборд не сформирован — загрузите ОСВ-файлы для этого предприятия</div>';
+    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">Анализ ОСВ не сформирован — загрузите ОСВ-файлы для этого предприятия</div>';
     return;
   }
   var dash = el.dataset.dash;
@@ -855,46 +817,6 @@ function renderCardsView(el) {
   } else {
     loadIframe(dash + '#rating', dash);
   }
-}
-
-/* ── Алерты ── */
-function renderAlertsView(el) {
-  var panel = document.getElementById('sl-alerts');
-  panel.style.display = 'block';
-  document.getElementById('sl-open-btn').style.display = 'none';
-
-  var kpisJson = el.dataset.kpis;
-  if (!kpisJson || kpisJson === 'null') {
-    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">Нет данных КПЭ</div>';
-    return;
-  }
-  var kpis; try { kpis = JSON.parse(kpisJson); } catch(e){ panel.innerHTML=''; return; }
-  var signals = kpis.signals || {};
-  var display = kpis.display || {};
-
-  var red = [], yellow = [];
-  Object.keys(signals).forEach(function(key){
-    var sig = signals[key];
-    if (sig === 'red' || sig === 'yellow') {
-      var item = { key:key, sig:sig, meta: KPI_META[key]||{name:key,desc:''}, val: display[key]||'—' };
-      if (sig === 'red') red.push(item); else yellow.push(item);
-    }
-  });
-
-  if (!red.length && !yellow.length) {
-    panel.innerHTML = '<div class="sl-no-alerts"><div style="font-size:44px">✅</div><div style="font-size:14px;font-weight:700;color:#2e7d32;margin-top:8px">Все показатели в норме</div></div>';
-    return;
-  }
-
-  var html = '';
-  [].concat(red, yellow).forEach(function(item){
-    var isRed = item.sig === 'red';
-    html += '<div class="alert-card ' + (isRed ? 'alert-critical' : 'alert-warn') + '">' +
-      '<div class="alert-hdr"><span class="alert-title">' + item.meta.name + '</span>' +
-      '<span class="alert-val">' + item.val + '</span></div>' +
-      '<div class="alert-desc">' + item.meta.desc + '</div></div>';
-  });
-  panel.innerHTML = html;
 }
 
 /* ── Сводная ── */
