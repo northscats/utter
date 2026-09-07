@@ -133,8 +133,11 @@ check("все содержательные столбцы портфеля со�
       and 'data-sort="number">Выручка' in body)
 check("ссылки сохраняют год и оба режима",
       "view=executive" in body and "view=expert" in body and "year=2025" in body)
-check("прежний экран доступен одним переключателем",
-      "Выберите предприятие слева" in client.get("/home?legacy=1").get_data(as_text=True))
+check("слева вверху есть переход к предприятиям",
+      'class="back" href="/home?legacy=1"' in body
+      and "← Предприятия" in body
+      and "Прежний экран" not in body
+      and "Выберите предприятие слева" in client.get("/home?legacy=1").get_data(as_text=True))
 embedded_body = client.get("/home?embedded=1").get_data(as_text=True)
 check("портфель открывается внутри аналитики без второй шапки",
       "Портфельная сводка" in embedded_body

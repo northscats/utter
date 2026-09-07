@@ -7,7 +7,7 @@
 :root{--ink:#263746;--mut:#657786;--bg:#edf1f4;--panel:#fff;--line:#d6dde3;--blue:#1f6f8b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",sans-serif}
 .hd{height:46px;background:#2c3e50;color:white;display:flex;align-items:center;padding:0 18px;gap:18px}
-.hd b{font-size:14px}.hd a{color:#d9e5ec;text-decoration:none}.hd .right{margin-left:auto}
+.hd b{font-size:14px}.hd a{color:#d9e5ec;text-decoration:none}.hd a:hover{color:#fff}.hd .back{font-weight:600}.hd .right{margin-left:auto}
 main{padding:20px;max-width:1800px;margin:auto}.title{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:15px}
 h1{font-size:22px;margin:0}.sub{color:var(--mut)}
 .period-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.period-label{font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
@@ -31,8 +31,9 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 </style></head>
 <body>
 {% if not request.args.get('embedded') %}
-<header class="hd"><b>ГИС УЗТЭР · Портфель РСО</b><a href="{{ url_for('modules_dashboard') }}">Все модули</a>
-<span class="right"><a href="{{ url_for('home', legacy=1) }}">Прежний экран</a> · {{ current_user.username }}</span></header>
+<header class="hd"><a class="back" href="{{ url_for('home', legacy=1) }}">← Предприятия</a>
+<b>ГИС УЗТЭР · Портфель РСО</b><a href="{{ url_for('modules_dashboard') }}">Все модули</a>
+<span class="right">{{ current_user.username }}</span></header>
 {% endif %}
 <main>
 <div class="title"><div><h1>Портфельная сводка</h1><div class="sub">Все доступные предприятия, утверждённые годовые данные</div></div>
