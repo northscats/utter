@@ -40,6 +40,27 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 </main><script>
 const colors=['#1f6f8b','#c45b35','#3f8a5a','#845f9b','#b48722'], years={{ comparison.years|tojson }};
 const htmlEscape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const renderSingleYear=(box,data)=>{
+ const entries=data.lines.map((line,index)=>({line,index,point:line.points[0]})).filter(item=>Number.isFinite(item.point.value));
+ if(!entries.length){box.textContent='Нет сопоставимых значений';return}
+ const W=620,H=230,p={l:175,r:75,t:24,b:25},values=entries.map(item=>item.point.value);
+ let lo=Math.min(0,...values),hi=Math.max(0,...values);
+ if(lo===hi){lo-=1;hi+=1}
+ const x=value=>p.l+(value-lo)*(W-p.l-p.r)/(hi-lo),zero=x(0),rowH=(H-p.t-p.b)/entries.length;
+ let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${htmlEscape(data.label)} за ${Number(years[0])} год">`;
+ s+=`<text x="${p.l}" y="13" font-size="10" fill="#657786">${Number(years[0])} год · сравнение предприятий</text>`;
+ s+=`<line x1="${zero}" x2="${zero}" y1="${p.t-4}" y2="${H-p.b+3}" stroke="#9aa7b1" stroke-width="1"/>`;
+ entries.forEach(({line,index,point},row)=>{
+  const cy=p.t+rowH*(row+.5),barY=cy-Math.min(11,rowH*.3),barH=Math.min(22,rowH*.6),end=x(point.value);
+  const bx=Math.min(zero,end),bw=Math.max(2,Math.abs(end-zero));
+  const name=line.name.length>24?line.name.slice(0,23)+'…':line.name;
+  s+=`<text x="${p.l-9}" y="${cy+4}" text-anchor="end" font-size="10" fill="#263746"><title>${htmlEscape(line.name)}</title>${htmlEscape(name)}</text>`;
+  s+=`<rect data-company="${Number(line.company_id)}" x="${bx}" y="${barY}" width="${bw}" height="${barH}" rx="3" fill="${colors[index]}"><title>${htmlEscape(line.name)}: ${htmlEscape(point.display)} · ${htmlEscape(point.source)} · ${htmlEscape(point.quality)}</title></rect>`;
+  s+=`<text x="${point.value>=0?Math.min(W-3,end+6):Math.max(p.l+3,end-6)}" y="${cy+4}" text-anchor="${point.value>=0?'start':'end'}" font-size="10" font-weight="700" fill="#263746">${htmlEscape(point.display)}</text>`;
+ });
+ s+=`<text x="${p.l}" y="${H-5}" font-size="9" fill="#657786">${lo.toFixed(1)}</text><text x="${W-p.r}" y="${H-5}" text-anchor="end" font-size="9" fill="#657786">${hi.toFixed(1)}</text></svg>`;
+ box.innerHTML=s;
+};
 document.querySelectorAll('#comparison-table th[data-sort]').forEach(th=>th.onclick=()=>{
  const i=th.cellIndex,body=th.closest('table').tBodies[0],rows=[...body.rows],asc=th.dataset.asc!=='1';
  th.closest('tr').querySelectorAll('th[data-sort]').forEach(other=>{if(other!==th)delete other.dataset.asc});
@@ -52,6 +73,7 @@ document.querySelectorAll('#comparison-table th[data-sort]').forEach(th=>th.oncl
  }).forEach(row=>body.appendChild(row));
 });
 document.querySelectorAll('.chart').forEach(box=>{const data=JSON.parse(box.dataset.chart),W=620,H=230,p={l:48,r:15,t:15,b:28};
+ if(years.length===1){renderSingleYear(box,data);box.parentElement.querySelectorAll('.legend button').forEach((b,i)=>b.querySelector('i').style.background=colors[i]);return}
  const vals=data.lines.flatMap(l=>l.points.map(x=>x.value).filter(Number.isFinite));if(!vals.length){box.textContent='Нет сопоставимых значений';return}
  let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){lo-=1;hi+=1}let x=i=>p.l+i*(W-p.l-p.r)/Math.max(1,years.length-1),y=v=>p.t+(hi-v)*(H-p.t-p.b)/(hi-lo);
  let s=`<svg viewBox="0 0 ${W} ${H}">`;for(let i=0;i<years.length;i++)s+=`<text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="10" fill="#657786">${years[i]}</text>`;

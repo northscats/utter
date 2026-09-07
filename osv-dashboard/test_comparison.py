@@ -191,6 +191,14 @@ page = client.get("/comparison?" + query)
 page_body = page.get_data(as_text=True)
 check("пять доступных предприятий открываются на одном сравнении",
       page.status_code == 200 and "Итоговая таблица" in page_body)
+single_year_page = client.get(
+    "/comparison?" + query + "&start_year=2024&end_year=2024")
+single_year_body = single_year_page.get_data(as_text=True)
+check("один год использует сравнительную диаграмму без временной шкалы",
+      single_year_page.status_code == 200
+      and "const renderSingleYear=" in single_year_body
+      and "if(years.length===1)" in single_year_body
+      and "год · сравнение предприятий" in single_year_body)
 check("итоговая таблица начинается с предприятия и сортирует все колонки",
       '<th data-sort="text">Предприятие</th><th data-sort="text">Метрика</th>'
       in page_body
