@@ -21,6 +21,46 @@ def metric_ref(metric):
     return "|".join((metric["section_key"], metric["key"], metric["series_key"]))
 
 
+def _comparison_metric_catalog(analytics):
+    """Build a numeric catalog with unambiguous labels for parallel series."""
+    catalog = {}
+    for payload in analytics.values():
+        for metric in payload["metrics"]:
+            if metric.get("unit") == "text":
+                continue
+            ref = metric_ref(metric)
+            catalog.setdefault(ref, {
+                "ref": ref, "label": metric["label"],
+                "section_label": metric["section_label"], "unit": metric["unit"],
+                "series_key": metric["series_key"],
+            })
+
+    groups = {}
+    for item in catalog.values():
+        key = (item["section_label"].strip().casefold(),
+               item["label"].strip().casefold())
+        groups.setdefault(key, []).append(item)
+    unit_labels = {
+        "thousand_rubles": "сумма, тыс. руб.",
+        "percent": "доля, %",
+        "ratio": "коэффициент",
+    }
+    for items in groups.values():
+        for index, item in enumerate(sorted(
+                items, key=lambda value: value["series_key"])):
+            suffix = ""
+            if len(items) > 1:
+                same_unit = sum(
+                    other["unit"] == item["unit"] for other in items) > 1
+                suffix = unit_labels.get(item["unit"], item["unit"])
+                if same_unit:
+                    suffix = "{} {}".format(suffix, index + 1)
+            item["option_label"] = (
+                "{} ({})".format(item["label"], suffix)
+                if suffix else item["label"])
+    return catalog
+
+
 def _finite(value):
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and math.isfinite(value))
@@ -78,14 +118,7 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
         start_year, end_year = end_year, start_year
     years = list(range(start_year, end_year + 1))
 
-    catalog = {}
-    for payload in analytics.values():
-        for metric in payload["metrics"]:
-            ref = metric_ref(metric)
-            catalog.setdefault(ref, {
-                "ref": ref, "label": metric["label"],
-                "section_label": metric["section_label"], "unit": metric["unit"],
-            })
+    catalog = _comparison_metric_catalog(analytics)
     selected = [ref for ref in (metric_refs or []) if ref in catalog]
     if not selected:
         preferred = [

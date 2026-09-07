@@ -26,7 +26,7 @@ th{position:sticky;top:0;background:#f5f7f9;z-index:2;text-align:left;font-size:
 <label>С&nbsp;года<select name="start_year">{% for y in comparison.available_years %}<option {% if y==comparison.start_year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
 <label>По&nbsp;год<select name="end_year">{% for y in comparison.available_years %}<option {% if y==comparison.end_year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
 <label>Представление<select name="mode">{% for key,label in comparison.modes.items() %}<option value="{{ key }}" {% if key==comparison.mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-<label>Метрики (до 6)<select name="metric" multiple>{% for metric in comparison.metrics %}<option value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}selected{% endif %}>{{ metric.section_label }} · {{ metric.label }}</option>{% endfor %}</select></label>
+<label>Метрики (до 6)<select name="metric" multiple>{% for metric in comparison.metrics %}<option value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}selected{% endif %}>{{ metric.section_label }} · {{ metric.option_label }}</option>{% endfor %}</select></label>
 <input type="hidden" name="profile_key" value="{{ comparison.profile_key }}"><button>Сравнить</button>
 </form>
 <div class="note">В режиме по умолчанию знак «+» означает лучше нормы; если нормы нет, показан перцентиль среди выбранных предприятий этого года. Нейтральные зоны не окрашиваются.</div>

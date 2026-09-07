@@ -102,12 +102,33 @@ with app.app_context():
         year_version_id=bound_version.id,
         metric_key=canonical_metric_key("Выручка")).one()
     bound_revenue.is_upper_bound = True
+    db.session.add(HistoricalMetricValue(
+        year_version_id=bound_version.id,
+        section_key=bound_revenue.section_key,
+        section_label=bound_revenue.section_label,
+        metric_key=bound_revenue.metric_key,
+        metric_label=bound_revenue.metric_label,
+        series_key="percent",
+        period_label=bound_revenue.period_label,
+        value_numeric=42.0,
+        unit="percent",
+        is_missing=False,
+    ))
     db.session.commit()
     admin_id, reader_id = admin.id, reader.id
     visible_ids = [company.id for company in companies[:5]]
     hidden_id = companies[5].id
 
     base = build_comparison(companies[:5], start_year=2022, end_year=2024)
+    visible_metric_names = [
+        (metric["section_label"], metric["option_label"])
+        for metric in base["metrics"]]
+    check("параллельные серии не выглядят дубликатами в выборе метрик",
+          len(visible_metric_names) == len(set(visible_metric_names))
+          and any("Выручка (сумма, тыс. руб.)" == metric["option_label"]
+                  for metric in base["metrics"])
+          and any("Выручка (доля, %)" == metric["option_label"]
+                  for metric in base["metrics"]))
     revenue = next(m for m in base["metrics"] if m["label"] == "Выручка")
     liquidity = next(m for m in base["metrics"]
                      if m["label"].startswith("Коэффициент текущей"))
