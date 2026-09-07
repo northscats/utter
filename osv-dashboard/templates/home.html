@@ -334,7 +334,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
     <div class="sl-top-section" id="sl-top-section">
       <div class="sb-section-hdr sb-hide">
         <span>Предприятия</span>
-        <span class="cnt" id="sl-cnt">{{ companies|length }}</span>
         <a class="btn-add sb-add" href="{{ url_for('company_new') }}" title="Добавить предприятие">+</a>
       </div>
       <div class="sl-search-bar sb-hide">
@@ -641,8 +640,6 @@ function filterAll() {
     var m = !q || (tr.dataset.name||'').includes(q) || (tr.dataset.inn||'').includes(q);
     tr.style.display = m ? '' : 'none';
   });
-  var cnt = document.getElementById('sl-cnt');
-  if (cnt) cnt.textContent = q ? vis + ' / {{ companies|length }}' : '{{ companies|length }}';
 }
 
 /* ══════════════════════════════
