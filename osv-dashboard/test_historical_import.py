@@ -306,6 +306,9 @@ expert_body = expert_page.get_data(as_text=True)
 check("экспертный экран отображает профиль, годы и проверяемые значения",
       expert_page.status_code == 200
       and "Единый методический профиль" in expert_body
+      and expert_body.index('class="period-bar"') < expert_body.index('class="main-area"')
+      and '<div class="sb-title">Периоды</div>' not in expert_body
+      and 'class="year-btn active"' in expert_body
       and "Финансовое положение" in expert_body
       and "Исторический рейтинг" in expert_body
       and "Модели банкротства — без среднего балла" in expert_body

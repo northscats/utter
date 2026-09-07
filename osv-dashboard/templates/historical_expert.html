@@ -63,15 +63,14 @@ body { display: flex; flex-direction: column; }
 .nav-btn.active { background: #e0f2fe; color: #0284c7; font-weight: 600; }
 
 /* Years Controls */
-.year-controls { display: flex; flex-direction: column; gap: 10px; }
-.yc-btns { display: flex; gap: 6px; }
-.yc-btn { flex: 1; padding: 4px; background: #fff; border: 1px solid var(--line); border-radius: 4px; font-size: 11px; font-weight: 600; color: var(--mut); cursor: pointer; transition: all 0.15s; }
-.yc-btn:hover { background: #f1f5f9; color: var(--ink); }
-.yc-range { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--mut); }
-.yc-range select { flex: 1; padding: 2px 4px; font-size: 11px; border: 1px solid var(--line); border-radius: 3px; outline: none; }
-.year-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; }
-.year-lbl { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; color: var(--ink); }
-.year-lbl input { cursor: pointer; accent-color: var(--accent); }
+.period-bar { min-height: 48px; padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.period-label { font-size: 11px; font-weight: 700; color: var(--mut); text-transform: uppercase; letter-spacing: .05em; }
+.year-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.year-btn { position: relative; background: var(--paper); border: 1px solid var(--line); color: var(--ink); padding: 4px 10px; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer; transition: all .1s; }
+.year-btn input { position: absolute; opacity: 0; pointer-events: none; }
+.year-btn:hover { background: #e2e8f0; }
+.year-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.year-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Content Table */
 .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #fff; }
@@ -185,6 +184,22 @@ body { display: flex; flex-direction: column; }
     </div>
 </header>
 
+{% if analytics and analytics.years %}
+<div class="period-bar">
+    <span class="period-label">Периоды:</span>
+    <div class="year-tabs">
+        {% for y in analytics.years %}
+        <label class="year-btn {% if y == selected_year %}active{% endif %}">
+            <input type="checkbox" value="{{ y }}" class="yc-chk"
+                   {% if y == selected_year %}checked{% endif %}
+                   onchange="toggleYear('{{ y }}', this.checked)">
+            <span>{{ y }}</span>
+        </label>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="main-area">
     <aside class="sidebar">
         <div class="sb-section">
@@ -203,39 +218,6 @@ body { display: flex; flex-direction: column; }
             </nav>
         </div>
         
-        {% if analytics and analytics.years %}
-        <div class="sb-section">
-            <div class="sb-title">Периоды</div>
-            <div class="year-controls">
-                <div class="yc-btns">
-                    <button class="yc-btn" onclick="setYears('all')">Все</button>
-                    <button class="yc-btn" onclick="setYears('last')">Только последний</button>
-                </div>
-                <div class="yc-range">
-                    <span>От</span>
-                    <select id="year-from" onchange="applyYearRange()">
-                        {% for y in analytics.years %}
-                        <option value="{{ y }}">{{ y }}</option>
-                        {% endfor %}
-                    </select>
-                    <span>До</span>
-                    <select id="year-to" onchange="applyYearRange()">
-                        {% for y in analytics.years %}
-                        <option value="{{ y }}" {% if loop.last %}selected{% endif %}>{{ y }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="year-grid" id="year-checkboxes">
-                    {% for y in analytics.years %}
-                    <label class="year-lbl">
-                        <input type="checkbox" value="{{ y }}" class="yc-chk" checked onchange="toggleYear('{{ y }}', this.checked)">
-                        <span>{{ y }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-        {% endif %}
     </aside>
     
     <main class="content">
@@ -468,62 +450,13 @@ function applyFilters(gKey, q) {
     });
 }
 
-function setYears(mode) {
-    var chks = document.querySelectorAll('.yc-chk');
-    if (mode === 'all') {
-        chks.forEach(function(c) { c.checked = true; toggleYear(c.value, true); });
-    } else if (mode === 'last') {
-        var lastY = availableYears[availableYears.length - 1];
-        chks.forEach(function(c) { 
-            c.checked = (c.value === lastY);
-            toggleYear(c.value, c.checked);
-        });
-    }
-    syncRangeSelects();
-}
-
-function applyYearRange() {
-    var fromSelect = document.getElementById('year-from');
-    var toSelect = document.getElementById('year-to');
-    if (!fromSelect || !toSelect) return;
-    
-    var fromVal = parseInt(fromSelect.value, 10);
-    var toVal = parseInt(toSelect.value, 10);
-    
-    if (fromVal > toVal) {
-        var temp = fromVal;
-        fromVal = toVal;
-        toVal = temp;
-    }
-    
-    var chks = document.querySelectorAll('.yc-chk');
-    chks.forEach(function(c) {
-        var yVal = parseInt(c.value, 10);
-        c.checked = (yVal >= fromVal && yVal <= toVal);
-        toggleYear(c.value, c.checked);
-    });
-}
-
-function syncRangeSelects() {
-    var chks = document.querySelectorAll('.yc-chk');
-    var checkedYears = [];
-    chks.forEach(function(c) { if(c.checked) checkedYears.push(parseInt(c.value, 10)); });
-    
-    if (checkedYears.length > 0) {
-        var min = Math.min.apply(null, checkedYears);
-        var max = Math.max.apply(null, checkedYears);
-        var fromSelect = document.getElementById('year-from');
-        var toSelect = document.getElementById('year-to');
-        if(fromSelect) fromSelect.value = min.toString();
-        if(toSelect) toSelect.value = max.toString();
-    }
-}
-
 function toggleYear(y, isVisible) {
     var cells = document.querySelectorAll('.year-' + y);
     cells.forEach(function(c) {
         c.style.display = isVisible ? '' : 'none';
     });
+    var input = document.querySelector('.yc-chk[value="' + y + '"]');
+    if (input) input.closest('.year-btn').classList.toggle('active', isVisible);
 }
 
 function openTrace(el, payloadStr, yStr) {
@@ -633,7 +566,6 @@ if (selectedYear) {
         c.checked = (c.value === String(selectedYear));
         toggleYear(c.value, c.checked);
     });
-    syncRangeSelects();
 }
 </script>
 </body>
