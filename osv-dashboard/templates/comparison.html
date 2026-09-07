@@ -14,6 +14,7 @@ button{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:70
 .legend button{background:none;border:0;color:var(--ink);padding:2px;display:flex;align-items:center;gap:5px}.sw{width:10px;height:10px;border-radius:50%}
 svg{width:100%;height:100%}.dim{opacity:.16}.table-wrap{overflow:auto;max-height:520px}table{border-collapse:collapse;width:100%;min-width:1200px}
 th{position:sticky;top:0;background:#f5f7f9;z-index:2;text-align:left;font-size:10px;text-transform:uppercase}th,td{padding:8px;border-bottom:1px solid #e7ebef}
+th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕";color:#8997a2;font-size:9px}th[data-sort][data-asc="1"]::after{content:" ↑";color:var(--blue)}th[data-sort][data-asc="0"]::after{content:" ↓";color:var(--blue)}
 .zone-normal{color:#287042}.zone-outside{color:#ad3d35}.zone-neutral{color:var(--mut)}.bad{color:#ad3d35;font-weight:700}
 @media(max-width:700px){.grid{grid-template-columns:1fr}.chart{height:220px}select[multiple]{min-width:260px}}
 </style></head><body>
@@ -33,12 +34,23 @@ th{position:sticky;top:0;background:#f5f7f9;z-index:2;text-align:left;font-size:
 {% if not comparison.years %}<div class="card">Нет утверждённых годовых данных для выбранных предприятий.</div>{% endif %}
 <div class="grid">{% for chart in comparison.series %}<section class="card"><b>{{ chart.label }}</b><div class="chart" data-chart='{{ chart|tojson|e }}'></div>
 <div class="legend">{% for line in chart.lines %}<button type="button" data-company="{{ line.company_id }}"><i class="sw"></i>{{ line.name }}</button>{% endfor %}</div></section>{% endfor %}</div>
-{% if comparison.table %}<section class="card"><b>Итоговая таблица</b><div class="table-wrap"><table><thead><tr><th>Метрика</th><th>Предприятие</th><th>Год</th><th>Значение</th><th>Изменение</th><th>Норма</th><th>Медиана</th><th>Зона</th><th>Качество</th><th>Источник</th></tr></thead><tbody>
-{% for row in comparison.table %}<tr data-company="{{ row.company_id }}"><td>{{ row.metric }}</td><td><b>{{ row.company }}</b></td><td>{{ row.year or '—' }}</td><td>{{ row.value_display }}</td><td>{{ row.change_display }}</td><td>{{ row.norm }}</td><td>{{ row.median_display }}</td><td class="zone-{{ row.zone }}">{{ {'normal':'Норма','outside':'Отклонение','neutral':'Без оценки'}.get(row.zone,'Без оценки') }}</td><td class="{{ 'bad' if row.quality=='Конфликт источников' else '' }}">{{ row.quality }}</td><td>{{ row.source }}</td></tr>{% endfor %}
+{% if comparison.table %}<section class="card"><b>Итоговая таблица</b><div class="table-wrap"><table id="comparison-table"><thead><tr><th data-sort="text">Предприятие</th><th data-sort="text">Метрика</th><th data-sort="number">Год</th><th data-sort="number">Значение</th><th data-sort="number">Изменение</th><th data-sort="text">Норма</th><th data-sort="number">Медиана</th><th data-sort="text">Зона</th><th data-sort="text">Качество</th><th data-sort="text">Источник</th></tr></thead><tbody>
+{% for row in comparison.table %}<tr data-company="{{ row.company_id }}"><td><b>{{ row.company }}</b></td><td>{{ row.metric }}</td><td data-value="{{ row.year if row.year is not none else '' }}">{{ row.year or '—' }}</td><td data-value="{{ row.value if row.value is not none else '' }}">{{ row.value_display }}</td><td data-value="{{ row.change if row.change is not none else '' }}">{{ row.change_display }}</td><td>{{ row.norm }}</td><td data-value="{{ row.median if row.median is not none else '' }}">{{ row.median_display }}</td><td class="zone-{{ row.zone }}">{{ {'normal':'Норма','outside':'Отклонение','neutral':'Без оценки'}.get(row.zone,'Без оценки') }}</td><td class="{{ 'bad' if row.quality=='Конфликт источников' else '' }}">{{ row.quality }}</td><td>{{ row.source }}</td></tr>{% endfor %}
 </tbody></table></div></section>{% endif %}
 </main><script>
 const colors=['#1f6f8b','#c45b35','#3f8a5a','#845f9b','#b48722'], years={{ comparison.years|tojson }};
 const htmlEscape=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+document.querySelectorAll('#comparison-table th[data-sort]').forEach(th=>th.onclick=()=>{
+ const i=th.cellIndex,body=th.closest('table').tBodies[0],rows=[...body.rows],asc=th.dataset.asc!=='1';
+ th.closest('tr').querySelectorAll('th[data-sort]').forEach(other=>{if(other!==th)delete other.dataset.asc});
+ th.dataset.asc=asc?'1':'0';
+ rows.sort((a,b)=>{
+  let x=a.cells[i].dataset.value??a.cells[i].innerText.trim(),y=b.cells[i].dataset.value??b.cells[i].innerText.trim();
+  if(x===''||y==='')return x===''?(y===''?0:1):-1;
+  if(th.dataset.sort==='number')return (Number(x)-Number(y))*(asc?1:-1);
+  return x.localeCompare(y,'ru',{numeric:true,sensitivity:'base'})*(asc?1:-1);
+ }).forEach(row=>body.appendChild(row));
+});
 document.querySelectorAll('.chart').forEach(box=>{const data=JSON.parse(box.dataset.chart),W=620,H=230,p={l:48,r:15,t:15,b:28};
  const vals=data.lines.flatMap(l=>l.points.map(x=>x.value).filter(Number.isFinite));if(!vals.length){box.textContent='Нет сопоставимых значений';return}
  let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){lo-=1;hi+=1}let x=i=>p.l+i*(W-p.l-p.r)/Math.max(1,years.length-1),y=v=>p.t+(hi-v)*(H-p.t-p.b)/(hi-lo);

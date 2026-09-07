@@ -188,8 +188,14 @@ client = app.test_client()
 login_as(client, reader_id)
 query = "&".join("company={}".format(item) for item in visible_ids)
 page = client.get("/comparison?" + query)
+page_body = page.get_data(as_text=True)
 check("пять доступных предприятий открываются на одном сравнении",
-      page.status_code == 200 and "Итоговая таблица" in page.get_data(as_text=True))
+      page.status_code == 200 and "Итоговая таблица" in page_body)
+check("итоговая таблица начинается с предприятия и сортирует все колонки",
+      '<th data-sort="text">Предприятие</th><th data-sort="text">Метрика</th>'
+      in page_body
+      and page_body.count("<th data-sort=") == 10
+      and 'id="comparison-table"' in page_body)
 check("более пяти предприятий отклоняются",
       client.get("/comparison?" + query + "&company={}".format(hidden_id)).status_code
       in (400, 403))
