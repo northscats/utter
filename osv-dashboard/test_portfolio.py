@@ -121,6 +121,12 @@ login_as(client, reader_id)
 body = client.get("/home").get_data(as_text=True)
 check("портфель является стартовым экраном аналитики",
       "Портфельная сводка" in body and "Организация не РСО" not in body)
+check("общий год выбирается кнопками периодов",
+      "Общий год" not in body
+      and 'class="period-label">Периоды:' in body
+      and body.count('class="year-btn') == 2
+      and 'class="year-btn active"' in body
+      and 'href="/home?year=2025"' in body)
 check("все содержательные столбцы портфеля сортируются кликом",
       body.count('data-sort="number"') == 9
       and body.count('data-sort="text"') == 1
@@ -132,7 +138,8 @@ check("прежний экран доступен одним переключа�
 embedded_body = client.get("/home?embedded=1").get_data(as_text=True)
 check("портфель открывается внутри аналитики без второй шапки",
       "Портфельная сводка" in embedded_body
-      and "ГИС УЗТЭР · Портфель РСО" not in embedded_body)
+      and "ГИС УЗТЭР · Портфель РСО" not in embedded_body
+      and "embedded=1" in embedded_body)
 legacy_body = client.get("/home?legacy=1").get_data(as_text=True)
 check("в аналитике есть отдельный раздел портфельной сводки",
       'data-nav="portfolio"' in legacy_body

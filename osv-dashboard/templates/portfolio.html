@@ -9,7 +9,10 @@
 .hd{height:46px;background:#2c3e50;color:white;display:flex;align-items:center;padding:0 18px;gap:18px}
 .hd b{font-size:14px}.hd a{color:#d9e5ec;text-decoration:none}.hd .right{margin-left:auto}
 main{padding:20px;max-width:1800px;margin:auto}.title{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:15px}
-h1{font-size:22px;margin:0}.sub{color:var(--mut)}select{padding:7px 10px;border:1px solid var(--line);border-radius:5px;background:white}
+h1{font-size:22px;margin:0}.sub{color:var(--mut)}
+.period-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.period-label{font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+.year-tabs{display:flex;flex-wrap:wrap;gap:4px}.year-btn{display:inline-flex;align-items:center;background:#f8fafc;border:1px solid var(--line);color:var(--ink);padding:4px 10px;font-size:12px;font-weight:600;border-radius:4px;text-decoration:none;transition:all .1s}
+.year-btn:hover{background:#e2e8f0}.year-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}.year-btn:focus{outline:2px solid var(--blue);outline-offset:2px}
 .status{padding:5px 9px;border-radius:4px;font-weight:700}.ok{background:#e8f5e9;color:#28643b}.warn{background:#fff4dd;color:#8a5a00}
 .cards{display:grid;grid-template-columns:repeat(6,minmax(145px,1fr));gap:10px;margin-bottom:16px}
 .card{background:white;border:1px solid var(--line);border-radius:6px;padding:13px}.card strong{font-size:24px;display:block}.card span{color:var(--mut)}
@@ -33,9 +36,11 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 {% endif %}
 <main>
 <div class="title"><div><h1>Портфельная сводка</h1><div class="sub">Все доступные предприятия, утверждённые годовые данные</div></div>
-<form method="get"><label>Общий год <select name="year" onchange="this.form.submit()">
-{% for y in portfolio.years %}<option value="{{ y }}" {% if y == portfolio.year %}selected{% endif %}>{{ y }}</option>{% endfor %}
-</select></label></form>
+{% if portfolio.years %}<div class="period-bar"><span class="period-label">Периоды:</span><div class="year-tabs">
+{% for y in portfolio.years|reverse %}<a class="year-btn{% if y == portfolio.year %} active{% endif %}"
+href="{{ url_for('home', year=y, embedded=1 if request.args.get('embedded') else None) }}"
+aria-current="{{ 'true' if y == portfolio.year else 'false' }}">{{ y }}</a>{% endfor %}
+</div></div>{% endif %}
 <span class="status {{ 'ok' if portfolio.threshold_met else 'warn' }}">
 {% if portfolio.year %}{{ portfolio.year }} · покрытие {{ (portfolio.coverage * 100)|round|int }}%{% else %}Нет общего года{% endif %}
 · {{ 'актуальный общий год' if portfolio.threshold_met else 'порог 80% не достигнут' }}</span></div>
