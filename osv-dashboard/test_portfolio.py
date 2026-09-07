@@ -149,7 +149,9 @@ check("аналитическое меню использует новые на�
       and "Данные и отчетность" in legacy_body
       and "Финансовый анализ" in legacy_body
       and 'data-nav="alerts"' not in legacy_body
-      and "renderAlertsView" not in legacy_body)
+      and "renderAlertsView" not in legacy_body
+      and 'data-nav="summary"' not in legacy_body
+      and "renderSummaryView" not in legacy_body)
 app.config["PORTFOLIO_HOME_ENABLED"] = False
 check("флаг возвращает прежний стартовый экран",
       "Выберите предприятие слева" in client.get("/home").get_data(as_text=True))
