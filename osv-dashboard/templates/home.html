@@ -422,11 +422,11 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
         <span>Аналитика</span>
       </div>
       <div class="sl-nav-list">
+        <div class="sl-nav-item" data-nav="cards" onclick="setNavView('cards',this)">
+          <span class="ico">📊</span><span>Основные показатели</span>
+        </div>
         <div class="sl-nav-item active" data-nav="kpi" onclick="setNavView('kpi',this)">
           <span class="ico">🖥️</span><span>Дашборд</span>
-        </div>
-        <div class="sl-nav-item" data-nav="cards" onclick="setNavView('cards',this)">
-          <span class="ico">📊</span><span>КПЭ-карточки</span>
         </div>
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
           <span class="ico">📋</span><span>История загрузок</span>
