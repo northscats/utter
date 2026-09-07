@@ -103,6 +103,8 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 /* Bottom section: navigation */
 .sl-bot-section{display:flex;flex-direction:column;overflow:hidden;min-height:60px;flex:0 1 45%}
 .sl-nav-list{flex:1;overflow-y:auto}
+.sl-nav-group-hdr{padding-top:8px;padding-bottom:8px}
+.sl-nav-group-hdr:not(:first-child){border-top:1px solid var(--line)}
 .sl-nav-item{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;
   border-left:3px solid transparent;font-size:12.5px;transition:all .15s;position:relative}
 .sl-nav-item:hover{background:#f5f7fa}
@@ -392,12 +394,18 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 
     <!-- BOTTOM: Navigation menu -->
     <div class="sl-bot-section sb-hide" id="sl-bot-section">
-      <div class="sb-section-hdr">
-        <span>Аналитика</span>
-      </div>
       <div class="sl-nav-list">
+        <div class="sb-section-hdr sl-nav-group-hdr">
+          <span>Портфель</span>
+        </div>
         <div class="sl-nav-item" data-nav="portfolio" onclick="setNavView('portfolio',this)">
           <span class="ico">▦</span><span>Портфельная сводка</span>
+        </div>
+        <div class="sl-nav-item" data-nav="rating" onclick="setNavView('rating',this)">
+          <span class="ico">🏆</span><span>Общий рейтинг</span>
+        </div>
+        <div class="sb-section-hdr sl-nav-group-hdr">
+          <span>Аналитика предприятия</span>
         </div>
         <div class="sl-nav-item" data-nav="cards" onclick="setNavView('cards',this)">
           <span class="ico">📊</span><span>Основные показатели</span>
@@ -413,9 +421,6 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
           <span class="ico">◫</span><span>Финансовый анализ</span>
         </div>
         {% endif %}
-        <div class="sl-nav-item" data-nav="rating" onclick="setNavView('rating',this)">
-          <span class="ico">🏆</span><span>Общий рейтинг</span>
-        </div>
       </div>
     </div>
   </div>

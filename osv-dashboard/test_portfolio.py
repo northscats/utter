@@ -141,8 +141,10 @@ check("портфель открывается внутри аналитики �
       and "ГИС УЗТЭР · Портфель РСО" not in embedded_body
       and "embedded=1" in embedded_body)
 legacy_body = client.get("/home?legacy=1").get_data(as_text=True)
-check("в аналитике есть отдельный раздел портфельной сводки",
-      'data-nav="portfolio"' in legacy_body
+check("портфельная сводка и общий рейтинг вынесены в раздел портфеля",
+      "<span>Портфель</span>" in legacy_body
+      and legacy_body.index("<span>Портфель</span>") < legacy_body.index('data-nav="portfolio"')
+      < legacy_body.index('data-nav="rating"') < legacy_body.index("<span>Аналитика предприятия</span>")
       and "view === 'portfolio'" in legacy_body)
 check("аналитическое меню использует новые названия без раздела алертов",
       "Анализ ОСВ" in legacy_body
