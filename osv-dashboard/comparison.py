@@ -12,7 +12,6 @@ MODES = {
     "normalized": "Отклонение от нормы / перцентиль",
     "absolute": "Абсолютные значения",
     "median": "Отклонение от медианы",
-    "change": "Изменение за период",
     "index": "Индекс 100 к базовому году",
 }
 
@@ -112,8 +111,9 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
             "metrics": [], "selected_refs": [], "series": [], "table": [],
             "mode": mode, "modes": MODES, "profile_key": profile_key,
         }
-    start_year = start_year if start_year in all_years else min(all_years)
-    end_year = end_year if end_year in all_years else max(all_years)
+    default_year = 2025 if 2025 in all_years else max(all_years)
+    start_year = start_year if start_year in all_years else default_year
+    end_year = end_year if end_year in all_years else default_year
     if start_year > end_year:
         start_year, end_year = end_year, start_year
     years = list(range(start_year, end_year + 1))

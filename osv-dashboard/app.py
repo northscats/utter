@@ -1491,7 +1491,11 @@ def home():
                         rating_profiles=_rating_profiles_for_user(),
                         historical_expert_enabled=(
                             app.config['HISTORICAL_IMPORT_ENABLED']
-                            and app.config['HISTORICAL_EXPERT_ENABLED'])),
+                             and app.config['HISTORICAL_EXPERT_ENABLED']),
+                         comparison_enabled=(
+                             app.config['COMPANY_COMPARISON_ENABLED']
+                             and app.config['HISTORICAL_IMPORT_ENABLED']
+                             and app.config['HISTORICAL_EXPERT_ENABLED'])),
         mimetype='text/html')
     # В шаблоне находится клиент API рейтинга. Не позволяем открытой вкладке
     # после обновления сервера продолжать выполнять устаревший JavaScript.
@@ -1708,27 +1712,46 @@ def company_comparison():
     visible = query.order_by(Company.name, Company.id).all()
     visible_by_id = {company.id: company for company in visible}
     selected_ids = list(dict.fromkeys(request.args.getlist('company', type=int)))
-    if not selected_ids:
-        selected_ids = [company.id for company in visible[:2]]
-    elif len(selected_ids) == 1:
-        companion = next((
-            company.id for company in visible
-            if company.id != selected_ids[0]), None)
-        if companion is not None:
-            selected_ids.append(companion)
-    if not 2 <= len(selected_ids) <= 5:
-        abort(400, description='Выберите от двух до пяти предприятий')
+    if len(selected_ids) > 5:
+        abort(400, description='Выберите не более пяти предприятий')
     if any(company_id not in visible_by_id for company_id in selected_ids):
         abort(403, description='Нет доступа к одному из предприятий')
-    from comparison import build_comparison
-    comparison = build_comparison(
-        [visible_by_id[company_id] for company_id in selected_ids],
-        metric_refs=request.args.getlist('metric'),
-        start_year=request.args.get('start_year', type=int),
-        end_year=request.args.get('end_year', type=int),
-        mode=request.args.get('mode', 'normalized'),
-        profile_key=request.args.get('profile_key', 'methodical'),
-    )
+    from comparison import MODES, build_comparison
+    selected_companies = [
+        visible_by_id[company_id] for company_id in selected_ids]
+    if len(selected_companies) >= 2:
+        comparison = build_comparison(
+            selected_companies,
+            metric_refs=request.args.getlist('metric'),
+            start_year=request.args.get('start_year', type=int),
+            end_year=request.args.get('end_year', type=int),
+            mode=request.args.get('mode', 'normalized'),
+            profile_key=request.args.get('profile_key', 'methodical'),
+        )
+    else:
+        available_years = sorted({
+            row[0] for row in db.session.query(HistoricalYearVersion.year).filter(
+                HistoricalYearVersion.company_id.in_(visible_by_id),
+                HistoricalYearVersion.is_active.is_(True),
+            ).distinct().all()
+        })
+        default_year = (
+            2025 if 2025 in available_years
+            else max(available_years) if available_years else None)
+        comparison = {
+            'companies': selected_companies,
+            'years': [],
+            'available_years': available_years,
+            'metrics': [],
+            'selected_refs': [],
+            'series': [],
+            'table': [],
+            'mode': 'normalized',
+            'modes': MODES,
+            'profile_key': request.args.get('profile_key', 'methodical'),
+            'start_year': default_year,
+            'end_year': default_year,
+        }
     response = Response(render_template(
         'comparison.html', comparison=comparison,
         visible_companies=visible, selected_ids=selected_ids),

@@ -81,6 +81,7 @@ with app.app_context():
                      100000 if index == 4 else 120 * (index + 1),
                      1.5 + index / 10)
         add_year(company, admin, 2024, 150 * (index + 1), 1.8 + index / 10)
+        add_year(company, admin, 2025, 175 * (index + 1), 2.0 + index / 10)
     # ОСВ за отсутствующий утверждённый 2023 год не должна закрывать разрыв.
     db.session.add(Upload(
         company_id=companies[1].id, uploaded_by=admin.id,
@@ -175,7 +176,7 @@ with app.app_context():
           all(point["value"] is None
               for line in two_company_percentile["series"][0]["lines"]
               for point in line["points"]))
-    for mode in ("absolute", "median", "change", "index"):
+    for mode in ("absolute", "median", "index"):
         payload = build_comparison(
             companies[:2], [revenue["ref"]], 2022, 2024, mode)
         check("режим {} формирует точки".format(mode),
@@ -191,6 +192,13 @@ page = client.get("/comparison?" + query)
 page_body = page.get_data(as_text=True)
 check("пять доступных предприятий открываются на одном сравнении",
       page.status_code == 200 and "Итоговая таблица" in page_body)
+check("2025 год выбран по умолчанию для начала и конца периода",
+      page_body.count('value="2025" checked') >= 2)
+check("годы и представления выбираются кнопками без режима изменения",
+      'type="radio" name="start_year"' in page_body
+      and 'type="radio" name="end_year"' in page_body
+      and 'type="radio" name="mode"' in page_body
+      and "Изменение за период" not in page_body)
 single_year_page = client.get(
     "/comparison?" + query + "&start_year=2024&end_year=2024")
 single_year_body = single_year_page.get_data(as_text=True)
@@ -211,8 +219,20 @@ check("более пяти предприятий отклоняются",
 check("скрытое предприятие не раскрывается",
       client.get("/comparison?company={}&company={}".format(
           visible_ids[0], hidden_id)).status_code == 403)
-check("меньше двух предприятий отклоняется при отсутствии пары",
-      client.get("/comparison?company=999999").status_code in (400, 403))
+one_company = client.get("/comparison?company={}&embedded=1".format(
+    visible_ids[0]))
+check("до выбора пары модуль показывает выбранное предприятие без ошибки",
+      one_company.status_code == 200
+      and "РСО 1" in one_company.get_data(as_text=True)
+      and "Выберите от двух до пяти предприятий" in
+      one_company.get_data(as_text=True))
+legacy_home = client.get("/home?legacy=1").get_data(as_text=True)
+check("модуль сравнения встроен в основной экран и принимает клики слева",
+      'data-nav="comparison"' in legacy_home
+      and "toggleComparisonCompany" in legacy_home
+      and "comparisonCompanyIds" in legacy_home)
+check("скрытое предприятие не принимается даже без выбранной пары",
+      client.get("/comparison?company=999999").status_code == 403)
 app.config["COMPANY_COMPARISON_ENABLED"] = False
 check("флаг отключает только маршрут сравнения",
       client.get("/comparison?" + query).status_code == 404
