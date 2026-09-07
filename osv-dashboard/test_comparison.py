@@ -198,7 +198,8 @@ check("один год использует сравнительную диаг�
       single_year_page.status_code == 200
       and "const renderSingleYear=" in single_year_body
       and "if(years.length===1)" in single_year_body
-      and "год · сравнение предприятий" in single_year_body)
+      and "год · сравнение предприятий" in single_year_body
+      and "querySelector('.legend').hidden=true" in single_year_body)
 check("итоговая таблица начинается с предприятия и сортирует все колонки",
       '<th data-sort="text">Предприятие</th><th data-sort="text">Метрика</th>'
       in page_body
