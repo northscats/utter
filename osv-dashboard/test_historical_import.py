@@ -129,6 +129,11 @@ check("карточка отображает полный предпросмот
       and "Годовая историческая аналитика" in preview_body
       and "Разделов: 15" in preview_body
       and "Подтвердить и активировать версии" in preview_body)
+check("финансовый анализ расположен в блоке годовой аналитики и ведёт по верному пути",
+      "Руководитель / Эксперт" not in preview_body
+      and preview_body.index('id="historical-analytics"')
+      < preview_body.index("Финансовый анализ")
+      and f'href="/company/{company_id}/historical/expert"' in preview_body)
 check("длительные исторические операции показывают прогресс",
       'id="historical-preview-form"' in preview_body
       and 'id="historical-preview-status"' in preview_body

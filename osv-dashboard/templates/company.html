@@ -439,21 +439,13 @@ tr:last-child td{border-bottom:0}
 
     <div class="ab-sep"></div>
 
-    {% if historical_expert_enabled %}
-    <a class="ab-btn ab-btn-dash"
-       href="{{ url_for('historical_expert', company_id=company.id) }}"
-       title="Краткое резюме и утверждённые годовые данные">
-      Руководитель / Эксперт
-    </a>
-    <div class="ab-sep"></div>
     {% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}
     <a class="ab-btn" href="{{ url_for('company_comparison', company=company.id) }}"
        title="Выбрать ещё одно предприятие и сопоставить годовые метрики">Сравнить</a>
     <div class="ab-sep"></div>
     {% endif %}
-    {% endif %}
 
-    <!-- Кнопка дашборда -->
+    <!-- Кнопка анализа ОСВ -->
     {% if current_dash %}
     <div class="ab-dash-seg">
       <a class="ab-btn ab-btn-dash"
@@ -463,11 +455,11 @@ tr:last-child td{border-bottom:0}
         <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="16" height="14" rx="2"/><path d="M6 8h8M6 12h5"/>
         </svg>
-        Открыть дашборд
+        Открыть анализ ОСВ
       </a>
       <form method="post" action="{{ url_for('company_regen', company_id=company.id) }}" style="display:inline">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="ab-btn" title="Пересобрать дашборд из загруженных данных"
+        <button type="submit" class="ab-btn" title="Пересобрать анализ ОСВ из загруженных данных"
                 style="padding:6px 10px">
           <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 4v5h5"/><path d="M16 16v-5h-5"/>
@@ -477,8 +469,8 @@ tr:last-child td{border-bottom:0}
       </form>
     </div>
     {% else %}
-    <span class="ab-dash-none" title="Загрузите ОСВ — дашборд появится автоматически">
-      Дашборд не построен
+    <span class="ab-dash-none" title="Загрузите ОСВ — анализ появится автоматически">
+      Анализ ОСВ не построен
     </span>
     {% endif %}
 
@@ -566,6 +558,13 @@ tr:last-child td{border-bottom:0}
   <section class="hist-card" id="historical-analytics">
     <div class="hist-head">
       <div class="hist-title">Годовая историческая аналитика</div>
+      {% if historical_expert_enabled %}
+      <a class="ab-btn ab-btn-dash"
+         href="{{ url_for('historical_expert', company_id=company.id) }}"
+         title="Открыть резюме руководителя и утверждённые годовые данные">
+        Финансовый анализ
+      </a>
+      {% endif %}
       <form class="hist-upload" id="historical-preview-form" method="post"
             action="{{ url_for('historical_preview_upload', company_id=company.id) }}"
             enctype="multipart/form-data">
