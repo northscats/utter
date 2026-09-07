@@ -140,6 +140,11 @@ body { display: flex; flex-direction: column; overflow: hidden; }
     cursor: pointer;
     transition: all 0.1s;
 }
+.year-btn input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
 .year-btn:hover {
     background: #dde4e9;
 }
@@ -532,6 +537,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 <div class="ctrl-bar">
     <form method="GET" id="filter-form" class="ctrl-form">
         <input type="hidden" name="view" value="executive">
+        <input type="hidden" name="years_present" value="1">
         {% if embedded %}<input type="hidden" name="embedded" value="1">{% endif %}
         
         {% if summary and summary.years %}
@@ -539,7 +545,12 @@ body { display: flex; flex-direction: column; overflow: hidden; }
             <span class="ctrl-label">Отчётный год:</span>
             <div class="year-tabs">
                 {% for y in summary.years %}
-                <button type="submit" name="year" value="{{ y }}" class="year-btn {% if y|string == current_year|string %}active{% endif %}">{{ y }}</button>
+                <label class="year-btn {% if y in summary.selected_years %}active{% endif %}">
+                    <input type="checkbox" name="years" value="{{ y }}"
+                           {% if y in summary.selected_years %}checked{% endif %}
+                           onchange="document.getElementById('filter-form').submit()">
+                    <span>{{ y }}</span>
+                </label>
                 {% endfor %}
             </div>
         </div>
@@ -564,7 +575,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
         <div class="empty-state">
             <svg viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             <h3>Нет данных для резюме</h3>
-            <p>Для выбранного года или методики оценки отсутствуют утвержденные данные, необходимые для формирования сводки руководителя.</p>
+            <p>{% if summary and not summary.selected_years %}Выберите хотя бы один отчётный год кнопками выше.{% else %}Для выбранного года или методики оценки отсутствуют утвержденные данные, необходимые для формирования сводки руководителя.{% endif %}</p>
         </div>
         {% else %}
         

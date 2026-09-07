@@ -328,7 +328,8 @@ def _signals(analytics, year):
     return result
 
 
-def build_executive_summary(analytics, selected_year=None):
+def build_executive_summary(
+        analytics, selected_year=None, selected_years=None):
     """Return eight cards and a deterministic management conclusion."""
     years = analytics.get("years", [])
     available_years = analytics.get("available_years", [])
@@ -343,7 +344,35 @@ def build_executive_summary(analytics, selected_year=None):
             "quality": {"label": "Недостаточно", "detail": "Нет действующих годовых версий."},
             "profile": analytics.get("profile", {}),
         }
-    year = selected_year if selected_year in years else max(available_years or years)
+    selectable_years = available_years or years
+    if selected_years is None:
+        analysis_years = (
+            [item for item in years if item <= selected_year]
+            if selected_year in years
+            else list(selectable_years)
+        )
+    else:
+        analysis_years = sorted(
+            set(selected_years) & set(selectable_years))
+    if not analysis_years:
+        return {
+            "year": None,
+            "years": selectable_years,
+            "selected_years": [],
+            "cards": [],
+            "signals": [],
+            "conclusion": {
+                "allowed": False,
+                "text": "Выберите хотя бы один отчётный год.",
+                "caveats": [],
+            },
+            "quality": {
+                "label": "Не выбрано",
+                "detail": "Для формирования резюме нужно выбрать хотя бы один год.",
+            },
+            "profile": analytics.get("profile", {}),
+        }
+    year = max(analysis_years)
 
     revenue = _find(analytics, "financial_results", "Выручка")
     sales_profit = _find(
@@ -371,31 +400,31 @@ def build_executive_summary(analytics, selected_year=None):
     rating = _rating_metric(analytics)
 
     cards = [
-        _card("Выручка", revenue, year, years),
+        _card("Выручка", revenue, year, analysis_years),
         _card(
-            "Прибыль от продаж", sales_profit, year, years,
+            "Прибыль от продаж", sales_profit, year, analysis_years,
             secondary_metric=sales_margin, status_metric=sales_margin,
             note="Нормативная зона определяется по рентабельности продаж.",
         ),
         _card(
-            "EBIT / покрытие процентов", ebit, year, years,
+            "EBIT / покрытие процентов", ebit, year, analysis_years,
             secondary_metric=icr, status_metric=icr,
             note="ICR показывает запас покрытия процентов операционной прибылью.",
         ),
-        _card("Текущая ликвидность", liquidity, year, years),
+        _card("Текущая ликвидность", liquidity, year, analysis_years),
         _card(
-            "NWC / обеспеченность СОС", nwc, year, years,
+            "NWC / обеспеченность СОС", nwc, year, analysis_years,
             secondary_metric=sos, status_metric=sos,
             note="NWC — объём собственных оборотных средств; зона — по коэффициенту СОС.",
         ),
         _card(
-            "Дебиторская задолженность", receivables, year, years,
+            "Дебиторская задолженность", receivables, year, analysis_years,
             secondary_metric=receivables_days, status_metric=receivables_days,
             note="Зона определяется по сроку оборота дебиторской задолженности.",
         ),
-        _card("Доля собственного капитала", autonomy, year, years),
+        _card("Доля собственного капитала", autonomy, year, analysis_years),
         _card(
-            "Рейтинг и риски", rating, year, years,
+            "Рейтинг и риски", rating, year, analysis_years,
             note=(
                 "Исторический рейтинг показан отдельно от рейтинга платформы; "
                 "модели банкротства не усредняются."
@@ -432,7 +461,7 @@ def build_executive_summary(analytics, selected_year=None):
 
     if conclusion_allowed:
         sales_value = _numeric(sales_profit, year)
-        revenue_trend = _trend(revenue, year, years)
+        revenue_trend = _trend(revenue, year, analysis_years)
         severe = sum(
             1 for signal in signals if signal["zone"] in ("risk", "critical"))
         parts = []
@@ -471,7 +500,8 @@ def build_executive_summary(analytics, selected_year=None):
         quality_label = "Достаточно"
     return {
         "year": year,
-        "years": years,
+        "years": selectable_years,
+        "selected_years": analysis_years,
         "cards": cards,
         "signals": signals,
         "conclusion": {

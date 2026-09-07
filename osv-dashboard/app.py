@@ -1870,16 +1870,21 @@ def historical_expert(company_id):
     profile_key = validate_profile_key(
         request.args.get('profile_key', saved_profile_key))
     analytics = build_expert_analytics(company_id, profile_key)
-    selected_year = request.args.get('year', type=int)
-    if selected_year not in analytics['years']:
-        selected_year = max(
-            analytics['available_years'] or analytics['years'],
-            default=None)
+    selectable_years = analytics['available_years'] or analytics['years']
+    requested_years = request.args.getlist('years', type=int)
+    has_year_selection = request.args.get('years_present') == '1'
+    selected_years = (
+        sorted(set(requested_years) & set(selectable_years))
+        if has_year_selection
+        else list(selectable_years)
+    )
+    selected_year = max(selected_years, default=None)
     executive_enabled = app.config['HISTORICAL_EXECUTIVE_ENABLED']
     view = request.args.get('view', 'executive' if executive_enabled else 'expert')
     if view == 'executive' and executive_enabled:
         from historical_executive import build_executive_summary
-        summary = build_executive_summary(analytics, selected_year)
+        summary = build_executive_summary(
+            analytics, selected_years=selected_years)
         template_name = 'historical_executive.html'
     else:
         summary = None
@@ -1892,6 +1897,7 @@ def historical_expert(company_id):
         profiles=profile_payloads(),
         selected_profile_key=profile_key,
         selected_year=selected_year,
+        selected_years=selected_years,
         executive_enabled=executive_enabled,
         embedded=request.args.get('embedded') == '1',
     ), mimetype='text/html')

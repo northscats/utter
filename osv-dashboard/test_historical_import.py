@@ -178,6 +178,8 @@ with app.app_context():
     osv_control = build_expert_analytics(company_id, "osv_control")
     executive = build_executive_summary(methodical, 2025)
     executive_2022 = build_executive_summary(methodical, 2022)
+    executive_selected = build_executive_summary(
+        methodical, selected_years=[2022, 2024])
     executive_conflict = build_executive_summary(osv_control, 2025)
     check("чекпоинт охватывает все 15 тематических разделов",
           len(methodical["sections"]) == 15
@@ -263,6 +265,10 @@ with app.app_context():
           and any(card["sparkline"] for card in executive["cards"]))
     check("медиана раннего года не использует будущие значения",
           executive_2022["cards"][0]["median_delta"] == "+0,0%")
+    check("резюме использует только независимо выбранные годы",
+          executive_selected["selected_years"] == [2022, 2024]
+          and executive_selected["year"] == 2024
+          and "к 2022" in executive_selected["cards"][0]["trend"])
     check("сигналы ограничены пятью и конфликт источников прозрачен",
           len(executive_conflict["signals"]) <= 5
           and any(
@@ -275,7 +281,17 @@ check("руководительский режим является началь
       and "Резюме руководителя" in executive_body
       and "Главное за 2025 год" in executive_body
       and "view=expert" in executive_body
-      and "year=2025" in executive_body)
+      and 'name="years" value="2025"' in executive_body)
+selected_years_page = client.get(
+    f"/company/{company_id}/historical/expert"
+    "?years_present=1&years=2022&years=2024")
+selected_years_body = selected_years_page.get_data(as_text=True)
+check("кнопки позволяют независимо включать и исключать годы",
+      selected_years_page.status_code == 200
+      and 'name="years" value="2022"' in selected_years_body
+      and 'name="years" value="2024"' in selected_years_body
+      and selected_years_body.count("checked") == 2
+      and "Главное за 2024 год" in selected_years_body)
 embedded_page = client.get(
     f"/company/{company_id}/historical/expert?embedded=1&year=2024")
 embedded_body = embedded_page.get_data(as_text=True)
