@@ -121,6 +121,10 @@ login_as(client, reader_id)
 body = client.get("/home").get_data(as_text=True)
 check("портфель является стартовым экраном аналитики",
       "Портфельная сводка" in body and "Организация не РСО" not in body)
+check("все содержательные столбцы портфеля сортируются кликом",
+      body.count('data-sort="number"') == 9
+      and body.count('data-sort="text"') == 1
+      and 'data-sort="number">Выручка' in body)
 check("ссылки сохраняют год и оба режима",
       "view=executive" in body and "view=expert" in body and "year=2025" in body)
 check("прежний экран доступен одним переключателем",

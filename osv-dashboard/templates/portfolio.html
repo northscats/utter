@@ -16,7 +16,7 @@ h1{font-size:22px;margin:0}.sub{color:var(--mut)}select{padding:7px 10px;border:
 .table-wrap{overflow:auto;background:white;border:1px solid var(--line);border-radius:7px;max-height:calc(100vh - 230px)}
 table{border-collapse:separate;border-spacing:0;min-width:1600px;width:100%}th{position:sticky;top:0;background:#f6f8fa;z-index:2}
 th,td{padding:9px 10px;border-bottom:1px solid #e7ebef;text-align:left;vertical-align:top}th{font-size:10px;text-transform:uppercase}
-th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-index:1;min-width:230px}.name{font-weight:700}
+th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕";color:#8997a2;font-size:9px}th[data-sort][data-asc="1"]::after{content:" ↑";color:var(--blue)}th[data-sort][data-asc="0"]::after{content:" ↓";color:var(--blue)}.company{position:sticky;left:0;background:white;z-index:1;min-width:230px}.name{font-weight:700}
 .meta,.delta,.quality{font-size:10px;color:var(--mut)}.actions a{font-size:11px;margin-right:8px;color:var(--blue)}
 .cell{border-left:3px solid transparent;min-width:145px}.zone-normal{border-left-color:#3f8a5a;background:#f3faf5}
 .zone-attention{border-left-color:#d4a322;background:#fffaf0}.zone-risk{border-left-color:#c87422;background:#fff6ed}
@@ -50,8 +50,8 @@ th[data-sort]{cursor:pointer}.company{position:sticky;left:0;background:white;z-
 <input type="hidden" name="start_year" value="{{ portfolio.year }}"><input type="hidden" name="end_year" value="{{ portfolio.year }}">
 <div class="compare-bar"><button id="compare-submit" disabled>Сравнить выбранные</button><span id="compare-count">Выберите от 2 до 5 предприятий</span></div>{% endif %}
 <div class="table-wrap"><table id="matrix"><thead><tr>
-<th>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}Выбор{% endif %}</th><th data-sort="text">Предприятие</th><th data-sort="text">Актуальность / качество</th>
-{% for kpi in portfolio.kpis %}<th>{{ kpi.label }}</th>{% endfor %}</tr></thead><tbody>
+<th>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}Выбор{% endif %}</th><th data-sort="text">Предприятие</th><th data-sort="number">Актуальность / качество</th>
+{% for kpi in portfolio.kpis %}<th data-sort="number">{{ kpi.label }}</th>{% endfor %}</tr></thead><tbody>
 {% for row in portfolio.rows %}<tr>
 <td>{% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}<input class="pick" type="checkbox" name="company" value="{{ row.id }}" aria-label="Выбрать {{ row.name }}">{% endif %}</td>
 <td class="company"><div class="name">{{ row.name }}</div><div class="meta">{% if row.inn %}ИНН {{ row.inn }}{% endif %}</div>
