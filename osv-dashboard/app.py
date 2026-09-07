@@ -1723,10 +1723,9 @@ def company_comparison():
         comparison = build_comparison(
             selected_companies,
             metric_refs=request.args.getlist('metric'),
-            start_year=request.args.get('start_year', type=int),
-            end_year=request.args.get('end_year', type=int),
             mode=request.args.get('mode', 'normalized'),
             profile_key=request.args.get('profile_key', 'methodical'),
+            selected_years=request.args.getlist('year', type=int),
         )
     else:
         available_years = sorted({
@@ -1734,7 +1733,7 @@ def company_comparison():
                 HistoricalYearVersion.company_id.in_(visible_by_id),
                 HistoricalYearVersion.is_active.is_(True),
             ).distinct().all()
-        })
+        })[-4:]
         default_year = (
             2025 if 2025 in available_years
             else max(available_years) if available_years else None)
@@ -1751,6 +1750,7 @@ def company_comparison():
             'profile_key': request.args.get('profile_key', 'methodical'),
             'start_year': default_year,
             'end_year': default_year,
+            'selected_years': [default_year] if default_year else [],
         }
     response = Response(render_template(
         'comparison.html', comparison=comparison,

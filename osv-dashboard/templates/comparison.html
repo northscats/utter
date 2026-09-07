@@ -26,22 +26,21 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 <main><div class="head"><div><h1>Сравнение предприятий</h1><div class="sub">2–5 предприятий, годы с утверждённой отчётностью без интерполяции; источник значения определяется профилем</div></div></div>
 <form class="filters" id="comparison-form" method="get">
 {% if request.args.get('embedded') %}<input type="hidden" name="embedded" value="1">{% endif %}
-<div class="company-selection"><span class="filter-label">Предприятия</span><div class="company-list">
+<div class="company-selection"><span class="filter-label">Предприятия</span><div class="company-list" id="comparison-company-list">
 {% for company in visible_companies if company.id in selected_ids %}<span class="company-chip">{{ company.name }}</span>{% else %}<span class="selection-hint">Предприятия пока не выбраны</span>{% endfor %}
 </div>{% if request.args.get('embedded') %}<span class="selection-hint">Выберите предприятия кликом в списке слева</span>
 {% else %}<div class="company-options">{% for company in visible_companies %}<label class="choice-btn {% if company.id in selected_ids %}active{% endif %}"><input type="checkbox" name="company" value="{{ company.id }}" {% if company.id in selected_ids %}checked{% endif %}><span>{{ company.name }}</span></label>{% endfor %}</div>{% endif %}</div>
-{% if request.args.get('embedded') %}{% for company_id in selected_ids %}<input type="hidden" name="company" value="{{ company_id }}">{% endfor %}{% endif %}
+{% if request.args.get('embedded') %}<span id="comparison-company-inputs">{% for company_id in selected_ids %}<input type="hidden" name="company" value="{{ company_id }}">{% endfor %}</span>{% endif %}
 {% if comparison.available_years %}
-<div class="filter-group"><span class="filter-label">С года</span><div class="button-group">{% for y in comparison.available_years %}<label class="choice-btn {% if y==comparison.start_year %}active{% endif %}"><input type="radio" name="start_year" value="{{ y }}" {% if y==comparison.start_year %}checked{% endif %}><span>{{ y }}</span></label>{% endfor %}</div></div>
-<div class="filter-group"><span class="filter-label">По год</span><div class="button-group">{% for y in comparison.available_years %}<label class="choice-btn {% if y==comparison.end_year %}active{% endif %}"><input type="radio" name="end_year" value="{{ y }}" {% if y==comparison.end_year %}checked{% endif %}><span>{{ y }}</span></label>{% endfor %}</div></div>
+<div class="filter-group"><span class="filter-label">Годы выборки</span><div class="button-group">{% for y in comparison.available_years %}<label class="choice-btn {% if y in comparison.selected_years %}active{% endif %}"><input type="checkbox" name="year" value="{{ y }}" {% if y in comparison.selected_years %}checked{% endif %}><span>{{ y }}</span></label>{% endfor %}</div></div>
 {% endif %}
 <div class="filter-group"><span class="filter-label">Представление</span><div class="button-group">{% for key,label in comparison.modes.items() %}<label class="choice-btn {% if key==comparison.mode %}active{% endif %}"><input type="radio" name="mode" value="{{ key }}" {% if key==comparison.mode %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div></div>
 {% if comparison.metrics %}
 <label>Метрики (до 6)<select name="metric" multiple>{% for metric in comparison.metrics %}<option value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}selected{% endif %}>{{ metric.section_label }} · {{ metric.option_label }}</option>{% endfor %}</select></label>
-{% endif %}<input type="hidden" name="profile_key" value="{{ comparison.profile_key }}"><button {% if selected_ids|length < 2 %}disabled{% endif %}>Сравнить</button>
+{% endif %}<input type="hidden" name="profile_key" value="{{ comparison.profile_key }}"><button id="compare-submit" {% if selected_ids|length < 2 %}disabled{% endif %}>Сравнить</button>
 </form>
 <div class="note">В режиме по умолчанию знак «+» означает лучше нормы; если нормы нет, показан перцентиль среди выбранных предприятий этого года. Нейтральные зоны не окрашиваются.</div>
-{% if selected_ids|length < 2 %}<div class="card selection-empty">Выберите от двух до пяти предприятий в списке слева.</div>
+{% if selected_ids|length < 2 %}<div class="card selection-empty" id="comparison-selection-state">Выберите от двух до пяти предприятий в списке слева.</div>
 {% elif not comparison.years %}<div class="card">Нет утверждённых годовых данных для выбранных предприятий.</div>{% endif %}
 <div class="grid">{% for chart in comparison.series %}<section class="card"><b>{{ chart.label }}</b><div class="chart" data-chart='{{ chart|tojson|e }}'></div>
 <div class="legend">{% for line in chart.lines %}<button type="button" data-company="{{ line.company_id }}"><i class="sw"></i>{{ line.name }}</button>{% endfor %}</div></section>{% endfor %}</div>
@@ -55,6 +54,23 @@ document.querySelectorAll('.choice-btn input').forEach(input=>input.onchange=()=
  const group=input.closest('.button-group,.company-options');
  if(group)group.querySelectorAll('.choice-btn').forEach(label=>label.classList.toggle('active',label.querySelector('input').checked));
 });
+window.addEventListener('message',event=>{
+ if(event.origin!==location.origin||!event.data||event.data.type!=='comparison-selection')return;
+ const companies=Array.isArray(event.data.companies)?event.data.companies.slice(0,5):[];
+ const list=document.getElementById('comparison-company-list');
+ const inputs=document.getElementById('comparison-company-inputs');
+ const submit=document.getElementById('compare-submit');
+ if(list)list.innerHTML=companies.length
+   ?companies.map(company=>`<span class="company-chip">${htmlEscape(company.name)}</span>`).join('')
+   :'<span class="selection-hint">Предприятия пока не выбраны</span>';
+ if(inputs)inputs.innerHTML=companies.map(company=>`<input type="hidden" name="company" value="${Number(company.id)}">`).join('');
+ if(submit)submit.disabled=companies.length<2;
+ const state=document.getElementById('comparison-selection-state');
+ if(state)state.textContent=companies.length>=2
+   ?'Предприятия выбраны. Настройте параметры и нажмите «Сравнить».'
+   :'Выберите от двух до пяти предприятий в списке слева.';
+});
+if(window.parent!==window)window.parent.postMessage({type:'comparison-ready'},location.origin);
 const renderSingleYear=(box,data)=>{
  const entries=data.lines.map((line,index)=>({line,index,point:line.points[0]})).filter(item=>Number.isFinite(item.point.value));
  if(!entries.length){box.textContent='Нет сопоставимых значений';return}

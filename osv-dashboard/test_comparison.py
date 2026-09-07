@@ -192,15 +192,15 @@ page = client.get("/comparison?" + query)
 page_body = page.get_data(as_text=True)
 check("пять доступных предприятий открываются на одном сравнении",
       page.status_code == 200 and "Итоговая таблица" in page_body)
-check("2025 год выбран по умолчанию для начала и конца периода",
-      page_body.count('value="2025" checked') >= 2)
-check("годы и представления выбираются кнопками без режима изменения",
-      'type="radio" name="start_year"' in page_body
-      and 'type="radio" name="end_year"' in page_body
+check("2025 год выбран по умолчанию",
+      page_body.count('name="year" value="2025" checked') == 1)
+check("четыре года выборки и представления выбираются кнопками",
+      page_body.count('type="checkbox" name="year"') == 4
+      and "С года" not in page_body and "По год" not in page_body
       and 'type="radio" name="mode"' in page_body
       and "Изменение за период" not in page_body)
 single_year_page = client.get(
-    "/comparison?" + query + "&start_year=2024&end_year=2024")
+    "/comparison?" + query + "&year=2024")
 single_year_body = single_year_page.get_data(as_text=True)
 check("один год использует сравнительную диаграмму без временной шкалы",
       single_year_page.status_code == 200
@@ -230,7 +230,11 @@ legacy_home = client.get("/home?legacy=1").get_data(as_text=True)
 check("модуль сравнения встроен в основной экран и принимает клики слева",
       'data-nav="comparison"' in legacy_home
       and "toggleComparisonCompany" in legacy_home
-      and "comparisonCompanyIds" in legacy_home)
+      and "comparisonCompanyIds" in legacy_home
+      and "postComparisonSelection" in legacy_home
+      and "renderComparisonView();" not in legacy_home[
+          legacy_home.index("function toggleComparisonCompany"):
+          legacy_home.index("function renderComparisonView")])
 check("скрытое предприятие не принимается даже без выбранной пары",
       client.get("/comparison?company=999999").status_code == 403)
 app.config["COMPANY_COMPARISON_ENABLED"] = False

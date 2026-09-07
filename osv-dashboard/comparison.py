@@ -92,7 +92,8 @@ def _display(value, unit, mode):
 
 
 def build_comparison(companies, metric_refs=None, start_year=None, end_year=None,
-                     mode="normalized", profile_key="methodical"):
+                     mode="normalized", profile_key="methodical",
+                     selected_years=None):
     """Строит проверяемую модель без интерполяции пропущенных годов."""
     if not 2 <= len(companies) <= 5:
         raise ValueError("Выберите от двух до пяти предприятий")
@@ -111,12 +112,20 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
             "metrics": [], "selected_refs": [], "series": [], "table": [],
             "mode": mode, "modes": MODES, "profile_key": profile_key,
         }
-    default_year = 2025 if 2025 in all_years else max(all_years)
-    start_year = start_year if start_year in all_years else default_year
-    end_year = end_year if end_year in all_years else default_year
-    if start_year > end_year:
-        start_year, end_year = end_year, start_year
-    years = list(range(start_year, end_year + 1))
+    available_years = all_years[-4:]
+    default_year = 2025 if 2025 in available_years else max(available_years)
+    if selected_years is not None:
+        years = sorted({
+            year for year in selected_years if year in available_years})
+        if not years:
+            years = [default_year]
+    else:
+        start_year = start_year if start_year in all_years else default_year
+        end_year = end_year if end_year in all_years else default_year
+        if start_year > end_year:
+            start_year, end_year = end_year, start_year
+        years = list(range(start_year, end_year + 1))
+    start_year, end_year = min(years), max(years)
 
     catalog = _comparison_metric_catalog(analytics)
     selected = [ref for ref in (metric_refs or []) if ref in catalog]
@@ -271,7 +280,8 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
         series.append(chart)
 
     return {
-        "companies": companies, "years": years, "available_years": all_years,
+        "companies": companies, "years": years,
+        "available_years": available_years, "selected_years": years,
         "metrics": sorted(catalog.values(), key=lambda item: (
             item["section_label"], item["label"])),
         "selected_refs": selected, "series": series, "table": table,

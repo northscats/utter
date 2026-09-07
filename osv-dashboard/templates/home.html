@@ -769,26 +769,35 @@ function toggleComparisonCompany(el) {
     comparisonCompanyIds.push(id);
   }
   el.classList.toggle('compare-selected', comparisonCompanyIds.indexOf(id) !== -1);
-  renderComparisonView();
+  postComparisonSelection();
 }
 
 function renderComparisonView() {
-  var iframe = document.getElementById('sl-iframe');
   var params = new URLSearchParams();
-  try {
-    var existing = new URL(iframe.getAttribute('src') || '', location.origin);
-    if (existing.pathname === '{{ url_for("company_comparison") }}') {
-      existing.searchParams.forEach(function(value, key){
-        if (key !== 'company' && key !== 'embedded') params.append(key, value);
-      });
-    }
-  } catch(e) {}
   params.set('embedded', '1');
-  comparisonCompanyIds.forEach(function(id){ params.append('company', id); });
   var embeddedUrl = '{{ url_for("company_comparison") }}?' + params.toString();
   params.delete('embedded');
   loadIframe(embeddedUrl, '{{ url_for("company_comparison") }}?' + params.toString());
 }
+
+function postComparisonSelection() {
+  var iframe = document.getElementById('sl-iframe');
+  if (!iframe || !iframe.contentWindow) return;
+  var companies = comparisonCompanyIds.map(function(id){
+    var el = document.getElementById('si-' + id);
+    return { id: id, name: el ? el.dataset.label : id };
+  });
+  iframe.contentWindow.postMessage({
+    type: 'comparison-selection',
+    companies: companies
+  }, location.origin);
+}
+
+window.addEventListener('message', function(event){
+  if (event.origin !== location.origin || !event.data
+      || event.data.type !== 'comparison-ready') return;
+  postComparisonSelection();
+});
 
 /* ── Анализ ОСВ (iframe) ── */
 function renderDashView(el) {
