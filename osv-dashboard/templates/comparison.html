@@ -73,7 +73,7 @@ document.querySelectorAll('#comparison-table th[data-sort]').forEach(th=>th.oncl
  }).forEach(row=>body.appendChild(row));
 });
 document.querySelectorAll('.chart').forEach(box=>{const data=JSON.parse(box.dataset.chart),W=620,H=230,p={l:48,r:15,t:15,b:28};
- if(years.length===1){renderSingleYear(box,data);box.parentElement.querySelector('.legend').hidden=true;return}
+ if(years.length===1){renderSingleYear(box,data);box.parentElement.querySelector('.legend').style.display='none';return}
  const vals=data.lines.flatMap(l=>l.points.map(x=>x.value).filter(Number.isFinite));if(!vals.length){box.textContent='Нет сопоставимых значений';return}
  let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){lo-=1;hi+=1}let x=i=>p.l+i*(W-p.l-p.r)/Math.max(1,years.length-1),y=v=>p.t+(hi-v)*(H-p.t-p.b)/(hi-lo);
  let s=`<svg viewBox="0 0 ${W} ${H}">`;for(let i=0;i<years.length;i++)s+=`<text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="10" fill="#657786">${years[i]}</text>`;
