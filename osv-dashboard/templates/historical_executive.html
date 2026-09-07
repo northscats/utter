@@ -206,9 +206,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
     padding: 20px 24px;
 }
 .quality-box {
-    width: 320px;
+    width: 100%;
     padding: 20px 24px;
-    flex-shrink: 0;
+    margin-top: 20px;
 }
 .box-header {
     font-size: 11px;
@@ -609,19 +609,6 @@ body { display: flex; flex-direction: column; overflow: hidden; }
                 {% endif %}
             </div>
             
-            {% if summary.quality %}
-            <div class="quality-box box-panel">
-                <div class="box-header">
-                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    Качество данных
-                </div>
-                <div class="quality-val">{{ summary.quality.label }}</div>
-                <div class="quality-det">{{ summary.quality.detail }}</div>
-                {% if summary.profile %}
-                <div class="profile-info">Оценка по профилю:<br><strong>{{ summary.profile.name if summary.profile.name else summary.profile }}</strong></div>
-                {% endif %}
-            </div>
-            {% endif %}
         </div>
 
         {% if summary.signals %}
@@ -682,6 +669,20 @@ body { display: flex; flex-direction: column; overflow: hidden; }
             </div>
             {% endfor %}
         </div>
+
+        {% if summary.quality %}
+        <div class="quality-box box-panel">
+            <div class="box-header">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                Качество данных
+            </div>
+            <div class="quality-val">{{ summary.quality.label }}</div>
+            <div class="quality-det">{{ summary.quality.detail }}</div>
+            {% if summary.profile %}
+            <div class="profile-info">Оценка по профилю:<br><strong>{{ summary.profile.name if summary.profile.name else summary.profile }}</strong></div>
+            {% endif %}
+        </div>
+        {% endif %}
 
         {% endif %}
     </div>

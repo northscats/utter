@@ -280,6 +280,7 @@ check("руководительский режим является началь
       executive_page.status_code == 200
       and "Резюме руководителя" in executive_body
       and "Главное за 2025 год" in executive_body
+      and executive_body.rfind("Качество данных") > executive_body.rfind('class="cards-grid"')
       and "view=expert" in executive_body
       and 'name="years" value="2025"' in executive_body)
 selected_years_page = client.get(
