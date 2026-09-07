@@ -63,42 +63,6 @@ def _comparison_metric_catalog(analytics):
     return catalog
 
 
-PRESET_SPECS = [
-    ("key", "Ключевые показатели", [
-        "Коэффициент автономии",
-        "Коэффициент текущей (общей) ликвидности",
-        "Рентабельность активов (ROA)",
-        "Рентабельность собственного капитала (ROE)",
-        "Рентабельность продаж (прибыль от продаж / выручка)",
-        "Коэффициент покрытия процентов (ICR)",
-    ]),
-    ("stability", "Финансовая устойчивость", [
-        "Коэффициент автономии",
-        "Коэффициент финансового левериджа",
-        "Коэффициент обеспеченности СОС",
-        "Коэффициент текущей (общей) ликвидности",
-        "Коэффициент покрытия процентов (ICR)",
-        "Чистые активы",
-    ]),
-    ("income", "Доходы и прибыль", [
-        "Выручка",
-        "Валовая прибыль (убыток)",
-        "Прибыль (убыток) от продаж",
-        "EBIT (прибыль до % и налогов)",
-        "Прибыль до налогообложения",
-        "Чистая прибыль (убыток)",
-    ]),
-    ("risks", "Риски", [
-        "Итоговая рейтинговая оценка",
-        "Коэффициент текущей ликвидности",
-        "Коэффициент обеспеченности собственными средствами",
-        "Z-счет Альтмана",
-        "Z-счет Таффлера",
-        "Итого (R)",
-    ]),
-]
-
-
 def _decorate_catalog(catalog, analytics, companies, years):
     lookup = {
         company_id: {metric_ref(metric): metric for metric in payload["metrics"]}
@@ -136,26 +100,7 @@ def _decorate_catalog(catalog, analytics, companies, years):
         if count:
             groups.append({
                 "key": group["key"], "label": group["label"], "count": count})
-    presets = []
-    for key, label, labels in PRESET_SPECS:
-        refs = []
-        for wanted in labels:
-            candidates = [
-                item for item in metrics
-                if item["label"].casefold() == wanted.casefold()]
-            if not candidates:
-                candidates = [
-                    item for item in metrics
-                    if wanted.casefold() in item["label"].casefold()]
-            if candidates:
-                preferred = next((
-                    item for item in candidates
-                    if item["unit"] != "percent"
-                    or "рентабельност" in wanted.casefold()), candidates[0])
-                if preferred["ref"] not in refs:
-                    refs.append(preferred["ref"])
-        presets.append({"key": key, "label": label, "refs": refs[:6]})
-    return metrics, groups, presets
+    return metrics, groups
 
 
 def build_metric_catalog(companies, years=None, profile_key="methodical"):
@@ -169,13 +114,12 @@ def build_metric_catalog(companies, years=None, profile_key="methodical"):
         year for payload in analytics.values() for year in payload["years"]
     })
     available_years = all_years[-4:]
-    metrics, groups, presets = _decorate_catalog(
+    metrics, groups = _decorate_catalog(
         _comparison_metric_catalog(analytics), analytics, companies,
         available_years)
     return {
         "metrics": metrics,
         "groups": groups,
-        "presets": presets,
         "available_years": available_years,
     }
 
@@ -249,13 +193,9 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
     start_year, end_year = min(years), max(years)
 
     catalog = _comparison_metric_catalog(analytics)
-    metrics, groups, presets = _decorate_catalog(
+    metrics, groups = _decorate_catalog(
         catalog, analytics, companies, available_years)
     selected = [ref for ref in (metric_refs or []) if ref in catalog]
-    if not selected:
-        selected = next((
-            preset["refs"] for preset in presets
-            if preset["key"] == "key" and preset["refs"]), list(catalog)[:1])
     selected = selected[:6]
 
     lookup = {
@@ -402,7 +342,7 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
     return {
         "companies": companies, "years": years,
         "available_years": available_years, "selected_years": years,
-        "metrics": metrics, "groups": groups, "presets": presets,
+        "metrics": metrics, "groups": groups,
         "selected_refs": selected, "series": series, "table": table,
         "mode": mode, "modes": MODES, "profile_key": profile_key,
         "start_year": start_year, "end_year": end_year,

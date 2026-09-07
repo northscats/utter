@@ -4,6 +4,8 @@ import os
 import sys
 import tempfile
 import json
+import re
+from urllib.parse import quote
 
 _TMP = tempfile.mkdtemp(prefix="comparison_test_")
 os.environ["DATABASE_URL"] = "sqlite:///{}/test.db".format(_TMP)
@@ -190,8 +192,10 @@ login_as(client, reader_id)
 query = "&".join("company={}".format(item) for item in visible_ids)
 page = client.get("/comparison?" + query)
 page_body = page.get_data(as_text=True)
-check("пять доступных предприятий открываются на одном сравнении",
-      page.status_code == 200 and "Итоговая таблица" in page_body)
+check("пять предприятий открываются без автоматического расчёта метрик",
+      page.status_code == 200
+      and "Итоговая таблица" not in page_body
+      and "Показатели не выбраны" in page_body)
 check("2025 год выбран по умолчанию",
       page_body.count('name="year" value="2025" checked') == 1)
 check("четыре года выборки и представления выбираются кнопками",
@@ -199,14 +203,16 @@ check("четыре года выборки и представления выб
       and "С года" not in page_body and "По год" not in page_body
       and 'type="radio" name="mode"' in page_body
       and "Изменение за период" not in page_body)
-check("метрики распределены по категориям с поиском и наборами",
+check("метрики распределены по категориям с самостоятельным выбором",
       page_body.count('class="category-btn ') == len(base["groups"])
       and len(base["groups"]) >= 3
       and 'id="metric-search"' in page_body
-      and 'class="preset-btn"' in page_body
       and 'class="metric-check"' in page_body
       and 'id="selected-metrics"' in page_body
       and "Выбрано 0 из 6" in page_body
+      and 'class="preset-btn"' not in page_body
+      and 'name="metric"' in page_body
+      and re.search(r'class="metric-check"[^>]*\schecked', page_body) is None
       and '<select name="metric"' not in page_body)
 check("каталог показывает единицы, нормативы и покрытие",
       'class="metric-unit"' in page_body
@@ -222,11 +228,16 @@ check("один год использует сравнительную диаг�
       and "if(years.length===1)" in single_year_body
       and "год · сравнение предприятий" in single_year_body
       and "querySelector('.legend').style.display='none'" in single_year_body)
-check("итоговая таблица начинается с предприятия и сортирует все колонки",
+selected_metric_page = client.get(
+    "/comparison?" + query + "&metric=" + quote(revenue["ref"], safe=""))
+selected_metric_body = selected_metric_page.get_data(as_text=True)
+check("после самостоятельного выбора появляется сортируемая итоговая таблица",
+      selected_metric_page.status_code == 200
+      and
       '<th data-sort="text">Предприятие</th><th data-sort="text">Метрика</th>'
-      in page_body
-      and page_body.count("<th data-sort=") == 10
-      and 'id="comparison-table"' in page_body)
+      in selected_metric_body
+      and selected_metric_body.count("<th data-sort=") == 10
+      and 'id="comparison-table"' in selected_metric_body)
 check("более пяти предприятий отклоняются",
       client.get("/comparison?" + query + "&company={}".format(hidden_id)).status_code
       in (400, 403))

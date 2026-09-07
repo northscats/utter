@@ -1740,17 +1740,13 @@ def company_comparison():
         catalog = build_metric_catalog(
             visible, available_years,
             request.args.get('profile_key', 'methodical'))
-        default_refs = next((
-            preset['refs'] for preset in catalog['presets']
-            if preset['key'] == 'key'), [])
         comparison = {
             'companies': selected_companies,
             'years': [],
             'available_years': available_years,
             'metrics': catalog['metrics'],
             'groups': catalog['groups'],
-            'presets': catalog['presets'],
-            'selected_refs': default_refs,
+            'selected_refs': [],
             'series': [],
             'table': [],
             'mode': 'normalized',

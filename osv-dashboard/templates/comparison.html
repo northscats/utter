@@ -15,7 +15,7 @@ main{padding:20px;max-width:1600px;margin:auto}h1{margin:0;font-size:22px}.head{
 select,button{padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:#fff;font:12px inherit}
 button{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.note{color:var(--mut);font-size:11px}.selection-empty{text-align:center;padding:28px}
 .metric-picker{width:100%;border-top:1px solid var(--line);padding-top:12px}.metric-picker-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}.metric-picker-head strong{font-size:13px}.metric-limit{color:var(--mut);font-size:11px}
-.preset-row,.category-tabs,.selected-metrics{display:flex;gap:5px;flex-wrap:wrap}.preset-row{margin-bottom:9px}.preset-btn,.category-btn{background:#f8fafc;color:var(--ink);border-color:var(--line);font-weight:600}.preset-btn:hover,.category-btn:hover{background:#e8f4f8}.category-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}.category-btn .count{opacity:.7}
+.category-tabs,.selected-metrics{display:flex;gap:5px;flex-wrap:wrap}.category-btn{background:#f8fafc;color:var(--ink);border-color:var(--line);font-weight:600}.category-btn:hover{background:#e8f4f8}.category-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}.category-btn .count{opacity:.7}
 .selected-wrap{display:flex;align-items:flex-start;gap:8px;margin-bottom:9px}.selected-metrics{flex:1}.metric-chip{display:inline-flex;align-items:center;gap:5px;background:#e8f4f8;color:#185d76;border-radius:14px;padding:4px 8px;font-size:11px;font-weight:700}.metric-chip button{background:none;border:0;color:#185d76;padding:0;font-size:14px;line-height:1}
 .metric-search{width:100%;max-width:440px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;margin:9px 0;font:12px inherit}.metric-panel{display:none;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:#fafbfd}.metric-panel.active{display:block}
 .metric-option{display:grid;grid-template-columns:20px minmax(240px,1fr) auto auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #e7ebef;cursor:pointer}.metric-option:last-child{border-bottom:0}.metric-option:hover{background:#f0f6f8}.metric-option.hidden{display:none}.metric-option.unavailable{opacity:.48}.metric-name{font-weight:600}.metric-unit,.metric-coverage,.metric-norm{font-size:10px;color:var(--mut)}.metric-norm{color:#287042}.metric-meta{display:flex;gap:8px;align-items:center}
@@ -43,7 +43,6 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 {% if comparison.metrics %}
 <section class="metric-picker">
 <div class="metric-picker-head"><strong>Метрики для сравнения</strong><span class="metric-limit" id="metric-limit">Выбрано 0 из 6</span></div>
-<div class="preset-row">{% for preset in comparison.presets if preset.refs %}<button class="preset-btn" type="button" data-refs='{{ preset.refs|tojson|e }}'>{{ preset.label }}</button>{% endfor %}</div>
 <div class="selected-wrap"><span class="filter-label">Выбрано:</span><div class="selected-metrics" id="selected-metrics"></div></div>
 <div class="category-tabs">{% for group in comparison.groups %}<button class="category-btn {% if loop.first %}active{% endif %}" type="button" data-group="{{ group.key }}">{{ group.label }} <span class="count">({{ group.count }})</span></button>{% endfor %}</div>
 <input class="metric-search" id="metric-search" type="search" placeholder="Поиск показателя…" autocomplete="off">
@@ -95,11 +94,6 @@ document.querySelectorAll('.category-btn').forEach(button=>button.onclick=()=>{
  document.querySelectorAll('.category-btn').forEach(item=>item.classList.toggle('active',item===button));
  document.querySelectorAll('.metric-panel').forEach(panel=>panel.classList.toggle('active',panel.dataset.group===button.dataset.group));
  const search=document.getElementById('metric-search');if(search){search.value='';search.dispatchEvent(new Event('input'))}
-});
-document.querySelectorAll('.preset-btn').forEach(button=>button.onclick=()=>{
- const refs=JSON.parse(button.dataset.refs||'[]').slice(0,6);
- metricChecks.forEach(input=>input.checked=refs.includes(input.value)&&!input.disabled);
- updateMetricSelection();
 });
 const metricSearch=document.getElementById('metric-search');
 if(metricSearch)metricSearch.oninput=()=>{
