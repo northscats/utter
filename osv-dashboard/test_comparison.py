@@ -199,6 +199,20 @@ check("четыре года выборки и представления выб
       and "С года" not in page_body and "По год" not in page_body
       and 'type="radio" name="mode"' in page_body
       and "Изменение за период" not in page_body)
+check("метрики распределены по категориям с поиском и наборами",
+      page_body.count('class="category-btn ') == len(base["groups"])
+      and len(base["groups"]) >= 3
+      and 'id="metric-search"' in page_body
+      and 'class="preset-btn"' in page_body
+      and 'class="metric-check"' in page_body
+      and 'id="selected-metrics"' in page_body
+      and "Выбрано 0 из 6" in page_body
+      and '<select name="metric"' not in page_body)
+check("каталог показывает единицы, нормативы и покрытие",
+      'class="metric-unit"' in page_body
+      and 'class="metric-norm"' in page_body
+      and 'class="metric-coverage"' in page_body
+      and 'data-company-ids="' in page_body)
 single_year_page = client.get(
     "/comparison?" + query + "&year=2024")
 single_year_body = single_year_page.get_data(as_text=True)

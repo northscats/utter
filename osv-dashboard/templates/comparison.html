@@ -12,8 +12,13 @@ main{padding:20px;max-width:1600px;margin:auto}h1{margin:0;font-size:22px}.head{
 .choice-btn input{position:absolute;opacity:0;pointer-events:none}.choice-btn:hover{background:#e2e8f0}.choice-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}.choice-btn:focus-within{outline:2px solid var(--blue);outline-offset:2px}
 .company-selection{width:100%;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}.company-list{display:flex;gap:6px;flex-wrap:wrap}.company-chip{display:inline-flex;align-items:center;padding:5px 9px;border-radius:14px;background:#e8f4f8;color:#185d76;font-weight:700}.selection-hint{color:var(--mut);font-size:11px;padding:5px 0}
 .company-options{display:flex;gap:5px;flex-wrap:wrap}.company-options .choice-btn.active{background:#e8f4f8;border-color:var(--blue);color:#185d76}
-select,button{padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:#fff;font:12px inherit}select[multiple]{height:90px;min-width:330px}
+select,button{padding:7px 9px;border:1px solid var(--line);border-radius:5px;background:#fff;font:12px inherit}
 button{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.note{color:var(--mut);font-size:11px}.selection-empty{text-align:center;padding:28px}
+.metric-picker{width:100%;border-top:1px solid var(--line);padding-top:12px}.metric-picker-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px}.metric-picker-head strong{font-size:13px}.metric-limit{color:var(--mut);font-size:11px}
+.preset-row,.category-tabs,.selected-metrics{display:flex;gap:5px;flex-wrap:wrap}.preset-row{margin-bottom:9px}.preset-btn,.category-btn{background:#f8fafc;color:var(--ink);border-color:var(--line);font-weight:600}.preset-btn:hover,.category-btn:hover{background:#e8f4f8}.category-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}.category-btn .count{opacity:.7}
+.selected-wrap{display:flex;align-items:flex-start;gap:8px;margin-bottom:9px}.selected-metrics{flex:1}.metric-chip{display:inline-flex;align-items:center;gap:5px;background:#e8f4f8;color:#185d76;border-radius:14px;padding:4px 8px;font-size:11px;font-weight:700}.metric-chip button{background:none;border:0;color:#185d76;padding:0;font-size:14px;line-height:1}
+.metric-search{width:100%;max-width:440px;padding:7px 9px;border:1px solid var(--line);border-radius:5px;margin:9px 0;font:12px inherit}.metric-panel{display:none;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;background:#fafbfd}.metric-panel.active{display:block}
+.metric-option{display:grid;grid-template-columns:20px minmax(240px,1fr) auto auto;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #e7ebef;cursor:pointer}.metric-option:last-child{border-bottom:0}.metric-option:hover{background:#f0f6f8}.metric-option.hidden{display:none}.metric-option.unavailable{opacity:.48}.metric-name{font-weight:600}.metric-unit,.metric-coverage,.metric-norm{font-size:10px;color:var(--mut)}.metric-norm{color:#287042}.metric-meta{display:flex;gap:8px;align-items:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:12px}.chart{height:260px}.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px}
 .legend button{background:none;border:0;color:var(--ink);padding:2px;display:flex;align-items:center;gap:5px}.sw{width:10px;height:10px;border-radius:50%}
 svg{width:100%;height:100%}.dim{opacity:.16}.table-wrap{overflow:auto;max-height:520px}table{border-collapse:collapse;width:100%;min-width:1200px}
@@ -36,7 +41,20 @@ th[data-sort]{cursor:pointer;user-select:none}th[data-sort]::after{content:" ↕
 {% endif %}
 <div class="filter-group"><span class="filter-label">Представление</span><div class="button-group">{% for key,label in comparison.modes.items() %}<label class="choice-btn {% if key==comparison.mode %}active{% endif %}"><input type="radio" name="mode" value="{{ key }}" {% if key==comparison.mode %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div></div>
 {% if comparison.metrics %}
-<label>Метрики (до 6)<select name="metric" multiple>{% for metric in comparison.metrics %}<option value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}selected{% endif %}>{{ metric.section_label }} · {{ metric.option_label }}</option>{% endfor %}</select></label>
+<section class="metric-picker">
+<div class="metric-picker-head"><strong>Метрики для сравнения</strong><span class="metric-limit" id="metric-limit">Выбрано 0 из 6</span></div>
+<div class="preset-row">{% for preset in comparison.presets if preset.refs %}<button class="preset-btn" type="button" data-refs='{{ preset.refs|tojson|e }}'>{{ preset.label }}</button>{% endfor %}</div>
+<div class="selected-wrap"><span class="filter-label">Выбрано:</span><div class="selected-metrics" id="selected-metrics"></div></div>
+<div class="category-tabs">{% for group in comparison.groups %}<button class="category-btn {% if loop.first %}active{% endif %}" type="button" data-group="{{ group.key }}">{{ group.label }} <span class="count">({{ group.count }})</span></button>{% endfor %}</div>
+<input class="metric-search" id="metric-search" type="search" placeholder="Поиск показателя…" autocomplete="off">
+{% for group in comparison.groups %}<div class="metric-panel {% if loop.first %}active{% endif %}" data-group="{{ group.key }}">
+{% for metric in comparison.metrics if metric.group == group.key %}<label class="metric-option" data-search="{{ (metric.section_label ~ ' ' ~ metric.option_label)|lower }}" data-company-ids="{{ metric.company_ids|join(',') }}">
+<input class="metric-check" type="checkbox" name="metric" value="{{ metric.ref }}" {% if metric.ref in comparison.selected_refs %}checked{% endif %}>
+<span><span class="metric-name">{{ metric.option_label }}</span><br><span class="metric-unit">{{ metric.section_label }} · {{ metric.unit_label }}</span></span>
+<span class="metric-norm">{% if metric.norm is not none %}{{ metric.norm_label }}{% endif %}</span>
+<span class="metric-coverage">данные: {{ metric.coverage }}</span>
+</label>{% endfor %}</div>{% endfor %}
+</section>
 {% endif %}<input type="hidden" name="profile_key" value="{{ comparison.profile_key }}"><button id="compare-submit" {% if selected_ids|length < 2 %}disabled{% endif %}>Сравнить</button>
 </form>
 <div class="note">В режиме по умолчанию знак «+» означает лучше нормы; если нормы нет, показан перцентиль среди выбранных предприятий этого года. Нейтральные зоны не окрашиваются.</div>
@@ -54,6 +72,41 @@ document.querySelectorAll('.choice-btn input').forEach(input=>input.onchange=()=
  const group=input.closest('.button-group,.company-options');
  if(group)group.querySelectorAll('.choice-btn').forEach(label=>label.classList.toggle('active',label.querySelector('input').checked));
 });
+const metricChecks=[...document.querySelectorAll('.metric-check')];
+const updateMetricSelection=()=>{
+ const selected=metricChecks.filter(input=>input.checked);
+ const target=document.getElementById('selected-metrics'),limit=document.getElementById('metric-limit');
+ if(limit)limit.textContent=`Выбрано ${selected.length} из 6`;
+ if(target)target.innerHTML=selected.length
+   ?selected.map(input=>`<span class="metric-chip">${htmlEscape(input.closest('.metric-option').querySelector('.metric-name').textContent)}<button type="button" data-remove="${htmlEscape(input.value)}" aria-label="Убрать показатель">×</button></span>`).join('')
+   :'<span class="selection-hint">Показатели не выбраны</span>';
+ if(target)target.querySelectorAll('[data-remove]').forEach(button=>button.onclick=()=>{
+   const input=metricChecks.find(item=>item.value===button.dataset.remove);
+   if(input){input.checked=false;updateMetricSelection()}
+ });
+};
+metricChecks.forEach(input=>input.onchange=()=>{
+ if(input.checked&&metricChecks.filter(item=>item.checked).length>6){
+   input.checked=false;alert('Можно выбрать не более шести метрик');
+ }
+ updateMetricSelection();
+});
+document.querySelectorAll('.category-btn').forEach(button=>button.onclick=()=>{
+ document.querySelectorAll('.category-btn').forEach(item=>item.classList.toggle('active',item===button));
+ document.querySelectorAll('.metric-panel').forEach(panel=>panel.classList.toggle('active',panel.dataset.group===button.dataset.group));
+ const search=document.getElementById('metric-search');if(search){search.value='';search.dispatchEvent(new Event('input'))}
+});
+document.querySelectorAll('.preset-btn').forEach(button=>button.onclick=()=>{
+ const refs=JSON.parse(button.dataset.refs||'[]').slice(0,6);
+ metricChecks.forEach(input=>input.checked=refs.includes(input.value)&&!input.disabled);
+ updateMetricSelection();
+});
+const metricSearch=document.getElementById('metric-search');
+if(metricSearch)metricSearch.oninput=()=>{
+ const query=metricSearch.value.toLowerCase().trim();
+ document.querySelectorAll('.metric-panel.active .metric-option').forEach(item=>item.classList.toggle('hidden',!!query&&!item.dataset.search.includes(query)));
+};
+updateMetricSelection();
 window.addEventListener('message',event=>{
  if(event.origin!==location.origin||!event.data||event.data.type!=='comparison-selection')return;
  const companies=Array.isArray(event.data.companies)?event.data.companies.slice(0,5):[];
@@ -65,6 +118,16 @@ window.addEventListener('message',event=>{
    :'<span class="selection-hint">Предприятия пока не выбраны</span>';
  if(inputs)inputs.innerHTML=companies.map(company=>`<input type="hidden" name="company" value="${Number(company.id)}">`).join('');
  if(submit)submit.disabled=companies.length<2;
+ document.querySelectorAll('.metric-option').forEach(option=>{
+   const ids=(option.dataset.companyIds||'').split(',').filter(Boolean);
+   const available=companies.filter(company=>ids.includes(String(company.id))).length;
+   const coverage=option.querySelector('.metric-coverage'),input=option.querySelector('.metric-check');
+   if(coverage)coverage.textContent=`данные: ${available} из ${companies.length}`;
+   option.classList.toggle('unavailable',companies.length>0&&available===0);
+   if(input&&companies.length>0&&available===0){input.checked=false;input.disabled=true}
+   else if(input)input.disabled=false;
+ });
+ updateMetricSelection();
  const state=document.getElementById('comparison-selection-state');
  if(state)state.textContent=companies.length>=2
    ?'Предприятия выбраны. Настройте параметры и нажмите «Сравнить».'

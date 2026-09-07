@@ -6,7 +6,7 @@ import math
 import statistics
 from urllib.parse import quote
 
-from historical_analytics import build_expert_analytics, validate_profile_key
+from historical_analytics import GROUPS, build_expert_analytics, validate_profile_key
 
 MODES = {
     "normalized": "Отклонение от нормы / перцентиль",
@@ -32,6 +32,9 @@ def _comparison_metric_catalog(analytics):
                 "ref": ref, "label": metric["label"],
                 "section_label": metric["section_label"], "unit": metric["unit"],
                 "series_key": metric["series_key"],
+                "group": metric.get("group", "balance_capital"),
+                "norm": metric.get("norm"),
+                "norm_label": metric.get("norm_label", "Норма не задана"),
             })
 
     groups = {}
@@ -58,6 +61,123 @@ def _comparison_metric_catalog(analytics):
                 "{} ({})".format(item["label"], suffix)
                 if suffix else item["label"])
     return catalog
+
+
+PRESET_SPECS = [
+    ("key", "Ключевые показатели", [
+        "Коэффициент автономии",
+        "Коэффициент текущей (общей) ликвидности",
+        "Рентабельность активов (ROA)",
+        "Рентабельность собственного капитала (ROE)",
+        "Рентабельность продаж (прибыль от продаж / выручка)",
+        "Коэффициент покрытия процентов (ICR)",
+    ]),
+    ("stability", "Финансовая устойчивость", [
+        "Коэффициент автономии",
+        "Коэффициент финансового левериджа",
+        "Коэффициент обеспеченности СОС",
+        "Коэффициент текущей (общей) ликвидности",
+        "Коэффициент покрытия процентов (ICR)",
+        "Чистые активы",
+    ]),
+    ("income", "Доходы и прибыль", [
+        "Выручка",
+        "Валовая прибыль (убыток)",
+        "Прибыль (убыток) от продаж",
+        "EBIT (прибыль до % и налогов)",
+        "Прибыль до налогообложения",
+        "Чистая прибыль (убыток)",
+    ]),
+    ("risks", "Риски", [
+        "Итоговая рейтинговая оценка",
+        "Коэффициент текущей ликвидности",
+        "Коэффициент обеспеченности собственными средствами",
+        "Z-счет Альтмана",
+        "Z-счет Таффлера",
+        "Итого (R)",
+    ]),
+]
+
+
+def _decorate_catalog(catalog, analytics, companies, years):
+    lookup = {
+        company_id: {metric_ref(metric): metric for metric in payload["metrics"]}
+        for company_id, payload in analytics.items()
+    }
+    for ref, item in catalog.items():
+        company_ids = []
+        for company in companies:
+            metric = lookup.get(company.id, {}).get(ref)
+            if not metric:
+                continue
+            available = any(
+                (metric["values_by_year"].get(year, {}).get(
+                    "historical_year_available")
+                 and _finite((metric["values_by_year"].get(
+                     year, {}).get("primary") or {}).get("value")))
+                for year in years
+            )
+            if available:
+                company_ids.append(company.id)
+        item["company_ids"] = company_ids
+        item["coverage"] = len(company_ids)
+        item["unit_label"] = {
+            "thousand_rubles": "тыс. руб.",
+            "percent": "%",
+            "ratio": "коэффициент",
+        }.get(item["unit"], item["unit"] or "—")
+    unit_order = {"thousand_rubles": 0, "ratio": 1, "percent": 2}
+    metrics = sorted(catalog.values(), key=lambda item: (
+        item["group"], item["section_label"], item["label"],
+        unit_order.get(item["unit"], 9), item["series_key"]))
+    groups = []
+    for group in GROUPS:
+        count = sum(item["group"] == group["key"] for item in metrics)
+        if count:
+            groups.append({
+                "key": group["key"], "label": group["label"], "count": count})
+    presets = []
+    for key, label, labels in PRESET_SPECS:
+        refs = []
+        for wanted in labels:
+            candidates = [
+                item for item in metrics
+                if item["label"].casefold() == wanted.casefold()]
+            if not candidates:
+                candidates = [
+                    item for item in metrics
+                    if wanted.casefold() in item["label"].casefold()]
+            if candidates:
+                preferred = next((
+                    item for item in candidates
+                    if item["unit"] != "percent"
+                    or "рентабельност" in wanted.casefold()), candidates[0])
+                if preferred["ref"] not in refs:
+                    refs.append(preferred["ref"])
+        presets.append({"key": key, "label": label, "refs": refs[:6]})
+    return metrics, groups, presets
+
+
+def build_metric_catalog(companies, years=None, profile_key="methodical"):
+    """Каталог выбора без построения сравнительных рядов и таблицы."""
+    profile_key = validate_profile_key(profile_key)
+    analytics = {
+        company.id: build_expert_analytics(company.id, profile_key)
+        for company in companies
+    }
+    all_years = sorted({
+        year for payload in analytics.values() for year in payload["years"]
+    })
+    available_years = all_years[-4:]
+    metrics, groups, presets = _decorate_catalog(
+        _comparison_metric_catalog(analytics), analytics, companies,
+        available_years)
+    return {
+        "metrics": metrics,
+        "groups": groups,
+        "presets": presets,
+        "available_years": available_years,
+    }
 
 
 def _finite(value):
@@ -110,6 +230,7 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
         return {
             "companies": companies, "years": [], "available_years": [],
             "metrics": [], "selected_refs": [], "series": [], "table": [],
+            "groups": [], "presets": [], "selected_years": [],
             "mode": mode, "modes": MODES, "profile_key": profile_key,
         }
     available_years = all_years[-4:]
@@ -128,14 +249,13 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
     start_year, end_year = min(years), max(years)
 
     catalog = _comparison_metric_catalog(analytics)
+    metrics, groups, presets = _decorate_catalog(
+        catalog, analytics, companies, available_years)
     selected = [ref for ref in (metric_refs or []) if ref in catalog]
     if not selected:
-        preferred = [
-            ref for ref in catalog
-            if any(m["norm"] is not None for p in analytics.values()
-                   for m in p["metrics"] if metric_ref(m) == ref)
-        ]
-        selected = (preferred or list(catalog))[:1]
+        selected = next((
+            preset["refs"] for preset in presets
+            if preset["key"] == "key" and preset["refs"]), list(catalog)[:1])
     selected = selected[:6]
 
     lookup = {
@@ -282,8 +402,7 @@ def build_comparison(companies, metric_refs=None, start_year=None, end_year=None
     return {
         "companies": companies, "years": years,
         "available_years": available_years, "selected_years": years,
-        "metrics": sorted(catalog.values(), key=lambda item: (
-            item["section_label"], item["label"])),
+        "metrics": metrics, "groups": groups, "presets": presets,
         "selected_refs": selected, "series": series, "table": table,
         "mode": mode, "modes": MODES, "profile_key": profile_key,
         "start_year": start_year, "end_year": end_year,

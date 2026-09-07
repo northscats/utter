@@ -1716,7 +1716,7 @@ def company_comparison():
         abort(400, description='Выберите не более пяти предприятий')
     if any(company_id not in visible_by_id for company_id in selected_ids):
         abort(403, description='Нет доступа к одному из предприятий')
-    from comparison import MODES, build_comparison
+    from comparison import MODES, build_comparison, build_metric_catalog
     selected_companies = [
         visible_by_id[company_id] for company_id in selected_ids]
     if len(selected_companies) >= 2:
@@ -1737,12 +1737,20 @@ def company_comparison():
         default_year = (
             2025 if 2025 in available_years
             else max(available_years) if available_years else None)
+        catalog = build_metric_catalog(
+            visible, available_years,
+            request.args.get('profile_key', 'methodical'))
+        default_refs = next((
+            preset['refs'] for preset in catalog['presets']
+            if preset['key'] == 'key'), [])
         comparison = {
             'companies': selected_companies,
             'years': [],
             'available_years': available_years,
-            'metrics': [],
-            'selected_refs': [],
+            'metrics': catalog['metrics'],
+            'groups': catalog['groups'],
+            'presets': catalog['presets'],
+            'selected_refs': default_refs,
             'series': [],
             'table': [],
             'mode': 'normalized',
