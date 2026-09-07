@@ -129,6 +129,14 @@ check("ссылки сохраняют год и оба режима",
       "view=executive" in body and "view=expert" in body and "year=2025" in body)
 check("прежний экран доступен одним переключателем",
       "Выберите предприятие слева" in client.get("/home?legacy=1").get_data(as_text=True))
+embedded_body = client.get("/home?embedded=1").get_data(as_text=True)
+check("портфель открывается внутри аналитики без второй шапки",
+      "Портфельная сводка" in embedded_body
+      and "ГИС УЗТЭР · Портфель РСО" not in embedded_body)
+legacy_body = client.get("/home?legacy=1").get_data(as_text=True)
+check("в аналитике есть отдельный раздел портфельной сводки",
+      'data-nav="portfolio"' in legacy_body
+      and "view === 'portfolio'" in legacy_body)
 app.config["PORTFOLIO_HOME_ENABLED"] = False
 check("флаг возвращает прежний стартовый экран",
       "Выберите предприятие слева" in client.get("/home").get_data(as_text=True))

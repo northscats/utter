@@ -422,6 +422,9 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
         <span>Аналитика</span>
       </div>
       <div class="sl-nav-list">
+        <div class="sl-nav-item" data-nav="portfolio" onclick="setNavView('portfolio',this)">
+          <span class="ico">▦</span><span>Портфельная сводка</span>
+        </div>
         <div class="sl-nav-item" data-nav="cards" onclick="setNavView('cards',this)">
           <span class="ico">📊</span><span>Основные показатели</span>
         </div>
@@ -729,7 +732,7 @@ function setNavView(view, clickedEl) {
   if (clickedEl) clickedEl.classList.add('active');
   // Показываем/скрываем топбар в зависимости от вида
   if (currentCompanyId) {
-    var iframeView = view === 'history' || view === 'expert' || view === 'kpi' || view === 'cards' || view === 'rating';
+    var iframeView = view === 'portfolio' || view === 'history' || view === 'expert' || view === 'kpi' || view === 'cards' || view === 'rating';
     document.getElementById('sl-topbar').style.display = iframeView ? 'none' : 'flex';
   }
   renderNavView(view);
@@ -749,6 +752,11 @@ function hideAllPanels() {
 
 function renderNavView(view) {
   hideAllPanels();
+  if (view === 'portfolio') {
+    document.getElementById('sl-topbar').style.display = 'none';
+    loadIframe('{{ url_for("home") }}?embedded=1', '{{ url_for("home") }}');
+    return;
+  }
   if (view === 'rating') {
     document.getElementById('sl-topbar').style.display = 'none';
     renderRatingView();
