@@ -309,7 +309,14 @@ check("экспертный экран отображает профиль, го
       and expert_body.index('class="period-bar"') < expert_body.index('class="main-area"')
       and '<div class="sb-title">Периоды</div>' not in expert_body
       and 'class="year-btn active"' in expert_body
-      and "Финансовое положение" in expert_body
+      and "Баланс и капитал" in expert_body
+      and "Финансовая устойчивость" in expert_body
+      and "Ликвидность и оборотный капитал" in expert_body
+      and "Доходы и прибыль" in expert_body
+      and "Рентабельность и деловая активность" in expert_body
+      and "Динамика" in expert_body
+      and "Рейтинг и риски" in expert_body
+      and 'data-group="rating_risks"' in expert_body
       and "Исторический рейтинг" in expert_body
       and "Модели банкротства — без среднего балла" in expert_body
       and "Значение по загруженной отчетности; формула не подтверждена"

@@ -30,20 +30,29 @@ SECTION_LABELS = OrderedDict([
 ])
 
 SECTION_GROUPS = {
-    "assets": "position", "liabilities": "position",
-    "net_assets": "position", "financial_stability": "position",
-    "working_capital": "position", "liquidity": "position",
-    "asset_liability": "position",
-    "financial_results": "performance", "profitability": "performance",
-    "turnover": "performance", "dynamics": "performance",
-    "rating": "risks", "insolvent_structure": "risks",
-    "creditworthiness": "risks", "bankruptcy_forecast": "risks",
+    "assets": "balance_capital", "liabilities": "balance_capital",
+    "net_assets": "balance_capital",
+    "financial_stability": "stability",
+    "working_capital": "liquidity_capital",
+    "liquidity": "liquidity_capital",
+    "asset_liability": "liquidity_capital",
+    "financial_results": "income_profit",
+    "profitability": "efficiency", "turnover": "efficiency",
+    "dynamics": "dynamics",
+    "rating": "rating_risks",
+    "insolvent_structure": "rating_risks",
+    "creditworthiness": "rating_risks",
+    "bankruptcy_forecast": "rating_risks",
 }
 
 GROUPS = [
-    {"key": "position", "label": "Финансовое положение"},
-    {"key": "performance", "label": "Результаты и эффективность"},
-    {"key": "risks", "label": "Риски"},
+    {"key": "balance_capital", "label": "Баланс и капитал"},
+    {"key": "stability", "label": "Финансовая устойчивость"},
+    {"key": "liquidity_capital", "label": "Ликвидность и оборотный капитал"},
+    {"key": "income_profit", "label": "Доходы и прибыль"},
+    {"key": "efficiency", "label": "Рентабельность и деловая активность"},
+    {"key": "dynamics", "label": "Динамика"},
+    {"key": "rating_risks", "label": "Рейтинг и риски"},
 ]
 
 UNIT_LABELS = {
@@ -434,7 +443,8 @@ def build_expert_analytics(company_id, profile_key="methodical"):
             "norm_label": norm_label,
             "formula": meta.get("formula"),
             "formula_confirmed": bool(meta.get("formula")),
-            "group": SECTION_GROUPS.get(record["section_key"], "position"),
+            "group": SECTION_GROUPS.get(
+                record["section_key"], "balance_capital"),
             "is_historical_rating": record["section_key"] == "rating",
         })
         for year in years:
@@ -496,7 +506,7 @@ def build_expert_analytics(company_id, profile_key="methodical"):
         sections.append({
             "key": section_key,
             "label": SECTION_LABELS.get(section_key, section_key),
-            "group": SECTION_GROUPS.get(section_key, "position"),
+            "group": SECTION_GROUPS.get(section_key, "balance_capital"),
             "metrics": metrics,
         })
     unknown_sections = sorted({

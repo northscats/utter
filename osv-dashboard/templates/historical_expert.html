@@ -243,7 +243,7 @@ body { display: flex; flex-direction: column; }
                 <!-- Special Top Blocks (Rating & Bankruptcy) -->
                 <tbody class="top-blocks-container">
                     {% if analytics.historical_rating %}
-                    <tr class="row-topblock-hdr">
+                    <tr class="row-topblock-hdr" data-group="rating_risks">
                         <td class="col-metric" title="Не входит в общий рейтинг платформы">Исторический рейтинг</td>
                         <td class="col-norm">-</td>
                         {% for y in analytics.years %}
@@ -251,7 +251,7 @@ body { display: flex; flex-direction: column; }
                         {% endfor %}
                     </tr>
                     {% for rating_metric in analytics.historical_rating %}
-                    <tr class="row-topblock-item">
+                    <tr class="row-topblock-item" data-group="rating_risks">
                         <td class="col-metric">{{ rating_metric.label }}</td>
                         <td class="col-norm">{{ rating_metric.norm_label or '-' }}</td>
                         {% for y in analytics.years %}
@@ -272,7 +272,7 @@ body { display: flex; flex-direction: column; }
                     {% endif %}
 
                     {% if analytics.bankruptcy_models %}
-                    <tr class="row-topblock-hdr">
+                    <tr class="row-topblock-hdr" data-group="rating_risks">
                         <td class="col-metric">Модели банкротства — без среднего балла</td>
                         <td class="col-norm">-</td>
                         {% for y in analytics.years %}
@@ -281,7 +281,7 @@ body { display: flex; flex-direction: column; }
                     </tr>
                     {% for bm in analytics.bankruptcy_models %}
                     {% if bm.metrics %}
-                    <tr class="row-topblock-item">
+                    <tr class="row-topblock-item" data-group="rating_risks">
                         <td class="col-metric">{{ bm.label }}</td>
                         <td class="col-norm">отдельная модель</td>
                         {% for y in analytics.years %}
@@ -431,7 +431,7 @@ function filterGroup(gKey, btn) {
 }
 
 function applyFilters(gKey, q) {
-    document.querySelectorAll('.row-section, .row-metric').forEach(function(row) {
+    document.querySelectorAll('.row-section, .row-metric, .row-topblock-hdr, .row-topblock-item').forEach(function(row) {
         var rGroup = row.getAttribute('data-group');
         var rSearch = row.getAttribute('data-search') || '';
         
