@@ -161,6 +161,9 @@ check("разделители освобождают указатель и не 
       "setPointerCapture(pointerId)" in legacy_body
       and "lostpointercapture" in legacy_body
       and "pointercancel" in legacy_body
+      and "window.addEventListener('pointerup', stopDragging, true)" in legacy_body
+      and "!(e.buttons & 1)" in legacy_body
+      and "sb.offsetWidth + e.clientX - lastX" in legacy_body
       and "splitter-dragging iframe{pointer-events:none}" in legacy_body)
 app.config["PORTFOLIO_HOME_ENABLED"] = False
 check("флаг возвращает прежний стартовый экран",
