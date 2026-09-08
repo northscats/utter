@@ -28,11 +28,16 @@ keepalive = 10
 
 # ── Network ────────────────────────────────────────────────────────────────
 bind = '0.0.0.0:' + os.environ.get('PORT', '8080')
+# The 1C receiver validates the immediate proxy peer itself. Do not let
+# Gunicorn turn an unverified forwarded header into a trusted WSGI TLS scheme.
+forwarded_allow_ips = ''
 
 # ── Logging ────────────────────────────────────────────────────────────────
 accesslog  = '-'
 errorlog   = '-'
 loglevel   = 'info'
+# No query strings, Referer, Authorization or request bodies in access logs.
+access_log_format = '%(h)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s'
 
 # ── Independent HTTP liveness watchdog ─────────────────────────────────────
 health_watchdog_interval = float(

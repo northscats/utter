@@ -173,6 +173,9 @@ class Company(db.Model):
         'HistoricalMapping', backref='company', lazy=True,
         cascade='all, delete-orphan')
     curator = db.relationship('User', foreign_keys=[curator_user_id], lazy=True)
+    one_c_channel = db.relationship(
+        'OneCChannel', backref='company', uselist=False, lazy=True,
+        cascade='all, delete-orphan', passive_deletes=True)
 
     @property
     def is_archived(self):
@@ -528,6 +531,67 @@ class AuditLog(db.Model):
     action     = db.Column(db.String(64), nullable=False, index=True)
     details    = db.Column(db.Text, default=None)       # JSON-строка с деталями
     ip         = db.Column(db.String(45), default=None) # IPv4 или IPv6
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
+
+
+class OneCChannel(db.Model):
+    """Изолированный входящий канал 1С для одного предприятия."""
+    __tablename__ = 'one_c_channels'
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, unique=True, index=True)
+    login = db.Column(db.String(120), nullable=False, unique=True, index=True)
+    password_hash = db.Column(db.Text, nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False, default=True)
+    allow_http = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    last_received_at = db.Column(db.DateTime(timezone=True))
+    last_receipt_id = db.Column(db.String(64), nullable=True, unique=True)
+    last_raw_json = db.Column(db.Text)
+    last_row_count = db.Column(db.Integer, nullable=False, default=0)
+
+    attempts = db.relationship(
+        'OneCAttempt', backref='channel', lazy=True,
+        cascade='all, delete-orphan')
+    idempotency_keys = db.relationship(
+        'OneCIdempotency', backref='channel', lazy=True,
+        cascade='all, delete-orphan')
+
+
+class OneCAttempt(db.Model):
+    """Ограниченный безопасный журнал попыток без тела и реквизитов."""
+    __tablename__ = 'one_c_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(
+        db.Integer, db.ForeignKey('one_c_channels.id', ondelete='CASCADE'),
+        nullable=True, index=True)
+    received_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
+    result = db.Column(db.String(24), nullable=False)
+    receipt_id = db.Column(db.String(64))
+    byte_size = db.Column(db.Integer, nullable=False, default=0)
+    row_count = db.Column(db.Integer)
+    transport = db.Column(db.String(8), nullable=False)
+    error = db.Column(db.String(300), default='')
+
+
+class OneCIdempotency(db.Model):
+    """Ключ идемпотентности входящего запроса с семидневным сроком."""
+    __tablename__ = 'one_c_idempotency'
+    __table_args__ = (
+        db.UniqueConstraint('channel_id', 'key',
+                            name='uq_one_c_idempotency_channel_key'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(
+        db.Integer, db.ForeignKey('one_c_channels.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    key = db.Column(db.String(200), nullable=False)
+    body_hash = db.Column(db.String(64), nullable=False)
+    receipt_id = db.Column(db.String(64), nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, index=True)
 
 

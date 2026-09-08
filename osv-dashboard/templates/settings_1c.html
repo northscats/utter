@@ -1,0 +1,166 @@
+<div id="one_c_config" data-root="{{ request.script_root | tojson | forceescape }}" style="display:none"></div>
+
+<p class="desc">
+  Прямой обмен данными с 1С-Предприятие через HTTP-запросы (JSON).
+</p>
+<div class="hint" id="one_c_global_http_note" style="margin-bottom: 12px; color: var(--mut);"></div>
+
+<div style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+  <button type="button" class="btn btn-primary" onclick="window.OneC.openCreateModal()">Создать канал обмена данными</button>
+  <button type="button" class="btn btn-test" onclick="window.OneC.loadChannels()">Обновить каналы</button>
+  <button type="button" class="btn btn-test" onclick="window.OneC.openStandaloneJournal()">Журнал загрузок</button>
+</div>
+
+<div id="one_c_channels_container">
+  <div class="one-c-loading">Загрузка каналов...</div>
+</div>
+
+<div style="margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px;">
+  {% include 'one_c_instructions.html' %}
+</div>
+
+<!-- Settings/Create Modal (Native Dialog) -->
+<dialog id="one_c_settings_dialog" class="one-c-dialog one-c-settings-modal" aria-labelledby="one_c_settings_title" onclose="window.OneC.handleSettingsClose()">
+  <div class="one-c-dialog-header">
+    <div class="one-c-dialog-title" id="one_c_settings_title">Настройки канала</div>
+    <button type="button" class="one-c-close" style="position: static;" onclick="window.OneC.closeSettingsModal()" aria-label="Закрыть">×</button>
+  </div>
+  
+  <div class="one-c-dialog-body" style="padding: 24px; overflow-y: auto;">
+    <div id="one_c_settings_create" style="display: none;">
+      <div class="one-c-field">
+        <label for="one_c_new_company">Предприятие</label>
+        <select id="one_c_new_company"></select>
+      </div>
+      <div style="margin-top: 20px;">
+        <button type="button" class="btn btn-primary" onclick="window.OneC.createChannel()" id="one_c_btn_create">Создать</button>
+      </div>
+    </div>
+    
+    <div id="one_c_settings_edit" style="display: none;">
+      <div class="one-c-field">
+        <label>URL для отправки (POST)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="one_c_edit_url" readonly>
+          <button type="button" class="btn btn-test" onclick="window.OneC.copyField('one_c_edit_url')">Копировать</button>
+        </div>
+      </div>
+      <div class="one-c-field">
+        <label>Логин (Basic Auth)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="one_c_edit_login" readonly>
+          <button type="button" class="btn btn-test" onclick="window.OneC.copyField('one_c_edit_login')">Копировать</button>
+        </div>
+      </div>
+
+      <div class="one-c-field" style="margin-top: 20px;">
+        <label for="one_c_edit_enabled" class="one-c-switch">
+          <input type="checkbox" id="one_c_edit_enabled" onchange="window.OneC.updateChannel()">
+          <span>Принимать данные</span>
+        </label>
+      </div>
+      <div class="one-c-field" style="margin-top: 16px;">
+        <label for="one_c_edit_http" class="one-c-switch">
+          <input type="checkbox" id="one_c_edit_http" onchange="window.OneC.updateChannel()">
+          <span style="color: var(--bad);">Разрешить HTTP для тестирования</span>
+        </label>
+        <div class="hint" id="one_c_http_hint"></div>
+      </div>
+      <div style="margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px;">
+        <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px;">Сброс пароля</label>
+        <button type="button" id="one_c_btn_rotate" class="btn btn-danger" onclick="window.OneC.rotatePassword()">Сгенерировать новый пароль</button>
+      </div>
+    </div>
+    
+    <div id="one_c_creds_result" class="one-c-creds-box" style="display: none;">
+      <div class="one-c-creds-warn">Сохраните эти данные! Пароль отображается только один раз.</div>
+      <div class="one-c-field">
+        <label>URL для отправки (POST)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="one_c_creds_url" readonly>
+          <button type="button" class="btn btn-test" onclick="window.OneC.copyField('one_c_creds_url')">Копировать</button>
+        </div>
+      </div>
+      <div class="one-c-field">
+        <label>Логин (Basic Auth)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="one_c_creds_login" readonly>
+          <button type="button" class="btn btn-test" onclick="window.OneC.copyField('one_c_creds_login')">Копировать</button>
+        </div>
+      </div>
+      <div class="one-c-field">
+        <label>Пароль</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="one_c_creds_pass" readonly>
+          <button type="button" class="btn btn-test" onclick="window.OneC.copyField('one_c_creds_pass')">Копировать</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="one_c_settings_error" class="one-c-error-msg"></div>
+  </div>
+</dialog>
+
+<!-- Data/Journal Dialog -->
+<dialog id="one_c_data_dialog" class="one-c-dialog" aria-labelledby="one_c_dialog_title">
+  <div class="one-c-dialog-header">
+    <div style="display: flex; gap: 16px; align-items: center;">
+      <div class="one-c-dialog-title" id="one_c_dialog_title">Данные 1С</div>
+      <div class="one-c-dialog-tabs">
+        <button type="button" class="one-c-dialog-tab active" id="one_c_tab_btn_data" onclick="window.OneC.switchTab('data')">Данные</button>
+        <button type="button" class="one-c-dialog-tab" id="one_c_tab_btn_journal" onclick="window.OneC.switchTab('journal')">Журнал загрузок</button>
+      </div>
+    </div>
+    <button type="button" class="one-c-close" style="position: static;" onclick="window.OneC.closeDataDialog()" aria-label="Закрыть">×</button>
+  </div>
+  
+  <div class="one-c-dialog-body" id="one_c_tab_data">
+    <div class="one-c-data-controls">
+      <button type="button" class="btn btn-test" id="one_c_btn_refresh_data" onclick="window.OneC.refreshData()">Обновить</button>
+      <div class="one-c-pagination">
+        <span>Строки:</span>
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_row_prev" onclick="window.OneC.dataPage(-1)">←</button>
+        <span id="one_c_row_info">0 - 0</span>
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_row_next" onclick="window.OneC.dataPage(1)">→</button>
+      </div>
+      <div class="one-c-pagination" style="margin-left: 20px;">
+        <span>Колонки:</span>
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_col_prev" onclick="window.OneC.colPage(-1)">←</button>
+        <span id="one_c_col_info">0 - 0</span>
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_col_next" onclick="window.OneC.colPage(1)">→</button>
+      </div>
+      
+      <div style="margin-left: 20px; font-size: 12px; display: flex; gap: 10px; color: var(--mut);">
+        <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:#fffaf0; border:1px solid var(--line);"></span> — отсутствует</span>
+      </div>
+
+      <div id="one_c_data_status" style="margin-left: auto; font-size: 12px; color: var(--mut);"></div>
+    </div>
+    <div id="one_c_409_banner" class="one-c-warn-banner">
+      Данные изменились (поступил новый пакет). <a href="#" onclick="window.OneC.refreshData(); return false;">Обновить</a>
+    </div>
+    <div class="one-c-data-scroll" id="one_c_data_scroll">
+       <div id="one_c_data_content"></div>
+    </div>
+  </div>
+  
+  <div class="one-c-dialog-body" id="one_c_tab_journal" style="display: none;">
+    <div class="one-c-data-controls">
+      <select id="one_c_journal_channel_filter" onchange="window.OneC.refreshJournal()" style="border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font-size: 13px; max-width: 250px;">
+        <option value="">Все каналы</option>
+      </select>
+      <button type="button" class="btn btn-test" id="one_c_btn_refresh_journal" onclick="window.OneC.refreshJournal()">Обновить</button>
+      <div class="one-c-pagination" style="margin-left: auto;">
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_journal_prev" onclick="window.OneC.journalPage(-1)">←</button>
+        <span id="one_c_journal_page">Стр 1</span>
+        <button type="button" class="one-c-btn-icon" id="one_c_btn_journal_next" onclick="window.OneC.journalPage(1)">→</button>
+      </div>
+    </div>
+    <div class="one-c-journal-scroll">
+      <div id="one_c_journal_content"></div>
+    </div>
+  </div>
+</dialog>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='1c_settings.css') }}">
+<script src="{{ url_for('static', filename='1c_settings.js') }}"></script>

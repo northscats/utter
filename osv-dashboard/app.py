@@ -33,7 +33,8 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, Setting, Upload, User,
-                       UserModuleAccess, db, utcnow)
+                       UserModuleAccess, OneCChannel, OneCAttempt,
+                       OneCIdempotency, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
                                 duplicate_companies,
@@ -194,6 +195,7 @@ if SCRIPT_NAME:
 # --- PostgreSQL —  DATABASE_URL из переменной окружения ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'hide_parameters': True}
 
 db.init_app(app)
 csrf = CSRFProtect(app)
@@ -204,7 +206,8 @@ def _durable_mutation_safety_net(response):
     """Capture successful user mutations not covered by an explicit backup."""
     if (request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
             and response.status_code < 400
-            and not getattr(g, 'durable_backup_done', False)):
+             and not getattr(g, 'durable_backup_done', False)
+             and not getattr(g, 'skip_durable_backup', False)):
         _schedule_durable_safety_backup(
             f'http_{request.method.lower()}:{request.endpoint or "unknown"}')
     return response
@@ -291,6 +294,12 @@ def admin_required(f):
             abort(403)
         return f(*args, **kwargs)
     return decorated
+
+
+# Машинный POST освобождён от CSRF внутри init_one_c; административные
+# операции намеренно остаются под общей Flask-WTF защитой.
+from one_c import init_one_c
+init_one_c(app, csrf, admin_required)
 
 
 @app.before_request
@@ -1317,7 +1326,9 @@ def _check_zip_safety(path: str, filename: str) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 def _wants_json():
     """True если клиент ожидает JSON (AJAX-запрос)."""
-    return (request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
+    return (request.path.startswith('/settings/1c/') or
+            request.path.startswith('/api/1c/') or
+            request.headers.get('X-Requested-With') == 'XMLHttpRequest' or
             'application/json' in request.headers.get('Accept', ''))
 
 
@@ -3295,7 +3306,14 @@ def _delete_company_records(company):
     """Удаляет предприятие и все ссылающиеся на него записи одной транзакцией."""
     company_id = company.id
     deleted_counts = {}
+    # Bulk channel deletion bypasses ORM cascades. Explicit child cleanup also
+    # keeps the existing SQLite regression environment consistent with PG FKs.
+    channel_ids = db.session.query(OneCChannel.id).filter_by(company_id=company_id)
+    for model in (OneCAttempt, OneCIdempotency):
+        deleted_counts[model.__tablename__] = model.query.filter(
+            model.channel_id.in_(channel_ids)).delete(synchronize_session=False)
     dependent_models = (
+        OneCChannel,
         EmailRule,
         AiSummary,
         DailyRow,
@@ -4726,6 +4744,12 @@ def rating_results():
     return jsonify(profile_id=profile_ref, profile=profile,
                    generated_at=datetime.now(timezone.utc).isoformat(),
                    results=rank_companies(results))
+
+
+# Самая внешняя WSGI-граница фиксирует реальный peer/scheme до ProxyFix и
+# возможного DispatcherMiddleware. Не перемещать внутрь других middleware.
+from one_c_transport import OneCTransportMiddleware
+app.wsgi_app = OneCTransportMiddleware(app.wsgi_app)
 
 
 if __name__ == '__main__':

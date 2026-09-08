@@ -610,6 +610,11 @@ main{width:100%;max-width:none;margin:0 auto;padding:24px clamp(14px,2.5vw,36px)
       </span>
     </div>
   </div>
+  <!-- ─── Интеграция с 1С ─── -->
+  <div class="card" id="one_c_integration">
+    <h3>Интеграция с 1С</h3>
+    {% include 'settings_1c.html' %}
+  </div>
   </section>
 
 </main>
@@ -619,7 +624,7 @@ function settingsTabFromLocation() {
   const queryTab = new URLSearchParams(window.location.search).get('tab');
   const hash = window.location.hash.slice(1);
   if (SETTINGS_TABS.includes(hash)) return hash;
-  if (hash === 'ai' || hash === 'dadata') return 'integrations';
+  if (hash === 'ai' || hash === 'dadata' || hash === 'one_c_integration') return 'integrations';
   if (hash === 'imap' || hash === 'rules') return 'mail';
   if (hash === 'landing') return 'general';
   return SETTINGS_TABS.includes(queryTab) ? queryTab : 'general';

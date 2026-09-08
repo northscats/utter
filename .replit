@@ -20,10 +20,19 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["freetype", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "tcl", "tesseract", "tk", "zlib"]
+packages = ["freetype", "gitFull", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "playwright-driver", "tcl", "tesseract", "tk", "zlib"]
 
 [userenv]
 
 [userenv.shared]
 ENCRYPTION_KEY = "bDy8qWKNCy1e9xiTEkLnXQj3quVvmffN92WvHFHXC-o="
 ADMIN_INITIAL_PASSWORD = "admin123admin"
+
+[userenv.development]
+ONE_C_ENV = "development"
+ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
+
+[userenv.production]
+ONE_C_ENV = "production"
+ONE_C_PUBLIC_BASE_URL = "https://gisuzter.replit.app"
+ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
