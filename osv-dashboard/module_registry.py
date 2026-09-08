@@ -29,6 +29,33 @@ MODULES = {
         'exact_paths': ('/directories/companies',),
         'path_prefixes': ('/directories/', '/api/directories/', '/api/companies/'),
     },
+    'analog_search': {
+        'key': 'analog_search',
+        'name': 'Поиск объектов аналогов',
+        'description': 'Поиск в базе данных объектов-аналогов теплоснабжения, прошедших экспертизу.',
+        'icon': 'search',
+        'endpoint': 'analog_search',
+        'exact_paths': ('/analog-search',),
+        'path_prefixes': ('/analog-search/',),
+    },
+    'limit_notifications': {
+        'key': 'limit_notifications',
+        'name': 'Оповещение о лимитах',
+        'description': 'Контроль лимитов и уведомления об их достижении.',
+        'icon': 'bell',
+        'endpoint': 'limit_notifications',
+        'exact_paths': ('/limit-notifications',),
+        'path_prefixes': ('/limit-notifications/',),
+    },
+    'investment_reconciliation': {
+        'key': 'investment_reconciliation',
+        'name': 'Сверка Инвестпрограмм',
+        'description': 'Сопоставление инвестиционных программ и выявление расхождений.',
+        'icon': 'compare',
+        'endpoint': 'investment_reconciliation',
+        'exact_paths': ('/investment-reconciliation',),
+        'path_prefixes': ('/investment-reconciliation/',),
+    },
 }
 
 

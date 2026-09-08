@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Модули — ГИС УЗТЭР</title>
+<title>{% block title %}Модули{% endblock %} — ГИС УЗТЭР</title>
 <style>
 :root{--ink:#243447;--mut:#66788a;--paper:#f4f7fa;--panel:#fff;--line:#dfe6ed;--blue:#1f7a9c;--amber:#f39c12}
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 "Segoe UI",system-ui,sans-serif}
@@ -14,20 +14,24 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
 .card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(37,62,83,.12);border-color:#b9d2df}.ico{width:54px;height:54px;border-radius:15px;background:#eaf5f8;color:var(--blue);display:grid;place-items:center;margin-bottom:20px}
 .ico svg{width:28px;height:28px}.card h2{font-size:19px;margin:0 0 8px}.card p{color:var(--mut);margin:0}.go{display:block;color:var(--blue);font-weight:700;margin-top:22px}
 .empty{background:#fff;border:1px solid var(--line);border-radius:18px;padding:44px;text-align:center;max-width:660px}.empty h2{margin:0 0 10px}.empty p{color:var(--mut);margin:0 0 22px}.btn{display:inline-block;background:var(--ink);color:#fff;text-decoration:none;padding:10px 20px;border-radius:9px}
+.back{display:inline-block;color:var(--blue);text-decoration:none;margin-bottom:24px;font-weight:650}.status{display:inline-block;background:#fff4df;color:#815308;border-radius:20px;padding:5px 12px;font-size:13px;font-weight:650;margin-bottom:18px}a:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
 @media(max-width:600px){.hd{padding:0 16px}.user{display:none}main{padding:36px 18px}h1{font-size:28px}}
 </style>
 </head><body>
 <header class="hd"><div class="logo">УТ</div><div class="brand">ГИС УЗТЭР</div><span class="user">{{ current_user.username }}</span>
 {% if current_user.is_admin %}<a class="out" href="{{ url_for('users_list') }}">Управление</a>{% endif %}
 <a class="out" href="{{ url_for('logout') }}">Выйти</a></header>
-<main><div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
+<main>{% block content %}<div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
 <p class="lead">Доступны только разделы, назначенные вашей учётной записи.</p>
 {% if modules %}<div class="grid">{% for module in modules %}
 <a class="card" href="{{ module.url }}"><div class="ico">
 {% if module.icon == 'chart' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/></svg>
 {% elif module.icon == 'directory' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h7l2 2h9v11H3z"/><path d="M8 13h8M8 16h5"/></svg>
+{% elif module.icon == 'search' %}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>
+{% elif module.icon == 'bell' %}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3ZM10 21h4M12 1v2"/></svg>
+{% elif module.icon == 'compare' %}<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 3h6v18H4zM14 3h6v18h-6M6 7h2M6 11h2M16 7h2M16 11h2M16 15h2"/></svg>
 {% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M4 7v14h11"/></svg>{% endif %}
 </div><h2>{{ module.name }}</h2><p>{{ module.description }}</p><span class="go">Открыть модуль →</span></a>
 {% endfor %}</div>{% else %}
 <div class="empty"><h2>Нет доступных модулей</h2><p>Администратор ещё не назначил вам доступ. Обратитесь к администратору системы или выйдите из учётной записи.</p><a class="btn" href="{{ url_for('logout') }}">Выйти из системы</a></div>
-{% endif %}</main></body></html>
+{% endif %}{% endblock %}</main></body></html>

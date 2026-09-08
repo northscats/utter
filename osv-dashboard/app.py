@@ -1448,6 +1448,16 @@ def modules_dashboard():
     ]
     return render_template('modules.html', modules=modules)
 
+@app.route('/analog-search', endpoint='analog_search')
+@app.route('/limit-notifications', endpoint='limit_notifications')
+@app.route('/investment-reconciliation', endpoint='investment_reconciliation')
+@login_required
+def module_start():
+    module = next(
+        item for item in registered_modules()
+        if item['endpoint'] == request.endpoint)
+    return render_template('module_start.html', module=module)
+
 def _rating_profile_payload(row=None):
     from rating import DEFAULT_PROFILE, validate_profile
     config = validate_profile(row.config if row else DEFAULT_PROFILE)

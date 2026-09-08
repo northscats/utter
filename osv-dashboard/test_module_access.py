@@ -196,6 +196,16 @@ check('администратор видит оба модуля',
       and 'Проверка документов' in body)
 check('администратор открывает аналитику', client.get('/home').status_code == 200)
 check('администратор открывает документы', client.get('/docs/').status_code == 200)
+new_modules = ['analog_search', 'limit_notifications', 'investment_reconciliation']
+for key in new_modules:
+    module = MODULES[key]
+    path = module['exact_paths'][0]
+    start = client.get(path)
+    check(f'карточка и стартовая страница: {key}',
+          module['name'] in body and start.status_code == 200
+          and module['name'] in start.get_data(as_text=True)
+          and 'пока не подключены' in start.get_data(as_text=True)
+          and 'href="/modules"' in start.get_data(as_text=True))
 
 # Пустое состояние не выдаёт права неявно.
 with app.app_context():
@@ -207,6 +217,9 @@ check('пользователь без назначений видит пуст�
 check('прямой HTML URL аналитики закрыт', client.get('/home').status_code == 403)
 check('прямой API URL документов закрыт',
       client.get('/docs/packages').status_code == 403)
+for key in new_modules:
+    check(f'неназначенный модуль закрыт: {key}',
+          client.get(MODULES[key]['exact_paths'][0]).status_code == 403)
 
 # Одно назначение открывает только свой модуль.
 with app.app_context():
