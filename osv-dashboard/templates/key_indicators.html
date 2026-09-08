@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Основные показатели - {{ company.name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='key_indicators.css') }}">
+    <script>
+        window.KI_CONFIG = {
+            dataUrl: {{ data_url | tojson }},
+            companyId: {{ company.id | tojson }},
+            companyName: {{ company.name | tojson }},
+            embedded: {{ embedded | default(false) | tojson }},
+            legacyUrl: {{ legacy_url | default('') | tojson }}
+        };
+    </script>
+</head>
+<body>
+    <div class="ki-loading-overlay active" id="ki-loading"><div class="ki-spinner"></div></div>
+    
+    <div class="ki-error-overlay" id="ki-error" style="display:none;">
+        <div class="ki-error-box">
+            <svg viewBox="0 0 24 24" width="48" height="48" stroke="#EF4444" fill="none" stroke-width="2" style="margin-bottom:12px;"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            <div id="ki-error-text">Ошибка загрузки данных</div>
+            <button onclick="window.KI_App.retry()">Повторить</button>
+        </div>
+    </div>
+
+    <div class="topbar" id="ki-topbar">
+      <div class="topbar-left">
+        <div class="logo">ФИНАНС</div>
+        <div class="topbar-title">
+          Основные показатели
+          <small id="ki-topbar-subtitle">{{ company.name }} · Загрузка...</small>
+        </div>
+      </div>
+      <div class="topbar-right">
+        {% if legacy_url %}
+        <a href="{{ legacy_url }}" class="legacy-link" title="Перейти к старому детальному дашборду">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            <span>Детальный анализ</span>
+        </a>
+        {% endif %}
+        <div class="period-selector" id="ki-period-selector">
+          <button class="period-btn" data-period="day">День</button>
+          <button class="period-btn active" data-period="month">Месяц</button>
+          <button class="period-btn" data-period="quarter">Квартал</button>
+          <button class="period-btn" data-period="year">Год</button>
+        </div>
+        <select id="ki-date-select" class="date-display" onchange="window.KI_App.onDateChange(this.value)" style="display:none;"></select>
+      </div>
+    </div>
+
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="analytics" onclick="window.KI_App.switchTab('analytics')">
+        <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M18 20V10m-6 10V4M6 20v-4"/></svg></span>
+        Аналитика
+      </button>
+      <button class="tab-btn" data-tab="recommendations" onclick="window.KI_App.switchTab('recommendations')">
+        <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
+        Рекомендации
+        <span class="tab-badge" id="ki-rec-badge" style="display:none">0</span>
+      </button>
+    </div>
+
+    <!-- АНАЛИТИКА -->
+    <div class="tab-content active" id="tab-analytics">
+      <div class="container">
+        <div id="ki-warnings-container" style="display:none"></div>
+
+        <div class="kpi-row" id="ki-cards-grid">
+          <!-- Populated by JS -->
+        </div>
+
+        <div class="section">
+          <div class="section-header" onclick="this.parentElement.classList.toggle('collapsed')">
+            <div class="section-title">
+                <span class="section-icon"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></span> 
+                Выручка, себестоимость и финансовый результат по объектам учёта
+            </div>
+            <div class="section-toggle">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </div>
+          </div>
+          <div class="section-body">
+            <div class="info-note">
+              <strong>Детализация по объектам аналитического учёта счёта 90.</strong> Позволяет выявить убыточные направления деятельности, оценить рентабельность каждого вида услуг и принять решение.
+            </div>
+            
+            <div id="ki-objects-notes"></div>
+            
+            <div style="overflow-x:auto;">
+                <table class="objects-table" id="ki-objects-table">
+                <thead>
+                    <tr>
+                    <th style="width: 25%;">Объект учёта (услуга)</th>
+                    <th>Выручка, млн ₽</th>
+                    <th>Себестоимость, млн ₽</th>
+                    <th>Валовая прибыль, млн ₽</th>
+                    <th>Рент-ть, %</th>
+                    <th>Доля в выручке, %</th>
+                    <th>Статус</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+                <tfoot id="ki-objects-totals"></tfoot>
+                </table>
+            </div>
+            <div id="ki-objects-chart"></div>
+          </div>
+        </div>
+        
+        <div id="ki-quality-section"></div>
+      </div>
+    </div>
+
+    <!-- РЕКОМЕНДАЦИИ -->
+    <div class="tab-content" id="tab-recommendations">
+      <div class="container">
+        <div id="ki-recommendations-list"></div>
+      </div>
+    </div>
+
+    <!-- MODAL -->
+    <div class="modal-overlay" id="ki-modal" role="dialog" aria-modal="true">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <div class="modal-icon" id="ki-modal-icon"></div>
+            <div>
+              <div class="modal-title" id="ki-modal-title">Заголовок</div>
+              <div class="modal-subtitle" id="ki-modal-subtitle">Подзаголовок</div>
+            </div>
+          </div>
+          <button class="modal-close" aria-label="Закрыть" onclick="window.KI_App.closeModal()">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div id="ki-modal-reason-banner" class="modal-info-banner" style="display:none;"></div>
+          
+          <div class="modal-section-title">Формула и источники</div>
+          <div class="tooltip-formula" id="ki-modal-formula" style="margin-bottom:8px"></div>
+          <div class="tooltip-source" id="ki-modal-source"></div>
+
+          <div class="modal-section-title" id="ki-modal-breakdown-title" style="display:none;">Детализация показателя</div>
+          <div id="ki-modal-breakdown-container"></div>
+          
+          <div class="modal-section-title" id="ki-modal-chart-title" style="display:none;">Динамика</div>
+          <div class="modal-chart-wrap" id="ki-modal-chart-container" style="display:none;"></div>
+          
+          <div class="modal-section-title" id="ki-modal-details-title" style="display:none;">Дополнительная информация</div>
+          <div id="ki-modal-details-container" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='key_indicators.js') }}"></script>
+</body>
+</html>

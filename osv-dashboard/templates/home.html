@@ -354,6 +354,7 @@ body.splitter-dragging iframe{pointer-events:none}
              data-name="{{ c.name|lower }}"
              data-inn="{{ c.inn|lower }}"
              data-dash="{{ dash_url }}"
+             data-indicators="{{ url_for('key_indicators_page', company_id=c.id) }}"
              data-has-dash="{{ '1' if c.has_dashboard else '0' }}"
              data-detail="{{ url_for('company_detail', company_id=c.id) }}"
              {% if historical_expert_enabled %}
@@ -849,7 +850,7 @@ window.addEventListener('message', function(event){
 /* ── Анализ ОСВ (iframe) ── */
 function renderDashView(el) {
   var hasDash = el.dataset.hasDash === '1';
-  var dash    = el.dataset.dash;
+  var dash = el.dataset.dash;
   if (!hasDash) {
     document.getElementById('sl-nodash-sub').textContent =
       'Загрузите ОСВ-файлы для «' + el.dataset.label + '», чтобы сформировать анализ';
@@ -896,25 +897,11 @@ function loadSystemPage(url) {
   iframe.src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'embedded=1';
 }
 
-/* ── КПЭ-карточки ── */
+/* ── Основные показатели ── */
 function renderCardsView(el) {
-  // Открываем дашборд на вкладке «Рейтинг»
   document.getElementById('sl-topbar').style.display = 'none';
-  if (!el.dataset.hasDash || el.dataset.hasDash !== '1') {
-    var panel = document.getElementById('sl-kpi-cards');
-    panel.style.display = 'block';
-    panel.innerHTML = '<div class="sl-no-data" style="padding:60px 24px;text-align:center;color:var(--mut)">Анализ ОСВ не сформирован — загрузите ОСВ-файлы для этого предприятия</div>';
-    return;
-  }
-  var dash = el.dataset.dash;
-  // Если iframe уже показывает этот дашборд — просто переключаем вкладку
-  var iframe = document.getElementById('sl-iframe');
-  if (iframe.src && iframe.src.split('#')[0] === (location.origin + dash)) {
-    try { iframe.contentWindow.setMode('rating'); } catch(e) {}
-    iframe.style.display = 'block';
-  } else {
-    loadIframe(dash + '#rating', dash);
-  }
+  var indicators = el.dataset.indicators;
+  loadIframe(indicators + '?embedded=1', indicators);
 }
 
 function esc(v) {

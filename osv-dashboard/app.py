@@ -2339,6 +2339,60 @@ def company_upload_all(company_id):
 # ---------------------------------------------------------------------------
 # Дашборд
 # ---------------------------------------------------------------------------
+@app.route('/company/<int:company_id>/key-indicators')
+@login_required
+def key_indicators_page(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    legacy_file = os.path.join(OUTPUT, str(company_id), 'dashboard_current.html')
+    return render_template(
+        'key_indicators.html', company=company,
+        data_url=url_for('key_indicators_data', company_id=company_id),
+        legacy_url=(url_for('dashboard', company_id=company_id,
+                            name='dashboard_current.html')
+                    if os.path.isfile(legacy_file) else None),
+        embedded=request.args.get('embedded') == '1',
+    )
+
+
+@app.route('/company/<int:company_id>/key-indicators/data')
+@login_required
+def key_indicators_data(company_id):
+    from key_indicators import build_key_indicators
+    from key_indicators_service import (
+        SourceBusyError, SourceReadError, load_company_source,
+    )
+    company = db.session.get(Company, company_id) or abort(404)
+    period = request.args.get('period', 'month')
+    date = request.args.get('date') or None
+    if period not in ('day', 'month', 'quarter', 'year'):
+        return jsonify(error='Неизвестный период'), 400
+    if date is not None:
+        try:
+            datetime.strptime(date, '%Y-%m-%d')
+        except ValueError:
+            return jsonify(error='Дата должна иметь формат ГГГГ-ММ-ДД'), 400
+    try:
+        source, updated_at = load_company_source(company_id, UPLOADS)
+        payload = build_key_indicators(source, period=period, date=date)
+        payload['company'] = {'id': company.id, 'name': company.name}
+        payload['updated_at'] = updated_at
+    except SourceBusyError as exc:
+        response = jsonify(error=str(exc))
+        response.status_code = 503
+        response.headers['Retry-After'] = '3'
+        return response
+    except SourceReadError as exc:
+        return jsonify(error=str(exc)), 422
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception:
+        app.logger.exception('Key indicators source failed for company %s', company_id)
+        return jsonify(error='Не удалось рассчитать показатели. Повторите запрос позже.'), 500
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
 @app.route('/dashboard/<int:company_id>/<name>')
 @login_required
 def dashboard(company_id, name):
