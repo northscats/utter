@@ -68,6 +68,16 @@ async function checkBootstrap(configuration) {
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
 
+  if (configuration) {
+    context.fetch = async () => ({
+      ok: false, status: 422,
+      text: async () => JSON.stringify({ error: 'Не удалось прочитать файл ОСВ: sample.xls' }),
+    });
+    await app.fetchData();
+    assert.equal(nodes.get('ki-error-text').textContent, 'Не удалось прочитать файл ОСВ: sample.xls');
+    assert.equal(loading, false);
+  }
+
   app.bindEvents();
   const modal = nodes.get('ki-modal');
   modal.classList.add('visible');

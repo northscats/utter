@@ -68,6 +68,25 @@ def _covered(day, reports):
     return False
 
 
+def _is_annual_analytics(path):
+    """Recognize the supported annual workbook, not arbitrary invalid ОСВ."""
+    if not path.lower().endswith('.xlsx'):
+        return False
+    from historical_parser import parse_historical_xlsx
+    try:
+        parsed = parse_historical_xlsx(path)
+    except Exception:
+        return False
+    known_sections = {
+        section['key'] for section in parsed.get('sections', [])
+        if section.get('is_known')
+    }
+    return len(known_sections) >= 2 and any(
+        value.get('year') and value.get('section_key') in known_sections
+        for value in parsed.get('values', [])
+    )
+
+
 def assemble_source(paths, daily_rows):
     """Latest report wins overlapping dates, including zero-transaction dates.
 
@@ -77,12 +96,19 @@ def assemble_source(paths, daily_rows):
     """
     reports = {}
     failures = []
+    excluded_annual = set()
     for path in sorted(paths, key=lambda p: (os.stat(p).st_mtime_ns, p)):
         name = os.path.basename(path)
         if 'план' in name.lower() and 'счет' in name.lower():
             continue
         try:
             parsed = parse_osv(path)
+        except ValueError:
+            if _is_annual_analytics(path):
+                excluded_annual.add(name)
+            else:
+                failures.append(name)
+            continue
         except Exception:
             failures.append(name)
             continue
@@ -136,8 +162,14 @@ def assemble_source(paths, daily_rows):
         # Do not silently serve the previous or incomplete version as current.
         raise SourceReadError(
             f'Не удалось прочитать файлов ОСВ: {len(failures)}. '
+            f'Файлы: {", ".join(sorted(set(failures))[:3])}. '
             'Проверьте исходные загрузки и повторите запрос.')
-    return build_indicator_source(data)
+    source = build_indicator_source(data)
+    for name in sorted(excluded_annual):
+        source['warnings'].append(
+            f'Файл «{name}» содержит годовую финансовую аналитику, а не ОСВ. '
+            'Он не включён в расчёт основных показателей по счетам.')
+    return source
 
 
 def load_company_source(company_id, uploads_root):

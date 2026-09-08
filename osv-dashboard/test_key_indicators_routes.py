@@ -26,6 +26,41 @@ def report(period, amount, dates):
 
 
 class SourceAssemblyTests(unittest.TestCase):
+    def test_annual_workbook_does_not_block_valid_osv(self):
+        from openpyxl import Workbook
+        annual = os.path.join(_TMP.name, 'annual-analysis.xlsx')
+        book = Workbook()
+        book.active.title = '1. Активы'
+        book.active.append(['Показатель', '2024 г.', '2025 г.'])
+        book.active.append(['Баланс', 100, 200])
+        liabilities = book.create_sheet('2. Пассивы')
+        liabilities.append(['Показатель', '2024 г.', '2025 г.'])
+        liabilities.append(['Баланс', 100, 200])
+        book.save(annual)
+        book.close()
+        osv = os.path.join(_TMP.name, 'valid-osv.xls')
+        with open(osv, 'wb') as target:
+            target.write(b'fixture')
+        real_parser = service.parse_osv
+        with patch.object(service, 'parse_osv', side_effect=lambda path:
+                          report('Июнь 2026', 20, ['2026-06-20'])
+                          if path == osv else real_parser(path)):
+            source = service.assemble_source([annual, osv], [])
+        self.assertEqual(list(source['accounts']), ['51'])
+        self.assertEqual(source['accounts']['51']['daily'][0]['obd'], 20)
+        self.assertTrue(any('годовую финансовую аналитику' in w for w in source['warnings']))
+
+    def test_unknown_xlsx_is_not_silently_ignored(self):
+        from openpyxl import Workbook
+        path = os.path.join(_TMP.name, 'incomplete-osv.xlsx')
+        book = Workbook()
+        book.active.append(['Неполная выгрузка счёта 51'])
+        book.save(path)
+        book.close()
+        with self.assertRaises(service.SourceReadError) as caught:
+            service.assemble_source([path], [])
+        self.assertIn('incomplete-osv.xlsx', str(caught.exception))
+
     def test_report_replacement_removes_old_zero_transaction_dates(self):
         first = os.path.join(_TMP.name, 'old.xls')
         latest = os.path.join(_TMP.name, 'new.xls')

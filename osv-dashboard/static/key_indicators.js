@@ -143,7 +143,7 @@
                 }
                 
                 if (!response.ok) {
-                    throw new Error(data.message || `Ошибка сервера: ${response.status}`);
+                    throw new Error(data.error || data.message || `Ошибка сервера: ${response.status}`);
                 }
                 
                 if (reqId !== state.reqId) return;
