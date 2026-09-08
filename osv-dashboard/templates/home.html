@@ -898,10 +898,21 @@ function loadSystemPage(url) {
 }
 
 /* ── Основные показатели ── */
+var keyIndicatorsMode = 'osv';
 function renderCardsView(el) {
   document.getElementById('sl-topbar').style.display = 'none';
+  // Keep the source mode when changing companies, but let the new company
+  // select its own latest available year instead of inheriting another's.
+  try {
+    var previous = new URL(document.getElementById('sl-iframe').contentWindow.location.href);
+    if (/\/key-indicators$/.test(previous.pathname)) {
+      keyIndicatorsMode = previous.searchParams.get('mode') === 'annual' ? 'annual' : 'osv';
+    }
+  } catch (e) { /* The frame may still be navigating. */ }
   var indicators = el.dataset.indicators;
-  loadIframe(indicators + '?embedded=1', indicators);
+  var modeQuery = keyIndicatorsMode === 'annual' ? '&mode=annual' : '';
+  loadIframe(indicators + '?embedded=1' + modeQuery,
+    indicators + (keyIndicatorsMode === 'annual' ? '?mode=annual' : ''));
 }
 
 function esc(v) {

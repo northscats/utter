@@ -105,7 +105,14 @@ async function checkBootstrap(configuration) {
   const home = fs.readFileSync(`${__dirname}/templates/home.html`, 'utf8');
   const opened = [];
   const navContext = vm.createContext({
-    document: { getElementById: () => ({ style: {} }) },
+    document: {
+      getElementById: () => ({
+        style: {},
+        contentWindow: { location: { href: 'http://localhost/company/11/key-indicators?mode=annual' } }
+      })
+    },
+    URL,
+    keyIndicatorsMode: 'osv',
     loadIframe: (...args) => opened.push(args),
   });
   for (const name of ['renderDashView', 'renderCardsView']) {
@@ -118,7 +125,10 @@ async function checkBootstrap(configuration) {
   navContext.renderDashView(company);
   navContext.renderCardsView(company);
   assert.deepEqual(opened[0], [company.dataset.dash, company.dataset.dash]);
-  assert.deepEqual(opened[1], [company.dataset.indicators + '?embedded=1', company.dataset.indicators]);
+  assert.deepEqual(opened[1], [
+    company.dataset.indicators + '?embedded=1&mode=annual',
+    company.dataset.indicators + '?mode=annual'
+  ]);
   console.log('PASS: configuration scopes, loading/error cleanup, RUB scaling, zero/null, Escape dismissal');
   console.log('PASS: Основные показатели uses live screen; Анализ ОСВ preserves legacy dashboard');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2404,6 +2404,32 @@ def key_indicators_data(company_id):
     return response
 
 
+@app.route('/company/<int:company_id>/key-indicators/annual-data')
+@login_required
+def annual_key_indicators_data(company_id):
+    """Accepted annual-history data for the key-indicator screen."""
+    from annual_key_indicators import build_annual_key_indicators
+
+    _require_historical_import()
+    company = _require_company_access(company_id)
+    raw_year = request.args.get('year')
+    year = None
+    if raw_year is not None:
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            return jsonify(error='Год должен иметь формат ГГГГ'), 400
+        if str(year) != raw_year or year < 1900 or year > 2100:
+            return jsonify(error='Год должен иметь формат ГГГГ'), 400
+    try:
+        payload = build_annual_key_indicators(company, requested_year=year)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
 @app.route('/dashboard/<int:company_id>/<name>')
 @login_required
 def dashboard(company_id, name):

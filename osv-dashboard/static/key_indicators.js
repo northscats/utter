@@ -36,12 +36,82 @@
     let abortController = null;
 
     const App = {
+        state: state,
         init() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const initialMode = urlParams.get('mode') || 'operational';
+
+            if (initialMode === 'annual') {
+                state.mode = 'annual';
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.mode === 'annual');
+                });
+                document.getElementById('ki-period-selector').style.display = 'none';
+                document.getElementById('ki-date-select').style.display = 'none';
+                document.querySelector('.tabs-bar').style.display = 'none';
+                document.getElementById('ki-operational-container').style.display = 'none';
+                document.getElementById('ki-annual-container').style.display = 'block';
+            } else {
+                state.mode = 'operational';
+                document.querySelectorAll('.mode-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.mode === 'operational');
+                });
+            }
             this.bindEvents();
-            this.fetchData();
+            if (state.mode === 'operational') {
+                this.fetchData();
+            }
         },
         
+        switchMode(mode) {
+            if (state.mode === mode) return;
+            state.mode = mode;
+
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+
+            const url = new URL(window.location);
+            url.searchParams.set('mode', mode);
+            window.history.replaceState({}, '', url);
+
+            if (mode === 'annual') {
+                state.reqId++;
+                if (abortController) abortController.abort();
+                document.getElementById('ki-period-selector').style.display = 'none';
+                document.getElementById('ki-date-select').style.display = 'none';
+                document.querySelector('.tabs-bar').style.display = 'none';
+                document.getElementById('tab-analytics').classList.add('active');
+                if (document.getElementById('tab-recommendations')) document.getElementById('tab-recommendations').classList.remove('active');
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.tab === 'analytics');
+                });
+                document.getElementById('ki-operational-container').style.display = 'none';
+                document.getElementById('ki-annual-container').style.display = 'block';
+                document.getElementById('ki-error').style.display = 'none';
+                this.closeModal();
+                this.hideLoading();
+                if (window.KI_AnnualApp) window.KI_AnnualApp.activate();
+            } else {
+                if (window.KI_AnnualApp) window.KI_AnnualApp.deactivate();
+                document.getElementById('ki-annual-year-select').style.display = 'none';
+                document.getElementById('ki-period-selector').style.display = 'flex';
+                document.querySelector('.tabs-bar').style.display = 'flex';
+                document.getElementById('ki-operational-container').style.display = 'block';
+                document.getElementById('ki-annual-container').style.display = 'none';
+                document.getElementById('ki-error').style.display = 'none';
+                this.closeModal();
+                this.fetchData();
+            }
+        },
+
         bindEvents() {
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    this.switchMode(e.target.dataset.mode);
+                });
+            });
+
             document.querySelectorAll('.period-btn').forEach(btn => {
                 btn.addEventListener('click', e => {
                     this.onPeriodChange(e.target.dataset.period);
@@ -108,7 +178,11 @@
         },
         
         retry() {
-            this.fetchData();
+            if (state.mode === 'annual') {
+                if (window.KI_AnnualApp) window.KI_AnnualApp.retry();
+            } else {
+                this.fetchData();
+            }
         },
         
         async fetchData() {
