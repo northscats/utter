@@ -1,0 +1,2058 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Рабочий стол финансового директора РСО | Финансовая аналитика</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/roboto@5.0.8/index.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/roboto-mono@5.0.8/index.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Roboto', 'Tahoma', sans-serif;
+    background: #F4F6F9;
+    color: #1F2937;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  .topbar {
+    background: linear-gradient(135deg, #1E3A5F 0%, #2C5282 100%);
+    border-bottom: 3px solid #F59E0B;
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    background: #F59E0B;
+    color: #1E3A5F;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 1px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  }
+  .topbar-title { font-size: 17px; font-weight: 600; color: #fff; }
+  .topbar-title small {
+    display: block; font-size: 11px; font-weight: 400;
+    color: #CBD5E0; margin-top: 2px;
+  }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .period-selector {
+    display: flex; background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden;
+    backdrop-filter: blur(4px);
+  }
+  .period-btn {
+    padding: 7px 14px; background: transparent; border: none; cursor: pointer;
+    font-size: 12px; color: #E2E8F0; border-right: 1px solid rgba(255,255,255,0.1);
+    transition: all 0.15s; font-weight: 500;
+  }
+  .period-btn:last-child { border-right: none; }
+  .period-btn:hover { background: rgba(255,255,255,0.1); }
+  .period-btn.active { background: #F59E0B; color: #1E3A5F; font-weight: 700; }
+  .date-display {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2); border-radius: 6px;
+    padding: 6px 12px; font-size: 12px; color: #fff; font-weight: 500;
+  }
+
+  .tabs-bar {
+    background: #fff;
+    border-bottom: 1px solid #E5E7EB;
+    padding: 0 24px;
+    display: flex;
+    gap: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .tab-btn {
+    padding: 14px 24px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #6B7280;
+    border-bottom: 3px solid transparent;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Roboto', sans-serif;
+  }
+  .tab-btn:hover { color: #1F2937; background: #F9FAFB; }
+  .tab-btn.active { color: #1E3A5F; border-bottom-color: #F59E0B; }
+  .tab-icon { font-size: 16px; }
+  .tab-badge {
+    background: #EF4444;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 18px;
+    text-align: center;
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .container { padding: 20px 24px; max-width: 1600px; margin: 0 auto; }
+
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .kpi-card {
+    background: #fff; border: 1px solid #E5E7EB;
+    border-top: 4px solid #3B82F6; border-radius: 8px;
+    padding: 12px 14px; position: relative; cursor: help;
+    transition: all 0.2s; min-height: 100px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .kpi-card:hover {
+    box-shadow: 0 6px 16px rgba(59,130,246,0.15);
+    transform: translateY(-2px); border-color: #3B82F6;
+  }
+  .kpi-card.status-green { border-top-color: #10B981; }
+  .kpi-card.status-yellow { border-top-color: #F59E0B; }
+  .kpi-card.status-red { border-top-color: #EF4444; }
+  .kpi-card.clickable { cursor: pointer; }
+  .kpi-card.clickable::after {
+    content: '⤢';
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 14px;
+    color: #9CA3AF;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .kpi-card.clickable:hover::after { opacity: 1; color: #3B82F6; }
+  .kpi-label {
+    font-size: 10px; color: #6B7280; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: 700;
+  }
+  .kpi-value {
+    font-size: 22px; font-weight: 700; color: #111827;
+    font-family: 'Roboto Mono', monospace;
+    line-height: 1.1;
+  }
+  .kpi-unit { font-size: 11px; color: #9CA3AF; font-weight: 400; margin-left: 3px; }
+  .kpi-delta { font-size: 10px; margin-top: 5px; display: flex; align-items: center; gap: 4px; font-weight: 500; }
+  .kpi-delta.up { color: #10B981; }
+  .kpi-delta.down { color: #EF4444; }
+  .kpi-delta.neutral { color: #9CA3AF; }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%; display: inline-block;
+  }
+  .status-dot.green { background: #10B981; box-shadow: 0 0 6px rgba(16,185,129,0.6); }
+  .status-dot.yellow { background: #F59E0B; box-shadow: 0 0 6px rgba(245,158,11,0.6); }
+  .status-dot.red { background: #EF4444; box-shadow: 0 0 6px rgba(239,68,68,0.6); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  .section {
+    background: #fff; border: 1px solid #E5E7EB;
+    border-radius: 8px; margin-bottom: 16px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .section-header {
+    background: linear-gradient(to bottom, #F9FAFB 0%, #F3F4F6 100%);
+    border-bottom: 1px solid #E5E7EB; padding: 10px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .section-title {
+    font-size: 13px; font-weight: 600; color: #1F2937;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-icon {
+    width: 22px; height: 22px; background: #3B82F6; color: #fff;
+    border-radius: 5px; display: flex; align-items: center;
+    justify-content: center; font-size: 11px; font-weight: 700;
+  }
+  .section-toggle { font-size: 11px; color: #6B7280; transition: transform 0.2s; }
+  .section.collapsed .section-toggle { transform: rotate(-90deg); }
+  .section.collapsed .section-body { display: none; }
+  .section-body { padding: 16px; }
+
+  .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .metric {
+    border: 1px solid #E5E7EB; border-left: 4px solid #3B82F6;
+    border-radius: 6px; padding: 12px 14px; cursor: help;
+    transition: all 0.15s; background: #FAFBFC;
+  }
+  .metric:hover {
+    background: #EFF6FF; border-color: #3B82F6;
+    box-shadow: 0 3px 8px rgba(59,130,246,0.12);
+  }
+  .metric.status-green { border-left-color: #10B981; }
+  .metric.status-yellow { border-left-color: #F59E0B; }
+  .metric.status-red { border-left-color: #EF4444; }
+  .metric-name {
+    font-size: 11px; color: #6B7280; text-transform: uppercase;
+    letter-spacing: 0.4px; margin-bottom: 5px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: 600;
+  }
+  .metric-value {
+    font-size: 18px; font-weight: 700; color: #111827;
+    font-family: 'Roboto Mono', monospace;
+  }
+  .metric-sub { font-size: 10px; color: #9CA3AF; margin-top: 4px; }
+
+  .chart-container {
+    background: #fff; border: 1px solid #E5E7EB;
+    border-radius: 8px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    margin-bottom: 16px;
+  }
+  .chart-title {
+    font-size: 13px; font-weight: 600; color: #1F2937;
+    margin-bottom: 12px; display: flex; align-items: center; gap: 10px;
+  }
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-wrap-lg { position: relative; height: 320px; }
+
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge-green { background: #D1FAE5; color: #065F46; }
+  .badge-yellow { background: #FEF3C7; color: #92400E; }
+  .badge-red { background: #FEE2E2; color: #991B1B; }
+
+  .objects-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .objects-table thead th {
+    background: linear-gradient(to bottom, #1E3A5F 0%, #2C5282 100%);
+    color: #fff;
+    border: 1px solid #1E3A5F;
+    padding: 10px 12px;
+    text-align: right;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .objects-table thead th:first-child { text-align: left; }
+  .objects-table tbody td {
+    border: 1px solid #E5E7EB;
+    padding: 10px 12px;
+    background: #fff;
+    text-align: right;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .objects-table tbody td:first-child {
+    text-align: left;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 600;
+    color: #1F2937;
+  }
+  .objects-table tbody tr { cursor: help; transition: all 0.15s; }
+  .objects-table tbody tr:hover td { background: #EFF6FF; }
+  .objects-table tbody tr.total-row td {
+    background: #F3F4F6;
+    font-weight: 700;
+    color: #111827;
+    border-top: 2px solid #3B82F6;
+    font-size: 13px;
+  }
+  .val-pos { color: #10B981; font-weight: 700; }
+  .val-neg { color: #EF4444; font-weight: 700; }
+  .obj-name-wrap { display: flex; flex-direction: column; gap: 2px; }
+  .obj-code {
+    font-size: 10px;
+    color: #9CA3AF;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 500;
+  }
+  .obj-bar {
+    height: 4px;
+    background: #E5E7EB;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .obj-bar-fill-pos { height: 100%; background: linear-gradient(to right, #10B981, #34D399); }
+  .obj-bar-fill-neg { height: 100%; background: linear-gradient(to right, #EF4444, #F87171); }
+
+  /* ===== TOOLTIP ===== */
+  .tooltip {
+    position: fixed; z-index: 9999; background: #1F2937; color: #fff;
+    padding: 16px 18px; border-radius: 8px; max-width: 480px;
+    font-size: 12px; line-height: 1.55;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    border-left: 4px solid #F59E0B;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip-title {
+    font-size: 14px; font-weight: 700; color: #F59E0B;
+    margin-bottom: 10px; border-bottom: 1px solid #374151; padding-bottom: 8px;
+  }
+  .tooltip-row { margin-bottom: 9px; }
+  .tooltip-label {
+    display: block; font-size: 10px; text-transform: uppercase;
+    color: #9CA3AF; letter-spacing: 0.5px; margin-bottom: 3px; font-weight: 700;
+  }
+  .tooltip-formula {
+    background: #111827; border: 1px solid #374151; border-radius: 4px;
+    padding: 7px 10px; font-family: 'Roboto Mono', monospace;
+    font-size: 11px; color: #FCD34D; word-break: break-word; margin-top: 3px;
+  }
+  .tooltip-norm-block {
+    background: #111827;
+    border: 1px solid #374151;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-top: 4px;
+  }
+  .tooltip-norm-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px dashed #374151;
+    font-size: 11px;
+  }
+  .tooltip-norm-row:last-child { border-bottom: none; }
+  .tooltip-norm-label { color: #9CA3AF; font-weight: 500; }
+  .tooltip-norm-value {
+    color: #FCD34D;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 700;
+  }
+  .tooltip-deviation {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'Roboto Mono', monospace;
+  }
+  .deviation-good { background: #064E3B; color: #A7F3D0; }
+  .deviation-warn { background: #78350F; color: #FDE68A; }
+  .deviation-bad { background: #7F1D1D; color: #FECACA; }
+  .deviation-neutral { background: #1E3A5F; color: #CBD5E0; }
+  .tooltip-source {
+    font-size: 10px;
+    color: #6B7280;
+    font-style: italic;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px dashed #374151;
+  }
+
+  /* ===== МОДАЛЬНОЕ ОКНО ===== */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(17, 24, 39, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 5000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.25s ease, visibility 0.25s ease;
+    padding: 20px;
+  }
+  .modal-overlay.visible { opacity: 1; visibility: visible; }
+  .modal {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 25px 60px rgba(0,0,0,0.35);
+    width: 100%;
+    max-width: 1000px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transform: scale(0.92) translateY(20px);
+    transition: transform 0.25s ease;
+  }
+  .modal-overlay.visible .modal { transform: scale(1) translateY(0); }
+  .modal-header {
+    background: linear-gradient(135deg, #1E3A5F 0%, #2C5282 100%);
+    color: #fff;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .modal-title-wrap { display: flex; align-items: center; gap: 12px; }
+  .modal-icon {
+    width: 40px; height: 40px;
+    background: #F59E0B;
+    color: #1E3A5F;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 800;
+  }
+  .modal-title { font-size: 17px; font-weight: 700; letter-spacing: 0.2px; }
+  .modal-subtitle { font-size: 11px; color: #CBD5E0; margin-top: 2px; font-weight: 400; }
+  .modal-close {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .modal-close:hover { background: #EF4444; border-color: #EF4444; transform: rotate(90deg); }
+  .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+  .modal-body::-webkit-scrollbar { width: 8px; }
+  .modal-body::-webkit-scrollbar-track { background: #F3F4F6; }
+  .modal-body::-webkit-scrollbar-thumb { background: #CBD5E0; border-radius: 4px; }
+
+  .modal-info-banner {
+    background: #EFF6FF;
+    border-left: 4px solid #3B82F6;
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: #1E40AF;
+    margin-bottom: 18px;
+    line-height: 1.6;
+  }
+  .modal-info-banner strong { color: #1E3A5F; }
+
+  .modal-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .modal-summary-card {
+    background: linear-gradient(135deg, #F9FAFB 0%, #F3F4F6 100%);
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+  }
+  .modal-summary-label {
+    font-size: 10px;
+    color: #6B7280;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .modal-summary-value {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: 'Roboto Mono', monospace;
+    color: #1F2937;
+  }
+  .modal-summary-sub { font-size: 10px; color: #9CA3AF; margin-top: 4px; }
+
+  .modal-section-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #374151;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 18px 0 10px 0;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #E5E7EB;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .modal-section-title .section-icon { width: 20px; height: 20px; font-size: 10px; }
+
+  .modal-chart-wrap {
+    position: relative;
+    height: 320px;
+    margin-top: 18px;
+    background: #FAFBFC;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .collection-seg-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+  .collection-seg-table th {
+    background: linear-gradient(to bottom, #1E3A5F 0%, #2C5282 100%);
+    color: #fff;
+    border: 1px solid #1E3A5F;
+    padding: 9px 12px;
+    text-align: right;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .collection-seg-table th:first-child { text-align: left; }
+  .collection-seg-table td {
+    border: 1px solid #E5E7EB;
+    padding: 9px 12px;
+    background: #fff;
+    text-align: right;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 500;
+  }
+  .collection-seg-table td:first-child {
+    text-align: left;
+    font-family: 'Roboto', sans-serif;
+    font-weight: 600;
+    color: #1F2937;
+  }
+  .collection-seg-table tr { cursor: help; transition: background 0.15s; }
+  .collection-seg-table tr:hover td { background: #EFF6FF; }
+  .collection-seg-table tr.total-row td {
+    background: #F3F4F6;
+    font-weight: 700;
+    color: #111827;
+    border-top: 2px solid #3B82F6;
+  }
+
+  .priority-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    color: #fff;
+    font-weight: 700;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+  .priority-num.critical { background: #EF4444; }
+  .priority-num.high { background: #F59E0B; }
+  .priority-num.medium { background: #3B82F6; }
+
+  .waterfall-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px dashed #E5E7EB;
+    font-size: 12px;
+    cursor: help;
+    transition: background 0.15s;
+    border-radius: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .waterfall-bar:hover { background: #EFF6FF; }
+  .waterfall-bar:last-child { border-bottom: none; }
+  .waterfall-label {
+    width: 180px;
+    color: #374151;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .waterfall-progress {
+    flex: 1;
+    height: 18px;
+    background: #E5E7EB;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .waterfall-fill-pos { height: 100%; background: linear-gradient(to right, #10B981, #34D399); }
+  .waterfall-fill-neg { height: 100%; background: linear-gradient(to right, #EF4444, #F87171); }
+  .waterfall-value {
+    width: 120px;
+    text-align: right;
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 700;
+    color: #1F2937;
+    font-size: 12px;
+  }
+
+  .recommendations-card {
+    background: #fff;
+    border: 1px solid #E5E7EB;
+    border-left: 4px solid #F59E0B;
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .recommendations-card.critical { border-left-color: #EF4444; }
+  .recommendations-card.warning { border-left-color: #F59E0B; }
+  .recommendations-card.ok { border-left-color: #10B981; }
+  .rec-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .rec-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1F2937;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .rec-metric {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 13px;
+    color: #6B7280;
+  }
+  .rec-body {
+    font-size: 12px;
+    color: #374151;
+    line-height: 1.6;
+  }
+  .rec-body ul { margin-top: 6px; margin-left: 18px; }
+  .rec-body li { margin-bottom: 4px; }
+  .rec-actions {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed #E5E7EB;
+    font-size: 12px;
+  }
+  .rec-actions strong { color: #1E3A5F; display: block; margin-bottom: 4px; }
+
+  @media (max-width: 1200px) {
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .modal-summary { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo">ФИНАНС</div>
+    <div class="topbar-title">
+      Рабочий стол финансового директора РСО
+      <small>МУП «Теплосеть» · Ресурсоснабжающее предприятие (теплоснабжение) · ОСВ по синтетическим счетам · Обновлено: 07.09.2026 09:15</small>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="period-selector">
+      <button class="period-btn" data-period="day">День</button>
+      <button class="period-btn active" data-period="month">Месяц</button>
+      <button class="period-btn" data-period="quarter">Квартал</button>
+      <button class="period-btn" data-period="year">Год</button>
+    </div>
+    <div class="date-display">📅 Пн, 07.09.2026</div>
+  </div>
+</div>
+
+<div class="tabs-bar">
+  <button class="tab-btn active" data-tab="analytics">
+    <span class="tab-icon">📊</span>
+    Аналитика
+  </button>
+  <button class="tab-btn" data-tab="recommendations">
+    <span class="tab-icon">💡</span>
+    Рекомендации
+    <span class="tab-badge">8</span>
+  </button>
+</div>
+
+<!-- ===== ВКЛАДКА 1: АНАЛИТИКА ===== -->
+<div class="tab-content active" id="tab-analytics">
+<div class="container">
+
+  <div class="kpi-row">
+    <div class="kpi-card status-green clickable" data-metric="cash" id="kpi-cash">
+      <div class="kpi-label">Денежные средства <span class="status-dot green"></span></div>
+      <div class="kpi-value">42.6<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta up">▲ +8.4 млн · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-green clickable" data-metric="revenue" id="kpi-revenue">
+      <div class="kpi-label">Выручка (мес. НИ) <span class="status-dot green"></span></div>
+      <div class="kpi-value">284.5<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta up">▲ +4.2% к плану · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-yellow clickable" data-metric="collection" id="kpi-collection">
+      <div class="kpi-label">Уровень собираемости <span class="status-dot yellow"></span></div>
+      <div class="kpi-value">91.2<span class="kpi-unit">%</span></div>
+      <div class="kpi-delta down">▼ −1.8 п.п. · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-red clickable" data-metric="ar-total" id="kpi-ar-total">
+      <div class="kpi-label">Дебиторская задолж. <span class="status-dot red"></span></div>
+      <div class="kpi-value">186.4<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta down">▲ +12.1 млн · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-yellow clickable" data-metric="ap-total" id="kpi-ap-total">
+      <div class="kpi-label">Кредиторская задолж. <span class="status-dot yellow"></span></div>
+      <div class="kpi-value">128.4<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta neutral">ДЗ/КЗ = 1.45 · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-red clickable" data-metric="cogs" id="kpi-cogs">
+      <div class="kpi-label">Себестоимость <span class="status-dot red"></span></div>
+      <div class="kpi-value">293.8<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta down">▲ выше выручки · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-red clickable" data-metric="gp" id="kpi-gp">
+      <div class="kpi-label">Прибыль <span class="status-dot red"></span></div>
+      <div class="kpi-value">−9.3<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta down">▼ убыток, Рм = −3.3% · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-yellow clickable" data-metric="credits" id="kpi-credits">
+      <div class="kpi-label">Кредиты и займы <span class="status-dot yellow"></span></div>
+      <div class="kpi-value">52.3<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta neutral">Долг/EBITDA = 3.2 · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-green clickable" data-metric="salary-debt" id="kpi-salary-debt">
+      <div class="kpi-label">Задолж. по зарплате <span class="status-dot green"></span></div>
+      <div class="kpi-value">0<span class="kpi-unit">₽</span></div>
+      <div class="kpi-delta up">Погашена · нажмите для детализации</div>
+    </div>
+    <div class="kpi-card status-yellow clickable" data-metric="capex" id="kpi-capex">
+      <div class="kpi-label">Capex (инвест. прогр.) <span class="status-dot yellow"></span></div>
+      <div class="kpi-value">142.6<span class="kpi-unit">млн ₽</span></div>
+      <div class="kpi-delta neutral">78% от плана РЭК · нажмите для детализации</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <div class="section-title"><span class="section-icon">₿</span> Выручка, себестоимость и финансовый результат по объектам учёта (сч. 90)</div>
+      <div class="section-toggle">▼</div>
+    </div>
+    <div class="section-body">
+      <div style="font-size: 12px; color: #6B7280; margin-bottom: 14px; padding: 10px 12px; background: #F9FAFB; border-left: 3px solid #3B82F6; border-radius: 4px;">
+        <strong style="color: #1F2937;">Детализация по объектам аналитического учёта счёта 90.</strong> Позволяет выявить убыточные направления деятельности, оценить рентабельность каждого вида услуг и принять решение о пересмотре тарифов, оптимизации затрат или выводе услуги из перечня.
+      </div>
+
+      <table class="objects-table">
+        <thead>
+          <tr>
+            <th style="width: 22%;">Объект учёта (услуга)</th>
+            <th>Выручка, млн ₽</th>
+            <th>Себестоимость, млн ₽</th>
+            <th>Валовая прибыль, млн ₽</th>
+            <th>Рент-ть, %</th>
+            <th>Доля в выручке, %</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr data-metric="obj-heat">
+            <td><div class="obj-name-wrap"><span>Тепловая энергия (отопление)</span><span class="obj-code">90.1.01 · 90.2.01</span></div></td>
+            <td>168.4</td>
+            <td>152.8</td>
+            <td class="val-pos">+15.6</td>
+            <td class="val-pos">9.3%</td>
+            <td>59.2%<div class="obj-bar"><div class="obj-bar-fill-pos" style="width:59%"></div></div></td>
+            <td><span class="badge badge-green">Прибыль</span></td>
+          </tr>
+          <tr data-metric="obj-gvs-t">
+            <td><div class="obj-name-wrap"><span>ГВС (компонент на теплоноситель)</span><span class="obj-code">90.1.02 · 90.2.02</span></div></td>
+            <td>58.2</td>
+            <td>72.4</td>
+            <td class="val-neg">−14.2</td>
+            <td class="val-neg">−24.4%</td>
+            <td>20.4%<div class="obj-bar"><div class="obj-bar-fill-neg" style="width:20%"></div></div></td>
+            <td><span class="badge badge-red">Убыток</span></td>
+          </tr>
+          <tr data-metric="obj-gvs-v">
+            <td><div class="obj-name-wrap"><span>ГВС (компонент на холодную воду)</span><span class="obj-code">90.1.03 · 90.2.03</span></div></td>
+            <td>22.8</td>
+            <td>18.6</td>
+            <td class="val-pos">+4.2</td>
+            <td class="val-pos">18.4%</td>
+            <td>8.0%<div class="obj-bar"><div class="obj-bar-fill-pos" style="width:8%"></div></div></td>
+            <td><span class="badge badge-green">Прибыль</span></td>
+          </tr>
+          <tr data-metric="obj-connect">
+            <td><div class="obj-name-wrap"><span>Технологическое присоединение</span><span class="obj-code">90.1.04 · 90.2.04</span></div></td>
+            <td>18.4</td>
+            <td>12.8</td>
+            <td class="val-pos">+5.6</td>
+            <td class="val-pos">30.4%</td>
+            <td>6.5%<div class="obj-bar"><div class="obj-bar-fill-pos" style="width:6%"></div></div></td>
+            <td><span class="badge badge-green">Прибыль</span></td>
+          </tr>
+          <tr data-metric="obj-other">
+            <td><div class="obj-name-wrap"><span>Прочие услуги (промывка, опрессовка, поверка ОДПУ)</span><span class="obj-code">90.1.05 · 90.2.05</span></div></td>
+            <td>12.6</td>
+            <td>16.4</td>
+            <td class="val-neg">−3.8</td>
+            <td class="val-neg">−30.2%</td>
+            <td>4.4%<div class="obj-bar"><div class="obj-bar-fill-neg" style="width:4%"></div></div></td>
+            <td><span class="badge badge-red">Убыток</span></td>
+          </tr>
+          <tr data-metric="obj-sub">
+            <td><div class="obj-name-wrap"><span>Субсидии / компенсации тарифных выпадов</span><span class="obj-code">90.1.06 · без с/с</span></div></td>
+            <td>4.1</td>
+            <td>—</td>
+            <td class="val-pos">+4.1</td>
+            <td class="val-pos">100%</td>
+            <td>1.4%<div class="obj-bar"><div class="obj-bar-fill-pos" style="width:1%"></div></div></td>
+            <td><span class="badge badge-green">Доход</span></td>
+          </tr>
+          <tr class="total-row">
+            <td>ИТОГО по счёту 90</td>
+            <td>284.5</td>
+            <td>277.1</td>
+            <td class="val-pos">+7.4</td>
+            <td class="val-pos">2.6%</td>
+            <td>100%</td>
+            <td><span class="badge badge-yellow">Минус</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="chart-container" style="margin-top: 18px; margin-bottom: 0;">
+        <div class="chart-title">
+          <span class="section-icon">📊</span>
+          Выручка vs Себестоимость vs Прибыль по объектам, млн ₽
+        </div>
+        <div class="chart-wrap-lg"><canvas id="objectsChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ===== ВКЛАДКА 2: РЕКОМЕНДАЦИИ ===== -->
+<div class="tab-content" id="tab-recommendations">
+<div class="container">
+
+  <div style="margin-bottom: 18px; padding: 14px 18px; background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); border-left: 4px solid #F59E0B; border-radius: 8px;">
+    <div style="font-size: 14px; font-weight: 700; color: #78350F; margin-bottom: 4px;">💡 Приоритетные рекомендации для финансового директора</div>
+    <div style="font-size: 12px; color: #92400E;">На основе анализа ключевых показателей выявлено <strong>8 критических и проблемных зон</strong>, требующих управленческого вмешательства.</div>
+  </div>
+
+  <div style="font-size: 13px; font-weight: 700; color: #EF4444; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">🔴 Критические ситуации</div>
+
+  <div class="recommendations-card critical" data-metric="obj-gvs-t">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-red">Критично</span>Убыточность ГВС (компонент на теплоноситель)</div>
+      <div class="rec-metric">−14.2 млн ₽ · Рм = −24.4%</div>
+    </div>
+    <div class="rec-body">Тариф на компонент на теплоноситель не покрывает себестоимость (факт. с/с 2 296 ₽/ед. при тарифе 1 842 ₽/ед.).<ul><li>Срочная заявка в РЭК на пересмотр тарифа</li><li>Оптимизация режима работы тепловых пунктов</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Ожидаемый эффект: <strong>+14.2 млн ₽/мес</strong>.</div>
+  </div>
+
+  <div class="recommendations-card critical" data-metric="ar-overdue">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-red">Критично</span>Просроченная дебиторская задолженность (>180 дней)</div>
+      <div class="rec-metric">42.1 млн ₽ · 22.6% от общей ДЗ</div>
+    </div>
+    <div class="rec-body">Доля просроченной ДЗ превышает критический порог 10%.<ul><li><strong>Население (31.2 млн):</strong> судебные приказы, ограничение подачи</li><li><strong>УК/ТСЖ (8.4 млн):</strong> ограничение через 30 дней (ФЗ-190)</li><li><strong>Бюджет (6.2 млн):</strong> претензии в минфин</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Ожидаемый эффект: <strong>+15–20 млн ₽</strong> до конца года.</div>
+  </div>
+
+  <div class="recommendations-card critical" data-metric="obj-other">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-red">Критично</span>Убыточность прочих услуг</div>
+      <div class="rec-metric">−3.8 млн ₽ · Рм = −30.2%</div>
+    </div>
+    <div class="rec-body">Тарифы на промывку, опрессовку, поверку ОДПУ не покрывают себестоимость.<ul><li>Заявка в РЭК на пересмотр тарифов</li><li>Передача части работ на аутсорсинг</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Ожидаемый эффект: <strong>+3.8 млн ₽/мес</strong>.</div>
+  </div>
+
+  <div class="recommendations-card critical" data-metric="fuel-share">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-red">Критично</span>Превышение доли топлива в себестоимости</div>
+      <div class="rec-metric">54.8% · норматив 40–50%</div>
+    </div>
+    <div class="rec-body">Рост цен на газ и увеличение удельного расхода топлива.<ul><li>Заявка в РЭК на индексацию тарифа</li><li>Модернизация котлов</li><li>Автоматизация погодного регулирования</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Краткосрочный эффект: <strong>+8–12 млн ₽/мес</strong>.</div>
+  </div>
+
+  <div style="font-size: 13px; font-weight: 700; color: #F59E0B; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 10px 0;">🟡 Требуют внимания</div>
+
+  <div class="recommendations-card warning" data-metric="collection">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-yellow">Внимание</span>Низкий уровень сбора платежей</div>
+      <div class="rec-metric">91.2% · план 93%</div>
+    </div>
+    <div class="rec-body">Основной драйвер снижения — население (89.0%) и субсидии (78.4%).<ul><li><strong>Население:</strong> претензионная работа, прямые договоры</li><li><strong>Субсидии:</strong> сверка с минфином, обращение в прокуратуру</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Ожидаемый эффект: <strong>+10–12 млн ₽</strong>.</div>
+  </div>
+
+  <div class="recommendations-card warning" data-metric="fuel-reserve">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-yellow">Внимание</span>Недостаточная обеспеченность топливом</div>
+      <div class="rec-metric">62 дня · норматив ≥ 75 дней</div>
+    </div>
+    <div class="rec-body">До начала отопительного сезона остаётся менее нормативного запаса.<ul><li>Срочная закупка угля и мазута</li><li>Краткосрочная кредитная линия</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Необходимо закупить топливо на <strong>~25 млн ₽</strong>.</div>
+  </div>
+
+  <div class="recommendations-card warning" data-metric="capex">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-yellow">Внимание</span>Исполнение инвестпрограммы и паспорта готовности</div>
+      <div class="rec-metric">78% · паспорта 82%</div>
+    </div>
+    <div class="rec-body">Отставание от графика РЭК. До 15 сентября необходимо получить 100% паспортов.<ul><li>Увеличение сменности на критических объектах</li><li>Привлечение дополнительных подрядчиков</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Риск неполучения RAB-дохода. Необходимо 100% до конца года.</div>
+  </div>
+
+  <div class="recommendations-card warning" data-metric="wear">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-yellow">Внимание</span>Высокий износ основных средств</div>
+      <div class="rec-metric">68.4% · норма < 60%</div>
+    </div>
+    <div class="rec-body">Критический износ сетей и оборудования. Высокая аварийность (14 инцидентов/мес).<ul><li>Ускорение инвестпрограммы</li><li>Заявка в РЭК на увеличение тарифной выручки</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Снижение износа до 50% через 3–5 лет.</div>
+  </div>
+
+  <div style="font-size: 13px; font-weight: 700; color: #10B981; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 10px 0;">🟢 В пределах нормы</div>
+
+  <div class="recommendations-card ok" data-metric="salary-debt">
+    <div class="rec-header">
+      <div class="rec-title"><span class="badge badge-green">Норма</span>Задолженность по зарплате и налогам</div>
+      <div class="rec-metric">Зарплата: 0 ₽ · Налоги: 8.4 млн ₽</div>
+    </div>
+    <div class="rec-body">Задолженность по зарплате полностью погашена. Налоги в пределах сроков уплаты.<ul><li>Поддерживать ежедневный контроль</li><li>Синхронизировать платежи с поступлениями</li></ul></div>
+    <div class="rec-actions"><strong>📋 План действий:</strong>Следующие платежи — 28 сентября (НДС), 28 октября (налог на прибыль).</div>
+  </div>
+
+  <div style="margin-top: 24px; padding: 18px 20px; background: linear-gradient(135deg, #1E3A5F 0%, #2C5282 100%); border-radius: 8px; color: #fff;">
+    <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px;">📊 Сводный эффект от реализации рекомендаций</div>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+      <div>
+        <div style="font-size: 10px; text-transform: uppercase; color: #CBD5E0; margin-bottom: 4px;">Ожидаемый эффект (до конца года)</div>
+        <div style="font-size: 24px; font-weight: 700; font-family: 'Roboto Mono', monospace; color: #F59E0B;">+48–62 млн ₽</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; text-transform: uppercase; color: #CBD5E0; margin-bottom: 4px;">Целевая чистая прибыль</div>
+        <div style="font-size: 24px; font-weight: 700; font-family: 'Roboto Mono', monospace; color: #10B981;">+8–12 млн ₽</div>
+      </div>
+      <div>
+        <div style="font-size: 10px; text-transform: uppercase; color: #CBD5E0; margin-bottom: 4px;">Целевой ROA</div>
+        <div style="font-size: 24px; font-weight: 700; font-family: 'Roboto Mono', monospace; color: #10B981;">+0.5%</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ===== МОДАЛЬНЫЕ ОКНА ===== -->
+<div class="modal-overlay" id="modal-cash">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">💰</div>
+        <div>
+          <div class="modal-title">Ликвидность и денежные средства (сч. 50, 51, 52, 55)</div>
+          <div class="modal-subtitle">Детализация денежных потоков и показателей ликвидности · по состоянию на 07.09.2026</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-cash-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Свободные денежные ресурсы предприятия на расчётных и иных счетах.</strong> Для РСО критически важно иметь запас на закупку топлива в подготовительный период. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">ДС = Ск(50) + Ск(51) + Ск(52) + Ск(55)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="cash"><div class="modal-summary-label">Денежные средства</div><div class="modal-summary-value" style="color:#10B981;">42.6</div><div class="modal-summary-sub">млн ₽ · ▲ +8.4 млн</div></div>
+        <div class="modal-summary-card" data-metric="ncf"><div class="modal-summary-label">NCF за месяц</div><div class="modal-summary-value" style="color:#10B981;">+8.4</div><div class="modal-summary-sub">млн ₽ · положительный</div></div>
+        <div class="modal-summary-card" data-metric="ctl"><div class="modal-summary-label">Коэфф. текущ. ликвидности</div><div class="modal-summary-value" style="color:#10B981;">1.42</div><div class="modal-summary-sub">норма ≥ 1.0</div></div>
+        <div class="modal-summary-card" data-metric="runway"><div class="modal-summary-label">Cash Runway</div><div class="modal-summary-value" style="color:#10B981;">38</div><div class="modal-summary-sub">дней · норма > 30</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">💰</span>Детализация по счетам учёта денежных средств</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Счёт / Назначение</th><th>Сумма, млн ₽</th><th>Доля, %</th><th>Комментарий</th></tr></thead>
+        <tbody>
+          <tr data-metric="cash-kassa"><td><strong>Ск(50)</strong> — Касса</td><td>0.4</td><td>0.9%</td><td>Разменные средства, подотчётные суммы</td></tr>
+          <tr data-metric="cash-rub"><td><strong>Ск(51)</strong> — Расчётные счета в рублях</td><td>36.8</td><td>86.4%</td><td>Основной операционный счёт</td></tr>
+          <tr data-metric="cash-val"><td><strong>Ск(52)</strong> — Валютные счета</td><td>2.2</td><td>5.2%</td><td>Валютная позиция (× курс ЦБ)</td></tr>
+          <tr data-metric="cash-spec"><td><strong>Ск(55)</strong> — Спецсчета, аккредитивы</td><td>3.2</td><td>7.5%</td><td>Спецсчёт для инвест. программы</td></tr>
+          <tr class="total-row"><td>ИТОГО денежные средства</td><td style="color:#10B981;">42.6</td><td>100%</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Показатели ликвидности</div>
+      <div class="metrics-grid">
+        <div class="metric status-green" data-metric="cash"><div class="metric-name">Денежные средства <span class="status-dot green"></span></div><div class="metric-value">42.6<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">Ск(50)+Ск(51)+Ск(52)+Ск(55)</div></div>
+        <div class="metric status-green" data-metric="ncf"><div class="metric-name">NCF за месяц <span class="status-dot green"></span></div><div class="metric-value">+8.4<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">ОбД(50..55) − ОбК(50..55)</div></div>
+        <div class="metric status-green" data-metric="ctl"><div class="metric-name">Коэфф. текущей ликвидности <span class="status-dot green"></span></div><div class="metric-value">1.42</div><div class="metric-sub">Норма для РСО ≥ 1,0</div></div>
+        <div class="metric status-green" data-metric="cal"><div class="metric-name">Коэфф. абсолютной ликвидности <span class="status-dot green"></span></div><div class="metric-value">0.28</div><div class="metric-sub">Норма ≥ 0,2</div></div>
+        <div class="metric status-green" data-metric="runway"><div class="metric-name">Cash Runway <span class="status-dot green"></span></div><div class="metric-value">38<span class="kpi-unit"> дней</span></div><div class="metric-sub">Норма > 30 дней</div></div>
+        <div class="metric status-yellow" data-metric="fuel-reserve"><div class="metric-name">Обеспеченность топливом <span class="status-dot yellow"></span></div><div class="metric-value">62<span class="kpi-unit"> дня</span></div><div class="metric-sub">Норматив ≥ 75 дней</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📈</span>Динамика денежных средств за 12 месяцев, млн ₽</div>
+      <div class="modal-chart-wrap"><canvas id="cashDynamicsChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-revenue">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">📈</div>
+        <div>
+          <div class="modal-title">Выручка по сегментам (сч. 90.1)</div>
+          <div class="modal-subtitle">Детализация по категориям потребителей · нарастающим итогом с начала месяца</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-revenue-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Основной показатель масштаба деятельности РСО.</strong> Для регулируемых РСО выручка определяется тарифами, утверждёнными РЭК. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Выручка_НИ = ОбК(90.1) нарастающим итогом</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="revenue"><div class="modal-summary-label">Выручка общая</div><div class="modal-summary-value" style="color:#10B981;">284.5</div><div class="modal-summary-sub">млн ₽ · ▲ +4.2% к плану</div></div>
+        <div class="modal-summary-card" data-metric="rev-population"><div class="modal-summary-label">Население</div><div class="modal-summary-value" style="color:#3B82F6;">138.2</div><div class="modal-summary-sub">млн ₽ · 48.6%</div></div>
+        <div class="modal-summary-card" data-metric="rev-uk"><div class="modal-summary-label">УК / ТСЖ</div><div class="modal-summary-value" style="color:#F59E0B;">92.4</div><div class="modal-summary-sub">млн ₽ · 32.5%</div></div>
+        <div class="modal-summary-card" data-metric="rev-subsidy"><div class="modal-summary-label">Субсидии</div><div class="modal-summary-value" style="color:#8B5CF6;">28.6</div><div class="modal-summary-sub">млн ₽ · 10.1%</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Детализация выручки по сегментам</div>
+      <table class="collection-seg-table">
+        <thead><tr><th style="width: 35%;">Сегмент</th><th>Выручка, млн ₽</th><th>Доля, %</th><th>Сбор, %</th><th>Δ к плану</th><th>Δ к АПГ</th></tr></thead>
+        <tbody>
+          <tr data-metric="rev-population"><td><div class="obj-name-wrap"><span>Население</span><span class="obj-code">90.1.Население</span></div></td><td>138.2</td><td>48.6%</td><td style="color:#F59E0B; font-weight:700;">89.0%</td><td style="color:#10B981;">+3.2%</td><td style="color:#10B981;">+2.8%</td></tr>
+          <tr data-metric="rev-uk"><td><div class="obj-name-wrap"><span>УК / ТСЖ</span><span class="obj-code">90.1.УК/ТСЖ</span></div></td><td>92.4</td><td>32.5%</td><td style="color:#10B981; font-weight:700;">94.2%</td><td style="color:#10B981;">+1.8%</td><td style="color:#10B981;">+1.4%</td></tr>
+          <tr data-metric="rev-budget"><td><div class="obj-name-wrap"><span>Бюджетные учреждения</span><span class="obj-code">90.1.Бюджет</span></div></td><td>24.6</td><td>8.6%</td><td style="color:#10B981; font-weight:700;">96.8%</td><td style="color:#10B981;">+0.4%</td><td style="color:#10B981;">+0.8%</td></tr>
+          <tr data-metric="rev-other"><td><div class="obj-name-wrap"><span>Прочие юридические лица</span><span class="obj-code">90.1.Прочие</span></div></td><td>12.8</td><td>4.5%</td><td style="color:#10B981; font-weight:700;">92.4%</td><td style="color:#10B981;">+0.6%</td><td style="color:#EF4444;">−1.2%</td></tr>
+          <tr data-metric="rev-subsidy"><td><div class="obj-name-wrap"><span>Субсидии / компенсации</span><span class="obj-code">90.1.Субсидии + 76.Бюджет</span></div></td><td>16.5</td><td>5.8%</td><td style="color:#F59E0B; font-weight:700;">78.4%</td><td style="color:#EF4444;">−2.4%</td><td style="color:#EF4444;">−4.8%</td></tr>
+          <tr class="total-row"><td>ИТОГО выручка</td><td>284.5</td><td>100%</td><td style="color:#F59E0B; font-weight:700;">91.2%</td><td style="color:#10B981;">+4.2%</td><td style="color:#10B981;">+1.8%</td></tr>
+        </tbody>
+      </table>
+      <div class="modal-section-title"><span class="section-icon">📈</span>Динамика выручки по сегментам за 12 месяцев, млн ₽</div>
+      <div class="modal-chart-wrap"><canvas id="revenueDynamicsChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-collection">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">📊</div>
+        <div>
+          <div class="modal-title">Уровень сбора платежей по сегментам, %</div>
+          <div class="modal-subtitle">Динамика собираемости по категориям потребителей · за 12 месяцев</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-collection-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Доля начислений, фактически оплаченных потребителями.</strong> Норматив для РСО — не менее 95%. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Уровень_сбора = ОбК(62) / ОбД(62) × 100%</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="collection"><div class="modal-summary-label">Общий сбор</div><div class="modal-summary-value" style="color:#F59E0B;">91.2%</div><div class="modal-summary-sub">▼ −1.8 п.п. к плану</div></div>
+        <div class="modal-summary-card" data-metric="collection-pop"><div class="modal-summary-label">Население</div><div class="modal-summary-value" style="color:#F59E0B;">89.0%</div><div class="modal-summary-sub">▼ −6.0 п.п.</div></div>
+        <div class="modal-summary-card" data-metric="collection-uk"><div class="modal-summary-label">УК / ТСЖ</div><div class="modal-summary-value" style="color:#10B981;">94.2%</div><div class="modal-summary-sub">в пределах нормы</div></div>
+        <div class="modal-summary-card" data-metric="collection-budget"><div class="modal-summary-label">Бюджет</div><div class="modal-summary-value" style="color:#10B981;">96.8%</div><div class="modal-summary-sub">выше плана</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Динамика сбора платежей по сегментам за 12 месяцев, %</div>
+      <div class="modal-chart-wrap" style="height: 360px;"><canvas id="collectionModalChart"></canvas></div>
+      <div class="modal-section-title"><span class="section-icon">📋</span>Детализация по сегментам</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Сегмент</th><th>Сбор, %</th><th>План, %</th><th>Δ к плану</th><th>Δ к АПГ</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="rev-population"><td><div class="obj-name-wrap"><span>Население</span><span class="obj-code">сч. 62.Население</span></div></td><td style="font-weight:700;">89.0%</td><td>95.0%</td><td style="color:#EF4444; font-weight:700;">−6.0 п.п.</td><td style="color:#EF4444;">−2.4 п.п.</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr data-metric="rev-uk"><td><div class="obj-name-wrap"><span>УК / ТСЖ</span><span class="obj-code">сч. 62.УК/ТСЖ</span></div></td><td style="font-weight:700;">94.2%</td><td>95.0%</td><td style="color:#F59E0B; font-weight:700;">−0.8 п.п.</td><td style="color:#10B981;">+1.2 п.п.</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+          <tr data-metric="rev-budget"><td><div class="obj-name-wrap"><span>Бюджетные учреждения</span><span class="obj-code">сч. 62.Бюджет</span></div></td><td style="font-weight:700;">96.8%</td><td>95.0%</td><td style="color:#10B981; font-weight:700;">+1.8 п.п.</td><td style="color:#10B981;">+2.4 п.п.</td><td><span class="badge badge-green">Норма</span></td></tr>
+          <tr data-metric="rev-other"><td><div class="obj-name-wrap"><span>Прочие юрлица</span><span class="obj-code">сч. 62.Прочие</span></div></td><td style="font-weight:700;">92.4%</td><td>95.0%</td><td style="color:#F59E0B; font-weight:700;">−2.6 п.п.</td><td style="color:#EF4444;">−1.8 п.п.</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+          <tr data-metric="rev-subsidy"><td><div class="obj-name-wrap"><span>Субсидии</span><span class="obj-code">сч. 76.Бюджет</span></div></td><td style="font-weight:700;">78.4%</td><td>90.0%</td><td style="color:#EF4444; font-weight:700;">−11.6 п.п.</td><td style="color:#EF4444;">−8.2 п.п.</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr class="total-row"><td>ИТОГО</td><td style="font-weight:700;">91.2%</td><td>93.0%</td><td style="color:#F59E0B; font-weight:700;">−1.8 п.п.</td><td style="color:#EF4444;">−1.4 п.п.</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-ar">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">👥</div>
+        <div>
+          <div class="modal-title">Дебиторская задолженность (сч. 62, 76)</div>
+          <div class="modal-subtitle">Детализация по сегментам потребителей · по состоянию на 07.09.2026</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-ar-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Совокупная задолженность потребителей перед РСО.</strong> Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">ДЗ_общая = Ск(62) + Ск(76.Дб)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="ar-total"><div class="modal-summary-label">Общая ДЗ</div><div class="modal-summary-value" style="color:#EF4444;">186.4</div><div class="modal-summary-sub">млн ₽ · 196 дней выручки</div></div>
+        <div class="modal-summary-card" data-metric="ar-overdue"><div class="modal-summary-label">Просрочка >180 дн.</div><div class="modal-summary-value" style="color:#EF4444;">42.1</div><div class="modal-summary-sub">млн ₽ · 22.6%</div></div>
+        <div class="modal-summary-card" data-metric="dso"><div class="modal-summary-label">Средний DSO</div><div class="modal-summary-value" style="color:#F59E0B;">112</div><div class="modal-summary-sub">дней · норма < 60</div></div>
+        <div class="modal-summary-card" data-metric="ar-rev-ratio"><div class="modal-summary-label">ДЗ / Выручка</div><div class="modal-summary-value" style="color:#F59E0B;">65.5%</div><div class="modal-summary-sub">норма < 40%</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">👥</span>Детализация по сегментам</div>
+      <div class="metrics-grid">
+        <div class="metric status-red" data-metric="ar-population"><div class="metric-name">ДЗ населения <span class="status-dot red"></span></div><div class="metric-value">98.7<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">53% от общей ДЗ</div></div>
+        <div class="metric status-yellow" data-metric="ar-uk"><div class="metric-name">ДЗ УК / ТСЖ <span class="status-dot yellow"></span></div><div class="metric-value">41.2<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">22% от общей ДЗ</div></div>
+        <div class="metric status-yellow" data-metric="ar-budget"><div class="metric-name">ДЗ бюджетных учреждений <span class="status-dot yellow"></span></div><div class="metric-value">18.4<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">школы, больницы</div></div>
+        <div class="metric status-yellow" data-metric="ar-subsidy"><div class="metric-name">ДЗ по субсидиям <span class="status-dot yellow"></span></div><div class="metric-value">22.8<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">некомпенс. льготы</div></div>
+        <div class="metric status-red" data-metric="ar-overdue"><div class="metric-name">Просроченная ДЗ (>180 дн.) <span class="status-dot red"></span></div><div class="metric-value">42.1<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">22.6% — риск списания</div></div>
+        <div class="metric status-red" data-metric="ar-total"><div class="metric-name">Общая ДЗ <span class="status-dot red"></span></div><div class="metric-value">186.4<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">Ск(62) + Ск(76.Дб)</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">⏱</span>Старение дебиторской задолженности</div>
+      <div class="modal-chart-wrap"><canvas id="arAgingChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-ap">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">🏭</div>
+        <div>
+          <div class="modal-title">Кредиторская задолженность (сч. 60, 68, 69, 70, 76.Кр)</div>
+          <div class="modal-subtitle">Детализация по видам обязательств · по состоянию на 07.09.2026</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-ap-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Совокупные долги РСО.</strong> Характерна высокая доля КЗ за топливо (до 40–50%). Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">КЗ = Ск(60)+Ск(68)+Ск(69)+Ск(70)+Ск(76.Кр)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="ap-total"><div class="modal-summary-label">Общая КЗ</div><div class="modal-summary-value" style="color:#F59E0B;">128.4</div><div class="modal-summary-sub">млн ₽</div></div>
+        <div class="modal-summary-card" data-metric="ap-fuel"><div class="modal-summary-label">КЗ за топливо</div><div class="modal-summary-value" style="color:#EF4444;">58.2</div><div class="modal-summary-sub">млн ₽ · 45.3%</div></div>
+        <div class="modal-summary-card" data-metric="ar-ap-ratio"><div class="modal-summary-label">ДЗ / КЗ</div><div class="modal-summary-value" style="color:#F59E0B;">1.45</div><div class="modal-summary-sub">норма 1.0–1.5</div></div>
+        <div class="modal-summary-card" data-metric="dpo"><div class="modal-summary-label">Средний DPO</div><div class="modal-summary-value" style="color:#10B981;">41</div><div class="modal-summary-sub">дней · норма 30–60</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">💰</span>Детализация по видам КЗ</div>
+      <div class="metrics-grid">
+        <div class="metric status-yellow" data-metric="ap-total"><div class="metric-name">Общая КЗ <span class="status-dot yellow"></span></div><div class="metric-value">128.4<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">Ск(60)+Ск(68)+Ск(69)+Ск(70)+Ск(76.Кр)</div></div>
+        <div class="metric status-red" data-metric="ap-fuel"><div class="metric-name">КЗ за топливо <span class="status-dot red"></span></div><div class="metric-value">58.2<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">газ, уголь, мазут</div></div>
+        <div class="metric status-green" data-metric="ap-electro"><div class="metric-name">КЗ за электроэнергию <span class="status-dot green"></span></div><div class="metric-value">14.6<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">собственные нужды</div></div>
+        <div class="metric status-yellow" data-metric="ap-contractors"><div class="metric-name">КЗ подрядчикам <span class="status-dot yellow"></span></div><div class="metric-value">22.8<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">ремонт сетей, ТО</div></div>
+        <div class="metric status-green" data-metric="budget-debt"><div class="metric-name">Долг перед бюджетом <span class="status-dot green"></span></div><div class="metric-value">8.4<span class="kpi-unit"> млн ₽</span></div><div class="metric-sub">в пределах срока</div></div>
+        <div class="metric status-green" data-metric="salary-debt"><div class="metric-name">Задолж. по зарплате <span class="status-dot green"></span></div><div class="metric-value">0<span class="kpi-unit"> ₽</span></div><div class="metric-sub">погашена</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Структура кредиторской задолженности</div>
+      <div class="modal-chart-wrap"><canvas id="apStructureChart"></canvas></div>
+      <div class="modal-section-title"><span class="section-icon">🎯</span>Приоритизация платежей</div>
+      <table class="collection-seg-table">
+        <thead><tr><th style="width: 5%;">№</th><th style="width: 30%;">Вид обязательства</th><th style="width: 15%;">Сумма, млн ₽</th><th style="width: 15%;">Срочность</th><th>Риск при неоплате</th></tr></thead>
+        <tbody>
+          <tr data-metric="salary-debt"><td><span class="priority-num critical">1</span></td><td><strong>Зарплата (сч. 70)</strong></td><td>0.0</td><td><span class="badge badge-green">Срочно</span></td><td>Штрафы ГИТ, уголовная ответственность</td></tr>
+          <tr data-metric="budget-debt"><td><span class="priority-num critical">2</span></td><td><strong>Налоги и взносы (сч. 68, 69)</strong></td><td>8.4</td><td><span class="badge badge-green">Срочно</span></td><td>Блокировка р/с, пени</td></tr>
+          <tr data-metric="ap-fuel"><td><span class="priority-num critical">3</span></td><td><strong>Топливо (сч. 60.Топливо)</strong></td><td>58.2</td><td><span class="badge badge-yellow">Высокая</span></td><td>Остановка котельных</td></tr>
+          <tr data-metric="ap-electro"><td><span class="priority-num high">4</span></td><td><strong>Электроэнергия</strong></td><td>14.6</td><td><span class="badge badge-yellow">Высокая</span></td><td>Отключение насосов</td></tr>
+          <tr data-metric="ap-contractors"><td><span class="priority-num medium">5</span></td><td><strong>Подрядчики</strong></td><td>22.8</td><td><span class="badge badge-yellow">Средняя</span></td><td>Отказ от работы</td></tr>
+          <tr data-metric="ap-other"><td><span class="priority-num medium">6</span></td><td><strong>Прочая КЗ (сч. 76.Кр)</strong></td><td>24.4</td><td><span class="badge badge-green">Стандартная</span></td><td>Ухудшение репутации</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-cogs">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">₽</div>
+        <div>
+          <div class="modal-title">Себестоимость производства (сч. 20, 25, 26, 44, 90.2)</div>
+          <div class="modal-subtitle">Детализация по статьям затрат · нарастающим итогом с начала месяца</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-cogs-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Совокупные затраты РСО.</strong> Текущая полная себестоимость <strong style="color:#EF4444;">293.8 млн ₽</strong> превышает выручку 284.5 млн ₽. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Полная_с/с = ОбД(90.2) + ОбД(26) + ОбД(44)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="cogs"><div class="modal-summary-label">Полная с/с</div><div class="modal-summary-value" style="color:#EF4444;">293.8</div><div class="modal-summary-sub">млн ₽ · выше выручки</div></div>
+        <div class="modal-summary-card" data-metric="cogs-prod"><div class="modal-summary-label">Производственная с/с</div><div class="modal-summary-value" style="color:#F59E0B;">277.1</div><div class="modal-summary-sub">млн ₽ · ОбД(90.2)</div></div>
+        <div class="modal-summary-card" data-metric="cogs-admin"><div class="modal-summary-label">Управленческие</div><div class="modal-summary-value" style="color:#3B82F6;">12.4</div><div class="modal-summary-sub">млн ₽ · ОбД(26)</div></div>
+        <div class="modal-summary-card" data-metric="cogs-comm"><div class="modal-summary-label">Коммерческие</div><div class="modal-summary-value" style="color:#8B5CF6;">4.3</div><div class="modal-summary-sub">млн ₽ · ОбД(44)</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Структура производственной себестоимости</div>
+      <div style="margin-top: 10px;">
+        <div class="waterfall-bar" data-metric="fuel-share"><div class="waterfall-label">Топливо (газ, уголь, мазут)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:54.8%"></div></div><div class="waterfall-value" style="color:#EF4444;">152.0 млн ₽ · 54.8%</div></div>
+        <div class="waterfall-bar" data-metric="electro-share"><div class="waterfall-label">Электроэнергия (собств. нужды)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:12.4%"></div></div><div class="waterfall-value" style="color:#EF4444;">34.4 млн ₽ · 12.4%</div></div>
+        <div class="waterfall-bar" data-metric="salary-share"><div class="waterfall-label">ФОТ производственного персонала</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:18.2%"></div></div><div class="waterfall-value" style="color:#10B981;">50.5 млн ₽ · 18.2%</div></div>
+        <div class="waterfall-bar" data-metric="amort-share"><div class="waterfall-label">Амортизация ОС</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:14.6%"></div></div><div class="waterfall-value" style="color:#10B981;">40.5 млн ₽ · 14.6%</div></div>
+        <div class="waterfall-bar" data-metric="cogs-repair"><div class="waterfall-label">Ремонт и ТО (материалы, подрядчики)</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:8.4%"></div></div><div class="waterfall-value">23.3 млн ₽ · 8.4%</div></div>
+        <div class="waterfall-bar" data-metric="cogs-reagents"><div class="waterfall-label">Реагенты, вода, ХВО</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:4.2%"></div></div><div class="waterfall-value">11.6 млн ₽ · 4.2%</div></div>
+        <div class="waterfall-bar" data-metric="cogs-other"><div class="waterfall-label">Общехозяйственные и прочие</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:3.8%"></div></div><div class="waterfall-value">10.5 млн ₽ · 3.8%</div></div>
+        <div class="waterfall-bar" style="background:#F3F4F6; border-radius:6px; padding:10px; margin-top:6px;"><div class="waterfall-label" style="font-weight:800; color:#111827;">ИТОГО производственная с/с</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:100%"></div></div><div class="waterfall-value" style="color:#EF4444; font-size:14px;">277.1 млн ₽ · 100%</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📈</span>Динамика себестоимости за 12 месяцев, млн ₽</div>
+      <div class="modal-chart-wrap"><canvas id="cogsDynamicsChart"></canvas></div>
+      <div class="modal-section-title"><span class="section-icon">⚖</span>Сравнение себестоимости и тарифа</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Объект / Услуга</th><th>Тариф, ₽/ед.</th><th>Факт. с/с, ₽/ед.</th><th>Покрытие, %</th><th>Отклонение</th></tr></thead>
+        <tbody>
+          <tr data-metric="obj-heat"><td>Тепловая энергия (отопление)</td><td>2 412</td><td>2 190</td><td style="color:#10B981; font-weight:700;">110.1%</td><td style="color:#10B981;">+222 ₽</td></tr>
+          <tr data-metric="obj-gvs-t"><td>ГВС (компонент на теплоноситель)</td><td>1 842</td><td>2 296</td><td style="color:#EF4444; font-weight:700;">80.2%</td><td style="color:#EF4444;">−454 ₽</td></tr>
+          <tr data-metric="obj-gvs-v"><td>ГВС (компонент на ХВС)</td><td>98.4</td><td>80.5</td><td style="color:#10B981; font-weight:700;">122.2%</td><td style="color:#10B981;">+17.9 ₽</td></tr>
+          <tr data-metric="obj-connect"><td>Технологическое присоединение</td><td>12 450</td><td>8 640</td><td style="color:#10B981; font-weight:700;">144.1%</td><td style="color:#10B981;">+3 810 ₽</td></tr>
+          <tr data-metric="obj-other"><td>Прочие услуги</td><td>4 280</td><td>5 560</td><td style="color:#EF4444; font-weight:700;">77.0%</td><td style="color:#EF4444;">−1 280 ₽</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-gp">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">📉</div>
+        <div>
+          <div class="modal-title">Прибыль и финансовый результат (сч. 90, 91)</div>
+          <div class="modal-subtitle">Декомпозиция прибыли · рентабельность по объектам · динамика за 12 месяцев</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-gp-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Финансовый результат деятельности РСО.</strong> Убыток <strong style="color:#EF4444;">−9.3 млн ₽</strong> (Рм = −3.3%). Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Прибыль = ОбК(90.1) − ОбД(90.2) + ОбК(91.1) − ОбД(91.2) − Налог</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="gp"><div class="modal-summary-label">Валовая прибыль</div><div class="modal-summary-value" style="color:#EF4444;">−9.3</div><div class="modal-summary-sub">млн ₽ · Рм = −3.3%</div></div>
+        <div class="modal-summary-card" data-metric="ebit"><div class="modal-summary-label">EBIT (операционная)</div><div class="modal-summary-value" style="color:#EF4444;">−21.7</div><div class="modal-summary-sub">млн ₽ · Роп = −7.6%</div></div>
+        <div class="modal-summary-card" data-metric="other-saldo"><div class="modal-summary-label">Сальдо прочее (91)</div><div class="modal-summary-value" style="color:#10B981;">+0.6</div><div class="modal-summary-sub">млн ₽</div></div>
+        <div class="modal-summary-card" data-metric="net-profit"><div class="modal-summary-label">Чистая прибыль</div><div class="modal-summary-value" style="color:#EF4444;">−9.3</div><div class="modal-summary-sub">млн ₽ · ROA = −0.4%</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Декомпозиция финансового результата</div>
+      <div style="margin-top: 10px;">
+        <div class="waterfall-bar" data-metric="revenue"><div class="waterfall-label">Выручка (ОбК 90.1)</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:100%"></div></div><div class="waterfall-value" style="color:#10B981;">+284.5 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="cogs"><div class="waterfall-label">− Себестоимость (ОбД 90.2)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:97.4%"></div></div><div class="waterfall-value" style="color:#EF4444;">−277.1 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="gp"><div class="waterfall-label">= Валовая прибыль</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:3.3%"></div></div><div class="waterfall-value" style="color:#EF4444;">−9.3 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="cogs-admin"><div class="waterfall-label">− Управленческие расходы (сч. 26)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:4.4%"></div></div><div class="waterfall-value" style="color:#EF4444;">−12.4 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="cogs-comm"><div class="waterfall-label">− Коммерческие расходы (сч. 44)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:1.5%"></div></div><div class="waterfall-value" style="color:#EF4444;">−4.3 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="ebit"><div class="waterfall-label">= EBIT (операционная прибыль)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:7.6%"></div></div><div class="waterfall-value" style="color:#EF4444;">−21.7 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="interest-expense"><div class="waterfall-label">+ Проценты к получению / − к уплате</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:2.8%"></div></div><div class="waterfall-value" style="color:#EF4444;">−7.8 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="other-saldo"><div class="waterfall-label">+ Прочие доходы − расходы (сч. 91)</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:0.7%"></div></div><div class="waterfall-value" style="color:#10B981;">+0.6 млн ₽</div></div>
+        <div class="waterfall-bar" data-metric="rab-income"><div class="waterfall-label">+ RAB-доход / Субсидии</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:6.9%"></div></div><div class="waterfall-value" style="color:#10B981;">+19.6 млн ₽</div></div>
+        <div class="waterfall-bar" style="background:#F3F4F6; border-radius:6px; padding:10px; margin-top:6px;"><div class="waterfall-label" style="font-weight:800; color:#111827;">= Чистая прибыль (убыток)</div><div class="waterfall-progress"><div class="waterfall-fill-neg" style="width:3.3%"></div></div><div class="waterfall-value" style="color:#EF4444; font-size:14px;">−9.3 млн ₽</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📈</span>Динамика прибыли за 12 месяцев, млн ₽</div>
+      <div class="modal-chart-wrap"><canvas id="profitDynamicsChart"></canvas></div>
+      <div class="modal-section-title"><span class="section-icon">🎯</span>Рентабельность по объектам учёта</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Объект / Услуга</th><th>Выручка, млн ₽</th><th>Прибыль, млн ₽</th><th>Рент-ть, %</th><th>Вклад в фин.рез.</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="obj-heat"><td>Тепловая энергия (отопление)</td><td>168.4</td><td class="val-pos">+15.6</td><td class="val-pos">9.3%</td><td style="color:#10B981; font-weight:700;">+15.6 млн</td><td><span class="badge badge-green">Прибыль</span></td></tr>
+          <tr data-metric="obj-gvs-t"><td>ГВС (компонент на теплоноситель)</td><td>58.2</td><td class="val-neg">−14.2</td><td class="val-neg">−24.4%</td><td style="color:#EF4444; font-weight:700;">−14.2 млн</td><td><span class="badge badge-red">Убыток</span></td></tr>
+          <tr data-metric="obj-gvs-v"><td>ГВС (компонент на ХВС)</td><td>22.8</td><td class="val-pos">+4.2</td><td class="val-pos">18.4%</td><td style="color:#10B981; font-weight:700;">+4.2 млн</td><td><span class="badge badge-green">Прибыль</span></td></tr>
+          <tr data-metric="obj-connect"><td>Технологическое присоединение</td><td>18.4</td><td class="val-pos">+5.6</td><td class="val-pos">30.4%</td><td style="color:#10B981; font-weight:700;">+5.6 млн</td><td><span class="badge badge-green">Прибыль</span></td></tr>
+          <tr data-metric="obj-other"><td>Прочие услуги</td><td>12.6</td><td class="val-neg">−3.8</td><td class="val-neg">−30.2%</td><td style="color:#EF4444; font-weight:700;">−3.8 млн</td><td><span class="badge badge-red">Убыток</span></td></tr>
+          <tr data-metric="obj-sub"><td>Субсидии / компенсации</td><td>4.1</td><td class="val-pos">+4.1</td><td class="val-pos">100%</td><td style="color:#10B981; font-weight:700;">+4.1 млн</td><td><span class="badge badge-green">Доход</span></td></tr>
+          <tr class="total-row"><td>ИТОГО по счёту 90</td><td>284.5</td><td class="val-pos">+7.4</td><td class="val-pos">2.6%</td><td>+7.4 млн</td><td><span class="badge badge-yellow">Минус</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-credits">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">🏦</div>
+        <div>
+          <div class="modal-title">Кредиты и займы (сч. 66, 67)</div>
+          <div class="modal-subtitle">Структура задолженности · график погашения · ковенанты</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-credits-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Совокупная задолженность РСО по кредитам и займам.</strong> Основной источник финансирования инвестпрограммы. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Кредиты = Ск(66) + Ск(67)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="credits"><div class="modal-summary-label">Общий долг</div><div class="modal-summary-value" style="color:#F59E0B;">52.3</div><div class="modal-summary-sub">млн ₽</div></div>
+        <div class="modal-summary-card" data-metric="debt-ebitda"><div class="modal-summary-label">Долг / EBITDA</div><div class="modal-summary-value" style="color:#F59E0B;">3.2</div><div class="modal-summary-sub">норма < 3.0</div></div>
+        <div class="modal-summary-card" data-metric="icr"><div class="modal-summary-label">ICR (покрытие %)</div><div class="modal-summary-value" style="color:#10B981;">2.4</div><div class="modal-summary-sub">норма > 1.5</div></div>
+        <div class="modal-summary-card" data-metric="interest-expense"><div class="modal-summary-label">Проценты за месяц</div><div class="modal-summary-value" style="color:#EF4444;">1.8</div><div class="modal-summary-sub">млн ₽ · 8.7% от EBITDA</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">🏦</span>Структура кредитного портфеля</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Кредит / Заём</th><th>Банк</th><th>Остаток, млн ₽</th><th>Ставка, %</th><th>Срок погашения</th><th>Тип</th></tr></thead>
+        <tbody>
+          <tr data-metric="credit-invest"><td><strong>Кредитная линия (инвест.)</strong></td><td>ПАО Сбербанк</td><td>28.4</td><td>16.5%</td><td>15.03.2029</td><td><span class="badge badge-green">Долгосроч.</span></td></tr>
+          <tr data-metric="credit-season"><td><strong>Кредит на сезонный запас</strong></td><td>ВТБ</td><td>12.6</td><td>17.2%</td><td>30.04.2027</td><td><span class="badge badge-yellow">Краткосроч.</span></td></tr>
+          <tr data-metric="credit-working"><td><strong>Кредит на оборотные цели</strong></td><td>Газпромбанк</td><td>8.4</td><td>16.8%</td><td>15.12.2026</td><td><span class="badge badge-yellow">Краткосроч.</span></td></tr>
+          <tr data-metric="credit-bonds"><td><strong>Облигационный заём</strong></td><td>БО-01</td><td>2.9</td><td>14.2%</td><td>20.06.2028</td><td><span class="badge badge-green">Долгосроч.</span></td></tr>
+          <tr class="total-row"><td>ИТОГО</td><td>—</td><td style="color:#F59E0B;">52.3</td><td>~16.4% ср.</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px;">
+        <div>
+          <div class="modal-section-title" style="margin-top:0;"><span class="section-icon">📅</span>График погашения на 12 месяцев</div>
+          <div class="modal-chart-wrap" style="height:280px;"><canvas id="creditsScheduleChart"></canvas></div>
+        </div>
+        <div>
+          <div class="modal-section-title" style="margin-top:0;"><span class="section-icon">📊</span>Структура долга по срокам</div>
+          <div class="modal-chart-wrap" style="height:280px;"><canvas id="creditsStructureChart"></canvas></div>
+        </div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">⚠</span>Ковенанты и ограничения</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Ковенанта</th><th>Факт</th><th>Требование банка</th><th>Запас</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="debt-ebitda"><td>Долг / EBITDA</td><td style="font-weight:700;">3.2</td><td>≤ 3.5</td><td style="color:#F59E0B;">0.3</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+          <tr data-metric="icr"><td>ICR (покрытие процентов)</td><td style="font-weight:700;">2.4</td><td>≥ 1.5</td><td style="color:#10B981;">+0.9</td><td><span class="badge badge-green">Норма</span></td></tr>
+          <tr data-metric="ctl"><td>Коэфф. текущей ликвидности</td><td style="font-weight:700;">1.42</td><td>≥ 1.0</td><td style="color:#10B981;">+0.42</td><td><span class="badge badge-green">Норма</span></td></tr>
+          <tr data-metric="net-assets"><td>Чистые активы</td><td style="font-weight:700;">1 842 млн</td><td>≥ 1 500 млн</td><td style="color:#10B981;">+342 млн</td><td><span class="badge badge-green">Норма</span></td></tr>
+          <tr data-metric="ar-overdue"><td>Доля просроченной ДЗ</td><td style="font-weight:700;">22.6%</td><td>≤ 25%</td><td style="color:#F59E0B;">2.4 п.п.</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-salary">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">👷</div>
+        <div>
+          <div class="modal-title">Задолженность по заработной плате и ФОТ (сч. 70, 69)</div>
+          <div class="modal-subtitle">Структура ФОТ · страховые взносы · средняя зарплата · динамика</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-salary-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Начисленная, но не выплаченная зарплата и затраты на персонал.</strong> Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">Долг_по_ЗП = Ск(70) (кредитовое сальдо)</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="salary-debt"><div class="modal-summary-label">Задолженность по ЗП</div><div class="modal-summary-value" style="color:#10B981;">0</div><div class="modal-summary-sub">млн ₽ · погашена</div></div>
+        <div class="modal-summary-card" data-metric="fot"><div class="modal-summary-label">ФОТ за месяц</div><div class="modal-summary-value" style="color:#3B82F6;">28.4</div><div class="modal-summary-sub">млн ₽ · 10% выручки</div></div>
+        <div class="modal-summary-card" data-metric="insurance"><div class="modal-summary-label">Страховые взносы</div><div class="modal-summary-value" style="color:#8B5CF6;">8.5</div><div class="modal-summary-sub">млн ₽ · 30% от ФОТ</div></div>
+        <div class="modal-summary-card" data-metric="avg-salary"><div class="modal-summary-label">Средняя ЗП</div><div class="modal-summary-value" style="color:#10B981;">58.4</div><div class="modal-summary-sub">тыс ₽ · на 1 работника</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">👥</span>Структура ФОТ по категориям персонала</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Категория персонала</th><th>Численность, чел.</th><th>ФОТ, млн ₽</th><th>Доля, %</th><th>Средняя ЗП, тыс ₽</th><th>Δ к АПГ</th></tr></thead>
+        <tbody>
+          <tr data-metric="staff-prod"><td><strong>Производственный персонал</strong></td><td>248</td><td>14.2</td><td>50.0%</td><td>57.3</td><td style="color:#10B981;">+4.2%</td></tr>
+          <tr data-metric="staff-repair"><td><strong>Ремонтный персонал</strong></td><td>86</td><td>5.4</td><td>19.0%</td><td>62.8</td><td style="color:#10B981;">+5.8%</td></tr>
+          <tr data-metric="staff-admin"><td><strong>Административно-управленческий</strong></td><td>52</td><td>5.8</td><td>20.4%</td><td>111.5</td><td style="color:#10B981;">+3.4%</td></tr>
+          <tr data-metric="staff-disp"><td><strong>Диспетчерская служба</strong></td><td>24</td><td>2.1</td><td>7.4%</td><td>87.5</td><td style="color:#10B981;">+6.2%</td></tr>
+          <tr data-metric="staff-other"><td><strong>Прочие</strong></td><td>18</td><td>0.9</td><td>3.2%</td><td>50.0</td><td style="color:#10B981;">+2.8%</td></tr>
+          <tr class="total-row"><td>ИТОГО</td><td>428</td><td style="color:#3B82F6;">28.4</td><td>100%</td><td>66.4</td><td style="color:#10B981;">+4.4%</td></tr>
+        </tbody>
+      </table>
+      <div class="modal-section-title"><span class="section-icon">💼</span>Структура начислений (сч. 70)</div>
+      <div style="margin-top: 10px;">
+        <div class="waterfall-bar" data-metric="pay-salary"><div class="waterfall-label">Оклады и тарифные ставки</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:62%"></div></div><div class="waterfall-value">17.6 млн ₽ · 62.0%</div></div>
+        <div class="waterfall-bar" data-metric="pay-bonus"><div class="waterfall-label">Премии и надбавки</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:18%"></div></div><div class="waterfall-value">5.1 млн ₽ · 18.0%</div></div>
+        <div class="waterfall-bar" data-metric="pay-harmful"><div class="waterfall-label">Доплаты за вредность / ночные</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:8%"></div></div><div class="waterfall-value">2.3 млн ₽ · 8.0%</div></div>
+        <div class="waterfall-bar" data-metric="pay-vacation"><div class="waterfall-label">Отпускные</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:7%"></div></div><div class="waterfall-value">2.0 млн ₽ · 7.0%</div></div>
+        <div class="waterfall-bar" data-metric="pay-sick"><div class="waterfall-label">Больничные и прочие</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:5%"></div></div><div class="waterfall-value">1.4 млн ₽ · 5.0%</div></div>
+        <div class="waterfall-bar" style="background:#F3F4F6; border-radius:6px; padding:10px; margin-top:6px;"><div class="waterfall-label" style="font-weight:800; color:#111827;">ИТОГО ФОТ (ОбК 70)</div><div class="waterfall-progress"><div class="waterfall-fill-pos" style="width:100%"></div></div><div class="waterfall-value" style="color:#3B82F6; font-size:14px;">28.4 млн ₽ · 100%</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">📊</span>Динамика ФОТ и средней зарплаты за 12 месяцев</div>
+      <div class="modal-chart-wrap"><canvas id="salaryDynamicsChart"></canvas></div>
+      <div class="modal-section-title"><span class="section-icon">🛡</span>Страховые взносы (сч. 69)</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Вид взноса</th><th>Тариф, %</th><th>Начислено, млн ₽</th><th>К уплате, млн ₽</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="ins-pfr"><td><strong>ПФР (пенсионное страхование)</strong></td><td>22.0%</td><td>6.25</td><td>0</td><td><span class="badge badge-green">Уплачено</span></td></tr>
+          <tr data-metric="ins-fss"><td><strong>ФСС (соцстрах)</strong></td><td>2.9%</td><td>0.82</td><td>0</td><td><span class="badge badge-green">Уплачено</span></td></tr>
+          <tr data-metric="ins-ffoms"><td><strong>ФФОМС (медстрах)</strong></td><td>5.1%</td><td>1.45</td><td>0</td><td><span class="badge badge-green">Уплачено</span></td></tr>
+          <tr data-metric="ins-injury"><td><strong>Взносы на травматизм</strong></td><td>0.2%*</td><td>0.06</td><td>0</td><td><span class="badge badge-green">Уплачено</span></td></tr>
+          <tr class="total-row"><td>ИТОГО страховые взносы</td><td>~30.2%</td><td style="color:#8B5CF6;">8.58</td><td>0</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-capex">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <div class="modal-title-wrap">
+        <div class="modal-icon">🏗</div>
+        <div>
+          <div class="modal-title">Капитальные вложения и инвестпрограмма (сч. 08)</div>
+          <div class="modal-subtitle">Объекты инвестпрограммы · исполнение · незавершёнка · паспорта готовности</div>
+        </div>
+      </div>
+      <button class="modal-close" id="modal-capex-close" title="Закрыть">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-info-banner">
+        <strong>Фактические затраты на строительство, реконструкцию объектов.</strong> Утверждаются РЭК. Формула: <code style="background:#DBEAFE;padding:2px 6px;border-radius:3px;font-family:'Roboto Mono',monospace;font-size:11px;">CAPEX = ОбД(08) за период</code>
+      </div>
+      <div class="modal-summary">
+        <div class="modal-summary-card" data-metric="capex"><div class="modal-summary-label">CAPEX за месяц</div><div class="modal-summary-value" style="color:#3B82F6;">142.6</div><div class="modal-summary-sub">млн ₽ · 78% от плана</div></div>
+        <div class="modal-summary-card" data-metric="capex-wip"><div class="modal-summary-label">Незавершёнка (сч. 08)</div><div class="modal-summary-value" style="color:#EF4444;">48.2</div><div class="modal-summary-sub">млн ₽ · 3 объекта > 12 мес.</div></div>
+        <div class="modal-summary-card" data-metric="passport"><div class="modal-summary-label">Паспорта готовности</div><div class="modal-summary-value" style="color:#F59E0B;">82%</div><div class="modal-summary-sub">до 15.09 должно быть 100%</div></div>
+        <div class="modal-summary-card" data-metric="repairs"><div class="modal-summary-label">Ремонтная программа</div><div class="modal-summary-value" style="color:#F59E0B;">64%</div><div class="modal-summary-sub">план/факт</div></div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">🏗</span>Перечень объектов инвестпрограммы</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Объект / Мероприятие</th><th>План, млн ₽</th><th>Факт, млн ₽</th><th>Исполнение, %</th><th>Срок</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="capex-boiler3"><td><strong>Реконструкция котла №3</strong></td><td>42.0</td><td>38.4</td><td style="color:#10B981; font-weight:700;">91.4%</td><td>30.11.2026</td><td><span class="badge badge-green">В графике</span></td></tr>
+          <tr data-metric="capex-pipe-l"><td><strong>Замена теплосети ул. Ленина (1.2 км)</strong></td><td>28.5</td><td>28.5</td><td style="color:#10B981; font-weight:700;">100.0%</td><td>15.08.2026</td><td><span class="badge badge-green">Завершено</span></td></tr>
+          <tr data-metric="capex-ctp14"><td><strong>Модернизация ЦТП-14</strong></td><td>18.4</td><td>14.2</td><td style="color:#10B981; font-weight:700;">77.2%</td><td>30.10.2026</td><td><span class="badge badge-green">В графике</span></td></tr>
+          <tr data-metric="capex-gas-south"><td><strong>Газопровод к Котельной «Южная»</strong></td><td>24.6</td><td>18.4</td><td style="color:#F59E0B; font-weight:700;">74.8%</td><td>30.12.2026</td><td><span class="badge badge-yellow">Отставание</span></td></tr>
+          <tr data-metric="capex-pipe-m"><td><strong>Замена теплосети ул. Мира (0.8 км)</strong></td><td>16.8</td><td>10.2</td><td style="color:#EF4444; font-weight:700;">60.7%</td><td>30.09.2026</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr data-metric="capex-chimney"><td><strong>Реконструкция дымовой трубы</strong></td><td>12.4</td><td>8.6</td><td style="color:#F59E0B; font-weight:700;">69.4%</td><td>30.11.2026</td><td><span class="badge badge-yellow">Отставание</span></td></tr>
+          <tr data-metric="capex-other"><td><strong>Прочие объекты (8 мероприятий)</strong></td><td>40.7</td><td>32.3</td><td style="color:#F59E0B; font-weight:700;">79.4%</td><td>разные</td><td><span class="badge badge-yellow">Внимание</span></td></tr>
+          <tr class="total-row"><td>ИТОГО инвестпрограмма</td><td>183.4</td><td style="color:#3B82F6;">150.6</td><td style="color:#F59E0B; font-weight:700;">82.1%</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px;">
+        <div>
+          <div class="modal-section-title" style="margin-top:0;"><span class="section-icon">📈</span>Динамика CAPEX за 12 месяцев, млн ₽</div>
+          <div class="modal-chart-wrap" style="height:280px;"><canvas id="capexDynamicsChart"></canvas></div>
+        </div>
+        <div>
+          <div class="modal-section-title" style="margin-top:0;"><span class="section-icon">📊</span>Структура CAPEX по направлениям</div>
+          <div class="modal-chart-wrap" style="height:280px;"><canvas id="capexStructureChart"></canvas></div>
+        </div>
+      </div>
+      <div class="modal-section-title"><span class="section-icon">⚠</span>Незавершённые объекты (сч. 08)</div>
+      <table class="collection-seg-table">
+        <thead><tr><th>Объект</th><th>Накоплено, млн ₽</th><th>Срок начала</th><th>Дней «висит»</th><th>Причина</th><th>Статус</th></tr></thead>
+        <tbody>
+          <tr data-metric="wip-ctp7"><td><strong>Реконструкция ЦТП-7</strong></td><td>18.4</td><td>15.03.2025</td><td style="color:#EF4444; font-weight:700;">540</td><td>Судебный спор</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr data-metric="wip-boiler-east"><td><strong>Блочная котельная «Восточная»</strong></td><td>16.8</td><td>20.06.2025</td><td style="color:#EF4444; font-weight:700;">444</td><td>Задержка оборудования</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr data-metric="wip-disp"><td><strong>Автоматизация диспетчерской</strong></td><td>13.0</td><td>10.08.2025</td><td style="color:#EF4444; font-weight:700;">393</td><td>Нехватка финансирования</td><td><span class="badge badge-red">Критично</span></td></tr>
+          <tr class="total-row"><td>ИТОГО незавершёнка > 12 мес.</td><td style="color:#EF4444;">48.2</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ===== ДАННЫЕ ПОКАЗАТЕЛЕЙ С НОРМАТИВАМИ И ОТКЛОНЕНИЯМИ =====
+const metricsData = {
+  'obj-heat': { title: 'Тепловая энергия (отопление) — 90.1.01 / 90.2.01', desc: 'Основной вид деятельности РСО — производство и отпуск тепловой энергии на нужды отопления. Формирует 59% выручки.', formula: 'Выручка = ОбК(90.1.01)\nСебестоимость = ОбД(90.2.01)\nФин.рез. = ОбК(90.1.01) − ОбД(90.2.01)\nРентабельность = Фин.рез. / Выручка × 100%', detail: 'Аналитика сч. 90 по объекту «Тепловая энергия (отопление)». Себестоимость формируется из сч. 20 (прямые затраты) и распределённых общехоз. расходов (сч. 25, 26, 44).', norm: 'Рентабельность 5–10% (норматив РЭК для регулируемых РСО)', fact: 'Рентабельность 9.3%', deviation: { value: '−0.7 п.п. до верх. границы', type: 'good' }, source: 'Основание: постановление РЭК, методические указания ФСТ России' },
+  'obj-gvs-t': { title: 'ГВС (компонент на теплоноситель) — 90.1.02 / 90.2.02', desc: 'Услуга по подогреву холодной воды для нужд горячего водоснабжения. Тариф утверждается РЭК.', formula: 'Выручка = ОбК(90.1.02)\nСебестоимость = ОбД(90.2.02)\nФин.рез. = ОбК(90.1.02) − ОбД(90.2.02)', detail: 'В себестоимости — топливо на подогрев, электроэнергия, ХВО, ремонт оборудования тепловых пунктов.', norm: 'Рентабельность ≥ 0% (безубыточность)', fact: 'Рентабельность −24.4%', deviation: { value: '−24.4 п.п. (убыток)', type: 'bad' }, source: 'Основание: ФЗ-190 «О теплоснабжении», ст. 8' },
+  'obj-gvs-v': { title: 'ГВС (компонент на холодную воду) — 90.1.03 / 90.2.03', desc: 'Поставка холодной воды для нужд горячего водоснабжения. РСО выступает как транзитная организация.', formula: 'Выручка = ОбК(90.1.03)\nСебестоимость = ОбД(90.2.03)\nФин.рез. = ОбК(90.1.03) − ОбД(90.2.03)', detail: 'В себестоимости — стоимость purchased холодной воды у водоканала (сч. 60), потери в сетях ХВС.', norm: 'Рентабельность ≥ 10% (транзитная маржа)', fact: 'Рентабельность 18.4%', deviation: { value: '+8.4 п.п. выше нормы', type: 'good' }, source: 'Основание: постановление РЭК по двухставочному тарифу на ГВС' },
+  'obj-connect': { title: 'Технологическое присоединение — 90.1.04 / 90.2.04', desc: 'Услуга по подключению новых потребителей. Наиболее рентабельное направление.', formula: 'Выручка = ОбК(90.1.04)\nСебестоимость = ОбД(90.2.04)\nФин.рез. = ОбК(90.1.04) − ОбД(90.2.04)', detail: 'В себестоимости — затраты на строительство сетей и ТУ под конкретных заявителей.', norm: 'Рентабельность ≥ 20% (норматив для нерегулируемых доходов)', fact: 'Рентабельность 30.4%', deviation: { value: '+10.4 п.п. выше нормы', type: 'good' }, source: 'Основание: постановления Правительства РФ № 808, № 1175' },
+  'obj-other': { title: 'Прочие услуги — 90.1.05 / 90.2.05', desc: 'Промывка, опрессовка, поверка ОДПУ, оформление актов разграничения.', formula: 'Выручка = ОбК(90.1.05)\nСебестоимость = ОбД(90.2.05)\nФин.рез. = ОбК(90.1.05) − ОбД(90.2.05)', detail: 'В себестоимости — зарплата персонала, материалы, аренда спецтехники.', norm: 'Рентабельность ≥ 0% (безубыточность)', fact: 'Рентабельность −30.2%', deviation: { value: '−30.2 п.п. (убыток)', type: 'bad' }, source: 'Основание: тарифные решения РЭК по прочим регулируемым услугам' },
+  'obj-sub': { title: 'Субсидии / компенсации тарифных выпадов — 90.1.06', desc: 'Бюджетные средства на компенсацию льгот, выпадающих доходов и адресную поддержку.', formula: 'Выручка = ОбК(90.1.06) + ОбК(76.Бюджет)\nСебестоимость = —\nФин.рез. = Выручка', detail: 'Корреспонденция с сч. 76 «Расчёты с бюджетом».', norm: 'Поступление в пределах утверждённых лимитов (100%)', fact: 'Сбор 78.4%', deviation: { value: '−21.6 п.п. от плана', type: 'bad' }, source: 'Основание: БК РФ, ст. 133; закон о бюджете субъекта РФ' },
+  cash: { title: 'Денежные средства РСО', desc: 'Свободные денежные ресурсы предприятия на расчётных и иных счетах. Для РСО критически важно иметь запас на закупку топлива в подготовительный период.', formula: 'Денежные_средства = Ск(50) + Ск(51) + Ск(52) + Ск(55)', detail: 'Ск(50) — касса; Ск(51) — р/с в рублях; Ск(52) — валюта; Ск(55) — аккредитивы, спецсчета для инвестпрограммы.', norm: '> 30 млн ₽ (для РСО средней мощности)', fact: '42.6 млн ₽', deviation: { value: '+12.6 млн ₽ выше нормы', type: 'good' }, source: 'Основание: внутренняя учётная политика РСО, отраслевые benchmarks' },
+  'cash-kassa': { title: 'Касса (сч. 50)', desc: 'Наличные денежные средства в кассе предприятия.', formula: 'Ск(50) — кредитовое сальдо', detail: 'Разменные средства, подотчётные суммы. Обычно незначительная часть денежных средств.', norm: 'Минимально необходимый объём для разменных операций', fact: '0.4 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 23/2001 «Учёт денежных средств»' },
+  'cash-rub': { title: 'Расчётные счета в рублях (сч. 51)', desc: 'Основной операционный счёт РСО в рублях.', formula: 'Ск(51) — кредитовое сальдо', detail: 'Основной объём денежных средств РСО. Через этот счёт проходят все основные операции.', norm: 'Обеспечение текущих платежей на 30+ дней', fact: '36.8 млн ₽ (86.4% от всех ДС)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 23/2001' },
+  'cash-val': { title: 'Валютные счета (сч. 52)', desc: 'Денежные средства на валютных счетах.', formula: 'Ск(52) × Курс ЦБ', detail: 'Валютная позиция РСО. Подвержена курсовым рискам.', norm: 'Минимизация валютной позиции (хеджирование)', fact: '2.2 млн ₽ (5.2% от всех ДС)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 3/2006 «Учёт активов и обязательств в иностранной валюте»' },
+  'cash-spec': { title: 'Спецсчета, аккредитивы (сч. 55)', desc: 'Специальные счета для инвестпрограммы, аккредитивы.', formula: 'Ск(55) — кредитовое сальдо', detail: 'Целевое использование средств. Контроль со стороны РЭК.', norm: 'В пределах утверждённой инвестпрограммы', fact: '3.2 млн ₽ (7.5% от всех ДС)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: требования РЭК к целевому использованию средств' },
+  ncf: { title: 'Денежный поток (NCF) за период', desc: 'Чистое движение денежных средств. Для РСО характерна сезонность.', formula: 'NCF = [ОбД(50..55)] − [ОбК(50..55)] за период', detail: 'Анализ в разрезе операционной, инвестиционной и финансовой деятельности.', norm: '> 0 стабильно (положительный денежный поток)', fact: '+8.4 млн ₽', deviation: { value: '+8.4 млн ₽ (положительный)', type: 'good' }, source: 'Основание: управленческий учёт движения ДС' },
+  ctl: { title: 'Коэффициент текущей ликвидности', desc: 'Способность РСО погасить краткосрочные обязательства. Для РСО норматив снижен до ≥ 1,0.', formula: 'КТЛ = [Ск(50..55)+Ск(62)+Ск(10)+Ск(20)+Ск(25)] /\n[Ск(60)+Ск(66)+Ск(68)+Ск(69)+Ск(70)+Ск(76.Кр)]', detail: 'Числитель — оборотные активы; знаменатель — краткосрочные обязательства.', norm: '≥ 1.0 (Приказ Минэнерго РФ № 116 для РСО)', fact: '1.42', deviation: { value: '+0.42 выше норматива', type: 'good' }, source: 'Основание: Приказ Минэнерго РФ от 24.01.2009 № 32' },
+  cal: { title: 'Коэффициент абсолютной ликвидности', desc: 'Доля краткосрочных обязательств, которую можно погасить немедленно.', formula: 'КАЛ = [Ск(50)+Ск(51)+Ск(52)+Ск(55)] /\n[Ск(60)+Ск(66)+Ск(68)+Ск(69)+Ск(70)+Ск(76.Кр)]', detail: 'Только абсолютно ликвидные активы в числителе.', norm: '≥ 0.2 (общий норматив для ЖКХ)', fact: '0.28', deviation: { value: '+0.08 выше норматива', type: 'good' }, source: 'Основание: Приказ Минэнерго РФ № 32' },
+  runway: { title: 'Cash Runway (автономия)', desc: 'На сколько дней хватит текущих денег при сохранении темпа расходов.', formula: 'Runway = [Ск(50)+Ск(51)+Ск(52)+Ск(55)] /\nСреднедневные_платежи', detail: 'Среднедневные платежи = ОбК(50..55) за 30 дней / 30.', norm: '> 30 дней (отраслевой норматив для РСО)', fact: '38 дней', deviation: { value: '+8 дней выше нормы', type: 'good' }, source: 'Основание: внутренняя финансовая политика РСО' },
+  'fuel-reserve': { title: 'Обеспеченность топливом (в днях)', desc: 'На сколько дней работы котельных хватит текущего запаса топлива.', formula: 'Обеспеченность = Ск(10.Топливо) /\nСреднедневной_расход_топлива', detail: 'Среднедневной расход рассчитывается по нормативам на 1 Гкал × плановая нагрузка.', norm: '≥ 75 дней к началу отопительного сезона', fact: '62 дня', deviation: { value: '−13 дней ниже норматива', type: 'bad' }, source: 'Основание: Правила технической эксплуатации тепловых энергоустановок (Приказ Минэнерго № 115)' },
+  'fuel-share': { title: 'Доля топлива в себестоимости', desc: 'Удельный вес затрат на топливо в полной себестоимости. Основная статья затрат (40–55%).', formula: 'Доля_топлива = ОбК(10.Топливо) / ОбД(20) × 100%', detail: 'Норматив для газовой генерации: 50–65%, для угольной: 35–50%, для мазутной: 55–75%.', norm: '40–50% (отраслевой норматив для РСО)', fact: '54.8%', deviation: { value: '+4.8 п.п. выше верх. границы', type: 'bad' }, source: 'Основание: методические указания ФСТ России по расчёту тарифов' },
+  'electro-share': { title: 'Доля электроэнергии в себестоимости', desc: 'Затраты на электроэнергию для собственных нужд.', formula: 'Доля_электро = ОбК(10.Электроэнергия) / ОбД(20) × 100%', detail: 'Норматив для теплоснабжения: 8–15% от себестоимости.', norm: '8–15% (отраслевой норматив)', fact: '12.4%', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: методические указания ФСТ России' },
+  'salary-share': { title: 'Доля ФОТ в себестоимости', desc: 'Удельный вес затрат на персонал в полной себестоимости.', formula: 'Доля_ФОТ = ОбК(70) / ОбД(20+25+26) × 100%', detail: 'Включает начисления страховых взносов (~30%).', norm: '15–22% (отраслевой норматив для РСО)', fact: '18.2%', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'amort-share': { title: 'Доля амортизации в себестоимости', desc: 'Отчисления на износ основных средств.', formula: 'Доля_аморт = ОбК(02) / ОбД(20+25+26) × 100%', detail: 'Зависит от срока полезного использования ОС и метода амортизации.', norm: '10–18% (отраслевой норматив)', fact: '14.6%', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 6/01, отраслевые benchmarks' },
+  'ar-total': { title: 'Общая дебиторская задолженность', desc: 'Совокупная задолженность потребителей перед РСО. Ключевая проблема отрасли.', formula: 'ДЗ_общая = Ск(62) + Ск(76.Дб)', detail: 'Детализация по сегментам: население, УК/ТСЖ, бюджет, прочие юрлица, субсидии.', norm: '< 100% месячной выручки (отраслевой норматив)', fact: '186.4 млн ₽ (65.5% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО, ФЗ-190' },
+  'ar-population': { title: 'Дебиторская задолженность населения', desc: 'Задолженность граждан за коммунальные услуги. Хроническая проблема отрасли.', formula: 'ДЗ_населения = Ск(62.Население)', detail: 'С группировкой по срокам: 0–30, 31–90, 91–180, 181–365, > 365 дней.', norm: '< 30% от общей ДЗ (отраслевой норматив)', fact: '98.7 млн ₽ (53% от общей ДЗ)', deviation: { value: '+23 п.п. выше нормы', type: 'bad' }, source: 'Основание: ЖК РФ, отраслевые benchmarks' },
+  'ar-uk': { title: 'Дебиторская задолженность УК / ТСЖ', desc: 'Задолженность управляющих компаний за purchased тепловую энергию.', formula: 'ДЗ_УК = Ск(62.УК/ТСЖ)', detail: 'Топ-10 УК-должников. Особое внимание — банкротные процедуры УК.', norm: '< 20% от общей ДЗ (отраслевой норматив)', fact: '41.2 млн ₽ (22% от общей ДЗ)', deviation: { value: '+2 п.п. выше нормы', type: 'warn' }, source: 'Основание: ФЗ-190, ЖК РФ' },
+  'ar-budget': { title: 'Дебиторская задолженность бюджетных учреждений', desc: 'Задолженность школ, больниц, детсадов.', formula: 'ДЗ_бюджет = Ск(62.Бюджетные_учреждения)', detail: 'По главным распорядителям бюджетных средств (ГРБС).', norm: '< 15% от общей ДЗ (отраслевой норматив)', fact: '18.4 млн ₽ (9.9% от общей ДЗ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: БК РФ' },
+  'ar-subsidy': { title: 'Задолженность бюджета по субсидиям / льготам', desc: 'Некомпенсированные льготы и выпадающие доходы.', formula: 'ДЗ_субсидии = Ск(76.Субсидии/Льготы)', detail: 'Сверка с органами соцзащиты и минфином региона.', norm: '0 (своевременное поступление)', fact: '22.8 млн ₽ (просрочка 6.2 мес.)', deviation: { value: '+22.8 млн ₽ просрочка', type: 'bad' }, source: 'Основание: БК РФ, ст. 133' },
+  'ar-overdue': { title: 'Просроченная ДЗ (старение)', desc: 'Доля ДЗ со сроком возникновения свыше 180 дней.', formula: 'Доля_просрочки = Ск(62.Просрочка>180дн) / Ск(62) × 100%', detail: 'Группировка по сегментам и срокам.', norm: '< 10% от общей ДЗ (отраслевой норматив)', fact: '42.1 млн ₽ (22.6% от общей ДЗ)', deviation: { value: '+12.6 п.п. выше нормы', type: 'bad' }, source: 'Основание: отраслевые benchmarks РСО, ПБУ 9/99' },
+  dso: { title: 'Оборачиваемость ДЗ (DSO)', desc: 'Среднее количество дней, за которое покупатели оплачивают ресурс.', formula: 'DSO = [Средняя_ДЗ / ОбК(90.1)] × Дней_в_периоде', detail: 'Средняя ДЗ = [Сн(62)+Ск(62)] / 2.', norm: '< 60 дней (отраслевой норматив для РСО)', fact: '112 дней', deviation: { value: '+52 дня выше нормы', type: 'bad' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'ar-rev-ratio': { title: 'Отношение ДЗ / Выручка', desc: 'Доля годовой выручки, «замороженной» в дебиторской задолженности.', formula: 'ДЗ/Выручка = Ск(62) / ОбК(90.1) × 100%', detail: 'Индикатор качества кредитной политики.', norm: '< 40% (отраслевой норматив)', fact: '65.5%', deviation: { value: '+25.5 п.п. выше нормы', type: 'bad' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'ap-total': { title: 'Общая кредиторская задолженность', desc: 'Совокупные долги РСО перед поставщиками, бюджетом, персоналом.', formula: 'КЗ_общая = Ск(60) + Ск(76.Кр) + Ск(68) + Ск(69) + Ск(70)', detail: 'Структура: топливо, электроэнергия, подрядчики, бюджет, персонал, прочее.', norm: 'ДЗ/КЗ = 1.0–1.5 (отраслевой норматив)', fact: '128.4 млн ₽ (ДЗ/КЗ = 1.45)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'ap-fuel': { title: 'Кредиторская задолженность за топливо', desc: 'Долги РСО перед поставщиками газа, угля, мазута.', formula: 'КЗ_топливо = Ск(60.Топливо)', detail: 'Детализация по видам топлива: газ, уголь, мазут, дизель.', norm: '< 30 дней просрочки (отраслевой норматив)', fact: '58.2 млн ₽', deviation: { value: 'контролировать сроки оплаты', type: 'warn' }, source: 'Основание: ФЗ-190, договоры с ресурсоснабжающими организациями' },
+  'ap-electro': { title: 'КЗ за электроэнергию на собственные нужды', desc: 'Задолженность за электроэнергию, потребляемую насосами, дымососами котельных.', formula: 'КЗ_электро = Ск(60.Электроэнергия)', detail: 'По договорам с ПАО «Россети» и гарантирующими поставщиками.', norm: '< 30 дней (отраслевой норматив)', fact: '14.6 млн ₽', deviation: { value: 'контролировать сроки оплаты', type: 'warn' }, source: 'Основание: ФЗ-35 «Об электроэнергетике»' },
+  'ap-contractors': { title: 'КЗ подрядчикам (ремонт, ТО)', desc: 'Задолженность перед подрядными организациями за ремонт сетей.', formula: 'КЗ_подрядчики = Ск(60.Подрядчики)', detail: 'По договорам подряда и хоздоговорам.', norm: '< 45 дней (отраслевой норматив)', fact: '22.8 млн ₽', deviation: { value: 'контролировать сроки оплаты', type: 'warn' }, source: 'Основание: договоры подряда, ГК РФ' },
+  'ap-other': { title: 'Прочая кредиторская задолженность (сч. 76.Кр)', desc: 'Прочие кредиторы: расчёты с разными дебиторами и кредиторами.', formula: 'Прочая_КЗ = Ск(76.Кр)', detail: 'Включает расчёты по депонентам, прочим операциям.', norm: 'Минимизация, контроль сроков', fact: '24.4 млн ₽', deviation: { value: 'контролировать сроки оплаты', type: 'warn' }, source: 'Основание: ПБУ 10/99' },
+  'ar-ap-ratio': { title: 'Соотношение ДЗ / КЗ', desc: 'Баланс между долгами «нам» и «нами».', formula: 'ДЗ/КЗ = [Ск(62)+Ск(76.Дб)] / [Ск(60)+Ск(76.Кр)]', detail: 'Идеальное значение 1.0–1.2.', norm: '1.0–1.5 (отраслевой норматив)', fact: '1.45', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  dpo: { title: 'Оборачиваемость КЗ (DPO)', desc: 'Среднее количество дней, за которое РСО платит поставщикам.', formula: 'DPO = [Средняя_КЗ_коммерч / (ОбД(20)+ОбД(26)+ОбД(44))] × Дней_в_периоде', detail: 'Средняя КЗ = [Сн(60)+Ск(60)] / 2.', norm: '30–60 дней (отраслевой норматив)', fact: '41 день', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'budget-debt': { title: 'Задолженность перед бюджетом', desc: 'Налоги и сборы, начисленные, но не уплаченные в срок.', formula: 'Долг_бюджет = Ск(68) (кредитовое сальдо)', detail: 'Детализация: НДС, налог на прибыль, НДФЛ, налог на имущество, земельный налог.', norm: '0 или в пределах установленных сроков уплаты', fact: '8.4 млн ₽ (в пределах срока)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: НК РФ, ст. 45, 46' },
+  'salary-debt': { title: 'Задолженность по зарплате', desc: 'Начисленная, но не выплаченная зарплата. Для РСО — критично.', formula: 'Долг_по_зарплате = Ск(70) (кредитовое сальдо)', detail: 'Контроль ежедневный — недопущение просрочки.', norm: '0 (зарплата выплачивается каждые полмесяца, ст. 136 ТК РФ)', fact: '0 ₽ (погашена)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ТК РФ, ст. 136, 141' },
+  revenue: { title: 'Выручка РСО за период', desc: 'Основной показатель масштаба деятельности. Для регулируемых РСО выручка определяется тарифами РЭК.', formula: 'Выручка_НИ = ОбК(90.1) нарастающим итогом', detail: 'Детализация по сегментам: население, УК/ТСЖ, бюджет, прочие юрлица, субсидии.', norm: '≥ план, утверждённый РЭК', fact: '284.5 млн ₽ (+4.2% к плану)', deviation: { value: '+4.2% выше плана', type: 'good' }, source: 'Основание: ФЗ-190, тарифные решения РЭК' },
+  'rev-population': { title: 'Выручка от населения', desc: 'Поступления от граждан за коммунальные услуги.', formula: 'Выручка_население = ОбК(90.1.Население)', detail: 'По тарифным группам: население с электроплитами, газифицированное, льготники.', norm: 'Сбор платежей > 95% (отраслевой норматив)', fact: '138.2 млн ₽ (сбор 89.0%)', deviation: { value: '−6.0 п.п. ниже нормы', type: 'bad' }, source: 'Основание: ЖК РФ, отраслевые benchmarks РСО' },
+  'rev-uk': { title: 'Выручка от УК / ТСЖ', desc: 'Поступления от управляющих компаний за purchased тепловую энергию.', formula: 'Выручка_УК = ОбК(90.1.УК/ТСЖ)', detail: 'По каждому контрагенту из аналитики сч. 62.', norm: 'Сбор > 95% (отраслевой норматив)', fact: '92.4 млн ₽ (сбор 94.2%)', deviation: { value: '−0.8 п.п. ниже нормы', type: 'warn' }, source: 'Основание: ФЗ-190, ЖК РФ' },
+  'rev-budget': { title: 'Выручка от бюджетных учреждений', desc: 'Поступления от школ, больниц, детсадов и иных бюджетных учреждений.', formula: 'Выручка_бюджет = ОбК(90.1.Бюджет)', detail: 'По ГРБС (главным распорядителям бюджетных средств).', norm: 'Сбор > 95% (отраслевой норматив)', fact: '24.6 млн ₽ (сбор 96.8%)', deviation: { value: '+1.8 п.п. выше нормы', type: 'good' }, source: 'Основание: БК РФ' },
+  'rev-other': { title: 'Выручка от прочих юридических лиц', desc: 'Поступления от прочих потребителей — коммерческие организации, ИП.', formula: 'Выручка_прочие = ОбК(90.1.Прочие)', detail: 'По каждому контрагенту из аналитики сч. 62.', norm: 'Сбор > 95% (отраслевой норматив)', fact: '12.8 млн ₽ (сбор 92.4%)', deviation: { value: '−2.6 п.п. ниже нормы', type: 'warn' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'rev-subsidy': { title: 'Субсидии и компенсации из бюджета', desc: 'Поступления из бюджетов разных уровней на компенсацию льгот.', formula: 'Субсидии = ОбК(90.1.Субсидии) + ОбК(76.Бюджет)', detail: 'По источникам: федеральный, региональный, местный бюджеты.', norm: 'В пределах утверждённых лимитов (сбор 100%)', fact: '28.6 млн ₽ (сбор 78.4%)', deviation: { value: '−21.6 п.п. ниже нормы', type: 'bad' }, source: 'Основание: БК РФ, ст. 133' },
+  collection: { title: 'Уровень сбора платежей', desc: 'Доля начислений, фактически оплаченных потребителями. Ключевой показатель платёжной дисциплины.', formula: 'Уровень_сбора = ОбК(62) / ОбД(62) × 100%', detail: 'Детализация по сегментам: население, УК/ТСЖ, бюджет, юрлица.', norm: '> 95% (отраслевой норматив для РСО)', fact: '91.2%', deviation: { value: '−3.8 п.п. ниже нормы', type: 'bad' }, source: 'Основание: отраслевые benchmarks РСО, ФЗ-190' },
+  'collection-pop': { title: 'Уровень сбора от населения', desc: 'Доля начислений населению, фактически оплаченных гражданами.', formula: 'Сбор_население = ОбК(62.Население) / ОбД(62.Население) × 100%', detail: 'Основной драйвер общего уровня сбора.', norm: '> 95% (отраслевой норматив)', fact: '89.0%', deviation: { value: '−6.0 п.п. ниже нормы', type: 'bad' }, source: 'Основание: ЖК РФ, отраслевые benchmarks' },
+  'collection-uk': { title: 'Уровень сбора от УК / ТСЖ', desc: 'Доля начислений УК/ТСЖ, фактически оплаченных.', formula: 'Сбор_УК = ОбК(62.УК/ТСЖ) / ОбД(62.УК/ТСЖ) × 100%', detail: 'Контроль ТОП-3 УК-должников.', norm: '> 95% (отраслевой норматив)', fact: '94.2%', deviation: { value: '−0.8 п.п. ниже нормы', type: 'warn' }, source: 'Основание: ФЗ-190, ЖК РФ' },
+  'collection-budget': { title: 'Уровень сбора от бюджетных учреждений', desc: 'Доля начислений бюджетным учреждениям, фактически оплаченных.', formula: 'Сбор_бюджет = ОбК(62.Бюджет) / ОбД(62.Бюджет) × 100%', detail: 'Бюджетные учреждения обычно платят стабильно.', norm: '> 95% (отраслевой норматив)', fact: '96.8%', deviation: { value: '+1.8 п.п. выше нормы', type: 'good' }, source: 'Основание: БК РФ' },
+  cogs: { title: 'Полная себестоимость производства', desc: 'Совокупные затраты РСО на производство и отпуск ресурса.', formula: 'Полная_с/с = ОбД(90.2) + ОбД(26) + ОбД(44)', detail: 'Структура: топливо, электроэнергия, зарплата, амортизация, ремонт, вода, реагенты, общехоз. расходы.', norm: '≤ экономически обоснованным затратам, утверждённым РЭК', fact: '293.8 млн ₽ (превышает выручку)', deviation: { value: '+9.3 млн ₽ выше выручки', type: 'bad' }, source: 'Основание: ФЗ-190, Основы ценообразования (ПП РФ № 1075)' },
+  'cogs-prod': { title: 'Производственная себестоимость (сч. 90.2)', desc: 'Затраты на производство и отпуск ресурса потребителям.', formula: 'Производственная_с/с = ОбД(90.2)', detail: 'Включает прямые затраты: топливо, электроэнергия, ФОТ, амортизация, ремонт.', norm: 'В пределах экономически обоснованных затрат РЭК', fact: '277.1 млн ₽', deviation: { value: 'контролировать структуру', type: 'warn' }, source: 'Основание: ПБУ 10/99' },
+  'cogs-admin': { title: 'Управленческие расходы (сч. 26)', desc: 'Затраты на управление предприятием.', formula: 'Управленческие = ОбД(26)', detail: 'Включает зарплату АУП, аренду офиса, связь, ИТ, консалтинг.', norm: '5–10% от выручки (отраслевой норматив)', fact: '12.4 млн ₽ (4.4% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'cogs-comm': { title: 'Коммерческие расходы (сч. 44)', desc: 'Затраты на сбыт ресурса.', formula: 'Коммерческие = ОбД(44)', detail: 'Включает зарплату сбытового персонала, рекламу, работу с потребителями.', norm: '1–3% от выручки (отраслевой норматив)', fact: '4.3 млн ₽ (1.5% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'cogs-repair': { title: 'Ремонт и ТО', desc: 'Затраты на ремонт и техническое обслуживание оборудования и сетей.', formula: 'Ремонт = ОбД(20.Ремонт) + ОбД(60.Подрядчики.ремонт)', detail: 'Включает материалы, работы подрядчиков, аварийно-восстановительные работы.', norm: '8–12% от себестоимости (отраслевой норматив)', fact: '23.3 млн ₽ (8.4% от с/с)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: Правила технической эксплуатации тепловых энергоустановок' },
+  'cogs-reagents': { title: 'Реагенты, вода, ХВО', desc: 'Затраты на химические реагенты, подпиточную воду, химводоочистку.', formula: 'Реагенты = ОбД(10.Реагенты) + ОбД(10.Вода) → ОбД(20)', detail: 'Критично для предотвращения коррозии и накипи в котлах и сетях.', norm: '3–5% от себестоимости (отраслевой норматив)', fact: '11.6 млн ₽ (4.2% от с/с)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: Правила технической эксплуатации' },
+  'cogs-other': { title: 'Общехозяйственные и прочие расходы', desc: 'Прочие общехозяйственные расходы, не относящиеся к основным статьям.', formula: 'Прочие = ОбД(20.Прочие) + ОбД(25) + ОбД(26.Прочие)', detail: 'Включает аренду, связь, ИТ, командировки, представительские расходы.', norm: '2–4% от себестоимости (отраслевой норматив)', fact: '10.5 млн ₽ (3.8% от с/с)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  gp: { title: 'Прибыль (убыток) предприятия', desc: 'Финансовый результат деятельности РСО. Для регулируемых РСО прибыль нормируется РЭК.', formula: 'Прибыль = ОбК(90.1) − ОбД(90.2) + ОбК(91.1) − ОбД(91.2) −\nНалог на прибыль', detail: 'Нормативная доходность РЭК: 5–10% от экономически обоснованных затрат.', norm: 'Рентабельность 5–10% (норматив РЭК)', fact: '−9.3 млн ₽ (Рм = −3.3%)', deviation: { value: '−8.3 п.п. до нижн. границы', type: 'bad' }, source: 'Основание: Основы ценообразования в сфере теплоснабжения (ПП РФ № 1075), ст. 22' },
+  ebit: { title: 'EBIT (операционная прибыль)', desc: 'Прибыль до уплаты процентов и налога на прибыль. Показывает операционную эффективность.', formula: 'EBIT = ОбК(90.1) − ОбД(90.2) − ОбД(26) − ОбД(44)', detail: 'Исключает влияние финансовой структуры и налогов.', norm: 'Рентабельность ≥ 5% (отраслевой норматив)', fact: '−21.7 млн ₽ (Роп = −7.6%)', deviation: { value: '−12.6 п.п. ниже нормы', type: 'bad' }, source: 'Основание: управленческий учёт, отраслевые benchmarks' },
+  'other-saldo': { title: 'Сальдо прочих доходов и расходов', desc: 'Чистый результат по неоперационным операциям.', formula: 'Сальдо_прочие = ОбК(91.1) − ОбД(91.2)', detail: 'Детализация по статьям аналитики сч. 91.', norm: 'Положительное значение (отраслевой норматив)', fact: '+0.6 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 9/99, ПБУ 10/99' },
+  'net-profit': { title: 'Чистая прибыль', desc: 'Финансовый результат после уплаты всех налогов.', formula: 'Чистая_прибыль = EBIT − Проценты − Налог на прибыль +\nПрочие доходы − Прочие расходы', detail: 'Базовый показатель для расчёта ROA, ROE.', norm: 'Положительное значение', fact: '−9.3 млн ₽', deviation: { value: 'убыток', type: 'bad' }, source: 'Основание: ПБУ 9/99' },
+  'interest-expense': { title: 'Процентные расходы', desc: 'Проценты к уплате по кредитам и займам.', formula: 'Проценты = ОбД(91.2) в части процентов по кредитам', detail: 'По договорам с банками. Влияет на ICR.', norm: '< 10% от EBITDA (отраслевой норматив)', fact: '7.8 млн ₽ (отрицательное сальдо)', deviation: { value: 'контролировать долю в EBITDA', type: 'warn' }, source: 'Основание: ковенанты кредитных договоров' },
+  credits: { title: 'Кредиты и займы', desc: 'Совокупная задолженность РСО по кредитам и займам.', formula: 'Кредиты_и_займы = Ск(66) + Ск(67)', detail: 'Ск(66) — краткосрочные кредиты и займы (< 12 мес.); Ск(67) — долгосрочные (> 12 мес.).', norm: 'Долг/EBITDA < 2.5 (банковский норматив для РСО)', fact: '52.3 млн ₽ (Долг/EBITDA = 3.2)', deviation: { value: '+0.7 выше нормы', type: 'warn' }, source: 'Основание: ковенанты кредитных договоров, отраслевые benchmarks' },
+  'credit-invest': { title: 'Инвестиционный кредит (Сбербанк)', desc: 'Долгосрочный кредит на финансирование инвестиционной программы.', formula: 'Остаток = Ск(67.Сбербанк.инвест)', detail: 'Срок погашения 15.03.2029. Ставка 16.5%.', norm: 'В пределах утверждённой инвестпрограммы', fact: '28.4 млн ₽', deviation: { value: 'контролировать график погашения', type: 'warn' }, source: 'Основание: кредитный договор' },
+  'credit-season': { title: 'Кредит на сезонный запас (ВТБ)', desc: 'Краткосрочный кредит на закупку топлива перед отопительным сезоном.', formula: 'Остаток = Ск(66.ВТБ.сезонный)', detail: 'Срок погашения 30.04.2027. Ставка 17.2%.', norm: 'Погашение в течение отопительного сезона', fact: '12.6 млн ₽', deviation: { value: 'контролировать график погашения', type: 'warn' }, source: 'Основание: кредитный договор' },
+  'credit-working': { title: 'Кредит на оборотные цели (Газпромбанк)', desc: 'Краткосрочный кредит на пополнение оборотных средств.', formula: 'Остаток = Ск(66.Газпромбанк.оборотный)', detail: 'Срок погашения 15.12.2026. Ставка 16.8%.', norm: 'Минимизация, погашение из поступлений', fact: '8.4 млн ₽', deviation: { value: 'срок погашения — 15.12.2026', type: 'warn' }, source: 'Основание: кредитный договор' },
+  'credit-bonds': { title: 'Облигационный заём (БО-01)', desc: 'Долгосрочный облигационный заём.', formula: 'Остаток = Ск(67.БО-01)', detail: 'Срок погашения 20.06.2028. Ставка 14.2%.', norm: 'Соблюдение ковенант', fact: '2.9 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: решение о выпуске облигаций' },
+  'debt-ebitda': { title: 'Соотношение Долг / EBITDA', desc: 'Показатель долговой нагрузки.', formula: 'Долг/EBITDA = [Ск(66)+Ск(67)] / EBITDA_аннуализированная', detail: 'EBITDA = EBIT + Амортизация (ОбК(02)).', norm: '< 2.5 (банковский норматив для РСО)', fact: '3.2', deviation: { value: '+0.7 выше нормы', type: 'warn' }, source: 'Основание: ковенанты кредитных договоров, отраслевые benchmarks' },
+  icr: { title: 'Коэффициент покрытия процентов (ICR)', desc: 'Способность РСО обслуживать проценты по кредитам.', formula: 'ICR = EBITDA / ОбД(91.2)_проценты', detail: 'Банки обычно требуют ICR > 1.5 для кредитования РСО.', norm: '> 1.5 (банковский норматив)', fact: '2.4', deviation: { value: '+0.9 выше нормы', type: 'good' }, source: 'Основание: ковенанты кредитных договоров' },
+  'net-assets': { title: 'Чистые активы', desc: 'Разница между активами и обязательствами организации.', formula: 'Чистые_активы = Активы − Обязательства', detail: 'Ковенанта банков. Должны быть ≥ определённой величины.', norm: '≥ 1 500 млн ₽ (требование банка)', fact: '1 842 млн ₽', deviation: { value: '+342 млн ₽ выше минимума', type: 'good' }, source: 'Основание: ковенанты кредитных договоров' },
+  capex: { title: 'Капитальные вложения (инвест. программа)', desc: 'Фактические затраты на строительство, реконструкцию объектов теплоснабжения.', formula: 'CAPEX = ОбД(08) за период', detail: 'Детализация по объектам инвестпрограммы, утверждённой РЭК.', norm: 'В пределах графика РЭК (исполнение ≥ 90%)', fact: '142.6 млн ₽ (78% от плана)', deviation: { value: '−12% ниже нормы', type: 'warn' }, source: 'Основание: ФЗ-190, инвестпрограмма, утверждённая РЭК' },
+  'capex-wip': { title: 'Незавершённые капитальные вложения', desc: 'Затраты по объектам, ещё не введённым в эксплуатацию.', formula: 'Незавершённые_КАПВ = Ск(08)', detail: 'Детализация по объектам с указанием даты начала, планового срока ввода.', norm: '0 объектов со сроком > 12 месяцев', fact: '48.2 млн ₽ (3 объекта > 12 мес.)', deviation: { value: '+3 объекта сверх нормы', type: 'bad' }, source: 'Основание: ПБУ 6/01, требования РЭК' },
+  passport: { title: 'Паспорта готовности к отопительному сезону', desc: 'Доля объектов, получивших паспорта готовности.', formula: 'Паспорта = Получившие_паспорт / Всего_объектов × 100%', detail: 'Обязательное требование — 100% до 15 сентября.', norm: '100% до 15 сентября (Правила технической эксплуатации)', fact: '82%', deviation: { value: '−18 п.п. до 15.09 осталось 8 дней', type: 'warn' }, source: 'Основание: Приказ Минэнерго РФ № 115' },
+  repairs: { title: 'Ремонтная программа', desc: 'Исполнение программы планово-предупредительных ремонтов (ППР).', formula: 'Исполнение_ремонта = ОбД(20.Ремонт)_факт /\nОбД(20.Ремонт)_план × 100%', detail: 'По видам: капитальный ремонт, текущий ремонт, аварийно-восстановительные работы.', norm: '≥ 90% до 01.09 (отраслевой норматив)', fact: '64%', deviation: { value: '−26 п.п. ниже нормы', type: 'bad' }, source: 'Основание: Правила технической эксплуатации тепловых энергоустановок' },
+  'capex-boiler3': { title: 'Реконструкция котла №3 Котельная «Северная»', desc: 'Крупнейший объект инвестпрограммы — реконструкция котла.', formula: 'ОбД(08.Котёл №3)', detail: 'План 42.0 млн ₽, факт 38.4 млн ₽. Срок 30.11.2026.', norm: 'Исполнение ≥ 90% к сроку', fact: '91.4% (в графике)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-pipe-l': { title: 'Замена теплосети по ул. Ленина (1.2 км)', desc: 'Замена ветхого участка тепловой сети.', formula: 'ОбД(08.Ул. Ленина)', detail: 'План 28.5 млн ₽, факт 28.5 млн ₽. Завершено 15.08.2026.', norm: '100% исполнение к сроку', fact: '100% (завершено)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-ctp14': { title: 'Модернизация ЦТП-14 (автоматизация)', desc: 'Автоматизация центрального теплового пункта.', formula: 'ОбД(08.ЦТП-14)', detail: 'План 18.4 млн ₽, факт 14.2 млн ₽. Срок 30.10.2026.', norm: 'Исполнение ≥ 90% к сроку', fact: '77.2% (в графике)', deviation: { value: 'контролировать исполнение', type: 'warn' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-gas-south': { title: 'Газопровод к Котельной «Южная»', desc: 'Строительство газопровода для подключения котельной.', formula: 'ОбД(08.Газопровод Южная)', detail: 'План 24.6 млн ₽, факт 18.4 млн ₽. Срок 30.12.2026.', norm: 'Исполнение ≥ 90% к сроку', fact: '74.8% (отставание)', deviation: { value: '−15.2 п.п. ниже нормы', type: 'warn' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-pipe-m': { title: 'Замена теплосети по ул. Мира (0.8 км)', desc: 'Замена ветхого участка тепловой сети. Критический объект.', formula: 'ОбД(08.Ул. Мира)', detail: 'План 16.8 млн ₽, факт 10.2 млн ₽. Срок 30.09.2026.', norm: 'Исполнение ≥ 90% к сроку', fact: '60.7% (критично)', deviation: { value: '−29.3 п.п. ниже нормы', type: 'bad' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-chimney': { title: 'Реконструкция дымовой трубы', desc: 'Реконструкция дымовой трубы Котельной «Центральная».', formula: 'ОбД(08.Дымовая труба)', detail: 'План 12.4 млн ₽, факт 8.6 млн ₽. Срок 30.11.2026.', norm: 'Исполнение ≥ 90% к сроку', fact: '69.4% (отставание)', deviation: { value: '−20.6 п.п. ниже нормы', type: 'warn' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'capex-other': { title: 'Прочие объекты инвестпрограммы', desc: 'Прочие 8 мероприятий инвестпрограммы.', formula: 'ОбД(08.Прочие)', detail: 'План 40.7 млн ₽, факт 32.3 млн ₽. Разные сроки.', norm: 'Исполнение ≥ 90%', fact: '79.4% (внимание)', deviation: { value: '−10.6 п.п. ниже нормы', type: 'warn' }, source: 'Основание: инвестпрограмма, утверждённая РЭК' },
+  'wip-ctp7': { title: 'Незавершёнка: Реконструкция ЦТП-7', desc: 'Объект «висит» на сч. 08 более 12 месяцев.', formula: 'Ск(08.ЦТП-7)', detail: 'Накоплено 18.4 млн ₽. Срок начала 15.03.2025. Причина: судебный спор с подрядчиком.', norm: '0 объектов со сроком > 12 месяцев', fact: '540 дней', deviation: { value: 'критично', type: 'bad' }, source: 'Основание: требования РЭК к инвестпрограмме' },
+  'wip-boiler-east': { title: 'Незавершёнка: Блочная котельная «Восточная»', desc: 'Объект «висит» на сч. 08 более 12 месяцев.', formula: 'Ск(08.Котельная Восточная)', detail: 'Накоплено 16.8 млн ₽. Срок начала 20.06.2025. Причина: задержка поставки оборудования.', norm: '0 объектов со сроком > 12 месяцев', fact: '444 дня', deviation: { value: 'критично', type: 'bad' }, source: 'Основание: требования РЭК к инвестпрограмме' },
+  'wip-disp': { title: 'Незавершёнка: Автоматизация диспетчерской', desc: 'Объект «висит» на сч. 08 более 12 месяцев.', formula: 'Ск(08.Диспетчерская)', detail: 'Накоплено 13.0 млн ₽. Срок начала 10.08.2025. Причина: нехватка финансирования.', norm: '0 объектов со сроком > 12 месяцев', fact: '393 дня', deviation: { value: 'критично', type: 'bad' }, source: 'Основание: требования РЭК к инвестпрограмме' },
+  fot: { title: 'Фонд оплаты труда', desc: 'Совокупные начисления персоналу РСО.', formula: 'ФОТ = ОбК(70) за период', detail: 'Детализация: производственный персонал, АУП, ремонтный, диспетчерская.', norm: '8–12% выручки (отраслевой норматив для РСО)', fact: '28.4 млн ₽ (10% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: отраслевые benchmarks РСО' },
+  'avg-salary': { title: 'Средняя заработная плата', desc: 'Средняя заработная плата на одного работника.', formula: 'Средняя_ЗП = ОбК(70) / Среднесписочная_численность', detail: 'Контроль соответствия среднерыночному уровню.', norm: 'Не ниже МРОТ × 1.5, соответствие рынку', fact: '58.4 тыс ₽', deviation: { value: 'контролировать динамику', type: 'neutral' }, source: 'Основание: ТК РФ, отраслевые benchmarks' },
+  insurance: { title: 'Страховые взносы', desc: 'Начисления на ФОТ в ПФР, ФСС, ФФОМС (~30%).', formula: 'Взносы = ОбК(69) за период', detail: 'Контроль применения пониженных тарифов (если применимо).', norm: '30% от ФОТ (стандартный тариф)', fact: '8.5 млн ₽ (30% от ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: НК РФ, гл. 34' },
+  'ins-pfr': { title: 'Взносы в ПФР (пенсионное страхование)', desc: 'Страховые взносы на обязательное пенсионное страхование.', formula: 'Взносы_ПФР = ФОТ × 22%', detail: 'Основная часть страховых взносов.', norm: '22% от ФОТ (стандартный тариф)', fact: '6.25 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: НК РФ, ст. 426' },
+  'ins-fss': { title: 'Взносы в ФСС (соцстрах)', desc: 'Страховые взносы на обязательное социальное страхование.', formula: 'Взносы_ФСС = ФОТ × 2.9%', detail: 'На случай временной нетрудоспособности и материнства.', norm: '2.9% от ФОТ (стандартный тариф)', fact: '0.82 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: НК РФ, ст. 426' },
+  'ins-ffoms': { title: 'Взносы в ФФОМС (медстрах)', desc: 'Страховые взносы на обязательное медицинское страхование.', formula: 'Взносы_ФФОМС = ФОТ × 5.1%', detail: 'На финансирование базовой программы ОМС.', norm: '5.1% от ФОТ (стандартный тариф)', fact: '1.45 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: НК РФ, ст. 426' },
+  'ins-injury': { title: 'Взносы на травматизм', desc: 'Страховые взносы на обязательное социальное страхование от несчастных случаев.', formula: 'Взносы_травматизм = ФОТ × Тариф_класса_риска', detail: 'Тариф зависит от класса профессионального риска. Для РСО обычно 0.2%.', norm: '0.2% от ФОТ (для РСО)', fact: '0.06 млн ₽', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ФЗ № 125-ФЗ «Об обязательном социальном страховании»' },
+  'staff-prod': { title: 'Производственный персонал', desc: 'Операторы котельных, слесари, электрики — основной производственный персонал.', formula: 'ФОТ_производ = ОбК(70.Производственный)', detail: 'Численность 248 чел. Средняя ЗП 57.3 тыс ₽.', norm: '50–60% от общей численности РСО', fact: '248 чел. · 14.2 млн ₽ (50% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: штатное расписание, отраслевые benchmarks' },
+  'staff-repair': { title: 'Ремонтный персонал', desc: 'Слесари аварийно-восстановительных бригад, ремонтники.', formula: 'ФОТ_ремонт = ОбК(70.Ремонтный)', detail: 'Численность 86 чел. Средняя ЗП 62.8 тыс ₽.', norm: '15–25% от общей численности РСО', fact: '86 чел. · 5.4 млн ₽ (19% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: штатное расписание' },
+  'staff-admin': { title: 'Административно-управленческий персонал', desc: 'Руководство, бухгалтерия, кадры, юристы.', formula: 'ФОТ_АУП = ОбК(70.АУП)', detail: 'Численность 52 чел. Средняя ЗП 111.5 тыс ₽.', norm: '10–15% от общей численности РСО', fact: '52 чел. · 5.8 млн ₽ (20.4% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: штатное расписание' },
+  'staff-disp': { title: 'Диспетчерская служба', desc: 'Операторы диспетчерской, ИТ-специалисты.', formula: 'ФОТ_диспетчерская = ОбК(70.Диспетчерская)', detail: 'Численность 24 чел. Средняя ЗП 87.5 тыс ₽.', norm: '5–10% от общей численности РСО', fact: '24 чел. · 2.1 млн ₽ (7.4% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: штатное расписание' },
+  'staff-other': { title: 'Прочие категории персонала', desc: 'Вспомогательный персонал: охрана, уборка, водители и др.', formula: 'ФОТ_прочие = ОбК(70.Прочие)', detail: 'Численность 18 чел. Средняя ЗП 50.0 тыс ₽.', norm: 'Минимизация, передача на аутсорсинг', fact: '18 чел. · 0.9 млн ₽ (3.2% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: штатное расписание' },
+  'pay-salary': { title: 'Оклады и тарифные ставки', desc: 'Основная часть ФОТ — оклады по штатному расписанию.', formula: 'Оклады = ОбК(70.Оклады)', detail: 'Базовая часть заработной платы.', norm: '60–70% от ФОТ', fact: '17.6 млн ₽ (62.0% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ТК РФ, ст. 129' },
+  'pay-bonus': { title: 'Премии и надбавки', desc: 'Премиальные выплаты и надбавки к окладам.', formula: 'Премии = ОбК(70.Премии)', detail: 'По результатам работы, за выслугу лет, за интенсивность.', norm: '15–20% от ФОТ', fact: '5.1 млн ₽ (18.0% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: положение о премировании' },
+  'pay-harmful': { title: 'Доплаты за вредность / ночные', desc: 'Доплаты за работу во вредных условиях, в ночное время.', formula: 'Доплаты = ОбК(70.Доплаты.вредность)', detail: 'Для РСО — значимая статья из-за вредных условий труда.', norm: '5–10% от ФОТ', fact: '2.3 млн ₽ (8.0% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ТК РФ, ст. 147' },
+  'pay-vacation': { title: 'Отпускные', desc: 'Выплаты за ежегодный оплачиваемый отпуск.', formula: 'Отпускные = ОбК(70.Отпускные)', detail: 'Резервируются в течение года.', norm: '5–8% от ФОТ', fact: '2.0 млн ₽ (7.0% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ТК РФ, ст. 115' },
+  'pay-sick': { title: 'Больничные и прочие выплаты', desc: 'Пособия по временной нетрудоспособности и прочие выплаты.', formula: 'Больничные = ОбК(70.Больничные)', detail: 'Частично компенсируются ФСС.', norm: '3–5% от ФОТ', fact: '1.4 млн ₽ (5.0% ФОТ)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ФЗ № 255-ФЗ «Об обязательном социальном страховании»' },
+  'under-revenue': { title: 'Недополученная выручка (льготы без компенсации)', desc: 'Разница между начислениями по полному тарифу и фактическими поступлениями от льготников.', formula: 'Недополучено = Начислено_по_тарифу − Фактически_поступило −\nКомпенсации_бюджета', detail: 'По категориям льготников: ветераны, многодетные, инвалиды и др.', norm: '0 (полная компенсация из бюджета)', fact: '9.1 млн ₽', deviation: { value: '+9.1 млн ₽ некомпенсировано', type: 'bad' }, source: 'Основание: ФЗ-190, ст. 9' },
+  'rab-income': { title: 'RAB-доход (возврат инвест. капитала)', desc: 'Доход от возврата инвестированного капитала по методу RAB-регулирования.', formula: 'RAB_доход = Инвест_капитал × Нормативная_доходность\n(утв. РЭК)', detail: 'Контроль соответствия фактических инвестиций утверждённой РЭК программе.', norm: 'В пределах утверждённого РЭК объёма', fact: '18.4 млн ₽ (в пределах утверждённого)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: Основы ценообразования в сфере теплоснабжения (Постановление Правительства РФ № 1075)' },
+  'tariff-gap': { title: 'Тарифный разрыв', desc: 'Разница между экономически обоснованными затратами и тарифной выручкой.', formula: 'Тарифный_разрыв = Тарифная_выручка − Полная_с/с', detail: 'База для заявки в РЭК на индексацию тарифа на следующий период.', norm: '≥ 0 (безубыточность)', fact: '−9.1 млн ₽', deviation: { value: '−9.1 млн ₽ (убыток)', type: 'bad' }, source: 'Основание: ФЗ-190, ст. 8' },
+  os: { title: 'Основные средства РСО', desc: 'Первоначальная стоимость основных средств: тепловые сети, котельные, насосные станции.', formula: 'ОС = Ск(01) — первоначальная стоимость', detail: 'Детализация по группам: здания, сооружения (сети), машины и оборудование, транспорт.', norm: 'Рост vs АПГ (поддержание производственного потенциала)', fact: '2 847 млн ₽', deviation: { value: 'контроль динамики vs АПГ', type: 'neutral' }, source: 'Основание: ПБУ 6/01' },
+  wear: { title: 'Износ основных средств', desc: 'Доля накопленной амортизации в первоначальной стоимости ОС. Критический показатель состояния инфраструктуры.', formula: 'Износ = Ск(02) / Ск(01) × 100%', detail: 'По группам ОС: сети (обычно 60–80%), котельные (40–70%), здания (30–50%).', norm: '< 60% (отраслевой норматив для РСО)', fact: '68.4%', deviation: { value: '+8.4 п.п. выше нормы', type: 'bad' }, source: 'Основание: Отраслевые нормативы Минстроя РФ' },
+  'penalties-in': { title: 'Пени от потребителей', desc: 'Доход от начисления пеней за просрочку оплаты коммунальных услуг.', formula: 'Пени_полученные = ОбК(91.1) (аналитика «пени, штрафы»)', detail: 'По категориям: население, УК, юрлица. Ставки по ЖК РФ: 1/300–1/130 ставки ЦБ.', norm: '1–3% от выручки (отраслевой норматив)', fact: '4.8 млн ₽ (1.7% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ЖК РФ, ст. 155' },
+  'penalties-out': { title: 'Штрафы и пени уплаченные', desc: 'Санкции, уплаченные РСО в пользу поставщиков, надзорных органов, потребителей.', formula: 'Штрафы_уплаченные = ОбД(91.2) (аналитика «штрафы, пени»)', detail: 'По основаниям: ФАС, Ростехнадзор, поставщики, потребители за перерывы в подаче.', norm: '< 0.3% выручки (отраслевой норматив)', fact: '2.4 млн ₽ (0.8% от выручки)', deviation: { value: '+0.5 п.п. выше нормы', type: 'bad' }, source: 'Основание: ФЗ-190, КоАП РФ' },
+  writeoff: { title: 'Списание безнадёжной ДЗ', desc: 'Сумма дебиторской задолженности, признанной безнадёжной и списанной на финансовый результат.', formula: 'Списание = ОбД(91.2) в корр. с Кт 63 (резерв) или Кт 62', detail: 'Основания: истечение срока исковой давности, ликвидация должника, решение суда.', norm: '< 1% выручки (отраслевой норматив)', fact: '1.8 млн ₽ (0.6% от выручки)', deviation: { value: 'в пределах нормы', type: 'good' }, source: 'Основание: ПБУ 9/99, НК РФ ст. 266' },
+  ccc: { title: 'Финансовый цикл (CCC)', desc: 'Период, на который деньги «заморожены» в оборотном капитале.', formula: 'CCC = DIO + DSO − DPO', detail: 'DIO — оборачиваемость запасов; DSO — оборачиваемость ДЗ; DPO — оборачиваемость КЗ.', norm: '< 90 дней (отраслевой норматив для РСО)', fact: '128 дней', deviation: { value: '+38 дней выше нормы', type: 'bad' }, source: 'Основание: отраслевые benchmarks РСО' },
+  nwc: { title: 'Потребность в оборотном капитале', desc: 'Объём средств, «связанных» в операционном цикле.', formula: 'NWC = [Ск(62)+Ск(10)+Ск(20)] − [Ск(60)+Ск(76.Кр)]', detail: 'Рост NWC — отток денег из оборота, потребность в финансировании.', norm: '< 20% активов (отраслевой норматив)', fact: '58.0 млн ₽', deviation: { value: 'контролировать долю в активах', type: 'warn' }, source: 'Основание: управленческий учёт, отраслевые benchmarks' },
+  roa: { title: 'Рентабельность активов (ROA)', desc: 'Эффективность использования всех активов. Для регулируемых РСО нормативная рентабельность — 5–10%.', formula: 'ROA = Чистая_прибыль / Активы × 100%', detail: 'Нормативная доходность РЭК — ориентир для оценки.', norm: '5–10% (норматив РЭК для регулируемых РСО)', fact: '−0.4%', deviation: { value: '−5.4 п.п. до нижн. границы', type: 'bad' }, source: 'Основание: Основы ценообразования в сфере теплоснабжения (ПП РФ № 1075)' }
+};
+
+// ===== TOOLTIP =====
+const tooltip = document.getElementById('tooltip');
+let tooltipVisible = false;
+
+function showTooltip(el, e) {
+  const key = el.getAttribute('data-metric');
+  const data = metricsData[key];
+  if (!data) return;
+  
+  const formulaHtml = data.formula.replace(/\n/g, '<br>');
+  
+  let deviationHtml = '';
+  if (data.deviation) {
+    const devClass = data.deviation.type === 'good' ? 'deviation-good' : 
+                     data.deviation.type === 'warn' ? 'deviation-warn' : 
+                     data.deviation.type === 'bad' ? 'deviation-bad' : 'deviation-neutral';
+    const devIcon = data.deviation.type === 'good' ? '✓ ' : 
+                    data.deviation.type === 'warn' ? '⚠ ' : 
+                    data.deviation.type === 'bad' ? '✗ ' : 'ℹ ';
+    deviationHtml = `<div class="tooltip-norm-row">
+      <span class="tooltip-norm-label">Факт:</span>
+      <span class="tooltip-norm-value">${data.fact}</span>
+    </div>
+    <div class="tooltip-norm-row">
+      <span class="tooltip-norm-label">Отклонение:</span>
+      <span class="tooltip-deviation ${devClass}">${devIcon}${data.deviation.value}</span>
+    </div>`;
+  }
+  
+  tooltip.innerHTML = `
+    <div class="tooltip-title">${data.title}</div>
+    <div class="tooltip-row">
+      <span class="tooltip-label">Описание</span>
+      <div>${data.desc}</div>
+    </div>
+    <div class="tooltip-row">
+      <span class="tooltip-label">Формула расчёта</span>
+      <div class="tooltip-formula">${formulaHtml}</div>
+    </div>
+    <div class="tooltip-row">
+      <span class="tooltip-label">Детализация</span>
+      <div>${data.detail}</div>
+    </div>
+    <div class="tooltip-row">
+      <span class="tooltip-label">Нормативное значение и факт</span>
+      <div class="tooltip-norm-block">
+        <div class="tooltip-norm-row">
+          <span class="tooltip-norm-label">Норматив:</span>
+          <span class="tooltip-norm-value">${data.norm}</span>
+        </div>
+        ${deviationHtml}
+      </div>
+      ${data.source ? `<div class="tooltip-source">📋 ${data.source}</div>` : ''}
+    </div>
+  `;
+  tooltipVisible = true;
+  tooltip.classList.add('visible');
+  positionTooltip(e);
+}
+
+function positionTooltip(e) {
+  if (!tooltipVisible) return;
+  const pad = 16;
+  const ttWidth = tooltip.offsetWidth;
+  const ttHeight = tooltip.offsetHeight;
+  let x = e.clientX + pad;
+  let y = e.clientY + pad;
+  if (x + ttWidth > window.innerWidth - 10) x = e.clientX - ttWidth - pad;
+  if (y + ttHeight > window.innerHeight - 10) y = e.clientY - ttHeight - pad;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+
+function hideTooltip() {
+  tooltipVisible = false;
+  tooltip.classList.remove('visible');
+}
+
+// Делегирование событий для всех элементов с data-metric
+document.addEventListener('mouseenter', (e) => {
+  const el = e.target.closest('[data-metric]');
+  if (el) showTooltip(el, e);
+}, true);
+
+document.addEventListener('mouseleave', (e) => {
+  const el = e.target.closest('[data-metric]');
+  if (el) hideTooltip();
+}, true);
+
+document.addEventListener('mousemove', (e) => {
+  if (tooltipVisible) positionTooltip(e);
+});
+
+function toggleSection(header) { header.parentElement.classList.toggle('collapsed'); }
+
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
+// ===== ВКЛАДКИ =====
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tabId = btn.getAttribute('data-tab');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + tabId).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+});
+
+// ===== МОДАЛЬНЫЕ ОКНА =====
+const modals = {
+  cash: { modal: document.getElementById('modal-cash'), kpi: document.getElementById('kpi-cash'), init: initCashDynamicsChart },
+  revenue: { modal: document.getElementById('modal-revenue'), kpi: document.getElementById('kpi-revenue'), init: initRevenueDynamicsChart },
+  collection: { modal: document.getElementById('modal-collection'), kpi: document.getElementById('kpi-collection'), init: initCollectionModalChart },
+  ar: { modal: document.getElementById('modal-ar'), kpi: document.getElementById('kpi-ar-total'), init: initArAgingChart },
+  ap: { modal: document.getElementById('modal-ap'), kpi: document.getElementById('kpi-ap-total'), init: initApStructureChart },
+  cogs: { modal: document.getElementById('modal-cogs'), kpi: document.getElementById('kpi-cogs'), init: initCogsDynamicsChart },
+  gp: { modal: document.getElementById('modal-gp'), kpi: document.getElementById('kpi-gp'), init: initProfitDynamicsChart },
+  credits: { modal: document.getElementById('modal-credits'), kpi: document.getElementById('kpi-credits'), init: initCreditsCharts },
+  salary: { modal: document.getElementById('modal-salary'), kpi: document.getElementById('kpi-salary-debt'), init: initSalaryDynamicsChart },
+  capex: { modal: document.getElementById('modal-capex'), kpi: document.getElementById('kpi-capex'), init: initCapexCharts }
+};
+
+function openModal(key) {
+  const m = modals[key];
+  if (!m) return;
+  m.modal.classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  if (m.init) setTimeout(m.init, 100);
+}
+
+function closeModal(modal) {
+  modal.classList.remove('visible');
+  document.body.style.overflow = '';
+}
+
+function closeAllModals() {
+  Object.values(modals).forEach(m => {
+    if (m.modal.classList.contains('visible')) m.modal.classList.remove('visible');
+  });
+  document.body.style.overflow = '';
+}
+
+Object.keys(modals).forEach(key => {
+  const m = modals[key];
+  if (m.kpi) {
+    m.kpi.addEventListener('click', (e) => { e.stopPropagation(); openModal(key); });
+  }
+  const closeBtn = document.getElementById(m.modal.id + '-close');
+  if (closeBtn) closeBtn.addEventListener('click', () => closeModal(m.modal));
+  m.modal.addEventListener('click', (e) => { if (e.target === m.modal) closeModal(m.modal); });
+});
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAllModals(); });
+
+// ===== ГРАФИКИ =====
+let cashDynamicsChartInstance = null;
+function initCashDynamicsChart() {
+  if (cashDynamicsChartInstance) return;
+  const ctx = document.getElementById('cashDynamicsChart');
+  if (!ctx) return;
+  cashDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { label: 'Остаток денежных средств', data: [28.4, 32.1, 35.8, 38.2, 36.4, 34.8, 32.6, 30.2, 34.8, 38.4, 40.2, 42.6], borderColor: '#3B82F6', backgroundColor: 'rgba(59,130,246,0.15)', tension: 0.3, fill: true, pointRadius: 4 },
+        { label: 'NCF за месяц', data: [2.4, 3.7, 3.7, 2.4, -1.8, -1.6, -2.2, -2.4, 4.6, 3.6, 1.8, 8.4], borderColor: '#10B981', tension: 0.3, fill: false, pointRadius: 4 },
+        { label: 'Минимальный остаток (норма)', data: [15,15,15,15,15,15,15,15,15,15,15,15], borderColor: '#EF4444', borderDash: [5,5], pointRadius: 0, fill: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        y: { ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+        x: { ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+let revenueDynamicsChartInstance = null;
+function initRevenueDynamicsChart() {
+  if (revenueDynamicsChartInstance) return;
+  const ctx = document.getElementById('revenueDynamicsChart');
+  if (!ctx) return;
+  revenueDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { label: 'Население', data: [28.4, 26.8, 24.2, 20.4, 18.6, 16.8, 12.4, 8.2, 6.4, 8.6, 12.8, 18.2], backgroundColor: '#3B82F6', borderWidth: 1 },
+        { label: 'УК / ТСЖ', data: [18.6, 17.4, 15.8, 13.2, 11.8, 10.4, 7.6, 5.2, 4.1, 5.8, 8.4, 12.6], backgroundColor: '#F59E0B', borderWidth: 1 },
+        { label: 'Бюджет', data: [4.2, 4.1, 3.8, 3.6, 3.4, 3.2, 2.8, 2.4, 2.1, 2.2, 2.4, 2.8], backgroundColor: '#10B981', borderWidth: 1 },
+        { label: 'Прочие юрлица', data: [2.4, 2.2, 2.1, 1.8, 1.6, 1.4, 1.2, 1.0, 0.8, 0.9, 1.1, 1.4], backgroundColor: '#8B5CF6', borderWidth: 1 },
+        { label: 'Субсидии', data: [3.2, 2.8, 2.4, 2.1, 1.8, 1.6, 1.4, 1.2, 1.0, 1.1, 1.2, 1.4], backgroundColor: '#06B6D4', borderWidth: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 10 } } },
+        y: { stacked: true, ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } }
+      }
+    }
+  });
+}
+
+let collectionModalChartInstance = null;
+function initCollectionModalChart() {
+  if (collectionModalChartInstance) return;
+  const ctx = document.getElementById('collectionModalChart');
+  if (!ctx) return;
+  collectionModalChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { label: 'Население', data: [88, 86, 82, 78, 80, 84, 89, 92, 94, 93, 91, 89], borderColor: '#3B82F6', tension: 0.3, fill: false, borderWidth: 2.5, pointRadius: 4 },
+        { label: 'УК / ТСЖ', data: [94, 92, 88, 85, 87, 90, 93, 95, 96, 95, 94, 92], borderColor: '#F59E0B', tension: 0.3, fill: false, borderWidth: 2.5, pointRadius: 4 },
+        { label: 'Бюджет', data: [98, 97, 95, 94, 96, 97, 98, 99, 99, 98, 97, 96], borderColor: '#10B981', tension: 0.3, fill: false, borderWidth: 2.5, pointRadius: 4 },
+        { label: 'Прочие юрлица', data: [92, 91, 89, 87, 88, 90, 91, 93, 94, 93, 92, 91], borderColor: '#8B5CF6', tension: 0.3, fill: false, borderWidth: 2.5, pointRadius: 4 },
+        { label: 'Субсидии', data: [86, 84, 82, 80, 81, 83, 85, 87, 88, 86, 84, 82], borderColor: '#EF4444', tension: 0.3, fill: false, borderWidth: 2.5, pointRadius: 4 },
+        { label: 'План (95%)', data: [95,95,95,95,95,95,95,95,95,95,95,95], borderColor: '#1F2937', borderDash: [5,5], borderWidth: 2, pointRadius: 0, fill: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        y: { min: 70, max: 100, ticks: { font: { size: 10 }, callback: v => v + '%', stepSize: 5 }, grid: { color: '#F3F4F6' } },
+        x: { ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+let arAgingChartInstance = null;
+function initArAgingChart() {
+  if (arAgingChartInstance) return;
+  const ctx = document.getElementById('arAgingChart');
+  if (!ctx) return;
+  arAgingChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ['0–30 дней', '31–90 дней', '91–180 дней', '181–365 дней', '> 365 дней'],
+      datasets: [
+        { label: 'Население', data: [18.4, 24.6, 24.5, 18.8, 12.4], backgroundColor: '#3B82F6', borderWidth: 1 },
+        { label: 'УК / ТСЖ', data: [12.8, 10.4, 9.6, 5.2, 3.2], backgroundColor: '#F59E0B', borderWidth: 1 },
+        { label: 'Бюджет', data: [6.4, 5.8, 4.2, 1.2, 0.8], backgroundColor: '#10B981', borderWidth: 1 },
+        { label: 'Субсидии', data: [0, 0, 2.4, 8.6, 11.8], backgroundColor: '#8B5CF6', borderWidth: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 11 } } },
+        y: { stacked: true, ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } }
+      }
+    }
+  });
+}
+
+let apStructureChartInstance = null;
+function initApStructureChart() {
+  if (apStructureChartInstance) return;
+  const ctx = document.getElementById('apStructureChart');
+  if (!ctx) return;
+  apStructureChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Топливо', 'Электроэнергия', 'Подрядчики', 'Налоги', 'Прочая КЗ'],
+      datasets: [{
+        data: [58.2, 14.6, 22.8, 8.4, 24.4],
+        backgroundColor: ['#EF4444', '#F59E0B', '#3B82F6', '#8B5CF6', '#10B981'],
+        borderColor: '#fff', borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'right', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } }
+    }
+  });
+}
+
+let cogsDynamicsChartInstance = null;
+function initCogsDynamicsChart() {
+  if (cogsDynamicsChartInstance) return;
+  const ctx = document.getElementById('cogsDynamicsChart');
+  if (!ctx) return;
+  cogsDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { label: 'Полная себестоимость', data: [248.2, 258.4, 268.6, 272.8, 278.4, 282.6, 274.2, 268.4, 272.6, 282.4, 288.6, 293.8], borderColor: '#EF4444', backgroundColor: 'rgba(239,68,68,0.15)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2.5 },
+        { label: 'Выручка', data: [258.4, 268.6, 278.4, 282.6, 284.2, 286.4, 278.6, 272.8, 276.4, 284.6, 288.4, 284.5], borderColor: '#10B981', tension: 0.3, fill: false, pointRadius: 4, borderWidth: 2.5 },
+        { label: 'Тарифная выручка (план)', data: [280,280,280,280,280,280,280,280,280,280,280,280], borderColor: '#3B82F6', borderDash: [5,5], borderWidth: 2, pointRadius: 0, fill: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        y: { ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+        x: { ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+let profitDynamicsChartInstance = null;
+function initProfitDynamicsChart() {
+  if (profitDynamicsChartInstance) return;
+  const ctx = document.getElementById('profitDynamicsChart');
+  if (!ctx) return;
+  profitDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { type: 'bar', label: 'Валовая прибыль (убыток)', data: [10.2, 10.2, 9.8, 9.8, 5.8, 3.8, 4.4, 4.4, 3.8, 2.2, -0.2, -9.3], backgroundColor: (ctx) => ctx.raw >= 0 ? '#10B981' : '#EF4444', borderWidth: 1, order: 2 },
+        { type: 'line', label: 'Рентабельность, %', data: [3.9, 3.8, 3.5, 3.5, 2.0, 1.3, 1.6, 1.6, 1.4, 0.8, -0.1, -3.3], borderColor: '#F59E0B', tension: 0.3, fill: false, pointRadius: 4, borderWidth: 2.5, yAxisID: 'y1', order: 1 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        y: { position: 'left', ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+        y1: { position: 'right', ticks: { font: { size: 10 }, callback: v => v + '%' }, grid: { display: false } },
+        x: { ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+let creditsScheduleChartInstance = null;
+let creditsStructureChartInstance = null;
+function initCreditsCharts() {
+  if (!creditsScheduleChartInstance) {
+    const ctx = document.getElementById('creditsScheduleChart');
+    if (ctx) {
+      creditsScheduleChartInstance = new Chart(ctx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: ['Сен 26','Окт','Ноя','Дек','Янв 27','Фев','Мар','Апр','Май','Июн','Июл','Авг'],
+          datasets: [
+            { label: 'Погашение тела долга', data: [1.4, 1.4, 1.4, 2.8, 1.4, 1.4, 4.2, 12.6, 1.4, 1.4, 1.4, 1.4], backgroundColor: '#EF4444', borderWidth: 1 },
+            { label: 'Процентные платежи', data: [0.7, 0.7, 0.7, 0.7, 0.6, 0.6, 0.6, 0.5, 0.4, 0.4, 0.3, 0.3], backgroundColor: '#F59E0B', borderWidth: 1 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { font: { size: 10, family: 'Roboto' } } } },
+          scales: {
+            x: { stacked: true, ticks: { font: { size: 9 } } },
+            y: { stacked: true, ticks: { font: { size: 9 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } }
+          }
+        }
+      });
+    }
+  }
+  if (!creditsStructureChartInstance) {
+    const ctx = document.getElementById('creditsStructureChart');
+    if (ctx) {
+      creditsStructureChartInstance = new Chart(ctx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Краткосрочные (< 1 года)', 'Долгосрочные (1–3 года)', 'Долгосрочные (> 3 лет)'],
+          datasets: [{
+            data: [21.0, 28.4, 2.9],
+            backgroundColor: ['#F59E0B', '#3B82F6', '#10B981'],
+            borderColor: '#fff', borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { font: { size: 10, family: 'Roboto' }, padding: 8 } } }
+        }
+      });
+    }
+  }
+}
+
+let salaryDynamicsChartInstance = null;
+function initSalaryDynamicsChart() {
+  if (salaryDynamicsChartInstance) return;
+  const ctx = document.getElementById('salaryDynamicsChart');
+  if (!ctx) return;
+  salaryDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+      datasets: [
+        { label: 'ФОТ, млн ₽', data: [25.8, 26.2, 28.6, 27.4, 26.8, 27.2, 26.4, 27.0, 27.4, 27.8, 28.0, 28.4], borderColor: '#3B82F6', backgroundColor: 'rgba(59,130,246,0.15)', tension: 0.3, fill: true, pointRadius: 4, borderWidth: 2.5, yAxisID: 'y' },
+        { label: 'Средняя ЗП, тыс ₽', data: [54.2, 55.0, 58.8, 57.2, 56.0, 56.8, 55.2, 56.4, 57.2, 58.0, 58.2, 58.4], borderColor: '#10B981', tension: 0.3, fill: false, pointRadius: 4, borderWidth: 2.5, yAxisID: 'y1' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+      scales: {
+        y: { position: 'left', ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+        y1: { position: 'right', ticks: { font: { size: 10 }, callback: v => v + ' тыс' }, grid: { display: false } },
+        x: { ticks: { font: { size: 10 } } }
+      }
+    }
+  });
+}
+
+let capexDynamicsChartInstance = null;
+let capexStructureChartInstance = null;
+function initCapexCharts() {
+  if (!capexDynamicsChartInstance) {
+    const ctx = document.getElementById('capexDynamicsChart');
+    if (ctx) {
+      capexDynamicsChartInstance = new Chart(ctx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: ['Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен'],
+          datasets: [
+            { label: 'CAPEX факт', data: [8.4, 10.2, 12.8, 14.2, 15.6, 16.8, 14.4, 12.6, 11.8, 10.2, 12.4, 14.0], backgroundColor: '#3B82F6', borderWidth: 1 },
+            { label: 'CAPEX план', data: [12.0, 14.0, 15.0, 16.0, 16.5, 17.0, 16.0, 15.0, 14.0, 12.0, 14.0, 16.0], backgroundColor: 'rgba(245,158,11,0.3)', borderColor: '#F59E0B', borderWidth: 1 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { font: { size: 10, family: 'Roboto' } } } },
+          scales: {
+            y: { ticks: { font: { size: 9 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+            x: { ticks: { font: { size: 9 } } }
+          }
+        }
+      });
+    }
+  }
+  if (!capexStructureChartInstance) {
+    const ctx = document.getElementById('capexStructureChart');
+    if (ctx) {
+      capexStructureChartInstance = new Chart(ctx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Замена сетей', 'Реконструкция котлов', 'Модернизация ЦТП', 'Автоматизация', 'Прочее'],
+          datasets: [{
+            data: [45.2, 38.4, 24.8, 18.6, 23.6],
+            backgroundColor: ['#3B82F6', '#EF4444', '#F59E0B', '#10B981', '#8B5CF6'],
+            borderColor: '#fff', borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { font: { size: 10, family: 'Roboto' }, padding: 8 } } }
+        }
+      });
+    }
+  }
+}
+
+// CHART основной страницы
+const ctx3 = document.getElementById('objectsChart').getContext('2d');
+new Chart(ctx3, {
+  type: 'bar',
+  data: {
+    labels: ['Отопление', 'ГВС (теплонос.)', 'ГВС (ХВС)', 'Тех. присоед.', 'Прочие услуги', 'Субсидии'],
+    datasets: [
+      { label: 'Выручка', data: [168.4, 58.2, 22.8, 18.4, 12.6, 4.1], backgroundColor: '#3B82F6', borderWidth: 1 },
+      { label: 'Себестоимость', data: [152.8, 72.4, 18.6, 12.8, 16.4, 0], backgroundColor: '#F59E0B', borderWidth: 1 },
+      { label: 'Фин. результат', data: [15.6, -14.2, 4.2, 5.6, -3.8, 4.1], backgroundColor: (ctx) => ctx.raw >= 0 ? '#10B981' : '#EF4444', borderWidth: 1 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top', labels: { font: { size: 11, family: 'Roboto' }, padding: 10 } } },
+    scales: {
+      y: { ticks: { font: { size: 10 }, callback: v => v + ' млн' }, grid: { color: '#F3F4F6' } },
+      x: { ticks: { font: { size: 10 } } }
+    }
+  }
+});
+</script>
+</body>
+</html>
