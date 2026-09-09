@@ -422,6 +422,12 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   margin:-4px 0 10px; padding:8px 10px; border-left:4px solid #F59E0B;
   background:#FFFBEB; color:#92400E; font-size:10px; line-height:1.45;
 }
+.revenue-mapping-help { font-size:12px; color:#6B7280; margin-bottom:10px; }
+.revenue-mapping-table { min-width:620px; }
+.revenue-mapping-table select { width:100%; padding:7px 8px; border:1px solid #D1D5DB; border-radius:5px; background:#fff; }
+.revenue-mapping-save { border:0; border-radius:6px; padding:9px 14px; background:#2563EB; color:#fff; font-weight:700; cursor:pointer; }
+.revenue-mapping-save:hover { background:#1D4ED8; }
+.revenue-mapping-status { margin-left:10px; font-size:12px; color:#4B5563; }
 .revenue-missing-grid {
   display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0;
 }

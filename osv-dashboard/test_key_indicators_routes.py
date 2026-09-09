@@ -12,9 +12,10 @@ _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
-from database import Company, CompanyMembership, DailyRow, Upload, User, UserModuleAccess, db
+from database import (Company, CompanyMembership, DailyRow,
+                      RevenueAnalyticMapping, Upload, User, UserModuleAccess, db)
 import key_indicators_service as service
-from key_indicators import build_indicator_source
+from key_indicators import build_indicator_source, revenue_analytic_key
 
 
 def report(period, amount, dates):
@@ -343,6 +344,46 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                 response = self.client('kpi_admin').get(self.url(data=True))
             self.assertEqual(response.status_code, expected)
             self.assertIn('error', response.get_json())
+
+    def test_only_admin_can_save_company_revenue_mappings(self):
+        url = f'/company/{self.company}/key-indicators/revenue-mappings'
+        payload = {'mappings': [{
+            'account': '90.01',
+            'analytic_key': revenue_analytic_key(['Особое название']),
+            'analytic_label': '«Особое название»',
+            'category': 'population',
+        }]}
+        self.assertEqual(
+            self.client('kpi_allowed').post(url, json=payload).status_code, 403)
+        response = self.client('kpi_admin').post(url, json=payload)
+        self.assertEqual(response.status_code, 200)
+        with self.app.app_context():
+            row = RevenueAnalyticMapping.query.filter_by(
+                company_id=self.company,
+                analytic_key=revenue_analytic_key(['Особое название'])).one()
+            self.assertEqual(row.category, 'population')
+
+    def test_mapping_save_preserves_analytics_from_other_periods(self):
+        url = f'/company/{self.company}/key-indicators/revenue-mappings'
+        client = self.client('kpi_admin')
+        first = {'account': '90.01',
+                 'analytic_key': revenue_analytic_key(['Январь']),
+                 'analytic_label': '«Январь»',
+                 'category': 'population'}
+        second = {'account': '90.01',
+                  'analytic_key': revenue_analytic_key(['Февраль']),
+                  'analytic_label': '«Февраль»',
+                  'category': 'budget'}
+        self.assertEqual(client.post(
+            url, json={'mappings': [first]}).status_code, 200)
+        self.assertEqual(client.post(
+            url, json={'mappings': [second]}).status_code, 200)
+        with self.app.app_context():
+            labels = {
+                row.analytic_label for row in RevenueAnalyticMapping.query.filter_by(
+                    company_id=self.company).all()
+            }
+        self.assertTrue({'«Январь»', '«Февраль»'}.issubset(labels))
 
 
 if __name__ == '__main__':

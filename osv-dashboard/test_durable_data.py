@@ -19,7 +19,8 @@ from app import (OUTPUT, UPLOADS, _DURABLE_MODELS, _bg_company_new, app,
                  init_db)
 from database import (Company, DailyRow, HistoricalImport, HistoricalMapping,
                       HistoricalMetricValue, HistoricalRawValue,
-                      HistoricalYearVersion, Setting, Upload, User, db)
+                       HistoricalYearVersion, RevenueAnalyticMapping, Setting,
+                       Upload, User, db)
 from durable_data import (ConcurrentPromotionError, LATEST_KEY, _GcsStore,
                           _LocalStore, backup, restore)
 
@@ -73,6 +74,10 @@ with app.app_context():
         company_id=company.id, kind="metric", source_label="Total",
         source_normalized="total", canonical_key="total",
         canonical_label="Total", confirmed_by=admin.id))
+    db.session.add(RevenueAnalyticMapping(
+        company_id=company.id, account="90.01", analytic_key="a" * 64,
+        analytic_label="«Удаляемая аналитика»", category="population",
+        updated_by=admin.id))
     db.session.commit()
 
     first = backup(
@@ -84,6 +89,16 @@ with app.app_context():
           and "User" in json.loads(
               (backup_root / first_pointer["manifest"]).read_text(
                   encoding="utf-8"))["tables"])
+
+    RevenueAnalyticMapping.query.delete()
+    db.session.commit()
+    authorized = backup(
+        db, UPLOADS, OUTPUT, _DURABLE_MODELS, "authorized_mapping_removal",
+        allowed_removed_tables={"revenue_analytic_mappings"})
+    protected_pointer = json.loads(latest_path.read_text(encoding="utf-8"))
+    check("authorized mapping removal advances durable latest",
+          authorized["promoted"]
+          and protected_pointer["snapshot_id"] == authorized["snapshot_id"])
 
     DailyRow.query.delete()
     db.session.add(DailyRow(
@@ -99,8 +114,8 @@ with app.app_context():
     check("unexpected shrink keeps previous latest and both versions",
           not rejected["promoted"]
           and rejected["shrink_rejected"] == ["daily_rows"]
-          and unchanged_pointer == first_pointer
-          and len(manifests) == 2)
+           and unchanged_pointer == protected_pointer
+           and len(manifests) == 3)
 
     # Completely erase every table owned by the local JSON backend, including
     # User and Company, and both numeric file trees.
@@ -118,6 +133,7 @@ with app.app_context():
           and Upload.query.count() == 1
           and DailyRow.query.count() == 1
           and HistoricalRawValue.query.count() == 1
+           and RevenueAnalyticMapping.query.count() == 0
           and source.read_bytes() == b"durable source"
           and dashboard.read_text(encoding="utf-8") == "durable dashboard")
 

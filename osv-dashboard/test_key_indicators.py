@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import unittest
 
-from key_indicators import build_indicator_source, build_key_indicators
+from key_indicators import (build_indicator_source, build_key_indicators,
+                            revenue_analytic_key)
 
 
 def account(acc, daily=(), rows=(), top=None, period='за январь 2026 г.'):
@@ -141,6 +142,96 @@ class KeyIndicatorTests(unittest.TestCase):
         result = build_key_indicators(build_indicator_source({'08': raw}),
                                       'month', '2026-06-30')
         self.assertFalse(any('неполное' in x for x in result['period']['warnings']))
+
+    def test_exact_company_mappings_reconcile_segments(self):
+        rows = [
+            day('2026-01-31', '90.01', p1='Тепло физлица', obk=120),
+            day('2026-01-31', '90.03', p1='НДС тепло', obd=20),
+        ]
+        mappings = [
+            {'account': '90.01',
+             'analytic_key': revenue_analytic_key(['Тепло физлица']),
+             'analytic_label': '«Тепло физлица»',
+             'category': 'population'},
+            {'account': '90.03',
+             'analytic_key': revenue_analytic_key(['НДС тепло']),
+             'analytic_label': '«НДС тепло»',
+             'category': 'population'},
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+            revenue_mappings=mappings)
+        segments = result['revenue_segments']
+        population = next(x for x in segments['categories']
+                          if x['id'] == 'population')
+        self.assertEqual(population['value'], 100)
+        self.assertTrue(segments['reconciled'])
+        self.assertEqual(segments['unclassified'], [])
+
+    def test_unmapped_and_conflicting_analytics_are_explicit(self):
+        rows = [
+            day('2026-01-31', '90.01', p1='Новая аналитика', obk=120),
+            day('2026-01-31', '90.03', p1='Новая аналитика', obd=20),
+        ]
+        mappings = [
+            {'account': '90.01',
+             'analytic_key': revenue_analytic_key(['Новая аналитика']),
+             'analytic_label': '«Новая аналитика»',
+             'category': 'population'},
+            {'account': '90.03',
+             'analytic_key': revenue_analytic_key(['Новая аналитика']),
+             'analytic_label': '«Новая аналитика»',
+             'category': 'budget'},
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+            revenue_mappings=mappings)
+        self.assertFalse(result['revenue_segments']['reconciled'])
+        self.assertEqual(len(result['revenue_segments']['conflicts']), 1)
+
+    def test_full_analytic_coordinate_is_mapped_exactly(self):
+        rows = [
+            day('2026-01-31', '90.01', p1='Услуга', obk=100),
+            dict(day('2026-01-31', '90.01', p1='Услуга', obk=200),
+                 path2='Другой договор'),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+            revenue_mappings=[{
+                'account': '90.01',
+                'analytic_key': revenue_analytic_key(['Услуга']),
+                'analytic_label': '«Услуга»',
+                'category': 'population',
+            }])
+        analytics = result['revenue_segments']['analytics']
+        self.assertEqual(
+            {item['analytic_label'] for item in analytics},
+            {'«Услуга»', '«Услуга» / «Другой договор»'})
+        self.assertEqual(len(result['revenue_segments']['unclassified']), 1)
+
+    def test_unknown_revenue_amount_remains_null(self):
+        rows = [day('2026-01-31', '90.01', p1='Услуга', obk=None)]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+            revenue_mappings=[{
+                'account': '90.01',
+                'analytic_key': revenue_analytic_key(['Услуга']),
+                'analytic_label': '«Услуга»',
+                'category': 'population',
+            }])
+        revenue = next(card for card in result['cards']
+                       if card['id'] == 'revenue')
+        population = next(row for row in result['revenue_segments']['categories']
+                          if row['id'] == 'population')
+        self.assertIsNone(revenue['value'])
+        self.assertIsNone(population['value'])
+        self.assertEqual(len(result['revenue_segments']['unknown_amounts']), 1)
+        self.assertIsNone(result['objects']['rows'][0]['revenue'])
+
+    def test_structured_analytic_key_has_no_display_delimiter_collision(self):
+        self.assertNotEqual(
+            revenue_analytic_key(['A › B']),
+            revenue_analytic_key(['A', 'B']))
 
 
 if __name__ == '__main__':

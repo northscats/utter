@@ -329,7 +329,7 @@ def _removed_snapshot_tables(previous, current, models):
 
 
 def backup(db, uploads_root, output_root, models, reason,
-           allow_removals=False):
+           allow_removals=False, allowed_removed_tables=()):
     """Create an immutable snapshot, promoting latest only after validation."""
     with _BACKUP_LOCK:
         store = _store()
@@ -388,7 +388,8 @@ def backup(db, uploads_root, output_root, models, reason,
             }
             shrunk.update(_removed_snapshot_tables(
                 previous, manifest, models))
-            if shrunk and not allow_removals:
+            blocked_removals = shrunk - set(allowed_removed_tables)
+            if blocked_removals and not allow_removals:
                 break
             try:
                 # Pointer publication is the final write and is conditional

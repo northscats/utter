@@ -6,6 +6,8 @@ derived values.  This keeps the new screen independent from the legacy
 dashboard formulas and rating.
 """
 import calendar
+import hashlib
+import json
 import re
 from collections import defaultdict
 from datetime import date as Date, timedelta
@@ -31,6 +33,13 @@ _RU_MONTH = {
     'июн': 6, 'июл': 7, 'август': 8, 'сентябр': 9, 'октябр': 10,
     'ноябр': 11, 'декабр': 12,
 }
+REVENUE_CATEGORIES = (
+    ('population', 'Население'),
+    ('uk', 'УК/ТСЖ'),
+    ('budget', 'Бюджет'),
+    ('legal', 'Прочие юридические лица'),
+    ('subsidy', 'Субсидии'),
+)
 
 
 def _number(value):
@@ -123,12 +132,17 @@ def build_indicator_source(parsed_data):
                 'path3': str(item.get('path3') or ''),
                 'obd': _number(item.get('obd')),
                 'obk': _number(item.get('obk')),
+                'obd_known': isinstance(item.get('obd'), (int, float))
+                and not isinstance(item.get('obd'), bool),
+                'obk_known': isinstance(item.get('obk'), (int, float))
+                and not isinstance(item.get('obk'), bool),
             }
             for key in ('snd', 'snk', 'skd', 'skk'):
                 if item.get(key) is not None:
                     row[key] = _number(item[key])
             marker = tuple(row.get(k) for k in
                            ('date', 'path1', 'path2', 'path3', 'obd', 'obk',
+                            'obd_known', 'obk_known',
                             'snd', 'snk', 'skd', 'skk'))
             if marker not in seen:
                 seen.add(marker)
@@ -329,6 +343,32 @@ def _analytic_label(row):
     return analytics[0] if analytics else 'Без аналитики'
 
 
+def _analytic_parts(row):
+    values = [str(row.get(k) or '').strip()
+              for k in ('path1', 'path2', 'path3')]
+    return [value for value in values
+            if value and not re.match(r'^\d{2}(?:\.\d+)+$', value)]
+
+
+def revenue_analytic_key(parts):
+    encoded = json.dumps(
+        list(parts), ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _analytic_identity(row):
+    parts = _analytic_parts(row)
+    return revenue_analytic_key(parts), (
+        ' / '.join(f'«{part}»' for part in parts)
+        if parts else 'Без аналитики')
+
+
+def _known_sum(rows, side):
+    if any(row.get(f'{side}_known') is False for row in rows):
+        return None
+    return _sum(rows, side)
+
+
 def _turnover_basis(rows):
     result = []
     by_date = defaultdict(list)
@@ -362,10 +402,10 @@ def _pl_facts(source, start, end):
     rev_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.01'))
     vat_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.03'))
     cost_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.02'))
-    gross = _sum(rev_rows, 'obk') if rev_rows else None
-    vat = _sum(vat_rows, 'obd') if vat_rows else None
+    gross = _known_sum(rev_rows, 'obk') if rev_rows else None
+    vat = _known_sum(vat_rows, 'obd') if vat_rows else None
     revenue = round(gross - vat, 2) if gross is not None and vat is not None else gross
-    cost = _sum(cost_rows, 'obd') if cost_rows else None
+    cost = _known_sum(cost_rows, 'obd') if cost_rows else None
     # Gross revenue minus cost is not profit from sales.  VAT must be known.
     profit = round(revenue - cost, 2) if (gross is not None and vat is not None
                                           and cost is not None) else None
@@ -458,7 +498,8 @@ def _card(cid, value, unit, formula, source_label, reason=None, **extra):
     return card
 
 
-def build_key_indicators(source, period='month', date=None):
+def build_key_indicators(source, period='month', date=None,
+                         revenue_mappings=None):
     """Calculate the strict JSON response contract from a source snapshot."""
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
@@ -733,23 +774,43 @@ def build_key_indicators(source, period='month', date=None):
                 'label': 'к предыдущей сопоставимой дате'}
 
     # Object table uses one and the same path1 dimension for both sides.
-    rev_group, vat_group, cost_group = defaultdict(float), defaultdict(float), defaultdict(float)
+    rev_group, vat_group, cost_group = (
+        defaultdict(float), defaultdict(float), defaultdict(float))
+    rev_group_unknown, vat_group_unknown, cost_group_unknown = set(), set(), set()
     for row in rev_rows:
-        rev_group[_analytic_label(row)] += row['obk']
+        label = _analytic_label(row)
+        if row.get('obk_known') is False:
+            rev_group_unknown.add(label)
+        else:
+            rev_group[label] += row['obk']
     for row in vat_rows:
-        vat_group[_analytic_label(row)] += row['obd']
+        label = _analytic_label(row)
+        if row.get('obd_known') is False:
+            vat_group_unknown.add(label)
+        else:
+            vat_group[label] += row['obd']
     for row in cost_rows:
-        cost_group[_analytic_label(row)] += row['obd']
-    segments = sorted(set(rev_group) | set(cost_group))
-    vat_allocable = bool(vat_rows) and set(vat_group).issubset(set(rev_group))
+        label = _analytic_label(row)
+        if row.get('obd_known') is False:
+            cost_group_unknown.add(label)
+        else:
+            cost_group[label] += row['obd']
+    rev_segments = set(rev_group) | rev_group_unknown
+    vat_segments = set(vat_group) | vat_group_unknown
+    cost_segments = set(cost_group) | cost_group_unknown
+    segments = sorted(rev_segments | cost_segments)
+    vat_allocable = bool(vat_rows) and vat_segments.issubset(rev_segments)
     object_rows = []
     for segment in segments:
-        has_revenue = segment in rev_group
-        has_cost = segment in cost_group
-        rv = rev_group.get(segment) if has_revenue else None
+        has_revenue = segment in rev_segments
+        has_cost = segment in cost_segments
+        rv = (rev_group.get(segment)
+              if has_revenue and segment not in rev_group_unknown else None)
         if vat_allocable and rv is not None:
-            rv -= vat_group.get(segment, 0.0)
-        co = cost_group.get(segment) if has_cost else None
+            rv = (None if segment in vat_group_unknown
+                  else rv - vat_group.get(segment, 0.0))
+        co = (cost_group.get(segment)
+              if has_cost and segment not in cost_group_unknown else None)
         pr = rv - co if (rv is not None and co is not None and vat is not None
                          and vat_allocable) else None
         object_rows.append({
@@ -776,6 +837,97 @@ def build_key_indicators(source, period='month', date=None):
                    'margin': round(profit / obj_rev * 100, 2)
                    if profit is not None and obj_rev else None},
         'reason': obj_reason, 'notes': obj_notes,
+    }
+    mapping = {}
+    for item in revenue_mappings or []:
+        if not isinstance(item, dict):
+            continue
+        account = str(item.get('account') or '')
+        analytic_key = str(item.get('analytic_key') or '')
+        category = str(item.get('category') or '')
+        if account in ('90.01', '90.03') and analytic_key and \
+                category in {key for key, _ in REVENUE_CATEGORIES}:
+            mapping[(account, analytic_key)] = category
+
+    rev_by_key, vat_by_key = defaultdict(float), defaultdict(float)
+    labels_by_key = {}
+    rev_unknown, vat_unknown = set(), set()
+    for row in rev_rows:
+        identity, label = _analytic_identity(row)
+        labels_by_key[identity] = label
+        if row.get('obk_known') is False:
+            rev_unknown.add(identity)
+        else:
+            rev_by_key[identity] += row['obk']
+    for row in vat_rows:
+        identity, label = _analytic_identity(row)
+        labels_by_key[identity] = label
+        if row.get('obd_known') is False:
+            vat_unknown.add(identity)
+        else:
+            vat_by_key[identity] += row['obd']
+    rev_keys = set(rev_by_key) | rev_unknown
+    vat_keys = set(vat_by_key) | vat_unknown
+    discovered = [
+        {'account': account, 'analytic_key': analytic_key,
+         'analytic_label': labels_by_key[analytic_key],
+         'category': mapping.get((account, analytic_key)),
+         'amount_known': analytic_key not in unknown}
+        for account, keys, unknown in (
+            ('90.01', rev_keys, rev_unknown),
+            ('90.03', vat_keys, vat_unknown))
+        for analytic_key in sorted(keys, key=lambda key: labels_by_key[key])
+    ]
+    conflicts = []
+    for analytic_key in sorted(rev_keys & vat_keys):
+        rev_category = mapping.get(('90.01', analytic_key))
+        vat_category = mapping.get(('90.03', analytic_key))
+        if rev_category and vat_category and rev_category != vat_category:
+            conflicts.append({
+                'analytic_key': analytic_key,
+                'analytic_label': labels_by_key[analytic_key],
+                'message': 'Одинаковая аналитика 90.01 и 90.03 отнесена к разным категориям',
+            })
+
+    unclassified = [item for item in discovered if not item['category']]
+    unknown_amounts = [item for item in discovered if not item['amount_known']]
+    classification_complete = (
+        bool(discovered) and not unclassified and not conflicts
+        and not unknown_amounts and revenue is not None)
+    segment_rows = []
+    classified_total = 0.0
+    for category, title in REVENUE_CATEGORIES:
+        category_rev = [amount for analytic_key, amount in rev_by_key.items()
+                        if mapping.get(('90.01', analytic_key)) == category]
+        category_vat = [amount for analytic_key, amount in vat_by_key.items()
+                        if mapping.get(('90.03', analytic_key)) == category]
+        has_rows = bool(category_rev or category_vat)
+        value = None
+        if classification_complete and has_rows:
+            value = sum(category_rev) - sum(category_vat)
+            value = round(value, 2)
+            classified_total += value
+        segment_rows.append({
+            'id': category, 'label': title, 'value': value,
+            'basis': ('net' if vat_rows else 'gross') if has_rows else None,
+        })
+    reconciliation_difference = (
+        round(revenue - classified_total, 2)
+        if classification_complete else None
+    )
+    revenue_segments = {
+        'categories': segment_rows,
+        'analytics': discovered,
+        'unclassified': unclassified,
+        'unknown_amounts': unknown_amounts,
+        'conflicts': conflicts,
+        'classified_total': round(classified_total, 2)
+        if classification_complete else None,
+        'total': revenue,
+        'reconciliation_difference': reconciliation_difference,
+        'reconciled': (reconciliation_difference is not None and
+                       abs(reconciliation_difference) <= 0.01 and
+                       not conflicts and not unclassified),
     }
     recommendations = []
     if profit is not None and profit < 0:
@@ -824,6 +976,7 @@ def build_key_indicators(source, period='month', date=None):
                    'start': start.isoformat(), 'end': end.isoformat(),
                    'options': options, 'available_kinds': available,
                    'warnings': list(dict.fromkeys(warnings))},
-        'cards': cards, 'objects': objects, 'recommendations': recommendations,
+        'cards': cards, 'objects': objects, 'revenue_segments': revenue_segments,
+        'recommendations': recommendations,
         'quality': quality, 'methodology': methodology,
     }

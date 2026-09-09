@@ -192,6 +192,9 @@ class Company(db.Model):
     one_c_channel = db.relationship(
         'OneCChannel', backref='company', uselist=False, lazy=True,
         cascade='all, delete-orphan', passive_deletes=True)
+    revenue_analytic_mappings = db.relationship(
+        'RevenueAnalyticMapping', backref='company', lazy=True,
+        cascade='all, delete-orphan', passive_deletes=True)
 
     @property
     def is_archived(self):
@@ -210,6 +213,31 @@ class Company(db.Model):
             return json.loads(self.labels_json or '[]')
         except (TypeError, ValueError):
             return []
+
+
+class RevenueAnalyticMapping(db.Model):
+    """Точное сопоставление аналитики продаж с категорией предприятия."""
+    __tablename__ = 'revenue_analytic_mappings'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'account', 'analytic_key',
+            name='uq_revenue_mapping_company_account_key'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    account = db.Column(db.String(5), nullable=False)
+    analytic_key = db.Column(db.String(64), nullable=False)
+    analytic_label = db.Column(db.String(1000), nullable=False)
+    category = db.Column(db.String(32), nullable=False)
+    updated_by = db.Column(
+        db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
 
 
 class CompanyMembership(db.Model):

@@ -837,28 +837,23 @@
         revenueSegmentDefinitions() {
             return [
                 {
-                    id: 'population', label: 'Население', code: '90.01 · население',
-                    match: /населен|физическ.*лиц|граждан/i,
+                    id: 'population', label: 'Население', code: '90.01 / 90.03',
                     required: 'Аналитика счёта 90.01 с категорией потребителя «Население», документом реализации и суммой; для нетто-выручки — такая же аналитика 90.03.'
                 },
                 {
-                    id: 'uk', label: 'УК / ТСЖ', code: '90.01 · УК/ТСЖ',
-                    match: /(^|[^а-я])(ук|тсж|жск)([^а-я]|$)|управляющ/i,
+                    id: 'uk', label: 'УК/ТСЖ', code: '90.01 / 90.03',
                     required: 'Аналитика 90.01 и 90.03 с типом потребителя «УК/ТСЖ», контрагентом, договором и документом реализации.'
                 },
                 {
-                    id: 'budget', label: 'Бюджетные учреждения', code: '90.01 · бюджет',
-                    match: /бюджет|муницип|государствен.*учрежд/i,
+                    id: 'budget', label: 'Бюджет', code: '90.01 / 90.03',
                     required: 'Аналитика 90.01 и 90.03 с явным признаком бюджетного учреждения. Определение категории только по названию контрагента недостаточно.'
                 },
                 {
-                    id: 'legal', label: 'Прочие юридические лица', code: '90.01 · прочие юрлица',
-                    match: /проч.*юр|юридическ.*лиц|коммерческ/i,
+                    id: 'legal', label: 'Прочие юридические лица', code: '90.01 / 90.03',
                     required: 'Классификатор категорий покупателей и аналитика 90.01/90.03 по контрагентам и договорам, исключающая население, УК/ТСЖ и бюджет.'
                 },
                 {
-                    id: 'subsidy', label: 'Субсидии / компенсации', code: '90.01 · субсидии',
-                    match: /субсид|компенсац|выпадающ.*доход|льгот/i,
+                    id: 'subsidy', label: 'Субсидии', code: '90.01 / 90.03',
                     required: 'Регистр субсидий из 1С: вид субсидии, документ начисления, период признания дохода, сумма, плательщик и корреспондирующие счета. Остаток счёта 76 сам по себе не является выручкой.'
                 }
             ];
@@ -891,24 +886,18 @@
             const totalFormatted = this.formatValue(total, 'RUB');
             const grossFormatted = this.formatValue(gross, 'RUB');
             const vatFormatted = this.formatValue(vat, 'RUB');
-            const objectRows = (state.data.objects && state.data.objects.rows) || [];
             const definitions = this.revenueSegmentDefinitions();
-            const matchedLabels = new Set();
+            const segmentData = state.data.revenue_segments || {};
             const segmentRows = definitions.map(definition => {
-                const matches = objectRows.filter(row => {
-                    const matched = definition.match.test(String(row.label || ''));
-                    if (matched) matchedLabels.add(row.label);
-                    return matched;
-                });
-                const values = matches.map(row => row.revenue).filter(value => value !== null);
+                const saved = (segmentData.categories || []).find(row => row.id === definition.id);
                 return {
                     ...definition,
-                    value: values.length ? values.reduce((sum, value) => sum + Number(value), 0) : null,
-                    labels: matches.map(row => row.label)
+                    value: saved && saved.value !== null ? Number(saved.value) : null
                 };
             });
-            const classifiedTotal = segmentRows.reduce((sum, row) => sum + (row.value || 0), 0);
-            const unclassified = objectRows.filter(row => row.revenue !== null && !matchedLabels.has(row.label));
+            const unclassified = segmentData.unclassified || [];
+            const conflicts = segmentData.conflicts || [];
+            const unknownAmounts = segmentData.unknown_amounts || [];
             const totalTooltip = this.metricTooltipData(card);
             const grossTooltip = this.metricTooltipData(card, {
                 title: 'Выручка брутто',
@@ -961,9 +950,9 @@
                 description: 'Общая бухгалтерская выручка за выбранный период.',
                 formula: vat === null ? 'ОбК(90.01*), брутто' : 'ОбК(90.01*) − ОбД(90.03*)',
                 detail: unclassified.length
-                    ? `В фиксированные сегменты макета не классифицированы: ${unclassified.map(row => row.label).join(', ')}.`
-                    : 'Все распознанные сегменты сопоставлены с аналитикой счёта 90.',
-                required: classifiedTotal && total && Math.abs(classifiedTotal - total) > 0.01
+                    ? `Не сопоставлены: ${unclassified.map(row => `${row.account}: ${row.analytic_label}`).join(', ')}.`
+                    : 'Все найденные аналитики сопоставлены с категориями.',
+                required: !segmentData.reconciled
                     ? 'Нужен утверждённый классификатор соответствия аналитик 90.01 категориям потребителей.'
                     : null,
                 norm: 'План не загружен',
@@ -989,10 +978,13 @@
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
                 </div>
                 <div class="modal-section-title">Детализация выручки по сегментам</div>
-                ${(unclassified.length || (state.data.objects && state.data.objects.reason)) ? `<div class="revenue-classification-note">
-                    ${unclassified.length ? `Не классифицировано по категориям макета: ${esc(unclassified.map(row => row.label).join(', '))}.` : ''}
-                    ${state.data.objects && state.data.objects.reason ? esc(state.data.objects.reason) : ''}
+                ${(unclassified.length || conflicts.length || unknownAmounts.length || !segmentData.reconciled) ? `<div class="revenue-classification-note">
+                    ${unclassified.length ? `Новые аналитики без категории: ${esc(unclassified.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}.` : ''}
+                    ${conflicts.length ? ` Конфликты: ${esc(conflicts.map(row => row.message + ' — ' + row.analytic_label).join('; '))}.` : ''}
+                    ${unknownAmounts.length ? ` Нет суммы по аналитикам: ${esc(unknownAmounts.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}. Значения не заменены нулём.` : ''}
+                    ${segmentData.reconciliation_difference !== null && segmentData.reconciliation_difference !== undefined && Math.abs(segmentData.reconciliation_difference) > 0.01 ? ` Расхождение с общей выручкой: ${esc(this.formatValue(segmentData.reconciliation_difference, 'RUB').val)} млн ₽.` : ''}
                 </div>` : ''}
+                ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.analytics || [], definitions) : ''}
                 <div class="revenue-table-wrap"><table class="cash-table revenue-table">
                     <thead><tr><th>Сегмент</th><th>Выручка, млн ₽</th><th>Доля</th><th>Сбор</th><th>Δ к плану</th><th>Δ к АПГ</th></tr></thead>
                     <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td>
@@ -1020,6 +1012,64 @@
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#10B981"></i>Выручка общая</span></div>
                 <div class="cash-line-chart revenue-line-chart" id="ki-revenue-line-chart"></div>`;
             this.renderRevenueLineChart(card);
+        },
+
+        renderRevenueMappingEditor(analytics, definitions) {
+            if (!analytics.length) return '';
+            const options = definitions.map(item =>
+                `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('');
+            const rows = analytics.map(item => `
+                <tr><td>${esc(item.account)}</td><td>${esc(item.analytic_label)}</td>
+                <td><select class="revenue-mapping-select" data-account="${esc(item.account)}"
+                    data-key="${esc(item.analytic_key)}"
+                    data-label="${esc(item.analytic_label)}"><option value="">Не классифицировано</option>
+                    ${options}</select></td></tr>`).join('');
+            setTimeout(() => {
+                document.querySelectorAll('.revenue-mapping-select').forEach(select => {
+                    const found = analytics.find(item =>
+                        item.account === select.dataset.account &&
+                        item.analytic_key === select.dataset.key);
+                    select.value = found && found.category ? found.category : '';
+                });
+            }, 0);
+            return `<div class="modal-section-title">Сопоставление аналитик предприятия</div>
+                <div class="revenue-mapping-help">Настройка действует для всех периодов. Сопоставьте 90.01 и 90.03 независимо.</div>
+                <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table">
+                <thead><tr><th>Счёт</th><th>Аналитика</th><th>Категория</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>
+                <button type="button" class="revenue-mapping-save" onclick="window.KI_App.saveRevenueMappings()">Сохранить сопоставления</button>
+                <span id="revenue-mapping-status" class="revenue-mapping-status"></span>`;
+        },
+
+        async saveRevenueMappings() {
+            const status = document.getElementById('revenue-mapping-status');
+            const mappings = Array.from(document.querySelectorAll('.revenue-mapping-select'))
+                .map(select => ({
+                    account: select.dataset.account,
+                    analytic_key: select.dataset.key,
+                    analytic_label: select.dataset.label,
+                    category: select.value
+                }));
+            status.textContent = 'Сохранение...';
+            try {
+                const response = await fetch(config.mappingsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': config.csrfToken
+                    },
+                    body: JSON.stringify({mappings})
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
+                status.textContent = 'Сохранено';
+                this.closeModal();
+                await this.fetchData();
+                this.openModal('revenue');
+            } catch (error) {
+                status.textContent = error.message;
+            }
         },
 
         renderRevenueLineChart(card) {

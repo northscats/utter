@@ -35,7 +35,8 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyFinance, CompanyLicense, CompanyMembership,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
-                       HistoricalYearVersion, RatingProfile, Setting, Upload, User,
+                       HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
+                       Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
@@ -82,10 +83,12 @@ ANALYTICAL_ACCOUNT_NAMES = {
 _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
+    RevenueAnalyticMapping,
 )
 
 
-def _durable_backup(reason, allow_removals=False, required=False):
+def _durable_backup(reason, allow_removals=False, required=False,
+                    allowed_removed_tables=()):
     """A backup failure must be visible, but cannot undo a committed upload."""
     if has_request_context():
         g.durable_backup_done = True
@@ -95,7 +98,8 @@ def _durable_backup(reason, allow_removals=False, required=False):
     try:
         result = backup(
             db, UPLOADS, OUTPUT, _DURABLE_MODELS, reason,
-            allow_removals=allow_removals)
+            allow_removals=allow_removals,
+            allowed_removed_tables=allowed_removed_tables)
         if not result['promoted'] and result['shrink_rejected']:
             message = (
                 f'{reason}: latest не обновлён из-за уменьшения таблиц: '
@@ -2385,6 +2389,8 @@ def key_indicators_page(company_id):
     return render_template(
         'key_indicators.html', company=company,
         data_url=url_for('key_indicators_data', company_id=company_id),
+        mappings_url=url_for('key_indicator_revenue_mappings',
+                             company_id=company_id),
         legacy_url=(url_for('dashboard', company_id=company_id,
                             name='dashboard_current.html')
                     if os.path.isfile(legacy_file) else None),
@@ -2411,7 +2417,15 @@ def key_indicators_data(company_id):
             return jsonify(error='Дата должна иметь формат ГГГГ-ММ-ДД'), 400
     try:
         source, updated_at = load_company_source(company_id, UPLOADS)
-        payload = build_key_indicators(source, period=period, date=date)
+        mappings = [{
+            'account': row.account,
+            'analytic_key': row.analytic_key,
+            'analytic_label': row.analytic_label,
+            'category': row.category,
+        } for row in RevenueAnalyticMapping.query.filter_by(
+            company_id=company_id).all()]
+        payload = build_key_indicators(
+            source, period=period, date=date, revenue_mappings=mappings)
         payload['company'] = {'id': company.id, 'name': company.name}
         payload['updated_at'] = updated_at
     except SourceBusyError as exc:
@@ -2429,6 +2443,63 @@ def key_indicators_data(company_id):
     response = jsonify(payload)
     response.headers['Cache-Control'] = 'private, no-store'
     return response
+
+
+@app.route('/company/<int:company_id>/key-indicators/revenue-mappings',
+           methods=['POST'])
+@admin_required
+def key_indicator_revenue_mappings(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if company.is_archived:
+        abort(409, description='Архивное предприятие доступно только для чтения')
+    body = request.get_json(silent=True) or {}
+    items = body.get('mappings')
+    if not isinstance(items, list):
+        return jsonify(error='Поле mappings должно быть списком'), 400
+    allowed_categories = {
+        'population', 'uk', 'budget', 'legal', 'subsidy'}
+    normalized = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return jsonify(error='Некорректная запись сопоставления'), 400
+        account = str(item.get('account') or '').strip()
+        analytic_key = str(item.get('analytic_key') or '').strip()
+        label = str(item.get('analytic_label') or '').strip()
+        category = str(item.get('category') or '').strip()
+        if (account not in ('90.01', '90.03')
+                or not re.fullmatch(r'[0-9a-f]{64}', analytic_key)
+                or not label or len(label) > 1000):
+            return jsonify(error='Некорректная аналитика 90.01/90.03'), 400
+        if category and category not in allowed_categories:
+            return jsonify(error='Неизвестная категория выручки'), 400
+        normalized[(account, analytic_key)] = (label, category or None)
+    existing = {
+        (row.account, row.analytic_key): row
+        for row in RevenueAnalyticMapping.query.filter_by(
+            company_id=company_id).all()
+    }
+    for key, (label, category) in normalized.items():
+        row = existing.get(key)
+        if category is None:
+            if row is not None:
+                db.session.delete(row)
+            continue
+        if row is None:
+            db.session.add(RevenueAnalyticMapping(
+                company_id=company_id, account=key[0], analytic_key=key[1],
+                analytic_label=label, category=category,
+                updated_by=current_user.id))
+        else:
+            row.analytic_label = label
+            row.category = category
+            row.updated_by = current_user.id
+    db.session.commit()
+    _durable_backup(
+        'сопоставление аналитик выручки',
+        allowed_removed_tables={'revenue_analytic_mappings'})
+    saved = RevenueAnalyticMapping.query.filter_by(
+        company_id=company_id).count()
+    return jsonify(saved=saved)
 
 
 @app.route('/company/<int:company_id>/key-indicators/annual-data')
