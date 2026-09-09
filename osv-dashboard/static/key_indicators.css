@@ -127,6 +127,7 @@ select.date-display option { background: #1E3A5F; color: #fff; }
 .tab-btn {
   padding: 14px 24px; background: transparent; border: none; cursor: pointer;
   font-size: 13px; font-weight: 600; color: #6B7280;
+  text-decoration: none;
   border-bottom: 3px solid transparent; transition: all 0.15s;
   display: flex; align-items: center; gap: 8px; outline: none;
 }

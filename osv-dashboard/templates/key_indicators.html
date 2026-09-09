@@ -63,6 +63,11 @@
         Рекомендации
         <span class="tab-badge" id="ki-rec-badge" style="display:none">0</span>
       </button>
+      <a class="tab-btn" data-tab="data"
+         href="{{ url_for('company_detail', company_id=company.id, embedded=1, _anchor='historical-analytics') if embedded else url_for('company_detail', company_id=company.id, _anchor='historical-analytics') }}">
+        <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+        Данные
+      </a>
     </div>
 
     <!-- АНАЛИТИКА -->
