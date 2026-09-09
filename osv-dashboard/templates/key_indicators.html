@@ -14,6 +14,7 @@
             companyName: {{ company.name | tojson }},
             embedded: {{ embedded | default(false) | tojson }},
             legacyUrl: {{ legacy_url | default('') | tojson }},
+            dataPageUrl: {{ url_for('company_detail', company_id=company.id) | tojson }},
             historicalImportUrl: {{ url_for('company_detail', company_id=company.id, _anchor='historical-analytics') | default('/company/'~company.id~'#historical-analytics') | tojson }}
         };
     </script>
@@ -62,6 +63,10 @@
         <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
         Рекомендации
         <span class="tab-badge" id="ki-rec-badge" style="display:none">0</span>
+      </button>
+      <button class="tab-btn" data-tab="data" onclick="window.KI_App.openData()">
+        <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
+        Данные
       </button>
     </div>
 
