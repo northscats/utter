@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import calendar
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
 import re
@@ -3002,6 +3003,23 @@ def coverage_report_excel(company_id):
     except (TypeError, ValueError):
         year = datetime.now().year
 
+    def format_missing_days(days, month):
+        if not days:
+            return '—'
+        last_day = calendar.monthrange(year, month)[1]
+        if days == list(range(1, last_day + 1)):
+            return f'с 1 по {last_day}'
+        ranges = []
+        start = previous = days[0]
+        for day in days[1:]:
+            if day == previous + 1:
+                previous = day
+                continue
+            ranges.append(str(start) if start == previous else f'{start} - {previous}')
+            start = previous = day
+        ranges.append(str(start) if start == previous else f'{start} - {previous}')
+        return ', '.join(ranges)
+
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = 'Запрос данных'
@@ -3028,7 +3046,7 @@ def coverage_report_excel(company_id):
     for row_number, (account, days_by_month) in enumerate(normalized_rows, 5):
         values = [account, ANALYTICAL_ACCOUNT_NAMES[account]]
         values.extend(
-            ', '.join(str(day) for day in days_by_month[month]) or '—'
+            format_missing_days(days_by_month[month], month)
             for month in months
         )
         for column, value in enumerate(values, 1):

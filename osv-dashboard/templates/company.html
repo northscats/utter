@@ -1521,6 +1521,29 @@ function saveReq() {
       .map(function(day){ return Number(day.getAttribute('data-report-day')); });
   }
 
+  function formatMissingDays(days, month){
+    if(!days.length) return '—';
+    var lastDay = new Date(year, month, 0).getDate();
+    if(days.length === lastDay &&
+       days[0] === 1 &&
+       days[days.length - 1] === lastDay){
+      return 'с 1 по ' + lastDay;
+    }
+    var ranges = [];
+    var start = days[0];
+    var previous = days[0];
+    days.slice(1).forEach(function(day){
+      if(day === previous + 1){
+        previous = day;
+        return;
+      }
+      ranges.push(start === previous ? String(start) : start + ' - ' + previous);
+      start = previous = day;
+    });
+    ranges.push(start === previous ? String(start) : start + ' - ' + previous);
+    return ranges.join(', ');
+  }
+
   function escapeHtml(value){
     return String(value).replace(/[&<>"']/g, function(char){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char];
@@ -1546,7 +1569,7 @@ function saveReq() {
       var bodyRows = reportRows.map(function(row){
         var dayCells = reportMonths.map(function(month){
           var days = row.daysByMonth[String(month)] || [];
-          return '<td>' + (days.length ? escapeHtml(days.join(', ')) : '—') + '</td>';
+          return '<td>' + escapeHtml(formatMissingDays(days, month)) + '</td>';
         }).join('');
         return '<tr><td>' + escapeHtml(row.account) + '</td>' +
           '<td>' + escapeHtml(row.accountName) + '</td>' +

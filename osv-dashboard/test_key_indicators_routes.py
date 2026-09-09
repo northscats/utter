@@ -224,7 +224,10 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             'rows': [{
                 'account': '01',
                 'accountName': 'Подменять серверное название нельзя',
-                'daysByMonth': {'1': [1, 2, 15], '3': [4, 5]},
+                'daysByMonth': {
+                    '1': list(range(1, 32)),
+                    '3': [1, 2, 3, 4, 5, 8, 10, 11],
+                },
             }],
         }
         response = self.client('kpi_allowed').post(
@@ -245,8 +248,8 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertEqual(sheet['D4'].value, 'Март')
         self.assertEqual(sheet['A5'].value, '01')
         self.assertEqual(sheet['B5'].value, 'Основные средства')
-        self.assertEqual(sheet['C5'].value, '1, 2, 15')
-        self.assertEqual(sheet['D5'].value, '4, 5')
+        self.assertEqual(sheet['C5'].value, 'с 1 по 31')
+        self.assertEqual(sheet['D5'].value, '1 - 5, 8, 10 - 11')
         workbook.close()
 
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
