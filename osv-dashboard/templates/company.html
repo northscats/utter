@@ -139,6 +139,13 @@ tr:last-child td{border-bottom:0}
 .ac-year-cur{font:700 15px 'Segoe UI',sans-serif;color:var(--ink);padding:0 4px}
 .ac-summary{font-size:12px;color:var(--mut)}
 .ac-summary b{color:var(--ink)}
+.ac-mode-switch{display:flex;align-items:center;gap:3px;padding:3px;background:#f0f3f5;
+  border:1px solid var(--line);border-radius:7px}
+.ac-mode-btn{border:0;border-radius:5px;padding:4px 10px;background:transparent;color:var(--mut);
+  font:600 11px 'Segoe UI',sans-serif;cursor:pointer;transition:background .15s,color .15s}
+.ac-mode-btn:hover{color:var(--ink)}
+.ac-mode-btn.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(31,55,71,.16)}
+.ac-mode-btn:focus-visible{outline:2px solid var(--water);outline-offset:1px}
 /* month grid */
 .ac-months{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 @media(max-width:720px){.ac-months{grid-template-columns:repeat(3,1fr)}}
@@ -188,6 +195,14 @@ tr:last-child td{border-bottom:0}
 /* coverage bar inside month footer */
 .ac-cov-bar{height:3px;background:#eaecee}
 .ac-cov-fill{height:3px;background:#2e7d4f;transition:width .3s}
+.ac-card[data-coverage-mode="daily"] .ac-summary-monthly,
+.ac-card[data-coverage-mode="monthly"] .ac-summary-daily{display:none}
+.ac-card[data-coverage-mode="daily"] .ac-mon-hdr{background:#f7f9fb}
+.ac-card[data-coverage-mode="daily"] .ac-mon-name{color:var(--ink)}
+.ac-card[data-coverage-mode="daily"] .ac-mon-badge{display:none}
+.ac-card[data-coverage-mode="daily"] .ac-d-monthly{background:#fbeae8;border:1px solid #e7b6b0}
+.ac-card[data-coverage-mode="monthly"] .ac-cal,
+.ac-card[data-coverage-mode="monthly"] .ac-cov-bar{display:none}
 /* legend */
 .ac-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--mut);
   margin-top:12px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
@@ -841,9 +856,15 @@ tr:last-child td{border-bottom:0}
     'future':        'Будущий'
   } %}
   <!-- Годовая карта покрытия -->
-  <div class="ac-card">
+  <div class="ac-card" id="ac-card" data-coverage-mode="daily">
     <div class="ac-header" style="cursor:pointer" onclick="toggleAC()" title="Свернуть / развернуть">
       <div class="ac-title">Покрытие данными — {{ ac.year }}</div>
+      <div class="ac-mode-switch" role="group" aria-label="Режим отображения покрытия" onclick="event.stopPropagation()">
+        <button type="button" class="ac-mode-btn active" data-coverage-mode-btn="daily"
+                aria-pressed="true" onclick="setCoverageMode('daily')">Суточные</button>
+        <button type="button" class="ac-mode-btn" data-coverage-mode-btn="monthly"
+                aria-pressed="false" onclick="setCoverageMode('monthly')">Месячные</button>
+      </div>
       <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
       <div class="ac-year-nav" onclick="event.stopPropagation()">
@@ -858,13 +879,17 @@ tr:last-child td{border-bottom:0}
       {% if ac.has_any %}
       <div class="ac-summary">
         {% if ac.total_months_past > 0 %}
+          <span class="ac-summary-monthly">
           Месяцев: <b>{{ ac.total_months_ok }}</b>/{{ ac.total_months_past }}
           ({{ ac.months_coverage_pct }}%)
+          </span>
         {% endif %}
         {% if ac.has_daily %}
-          &nbsp;·&nbsp; Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
+          <span class="ac-summary-daily">
+          Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
           ({{ ac.coverage_pct }}%)
           {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
+          </span>
         {% endif %}
       </div>
       {% endif %}
@@ -1271,10 +1296,12 @@ function saveReq() {
         btn=document.getElementById('ac-toggle-btn');
     if(!body) return;
     if(collapsed){
-      body.style.display='none'; leg.style.display='none';
+      body.style.display='none';
+      if(leg) leg.style.display='none';
       btn.textContent='▼ развернуть';
     } else {
-      body.style.display=''; leg.style.display='';
+      body.style.display='';
+      if(leg) leg.style.display='';
       btn.textContent='▲ свернуть';
     }
   }
@@ -1284,6 +1311,32 @@ function saveReq() {
     localStorage.setItem('ac_collapsed', collapsed ? '1' : '0');
     applyAC(true);
   };
+})();
+
+// --- Переключение суточного / месячного покрытия ---
+(function(){
+  var savedMode = localStorage.getItem('ac_coverage_mode');
+  var mode = savedMode === 'monthly' ? 'monthly' : 'daily';
+
+  function applyCoverageMode(){
+    var card = document.getElementById('ac-card');
+    if(!card) return;
+    card.setAttribute('data-coverage-mode', mode);
+    document.querySelectorAll('[data-coverage-mode-btn]').forEach(function(btn){
+      var active = btn.getAttribute('data-coverage-mode-btn') === mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  window.setCoverageMode = function(nextMode){
+    if(nextMode !== 'daily' && nextMode !== 'monthly') return;
+    mode = nextMode;
+    localStorage.setItem('ac_coverage_mode', mode);
+    applyCoverageMode();
+  };
+
+  applyCoverageMode();
 })();
 
 // --- Модалка удаления ---
