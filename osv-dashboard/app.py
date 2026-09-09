@@ -1625,18 +1625,6 @@ def company_detail(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
-    daily_uploads = (
-        db.session.query(
-            DailyRow.date.label('date'),
-            func.max(DailyRow.uploaded_at).label('uploaded_at'),
-            func.count(DailyRow.id).label('rows_count'),
-            func.count(func.distinct(DailyRow.acc)).label('accounts_count'),
-        )
-        .filter(DailyRow.company_id == company_id)
-        .group_by(DailyRow.date)
-        .order_by(DailyRow.date.desc())
-        .all()
-    )
     year = request.args.get('year', None, type=int)
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
@@ -1698,7 +1686,6 @@ def company_detail(company_id):
                 } for item in parsed_preview.get('unknown_metrics', []))
 
     return render_template('company.html', company=company, uploads=uploads,
-                           daily_uploads=daily_uploads,
                            uploads_with_completeness=uploads_with_completeness,
                            completeness_summary=completeness_summary,
                            audit=None, error=None, discrepancy=[],
