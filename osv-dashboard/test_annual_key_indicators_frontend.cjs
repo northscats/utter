@@ -123,6 +123,18 @@ async function testAnnual() {
     assert.equal(KI_AnnualApp.state.active, true);
     assert.ok(requests[0].includes('/annual-data'));
 
+    const yearButtons = nodes.get('ki-annual-year-buttons');
+    assert.equal(yearButtons.style.display, 'flex');
+    assert.ok(yearButtons.innerHTML.includes('data-year="2024"'));
+    assert.ok(yearButtons.innerHTML.includes('data-year="2025"'));
+    assert.ok(yearButtons.innerHTML.includes('annual-year-btn active'));
+    assert.ok(yearButtons.innerHTML.includes('aria-pressed="true"'));
+
+    KI_AnnualApp.onYearChange(2024);
+    await new Promise(r => setImmediate(r));
+    assert.ok(requests.at(-1).includes('year=2024'));
+    assert.ok(historyURL.includes('year=2024'));
+
     let zeroFmt = KI_AnnualApp.formatValue(0, 'percent', true);
     assert.equal(zeroFmt.val, '< 0');
     let nullFmt = KI_AnnualApp.formatValue(null, 'RUB', false);
