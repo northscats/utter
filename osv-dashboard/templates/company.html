@@ -203,6 +203,35 @@ tr:last-child td{border-bottom:0}
 .ac-sw{display:inline-block;width:11px;height:11px;border-radius:2px;
   vertical-align:middle;margin-right:3px}
 .ac-legend-sep{width:1px;height:12px;background:var(--line);margin:0 4px}
+.ac-view-switch{display:inline-flex;gap:3px;padding:3px;background:#edf1f4;
+  border-radius:8px;margin-bottom:12px}
+.ac-view-btn{border:0;border-radius:6px;background:transparent;color:var(--mut);
+  padding:6px 14px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer}
+.ac-view-btn:hover{color:var(--ink);background:rgba(255,255,255,.65)}
+.ac-view-btn.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.ac-view-summary{font-size:12px;color:var(--mut);margin:0 0 10px}
+.ac-view-summary b{color:var(--ink)}
+.ac-account-matrix-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+.ac-account-matrix{border-collapse:separate;border-spacing:0;min-width:850px;font-size:11px}
+.ac-account-matrix th,.ac-account-matrix td{padding:5px 4px;text-align:center;
+  border-right:1px solid #e6eaed;border-bottom:1px solid #e6eaed}
+.ac-account-matrix thead th{position:sticky;top:0;background:#f0f3f5;color:#536574;
+  font-size:10px;letter-spacing:.03em;z-index:1}
+.ac-account-matrix tr:last-child th,.ac-account-matrix tr:last-child td{border-bottom:0}
+.ac-account-matrix th:last-child,.ac-account-matrix td:last-child{border-right:0}
+.ac-account-col{position:sticky;left:0;z-index:2!important;min-width:116px;
+  text-align:left!important;background:#fff!important;padding-left:9px!important}
+.ac-account-col strong{display:block;font-size:12px;color:var(--ink)}
+.ac-account-col small{display:block;font-size:9px;color:var(--mut);font-weight:500}
+.ac-account-cell{height:39px;min-width:55px;font-variant-numeric:tabular-nums}
+.ac-account-cell span{display:block;font-weight:700}
+.ac-account-cell small{display:block;margin-top:1px;font-size:9px}
+.ac-cell-full{background:#e4f2ea;color:#1d5f3b}
+.ac-cell-partial{background:#fff4cf;color:#795b00}
+.ac-cell-partial small{color:#a13a2a}
+.ac-cell-missing{background:#fbeae8;color:#9a2c20}
+.ac-cell-future{background:#f4f6f7;color:#a0adb6}
+.ac-month-mark{font-size:15px}
 /* compact action bar */
 .action-bar{display:flex;align-items:center;gap:0;background:var(--panel);
   border:1px solid var(--line);border-radius:12px;padding:10px 16px;
@@ -845,15 +874,6 @@ tr:last-child td{border-bottom:0}
   </div>
 
   {% set ac = annual_coverage %}
-  {% set UPL_LABELS = {
-    'closed_profit': 'Закрыт / прибыль',
-    'closed_loss':   'Закрыт / убыток',
-    'closed':        'Закрыт',
-    'open':          'Не закрыт',
-    'uploaded':      'Загружена ОСВ',
-    'no_upload':     'Нет ОСВ',
-    'future':        'Будущий'
-  } %}
   <!-- Годовая карта покрытия -->
   <div class="ac-card">
     <div class="ac-header" style="cursor:pointer" onclick="toggleAC()" title="Свернуть / развернуть">
@@ -862,79 +882,100 @@ tr:last-child td{border-bottom:0}
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
       <div class="ac-year-nav" onclick="event.stopPropagation()">
         {% if ac.prev_year %}
-        <a class="ac-year-btn" href="?year={{ ac.prev_year }}">← {{ ac.prev_year }}</a>
+        <a class="ac-year-btn" href="?year={{ ac.prev_year }}{% if request.args.get('embedded') %}&embedded=1{% endif %}">← {{ ac.prev_year }}</a>
         {% endif %}
         <span class="ac-year-cur">{{ ac.year }}</span>
         {% if ac.next_year %}
-        <a class="ac-year-btn" href="?year={{ ac.next_year }}">{{ ac.next_year }} →</a>
+        <a class="ac-year-btn" href="?year={{ ac.next_year }}{% if request.args.get('embedded') %}&embedded=1{% endif %}">{{ ac.next_year }} →</a>
         {% endif %}
       </div>
-      {% if ac.has_any %}
-      <div class="ac-summary">
-        {% if ac.total_months_past > 0 %}
-          Месяцев: <b>{{ ac.total_months_ok }}</b>/{{ ac.total_months_past }}
-          ({{ ac.months_coverage_pct }}%)
-        {% endif %}
-        {% if ac.has_daily %}
-          &nbsp;·&nbsp; Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
-          ({{ ac.coverage_pct }}%)
-          {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
-        {% endif %}
-      </div>
-      {% endif %}
     </div>
 
     <div id="ac-body">
-    <div class="ac-months">
-      {% for mon in ac.months %}
-      {% set upl = mon.upload %}
-      <div class="ac-month ac-upl-{{ mon.upl_status }}">
-        <!-- Шапка месяца: статус периодической ОСВ -->
-        <div class="ac-mon-hdr"
-             title="{% if upl %}Загружена {{ upl.uploaded_at.strftime('%d.%m.%Y') }} · {{ upl.period_label }}{% else %}ОСВ за этот месяц не загружена{% endif %}">
-          <span class="ac-mon-name">{{ mon.name }}</span>
-          <span class="ac-mon-badge">{{ UPL_LABELS.get(mon.upl_status, '—') }}</span>
-        </div>
-        <!-- Суточная мини-сетка (Пн–Вс) -->
-        <div class="ac-cal">
-          <div class="ac-wd">Пн</div><div class="ac-wd">Вт</div><div class="ac-wd">Ср</div>
-          <div class="ac-wd">Чт</div><div class="ac-wd">Пт</div>
-          <div class="ac-wd" style="color:#c0a0a0">Сб</div>
-          <div class="ac-wd" style="color:#c0a0a0">Вс</div>
-          {% for cell in mon.days %}
-            {% if cell is none %}
-              <div class="ac-pad"></div>
-            {% else %}
-              <div class="ac-day ac-d-{{ cell.status }}{% if cell.is_today %} ac-d-today{% endif %}"
-                   data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'monthly' %} месячная ОСВ{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
-              </div>
-            {% endif %}
-          {% endfor %}
-        </div>
-        <!-- Полоска покрытия -->
-        {% if mon.past_days > 0 %}
-        <div class="ac-cov-bar">
-          <div class="ac-cov-fill" style="width:{{ mon.coverage_pct }}%"></div>
-        </div>
-        {% endif %}
+      <div class="ac-view-switch" role="group" aria-label="Детализация покрытия">
+        <button type="button" class="ac-view-btn active" data-ac-view="daily"
+                aria-pressed="true" onclick="setACView('daily')">Сутки</button>
+        <button type="button" class="ac-view-btn" data-ac-view="monthly"
+                aria-pressed="false" onclick="setACView('monthly')">Месяц</button>
       </div>
-      {% endfor %}
-    </div>
 
+      <div class="ac-view-panel" id="ac-view-daily">
+        <div class="ac-view-summary">
+          Полностью покрыто счетов: <b>{{ ac.daily_account_full }}</b>/{{ ac.required_accounts|length }}.
+          В ячейке показано количество загруженных дней за месяц; красное число со знаком «−» — сколько дней отсутствует.
+        </div>
+        <div class="ac-account-matrix-wrap">
+          <table class="ac-account-matrix">
+            <thead>
+              <tr>
+                <th class="ac-account-col">Счёт / за год</th>
+                {% for mon in ac.months %}<th>{{ mon.name }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ac.account_coverage %}
+              <tr>
+                <th class="ac-account-col">
+                  <strong>Сч. {{ row.account }}</strong>
+                  <small>{{ row.daily_loaded }}/{{ row.daily_expected }} дн.</small>
+                </th>
+                {% for cell in row.daily_months %}
+                <td class="ac-account-cell ac-cell-{{ cell.status }}"
+                    title="{{ cell.name }}: {{ cell.loaded }} из {{ cell.expected }} дней{% if cell.missing %}; отсутствует {{ cell.missing }}{% endif %}">
+                  {% if cell.status == 'future' %}
+                    <span>—</span>
+                  {% else %}
+                    <span>{{ cell.loaded }}/{{ cell.expected }}</span>
+                    {% if cell.missing %}<small>−{{ cell.missing }}</small>{% endif %}
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="ac-view-panel" id="ac-view-monthly" style="display:none">
+        <div class="ac-view-summary">
+          Полностью покрыто счетов: <b>{{ ac.monthly_account_full }}</b>/{{ ac.required_accounts|length }}.
+          По каждому счёту отмечены месяцы, за которые загружены данные.
+        </div>
+        <div class="ac-account-matrix-wrap">
+          <table class="ac-account-matrix">
+            <thead>
+              <tr>
+                <th class="ac-account-col">Счёт / за год</th>
+                {% for mon in ac.months %}<th>{{ mon.name }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ac.account_coverage %}
+              <tr>
+                <th class="ac-account-col">
+                  <strong>Сч. {{ row.account }}</strong>
+                  <small>{{ row.monthly_loaded }}/{{ row.monthly_expected }} мес.</small>
+                </th>
+                {% for cell in row.monthly_months %}
+                <td class="ac-account-cell ac-cell-{{ cell.status }}"
+                    title="{{ cell.name }}: {% if cell.loaded %}данные загружены{% elif cell.expected %}данные отсутствуют{% else %}период ещё не наступил{% endif %}">
+                  {% if cell.status == 'future' %}
+                    <span class="ac-month-mark">·</span>
+                  {% elif cell.loaded %}
+                    <span class="ac-month-mark">✓</span>
+                  {% else %}
+                    <span class="ac-month-mark">—</span>
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div><!-- /ac-body -->
-    <!-- Легенда -->
-    <div class="ac-legend" id="ac-legend">
-      <span><span class="ac-sw" style="background:#d4edda;border:1px solid #2e7d4f"></span>Закрыт / прибыль</span>
-      <span><span class="ac-sw" style="background:#fde8d0;border:1px solid #c96020"></span>Закрыт / убыток</span>
-      <span><span class="ac-sw" style="background:#fff9db;border:1px solid #d4a800"></span>Не закрыт</span>
-      <span><span class="ac-sw" style="background:#e8f4fb;border:1px solid #5aa0c0"></span>Загружена ОСВ</span>
-      <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>Нет ОСВ</span>
-      <div class="ac-legend-sep"></div>
-      <span><span class="ac-sw" style="background:#2e7d4f"></span>суточные есть</span>
-      <span><span class="ac-sw" style="background:#cfe2f3;border:1px solid #7bafd4"></span>только месячная ОСВ</span>
-      <span><span class="ac-sw" style="background:#fbeae8;border:1px solid #e7b6b0"></span>суточные пропущены</span>
-      <span><span class="ac-sw" style="background:#f0f3f5;border:1px solid var(--line)"></span>до начала данных</span>
-    </div>
   </div>
 
   <!-- ─── Заключение ИИ ─── -->
@@ -1304,19 +1345,32 @@ function toggleDataSection(id) {
   }
 }
 
+// --- Переключение детализации карты покрытия ---
+function setACView(mode) {
+  var daily = document.getElementById('ac-view-daily');
+  var monthly = document.getElementById('ac-view-monthly');
+  if (!daily || !monthly) return;
+  daily.style.display = mode === 'daily' ? '' : 'none';
+  monthly.style.display = mode === 'monthly' ? '' : 'none';
+  document.querySelectorAll('.ac-view-btn').forEach(function(btn){
+    var active = btn.dataset.acView === mode;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
 // --- Сворачивание карты покрытия ---
 (function(){
   var collapsed = localStorage.getItem('ac_collapsed') === '1';
   function applyAC(anim){
     var body=document.getElementById('ac-body'),
-        leg=document.getElementById('ac-legend'),
         btn=document.getElementById('ac-toggle-btn');
     if(!body) return;
     if(collapsed){
-      body.style.display='none'; leg.style.display='none';
+      body.style.display='none';
       btn.textContent='▼ развернуть';
     } else {
-      body.style.display=''; leg.style.display='';
+      body.style.display='';
       btn.textContent='▲ свернуть';
     }
   }

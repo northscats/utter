@@ -2669,7 +2669,7 @@ def company_upload_zip(company_id):
 
 
 def _annual_coverage(company_id, year=None):
-    """Годовая карта покрытия: месячные ОСВ (Upload) + суточные (DailyRow)."""
+    """Годовая карта покрытия по обязательным счетам: месячные ОСВ + сутки."""
     import calendar as _cal
     import re as _re
     from datetime import date as _d
@@ -2683,6 +2683,11 @@ def _annual_coverage(company_id, year=None):
     all_dates = {r.date for r in all_rows}
     year_dates = {d for d in all_dates if d.year == year}
     data_start = min(all_dates) if all_dates else None
+    daily_dates_by_account = {}
+    for row in all_rows:
+        account = str(row.acc or '').strip()
+        if account and row.date.year == year:
+            daily_dates_by_account.setdefault(account, set()).add(row.date)
 
     # --- Все загрузки ---
     all_uploads = Upload.query.filter_by(company_id=company_id)\
@@ -2716,10 +2721,16 @@ def _annual_coverage(company_id, year=None):
 
     # (year, month) → лучший Upload (с dashboard_file предпочтительнее)
     upl_map = {}
+    upl_accounts_map = {}
     for u in all_uploads:
         for key in _upl_ym(u):
             if key not in upl_map or (u.dashboard_file and not upl_map[key].dashboard_file):
                 upl_map[key] = u
+            upl_accounts_map.setdefault(key, set()).update(
+                str(account).strip()
+                for account in u.accounts_list
+                if account is not None and str(account).strip()
+            )
 
     MON = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
 
@@ -2784,7 +2795,7 @@ def _annual_coverage(company_id, year=None):
     # Навигация по годам
     data_years = sorted(
         {d.year for d in all_dates} |
-        {u.uploaded_at.year for u in all_uploads} |
+        {ym[0] for ym in upl_map} |
         {today.year}
     )
     prev_year = year - 1 if (year - 1) in data_years else None
@@ -2795,6 +2806,91 @@ def _annual_coverage(company_id, year=None):
     total_months_ok   = sum(m['months_ok']  for m in months)
     total_months_past = sum(m['months_past'] for m in months)
     year_accs  = sorted({r.acc for r in all_rows if r.date.year == year})
+
+    # Матрица обязательных счетов × месяцев. В суточном режиме показываем
+    # фактическое число дат для каждого счёта, в месячном — наличие счёта
+    # хотя бы в одной принятой загрузке, покрывающей этот месяц.
+    required_accounts = [str(account) for account in REQUIRED_ACCOUNTS]
+    account_coverage = []
+    for account in required_accounts:
+        account_dates = daily_dates_by_account.get(account, set())
+        daily_months = []
+        monthly_months = []
+        daily_loaded_total = 0
+        daily_expected_total = 0
+        monthly_loaded_total = 0
+        monthly_expected_total = 0
+
+        for month_num, month_name in enumerate(MON, start=1):
+            days_in_month = _cal.monthrange(year, month_num)[1]
+            month_dates = [
+                _d(year, month_num, day_num)
+                for day_num in range(1, days_in_month + 1)
+                if _d(year, month_num, day_num) <= today
+            ]
+            expected_days = len(month_dates)
+            loaded_days = sum(1 for day in month_dates if day in account_dates)
+            missing_days = max(0, expected_days - loaded_days)
+            if expected_days == 0:
+                daily_status = 'future'
+            elif loaded_days == expected_days:
+                daily_status = 'full'
+            elif loaded_days:
+                daily_status = 'partial'
+            else:
+                daily_status = 'missing'
+
+            month_is_expected = _d(year, month_num, 1) <= today
+            monthly_loaded = account in upl_accounts_map.get(
+                (year, month_num), set())
+            if not month_is_expected:
+                monthly_status = 'future'
+            elif monthly_loaded:
+                monthly_status = 'full'
+            else:
+                monthly_status = 'missing'
+
+            daily_months.append(dict(
+                num=month_num,
+                name=month_name,
+                loaded=loaded_days,
+                expected=expected_days,
+                missing=missing_days,
+                status=daily_status,
+            ))
+            monthly_months.append(dict(
+                num=month_num,
+                name=month_name,
+                loaded=monthly_loaded,
+                expected=month_is_expected,
+                status=monthly_status,
+            ))
+            daily_loaded_total += loaded_days
+            daily_expected_total += expected_days
+            if month_is_expected:
+                monthly_expected_total += 1
+                if monthly_loaded:
+                    monthly_loaded_total += 1
+
+        account_coverage.append(dict(
+            account=account,
+            daily_months=daily_months,
+            monthly_months=monthly_months,
+            daily_loaded=daily_loaded_total,
+            daily_expected=daily_expected_total,
+            daily_missing=max(0, daily_expected_total - daily_loaded_total),
+            monthly_loaded=monthly_loaded_total,
+            monthly_expected=monthly_expected_total,
+            monthly_missing=max(
+                0, monthly_expected_total - monthly_loaded_total),
+        ))
+
+    daily_account_full = sum(
+        1 for row in account_coverage
+        if row['daily_expected'] and row['daily_missing'] == 0)
+    monthly_account_full = sum(
+        1 for row in account_coverage
+        if row['monthly_expected'] and row['monthly_missing'] == 0)
 
     return dict(
         year=year,
@@ -2812,6 +2908,10 @@ def _annual_coverage(company_id, year=None):
         has_daily=bool(all_dates),
         accs=year_accs,
         has_any=bool(all_dates or all_uploads),
+        required_accounts=required_accounts,
+        account_coverage=account_coverage,
+        daily_account_full=daily_account_full,
+        monthly_account_full=monthly_account_full,
     )
 
 
