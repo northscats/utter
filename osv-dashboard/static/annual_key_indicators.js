@@ -5,6 +5,9 @@
     const state = {
         active: false,
         year: null,
+        selectionStart: null,
+        rangeStart: null,
+        rangeEnd: null,
         data: null,
         reqId: 0
     };
@@ -23,8 +26,15 @@
         
         init() {
             const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.has('year')) {
-                state.year = parseInt(urlParams.get('year'), 10);
+            const year = parseInt(urlParams.get('year'), 10);
+            const yearFrom = parseInt(urlParams.get('year_from'), 10);
+            const yearTo = parseInt(urlParams.get('year_to'), 10);
+            if (Number.isInteger(yearFrom) && Number.isInteger(yearTo)) {
+                state.rangeStart = Math.min(yearFrom, yearTo);
+                state.rangeEnd = Math.max(yearFrom, yearTo);
+                state.year = state.rangeEnd;
+            } else if (Number.isInteger(year)) {
+                state.year = year;
             }
             if (urlParams.get('mode') === 'annual') {
                 this.activate();
@@ -57,14 +67,61 @@
 
         onYearChange(yearStr) {
             const year = parseInt(yearStr, 10);
-            if (state.year === year) return;
-            state.year = year;
+            if (!Number.isInteger(year)) return;
+
+            if (state.rangeStart !== null && state.rangeEnd !== null) {
+                state.rangeStart = null;
+                state.rangeEnd = null;
+                state.selectionStart = year;
+                state.year = year;
+            } else if (state.selectionStart === null) {
+                state.selectionStart = year;
+                state.rangeStart = null;
+                state.rangeEnd = null;
+                state.year = year;
+            } else if (state.selectionStart === year) {
+                state.year = year;
+            } else {
+                state.rangeStart = Math.min(state.selectionStart, year);
+                state.rangeEnd = Math.max(state.selectionStart, year);
+                state.selectionStart = null;
+                state.year = state.rangeEnd;
+            }
             
             const url = new URL(window.location);
             url.searchParams.set('year', year);
+            if (state.rangeStart !== null && state.rangeEnd !== null) {
+                url.searchParams.set('year_from', state.rangeStart);
+                url.searchParams.set('year_to', state.rangeEnd);
+                url.searchParams.set('year', state.rangeEnd);
+            } else {
+                url.searchParams.delete('year_from');
+                url.searchParams.delete('year_to');
+            }
             window.history.replaceState({}, '', url);
 
-            this.fetchData();
+            if (state.data && state.data.year === state.year) {
+                this.render();
+            } else {
+                this.fetchData();
+            }
+        },
+
+        isYearSelected(year) {
+            if (state.rangeStart !== null && state.rangeEnd !== null) {
+                return year >= state.rangeStart && year <= state.rangeEnd;
+            }
+            return year === state.year;
+        },
+
+        selectedTimelineYears() {
+            const timeline = (state.data && state.data.timeline_years) || [];
+            if (state.rangeStart !== null && state.rangeEnd !== null) {
+                return timeline.filter(year =>
+                    year >= state.rangeStart && year <= state.rangeEnd
+                );
+            }
+            return timeline.filter(year => year === state.year);
         },
 
         retry() {
@@ -148,7 +205,10 @@
             if (!state.data || !state.active) return;
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
-            subtitle.textContent = config.companyName;
+            const selectedPeriod = state.rangeStart !== null && state.rangeEnd !== null
+                ? `${state.rangeStart}–${state.rangeEnd}`
+                : state.year;
+            subtitle.textContent = `${config.companyName} · ${selectedPeriod}`;
             
             this.renderYearSelector();
             
@@ -193,11 +253,13 @@
                 if (sel) sel.style.display = 'none';
                 if (buttons) {
                     buttons.style.display = 'flex';
-                    buttons.innerHTML = state.data.years.map(y =>
-                        `<button type="button" class="annual-year-btn${y === state.data.year ? ' active' : ''}" ` +
-                        `data-year="${y}" aria-pressed="${y === state.data.year ? 'true' : 'false'}" ` +
-                        `onclick="window.KI_AnnualApp.onYearChange(${y})">${y}</button>`
-                    ).join('');
+                    buttons.innerHTML = state.data.years.map(y => {
+                        const selected = this.isYearSelected(y);
+                        const edge = y === state.rangeStart || y === state.rangeEnd;
+                        return `<button type="button" class="annual-year-btn${selected ? ' active' : ''}${edge ? ' range-edge' : ''}" ` +
+                            `data-year="${y}" aria-pressed="${selected ? 'true' : 'false'}" ` +
+                            `onclick="window.KI_AnnualApp.onYearChange(${y})">${y}</button>`;
+                    }).join('');
                 } else if (sel) {
                     sel.style.display = 'inline-block';
                     sel.innerHTML = state.data.years.map(y =>
@@ -317,7 +379,8 @@
             
             if (state.data.sources && state.data.sources.length > 0) {
                 let qHtml = '<div class="quality-box"><div class="quality-title">Загруженные источники (годовые)</div>';
-                state.data.sources.forEach(src => {
+                const selectedYears = new Set(this.selectedTimelineYears());
+                state.data.sources.filter(src => selectedYears.has(src.year)).forEach(src => {
                     qHtml += `<div style="font-size:12px; margin-bottom:4px;">
                         <strong>${esc(src.year)} год:</strong> ${esc(src.filename)} (версия ${esc(src.version)}, загружено ${esc(src.uploaded_at)})
                     </div>`;
@@ -375,9 +438,10 @@
             
             const chCont = document.getElementById('ki-modal-chart-container');
             const chTitle = document.getElementById('ki-modal-chart-title');
-            if (card.series && card.series.length > 0 && state.data.timeline_years) {
+            const selectedYears = this.selectedTimelineYears();
+            if (card.series && card.series.length > 0 && selectedYears.length > 0) {
                 chTitle.style.display = 'block';
-                this.renderModalChart(card.series, state.data.timeline_years, card.unit, 'ki-modal-chart-container');
+                this.renderModalChart(card.series, selectedYears, card.unit, 'ki-modal-chart-container');
                 chCont.style.display = 'block';
             } else {
                 chTitle.style.display = 'none';
@@ -446,7 +510,7 @@
             let circles = '';
             
             timeline_years.forEach((year, i) => {
-                const cx = padL + i * step;
+                const cx = numPoints === 1 ? padL + w / 2 : padL + i * step;
                 
                 svg += `<text x="${cx}" y="${height - 15}" font-size="10" fill="#6B7280" text-anchor="middle">${year}</text>`;
                 

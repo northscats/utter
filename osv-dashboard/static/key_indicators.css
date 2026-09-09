@@ -118,6 +118,9 @@ select.date-display option { background: #1E3A5F; color: #fff; }
   border-color: #F59E0B;
   color: #1E3A5F;
 }
+.annual-year-btn.active.range-edge {
+  box-shadow: inset 0 0 0 2px #FFF7D6;
+}
 
 .tabs-bar {
   background: #fff; border-bottom: 1px solid #E5E7EB;
