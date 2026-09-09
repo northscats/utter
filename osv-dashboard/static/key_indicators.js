@@ -242,8 +242,7 @@
             if (!state.data) return;
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
-            let updatedText = state.data.updated_at ? ` · Обновлено: ${esc(state.data.updated_at)}` : '';
-            subtitle.textContent = `${config.companyName}${updatedText}`;
+            subtitle.textContent = config.companyName;
             
             this.renderPeriodSelector();
             this.renderWarnings();
