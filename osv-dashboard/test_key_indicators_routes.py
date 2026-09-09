@@ -28,6 +28,39 @@ def report(period, amount, dates):
 
 
 class SourceAssemblyTests(unittest.TestCase):
+    def test_empty_osv_uses_account_number_from_report_title(self):
+        from openpyxl import Workbook
+        from osvparser import parse_osv
+
+        path = os.path.join(_TMP.name, 'ОСВ 67 за 01.07.2026 - 17.08.2026.xlsx')
+        book = Workbook()
+        sheet = book.active
+        sheet.append(['АО «Тест»'])
+        sheet.append([
+            'Оборотно-сальдовая ведомость по счету 67 '
+            'за 01.07.2026 - 17.08.2026'
+        ])
+        sheet.append([])
+        sheet.append(['Счет', 'Сальдо на начало периода', None,
+                      'Обороты за период', None, 'Сальдо на конец периода'])
+        sheet.append(['Контрагенты', 'Дебет', 'Кредит',
+                      'Дебет', 'Кредит', 'Дебет', 'Кредит'])
+        sheet.append(['Период'])
+        sheet.append(['Итого'])
+        book.save(path)
+        book.close()
+
+        parsed = parse_osv(path)
+        self.assertEqual(parsed['acc'], '67')
+        self.assertEqual(parsed['rows'], [])
+        self.assertEqual(parsed['daily'], [])
+        self.assertEqual(parsed['top']['obd'], 0)
+        self.assertEqual(len(parsed['warnings']), 1)
+        self.assertIn('пустая ОСВ', parsed['warnings'][0])
+        source = service.assemble_source([path], [])
+        self.assertIn('67', source['accounts'])
+        self.assertEqual(len(source['accounts']['67']['warnings']), 1)
+
     def test_annual_workbook_does_not_block_valid_osv(self):
         from openpyxl import Workbook
         annual = os.path.join(_TMP.name, 'annual-analysis.xlsx')

@@ -24,6 +24,11 @@ from datetime import date as _date
 RE_DATE = re.compile(r'Обороты за (\d\d)\.(\d\d)\.(\d\d)')
 RE_ACC  = re.compile(r'^\d{2}(\.\d{2})?$')
 RE_ORG  = re.compile(r'(?:Организация|Организации|Предприятие)[:\s]+(.+)', re.IGNORECASE)
+RE_ACC_HEADER = re.compile(
+    r'(?:по\s+)?сч[её]т(?:у|а)?\s*(\d{2})(?=\D|$)',
+    re.IGNORECASE,
+)
+RE_ACC_FILENAME = re.compile(r'(?:^|[\s_-])ОСВ[\s_-]+(\d{2})(?=\D|$)', re.IGNORECASE)
 
 # Для извлечения даты из шапки суточных файлов: «за 5 июля 2026 г.»
 _MONTHS_RU = {
@@ -242,10 +247,25 @@ def parse_osv(path):
         if s:
             dims.append(s)
     if acc is None:
-        raise ValueError(f'{os.path.basename(path)}: не удалось определить номер счета')
+        # A valid empty 1C report contains only its title and an "Итого" row,
+        # without the usual standalone account row. Keep it as an explicit
+        # zero-data report instead of blocking the whole company dashboard.
+        title_text = ' '.join(
+            str(label or '').strip() for label, _, _ in raw[:8] if label
+        )
+        match = RE_ACC_HEADER.search(title_text)
+        if match is None:
+            match = RE_ACC_FILENAME.search(os.path.basename(path))
+        if match is None:
+            raise ValueError(f'{os.path.basename(path)}: не удалось определить номер счета')
+        acc = match.group(1)
+        data_start = len(raw)
+        dims = [dim for dim in dims if not dim.startswith('Итого')]
+        warnings.append(
+            f'сч.{acc}: пустая ОСВ — в отчёте нет строк с движениями и остатками')
 
     has_outline = any(lvl > 0 for _, lvl, _ in raw[data_start:])
-    if not has_outline:
+    if data_start < len(raw) and not has_outline:
         warnings.append(f'сч.{acc}: в файле нет уровней группировки строк — '
                         'иерархия аналитик восстановлена частично')
 

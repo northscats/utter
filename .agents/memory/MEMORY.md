@@ -17,3 +17,4 @@
 - [Изоляция тестов Flask](flask-test-isolation.md) — временные SQLite-наборы запускать раздельно; общий app context между клиентами искажает авторизацию
 - [Python publishing dependencies](python-publishing-dependencies.md) — вложенный requirements не заменяет корневой Python-манифест при чистой публикации
 - [Размер образа публикации](deployment-image-size.md) — тестовые браузеры и компиляторы нельзя включать в runtime Nix: их closure легко превышает лимит 8 GiB
+- [Пустые ОСВ 1С](empty-osv-reports.md) — пустой типовой отчёт может не иметь строки счёта; номер берётся из заголовка, а отчёт остаётся нулевым

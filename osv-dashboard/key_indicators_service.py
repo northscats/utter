@@ -130,9 +130,9 @@ def assemble_source(paths, daily_rows):
             for report in entries
         ]
         latest['coverage_reports'] = [report.get('period', '') for report in entries]
-        latest['warnings'] = [
+        latest['warnings'] = list(dict.fromkeys(
             warning for report in entries for warning in report.get('warnings', [])
-        ]
+        ))
         if any(report.get('check_ok') is False for report in entries):
             latest['warnings'].append(
                 'Контрольное равенство в одной из ОСВ не сходится; '
