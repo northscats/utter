@@ -2718,6 +2718,218 @@
                 Object.assign({}, card, {title: 'Начисления работникам по кредиту 70'})), 50);
         },
 
+        capexRequirements() {
+            return {
+                balances: 'ОСВ счёта 08 на одну отчётную дату: счёт, субсчёт, полный путь аналитики, начальное и конечное дебетовое/кредитовое сальдо, дебетовый и кредитовый оборот. Для каждой строки нужны дата, документ, организация, подразделение и стабильный идентификатор объекта вложений.',
+                objects: 'Справочник объектов капитальных вложений 1С: уникальный ID, название, аналитический ключ счёта 08, организация, подразделение, вид строительства, ответственный, дата открытия и закрытия объекта, объект основных средств и статус.',
+                program: 'Утверждённая инвестпрограмма: ID и версия программы, решение об утверждении, регулирующий орган, мероприятие, объект, направление, период действия, годовой и помесячный план, план на отчётную дату, НДС, источник финансирования и признак включения расходов.',
+                fact: 'Регистр факта инвестпрограммы: объект и мероприятие, документ, дата, сумма, НДС, вид затрат, договор, подрядчик, этап, признак включения в программу, сумма, принятая РЭК, и причина исключения. Должно быть указано, используется оборот 08, принятые работы или оплаченная сумма.',
+                commissioning: 'Документы ввода в эксплуатацию 1С: объект вложений, объект ОС, дата и номер документа принятия к учёту, первоначальная стоимость, проводка Дт 01 — Кт 08, акт приёмки, введённая мощность и оставшиеся затраты.',
+                progress: 'Реестр физической готовности: объект, этап, вид и единица работ, плановый и фактический объём, плановый процент на отчётную дату, фактический процент, подтверждающий акт, дата обновления и ответственное лицо.',
+                schedule: 'Календарный график объекта: плановое и фактическое начало, контрольные точки, плановое и прогнозное завершение, плановая стоимость по месяцам, допустимое отклонение и утверждённые правила статусов «в графике», «отставание» и «критично».',
+                delays: 'Реестр отклонений: объект, код и описание причины, дата возникновения, ответственное лицо, блокирующий фактор, влияние на стоимость и срок, ожидаемая дата устранения, подтверждающий документ и актуальный комментарий.',
+                payments: 'Для денежного CAPEX нужны платежи 1С: дата, документ, сумма, валюта, контрагент, договор, объект, мероприятие, назначение, статья ДДС, счёт 50/51/52/55, аванс, возврат и распределение платежа по объектам.',
+                financing: 'Регистр источников финансирования: объект и мероприятие, вид источника, лимит, сумма, период, документ распределения, тарифные средства, кредит, бюджетное финансирование, спецсчёт или собственные средства.',
+                passports: 'Реестр паспортов готовности: отчётный сезон, перечень обязанных объектов, ID объекта, статус и дата проверки, замечания, срок устранения, номер и дата выдачи паспорта, выдавший орган, отказ и основание исключения.',
+                repairs: 'Ремонтная программа: ID мероприятия, объект, вид ремонта, плановые и фактические даты, физический объём и единица, плановая и фактическая стоимость, акт выполнения, подрядчик, статус и связь со статьёй затрат 20/25/26/44 либо капитализируемым объектом 08.',
+                rab: 'Для оценки влияния на RAB нужны метод регулирования, утверждённая база инвестированного капитала, решение РЭК, перечень принятых мероприятий и расходов, условия включения в НВВ, период, фактический ввод и причины исключения.'
+            };
+        },
+
+        capexTooltip(overrides = {}) {
+            return Object.assign({
+                title: 'Капитальные вложения',
+                description: 'Бухгалтерские движения и остатки счёта 08.',
+                formula: 'ОбД(08) за выбранный период',
+                detail: 'Дебетовый оборот 08 не равен денежному CAPEX, физической готовности или исполнению утверждённой инвестпрограммы.',
+                required: this.capexRequirements().balances,
+                norm: 'Утверждённый план не загружен',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'ОСВ счёта 08'
+            }, overrides);
+        },
+
+        renderCapexModal(card) {
+            const container = document.getElementById('ki-capex-modal-content');
+            if (!container) return;
+            const req = this.capexRequirements();
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const balanceChange = card.opening_balance != null && card.closing_balance != null
+                ? card.closing_balance - card.opening_balance : null;
+            const tip = (title, formula, value, detail, required, source = 'ОСВ счёта 08') =>
+                this.capexTooltip({
+                    title, formula, detail, required, source,
+                    fact: rub(value),
+                    deviation: value == null ? 'Нужны данные' : 'Подтверждено бухгалтерскими данными',
+                    deviationClass: value == null ? 'missing' : 'neutral'
+                });
+            const debitTip = tip(
+                'Формирование капитальных вложений',
+                'ОбД(08) за выбранный период', card.debit_turnover,
+                'Показатель отражает бухгалтерское формирование стоимости. Он не доказывает оплату, включение в инвестпрограмму или принятие РЭК.',
+                `${req.balances} Для факта инвестпрограммы: ${req.fact}`);
+            const wipTip = tip(
+                'Бухгалтерская незавершёнка',
+                'max(СКд(08) − СКк(08), 0)', card.closing_balance,
+                'Дебетовое сальдо 08 не подтверждает возраст, просрочку или физическую незавершённость объекта.',
+                `${req.balances} Для возраста и статуса: ${req.objects} ${req.schedule}`);
+            const creditTip = tip(
+                'Кредитовый оборот счёта 08',
+                'ОбК(08) за выбранный период', card.credit_turnover,
+                'Может включать ввод, списание, перенос и исправление; без корреспонденции не называется вводом в эксплуатацию.',
+                `${req.balances} Для подтверждённого ввода: ${req.commissioning}`);
+            const changeTip = tip(
+                'Изменение бухгалтерской незавершёнки',
+                'Конечное дебетовое сальдо 08 − начальное дебетовое сальдо 08',
+                balanceChange,
+                'Изменение остатка не равно дебетовому обороту: кредитовые движения могут отражать ввод, списания и переносы.',
+                `${req.balances} Нужны точные начальное и конечное сальдо одной отчётной границы.`);
+
+            const accountRowTip = this.capexTooltip({
+                title: 'Счёт 08 — сводные бухгалтерские данные',
+                description: 'Сальдо и обороты счёта 08 за выбранный период.',
+                formula: 'СНд, ОбД, ОбК и СКд счёта 08',
+                detail: 'Показатели показываются раздельно и не получают проектный или платёжный статус.',
+                required: req.balances,
+                fact: rub(card.closing_balance),
+                deviation: card.closing_balance == null ? 'Нужны данные' : 'Подтверждено',
+                deviationClass: card.closing_balance == null ? 'missing' : 'neutral'
+            });
+            const accountRows = `<tr>
+                ${this.collectionCell('<strong>Счёт 08</strong><br><span class="ki-muted">Вложения во внеоборотные активы</span>', accountRowTip)}
+                ${this.collectionCell(esc(rub(card.opening_balance)), accountRowTip, card.opening_balance == null ? 'cash-value-missing' : '')}
+                ${this.collectionCell(esc(rub(card.debit_turnover)), debitTip, card.debit_turnover == null ? 'cash-value-missing' : '')}
+                ${this.collectionCell(esc(rub(card.credit_turnover)), creditTip, card.credit_turnover == null ? 'cash-value-missing' : '')}
+                ${this.collectionCell(esc(rub(card.closing_balance)), wipTip, card.closing_balance == null ? 'cash-value-missing' : '')}
+            </tr>`;
+
+            const analyticRows = (card.analytics || []).length
+                ? card.analytics.map(row => {
+                    const rowTip = this.capexTooltip({
+                        title: `Аналитика 08 — ${row.label}`,
+                        description: 'Фактическая аналитическая строка счёта 08.',
+                        formula: 'Сальдо и обороты аналитической строки',
+                        detail: 'Аналитика не считается объектом инвестпрограммы и не классифицируется по направлению без утверждённого сопоставления.',
+                        required: `${req.balances} ${req.objects} ${req.program}`,
+                        fact: rub(row.debit_balance),
+                        deviation: 'Бухгалтерская аналитика',
+                        deviationClass: 'neutral'
+                    });
+                    const classTip = this.capexTooltip({
+                        title: `Связь с инвестпрограммой — ${row.label}`,
+                        description: 'Сопоставление бухгалтерской аналитики с утверждённым мероприятием.',
+                        formula: 'Аналитический ключ 08 → объект → мероприятие → направление → версия программы',
+                        detail: 'Название строки не используется для автоматического определения направления или статуса.',
+                        required: `${req.objects} ${req.program} ${req.fact}`,
+                        source: 'требуется справочник объектов и инвестпрограмма 1С'
+                    });
+                    return `<tr>
+                        ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, rowTip)}
+                        ${this.collectionCell(esc(rub(row.debit_balance)), rowTip)}
+                        ${this.collectionCell(esc(rub(row.debit_turnover)), rowTip)}
+                        ${this.collectionCell(esc(rub(row.credit_turnover)), rowTip)}
+                        ${this.collectionCell(esc(pct(row.turnover_share)), rowTip)}
+                        ${this.collectionCell(esc(pct(row.balance_share)), rowTip)}
+                        ${this.collectionCell('Нужны данные', classTip, 'cash-value-missing')}
+                        ${this.collectionCell('Нужны данные', classTip, 'cash-value-missing')}
+                    </tr>`;
+                }).join('')
+                : `<tr><td colspan="8" class="chart-empty">Аналитики счёта 08 не представлены. ${esc(req.balances)}</td></tr>`;
+
+            const debitSeries = card.series || [];
+            const creditSeries = card.credit_series || [];
+            const balanceSeries = card.balance_series || [];
+            const dynamics = debitSeries.length
+                ? debitSeries.map((item, index) => {
+                    const dynTip = this.capexTooltip({
+                        title: `Динамика счёта 08 — ${item.label}`,
+                        description: 'Бухгалтерские обороты и точное сальдо счёта 08 за месяц.',
+                        formula: 'ОбД(08), ОбК(08), СКд(08)',
+                        detail: 'Пропущенные месяцы не заменяются нулями. Плановая линия не строится без утверждённого календарного плана.',
+                        required: `${req.balances} Для план-факта: ${req.program}`,
+                        fact: rub(item.value),
+                        deviation: item.value == null ? 'Нужны данные' : 'Подтверждённый оборот',
+                        deviationClass: item.value == null ? 'missing' : 'neutral'
+                    });
+                    return `<tr>
+                        ${this.collectionCell(esc(item.label), dynTip)}
+                        ${this.collectionCell(esc(rub(item.value)), dynTip, item.value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((creditSeries[index] || {}).value)), dynTip, (creditSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((balanceSeries[index] || {}).value)), dynTip, (balanceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell('Нужны данные', this.capexTooltip({
+                            title: `План инвестпрограммы — ${item.label}`,
+                            description: 'Утверждённый план на ту же отчётную дату.',
+                            formula: 'Факт на дату / план на ту же дату × 100%',
+                            detail: 'Годовой план нельзя сравнивать с промежуточным фактом без календарного графика.',
+                            required: `${req.program} ${req.fact}`,
+                            source: 'требуется утверждённая версия инвестпрограммы 1С'
+                        }), 'cash-value-missing')}
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="5" class="chart-empty">Нет точной месячной серии счёта 08.</td></tr>';
+
+            const unavailable = [
+                ['План инвестпрограммы', 'утверждённый план на отчётную дату', req.program],
+                ['Исполнение плана', 'сопоставимый факт / план', `${req.program} ${req.fact}`],
+                ['Физическая готовность', 'выполненный объём по этапам', req.progress],
+                ['Срок и статус объекта', 'план, прогноз и правила статуса', `${req.schedule} ${req.progress}`],
+                ['Просроченные объекты', 'возраст и нарушение графика', `${req.objects} ${req.schedule} ${req.delays}`],
+                ['Причины задержки', 'подтверждённый реестр отклонений', req.delays],
+                ['Введено в эксплуатацию', 'документы Дт 01 — Кт 08', req.commissioning],
+                ['Денежный CAPEX', 'фактические внешние платежи', req.payments],
+                ['Источник финансирования', 'распределение средств по объектам', req.financing],
+                ['Принято РЭК', 'принятые и исключённые расходы', `${req.program} ${req.fact}`],
+                ['Паспорта готовности', 'объекты, проверки и паспорта', req.passports],
+                ['Ремонтная программа', 'финансовое и физическое выполнение', req.repairs],
+                ['Влияние на RAB', 'условия включения в НВВ', req.rab]
+            ].map(([label, sub, required]) => this.cashMetricCard(
+                label, 'Нужны данные', sub, this.capexTooltip({
+                    title: label,
+                    description: `Показатель «${label}» не восстанавливается из общего оборота или сальдо счёта 08.`,
+                    formula: sub,
+                    detail: 'Демонстрационные объекты, планы, проценты готовности, нормативы и статусы макета не используются.',
+                    required,
+                    source: 'требуется дополнительная выгрузка из 1С'
+                }), true)).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Бухгалтерские вложения отделены от исполнения инвестпрограммы.</strong>
+                    Дебетовый оборот 08 не называется денежным CAPEX, а сальдо 08 не подтверждает просрочку объекта.</div>
+                <div class="collection-summary capex-summary">
+                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null)}
+                    ${this.cashMetricCard('Незавершёнка', rub(card.closing_balance), 'конечное дебетовое сальдо 08', wipTip, card.closing_balance == null)}
+                    ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null)}
+                    ${this.cashMetricCard('Изменение незавершёнки', balanceChange == null ? 'Нужны данные' : `${balanceChange >= 0 ? '+' : ''}${rub(balanceChange)}`, 'конец − начало периода', changeTip, balanceChange == null)}
+                </div>
+                <div class="modal-section-title">Сводные данные счёта 08</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table capex-account-table">
+                    <thead><tr><th>Счёт</th><th>Начальное сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Конечное сальдо</th></tr></thead>
+                    <tbody>${accountRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика бухгалтерских вложений</div>
+                <div class="modal-chart-wrap capex-line-chart" id="ki-capex-line-chart"></div>
+                <div class="collection-table-wrap"><table class="collection-detail-table capex-dynamics-table">
+                    <thead><tr><th>Месяц</th><th>ОбД 08</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
+                    <tbody>${dynamics}</tbody>
+                </table></div>
+                <div class="modal-section-title">Фактические аналитики счёта 08</div>
+                <div class="revenue-classification-note">Аналитика становится объектом инвестпрограммы только после явного сопоставления со справочником объектов и утверждённой версией программы.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table capex-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Остаток</th><th>ОбД</th><th>ОбК</th><th>Доля оборота</th><th>Доля остатка</th><th>Объект</th><th>Мероприятие</th></tr></thead>
+                    <tbody>${analyticRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
+                <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
+            setTimeout(() => this.renderBarChart(
+                card.series || [], 'RUB', 'ki-capex-line-chart',
+                Object.assign({}, card, {title: 'Формирование капитальных вложений'})), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -3007,8 +3219,10 @@
             const profitContent = document.getElementById('ki-profit-modal-content');
             const creditsContent = document.getElementById('ki-credits-modal-content');
             const salaryContent = document.getElementById('ki-salary-modal-content');
+            const capexContent = document.getElementById('ki-capex-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             salaryContent.style.display = 'none';
+            capexContent.style.display = 'none';
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
@@ -3109,6 +3323,19 @@
                 creditsContent.style.display = 'none';
                 salaryContent.style.display = 'block';
                 this.renderSalaryModal(card);
+            } else if (cardId === 'capex') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
+                salaryContent.style.display = 'none';
+                capexContent.style.display = 'block';
+                this.renderCapexModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';

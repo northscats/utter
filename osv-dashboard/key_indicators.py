@@ -531,7 +531,7 @@ def _top_balance(source, account, end, credit=False):
                          if credit else top['skd'] - top['skk']), 2), None
 
 
-def _account_balance_analytics(source, account, end):
+def _account_balance_analytics(source, account, end, credit=True):
     """Return leaf analytic balances from an exact account report boundary."""
     acc = source['accounts'].get(account)
     if not acc:
@@ -548,7 +548,9 @@ def _account_balance_analytics(source, account, end):
         return [{
             'account': account,
             'label': _analytic_identity(row)[1],
-            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)
+                               if credit else
+                               row.get('skd', 0) - row.get('skk', 0)), 2),
             'credit_balance': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
             'debit_balance': round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
             'debit_turnover': row.get('obd') if row.get('obd_known') is not False else None,
@@ -569,13 +571,37 @@ def _account_balance_analytics(source, account, end):
         result.append({
             'account': account,
             'label': label,
-            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)
+                               if credit else
+                               row.get('skd', 0) - row.get('skk', 0)), 2),
             'credit_balance': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
             'debit_balance': round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
             'debit_turnover': row.get('obd'),
             'credit_turnover': row.get('obk'),
         })
     return result
+
+
+def _top_opening_balance(source, account, start, credit=False):
+    """Return an account opening balance only from an exact report boundary."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return None
+    reports = list(acc.get('balance_reports') or [])
+    if acc.get('report_start') == start.isoformat() and acc.get('top') is not None:
+        reports.append({
+            'report_start': acc.get('report_start'),
+            'top': acc.get('top'),
+        })
+    report = next((item for item in reversed(reports)
+                   if item.get('report_start') == start.isoformat()
+                   and item.get('top') is not None), None)
+    if not report:
+        return None
+    top = report['top']
+    value = top.get('snk', 0) - top.get('snd', 0) if credit else \
+        top.get('snd', 0) - top.get('snk', 0)
+    return round(max(0.0, value), 2)
 
 
 def _account_turnovers(source, account, start, end):
@@ -889,9 +915,24 @@ def build_key_indicators(source, period='month', date=None,
         round(insurance_turnovers['credit'] / salary_turnovers['credit'] * 100, 2)
         if insurance_turnovers['credit'] is not None
         and salary_turnovers['credit'] not in (None, 0) else None)
-    d08 = _turnover_basis(_daily(source, '08', start, end))
-    capex = _sum(d08, 'obd') if d08 else None
-    capex_reason = None if d08 else 'Нет суточного дебетового оборота счёта 08'
+    capex_turnovers = _account_turnovers(source, '08', start, end)
+    capex = capex_turnovers['debit']
+    capex_reason = (
+        None if capex is not None else
+        'Нет суточного дебетового оборота счёта 08')
+    capex_opening = _top_opening_balance(source, '08', start)
+    capex_closing = _top_balance(source, '08', end)[0]
+    capex_credit_balance = _top_balance(source, '08', end, credit=True)[0]
+    capex_analytics = _account_balance_analytics(
+        source, '08', end, credit=False)
+    for item in capex_analytics:
+        item['turnover_share'] = (
+            round(item['debit_turnover'] / capex_turnovers['debit'] * 100, 2)
+            if item['debit_turnover'] is not None
+            and capex_turnovers['debit'] not in (None, 0) else None)
+        item['balance_share'] = (
+            round(item['debit_balance'] / capex_closing * 100, 2)
+            if capex_closing not in (None, 0) else None)
 
     cards = [
         _card('cash', cash, 'RUB', 'СКд − СКк по счетам 50, 51, 52, 55',
@@ -1008,7 +1049,18 @@ def build_key_indicators(source, period='month', date=None,
                   'Обороты 69 не называются начисленными или уплаченными взносами без классификации операций.']),
         _card('capex', capex, 'RUB', 'ОбД(08) за выбранный период',
               'Суточный оборот счёта 08', capex_reason,
-              notes=['Показатель отражает капитализируемые вложения, но не план и не полный денежный поток инвестпрограммы.'],
+              opening_balance=capex_opening,
+              closing_balance=capex_closing,
+              credit_balance=capex_credit_balance,
+              debit_turnover=capex_turnovers['debit'],
+              credit_turnover=capex_turnovers['credit'],
+              analytics=capex_analytics,
+              credit_series=[],
+              balance_series=[],
+              notes=[
+                  'Дебетовый оборот 08 отражает формирование капитальных вложений, но не полный денежный поток.',
+                  'Дебетовое сальдо 08 — бухгалтерская незавершёнка; оно не подтверждает возраст или просрочку объекта.',
+                  'Кредитовый оборот 08 не называется вводом без корреспонденции со счётом 01 и документа принятия к учёту.'],
               details=[{'label': 'План инвестпрограммы', 'value': None, 'unit': 'RUB',
                         'reason': 'План отсутствует в ОСВ'}]),
     ]
@@ -1076,8 +1128,15 @@ def build_key_indicators(source, period='month', date=None,
             'label': option['label'], 'value': month_other_result})
         card_map['profit']['pretax_series'].append({
             'label': option['label'], 'value': month_pretax})
-        rows08 = _turnover_basis(_daily(source, '08', month_start, month_end))
-        month_values['capex'] = _sum(rows08, 'obd') if rows08 else None
+        month_capex_turnovers = _account_turnovers(
+            source, '08', month_start, month_end)
+        month_values['capex'] = month_capex_turnovers['debit']
+        card_map['capex']['credit_series'].append({
+            'label': option['label'],
+            'value': month_capex_turnovers['credit']})
+        card_map['capex']['balance_series'].append({
+            'label': option['label'],
+            'value': _top_balance(source, '08', month_end)[0]})
         month_values['collection'] = None
         month62 = _turnover_basis(_daily(source, '62', month_start, month_end))
         month_debit = _known_sum(month62, 'obd') if month62 else None

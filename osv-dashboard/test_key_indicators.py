@@ -105,6 +105,37 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(salary['insurance']['credit_turnover'])
         self.assertIsNone(salary['insurance']['turnover_ratio'])
 
+    def test_capex_detail_separates_turnover_balance_and_analytics(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2026-01-31', obd=30, obk=5, skd=35, skk=0),
+                day('2026-01-31', p1='Объект А',
+                    obd=30, obk=5, skd=35, skk=0),
+            ], top=dict(snd=10, snk=0, obd=30, obk=5, skd=35, skk=0)),
+        })
+        capex = {item['id']: item for item in
+                 build_key_indicators(src)['cards']}['capex']
+        self.assertEqual(capex['value'], 30)
+        self.assertEqual(capex['debit_turnover'], 30)
+        self.assertEqual(capex['credit_turnover'], 5)
+        self.assertEqual(capex['opening_balance'], 10)
+        self.assertEqual(capex['closing_balance'], 35)
+        self.assertEqual(len(capex['analytics']), 1)
+        self.assertEqual(capex['analytics'][0]['value'], 35)
+        self.assertEqual(capex['analytics'][0]['turnover_share'], 100)
+        self.assertEqual(capex['analytics'][0]['balance_share'], 100)
+
+    def test_missing_capex_balance_is_not_reported_as_zero(self):
+        src = build_indicator_source({
+            '08': account('08', [day('2026-01-31', obd=12, obk=2)],
+                          top=None),
+        })
+        capex = {item['id']: item for item in
+                 build_key_indicators(src)['cards']}['capex']
+        self.assertEqual(capex['value'], 12)
+        self.assertEqual(capex['opening_balance'], 0)
+        self.assertEqual(capex['closing_balance'], 0)
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({
