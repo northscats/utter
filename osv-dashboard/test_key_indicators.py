@@ -68,6 +68,43 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(salary['value'], 50)
         self.assertIn('не подтверждает просрочку', salary['notes'][0])
 
+    def test_salary_detail_keeps_balances_turnovers_and_analytics_separate(self):
+        src = build_indicator_source({
+            '70': account('70', [
+                day('2026-01-31', obd=80, obk=100, skd=0, skk=20),
+                day('2026-01-31', p1='Подразделение А',
+                    obd=80, obk=100, skd=0, skk=20),
+            ], top=dict(snd=0, snk=0, obd=80, obk=100, skd=0, skk=20)),
+            '69': account('69', [
+                day('2026-01-31', obd=24, obk=30, skd=0, skk=6),
+                day('2026-01-31', p1='Взносы А',
+                    obd=24, obk=30, skd=0, skk=6),
+            ], top=dict(snd=0, snk=0, obd=24, obk=30, skd=0, skk=6)),
+        })
+        salary = {item['id']: item for item in
+                  build_key_indicators(src)['cards']}['salary']
+        self.assertEqual(salary['value'], 20)
+        self.assertEqual(salary['credit_turnover'], 100)
+        self.assertEqual(salary['debit_turnover'], 80)
+        self.assertEqual(len(salary['analytics']), 1)
+        self.assertEqual(salary['insurance']['credit_balance'], 6)
+        self.assertEqual(salary['insurance']['credit_turnover'], 30)
+        self.assertEqual(salary['insurance']['turnover_ratio'], 30)
+        self.assertEqual(len(salary['insurance']['analytics']), 1)
+        self.assertIn('не как подтверждённый ФОТ', salary['notes'][1])
+
+    def test_missing_insurance_account_is_not_reported_as_zero(self):
+        src = build_indicator_source({
+            '70': account('70', [day('2026-01-31', obd=8, obk=10)],
+                          top=dict(snd=0, snk=0, obd=8, obk=10,
+                                   skd=0, skk=2)),
+        })
+        salary = {item['id']: item for item in
+                  build_key_indicators(src)['cards']}['salary']
+        self.assertIsNone(salary['insurance']['credit_balance'])
+        self.assertIsNone(salary['insurance']['credit_turnover'])
+        self.assertIsNone(salary['insurance']['turnover_ratio'])
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({

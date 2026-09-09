@@ -549,6 +549,8 @@ def _account_balance_analytics(source, account, end):
             'account': account,
             'label': _analytic_identity(row)[1],
             'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'credit_balance': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'debit_balance': round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
             'debit_turnover': row.get('obd') if row.get('obd_known') is not False else None,
             'credit_turnover': row.get('obk') if row.get('obk_known') is not False else None,
         } for row in basis]
@@ -568,10 +570,23 @@ def _account_balance_analytics(source, account, end):
             'account': account,
             'label': label,
             'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'credit_balance': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'debit_balance': round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
             'debit_turnover': row.get('obd'),
             'credit_turnover': row.get('obk'),
         })
     return result
+
+
+def _account_turnovers(source, account, start, end):
+    rows = _daily(source, account, start, end)
+    plain = [row for row in rows
+             if not any((row.get('path1'), row.get('path2'), row.get('path3')))]
+    basis = plain if plain else _turnover_basis(rows)
+    return {
+        'debit': _known_sum(basis, 'obd') if basis else None,
+        'credit': _known_sum(basis, 'obk') if basis else None,
+    }
 
 
 def _balance_provenance(source, account, end):
@@ -863,6 +878,17 @@ def build_key_indicators(source, period='month', date=None,
             if item['value'] is not None and credits else None)
     credits_reason = None if credit_parts else ('; '.join(credit_reasons) or 'Счета 66/67 не загружены')
     salary, salary_reason = _top_balance(source, '70', end, credit=True)
+    salary_debit = _top_balance(source, '70', end)[0]
+    salary_turnovers = _account_turnovers(source, '70', start, end)
+    salary_analytics = _account_balance_analytics(source, '70', end)
+    insurance_credit = _top_balance(source, '69', end, credit=True)[0]
+    insurance_debit = _top_balance(source, '69', end)[0]
+    insurance_turnovers = _account_turnovers(source, '69', start, end)
+    insurance_analytics = _account_balance_analytics(source, '69', end)
+    insurance_ratio = (
+        round(insurance_turnovers['credit'] / salary_turnovers['credit'] * 100, 2)
+        if insurance_turnovers['credit'] is not None
+        and salary_turnovers['credit'] not in (None, 0) else None)
     d08 = _turnover_basis(_daily(source, '08', start, end))
     capex = _sum(d08, 'obd') if d08 else None
     capex_reason = None if d08 else 'Нет суточного дебетового оборота счёта 08'
@@ -962,7 +988,24 @@ def build_key_indicators(source, period='month', date=None,
                       if credit_parts and len(credit_parts) < 2 else []))),
         _card('salary', salary, 'RUB', 'max(СКк − СКд, 0) по счёту 70',
               'Конечное сальдо счёта 70', salary_reason,
-              notes=['Кредитовое сальдо — расчётная задолженность работникам; ОСВ не подтверждает просрочку.']),
+              debit_balance=salary_debit,
+              debit_turnover=salary_turnovers['debit'],
+              credit_turnover=salary_turnovers['credit'],
+              analytics=salary_analytics,
+              insurance={
+                  'credit_balance': insurance_credit,
+                  'debit_balance': insurance_debit,
+                  'debit_turnover': insurance_turnovers['debit'],
+                  'credit_turnover': insurance_turnovers['credit'],
+                  'turnover_ratio': insurance_ratio,
+                  'analytics': insurance_analytics,
+              },
+              accrual_series=[],
+              insurance_series=[],
+              notes=[
+                  'Кредитовое сальдо — расчётная задолженность работникам; ОСВ не подтверждает просрочку.',
+                  'Кредитовый оборот 70 показывается как начисления работникам, а не как подтверждённый ФОТ.',
+                  'Обороты 69 не называются начисленными или уплаченными взносами без классификации операций.']),
         _card('capex', capex, 'RUB', 'ОбД(08) за выбранный период',
               'Суточный оборот счёта 08', capex_reason,
               notes=['Показатель отражает капитализируемые вложения, но не план и не полный денежный поток инвестпрограммы.'],
@@ -1063,6 +1106,16 @@ def build_key_indicators(source, period='month', date=None,
         month_values['credits'] = round(sum(debt_month), 2) if debt_month else None
         month_values['salary'] = _top_balance(
             source, '70', month_end, credit=True)[0]
+        month_salary_turnovers = _account_turnovers(
+            source, '70', month_start, month_end)
+        month_insurance_turnovers = _account_turnovers(
+            source, '69', month_start, month_end)
+        card_map['salary']['accrual_series'].append({
+            'label': option['label'],
+            'value': month_salary_turnovers['credit']})
+        card_map['salary']['insurance_series'].append({
+            'label': option['label'],
+            'value': month_insurance_turnovers['credit']})
         for cid in _CARD_ORDER:
             card_map[cid]['series'].append({
                 'label': option['label'], 'value': month_values[cid]})

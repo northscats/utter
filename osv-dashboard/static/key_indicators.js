@@ -2503,6 +2503,221 @@
                 card.series || [], 'RUB', 'ki-credits-line-chart', card), 50);
         },
 
+        salaryRequirements() {
+            return {
+                balances: 'ОСВ счетов 70 и 69 на одну отчётную дату: счёт, субсчёт, полный путь аналитики, начальное и конечное дебетовое/кредитовое сальдо, дебетовый и кредитовый оборот. Для счёта 70 — обезличенный идентификатор сотрудника, подразделение и документ расчёта; для 69 — вид обязательства и расчётный период.',
+                payroll: 'Регистр начислений зарплаты 1С: обезличенный кадровый ID, подразделение, должность, категория персонала, вид начисления, признак включения в ФОТ, период регистрации и начисления, документ, сумма до удержаний, дни/часы, ставка, сторно, перерасчёт, счёт и статья затрат, объект и услуга.',
+                payments: 'Ведомости и платежи 1С: ведомость, сотрудник или обезличенный ID, расчётный период, сумма к выплате, установленная дата выплаты, фактическая дата и сумма, банк/касса, платёжный документ, корреспондирующий счёт 50/51, распределение платежа по ведомостям, остаток и депонирование.',
+                withholdings: 'Регистр удержаний 1С: сотрудник или обезличенный ID, период, вид удержания, НДФЛ, алименты, исполнительные листы и прочие удержания, сумма, документ и корреспондирующий счёт 68/73/76.',
+                staff: 'Кадровый регистр 1С: обезличенный кадровый ID, дата приёма и увольнения, подразделение, должность, категория персонала, основное место/совместительство, ставка занятости, календарные и отработанные дни/часы, часы по норме и период действия записи.',
+                insurance: 'Регистр расчёта страховых взносов 1С: вид взноса, субсчёт 69, расчётный период, облагаемая база, необлагаемая сумма, предельная база, фактический тариф, пониженный/дополнительный тариф, начислено, уменьшено, сторно, пени, штрафы и документ.',
+                insurancePayments: 'Регистр обязательств и платежей по взносам: вид обязательства, расчётный период, начислено, установленный срок уплаты, платёжный документ, фактическая дата и сумма, распределение платежа, зачёт, возврат, переплата, непогашенный остаток, пени и статус.',
+                categories: 'Справочник классификации персонала: кадровый ID или должность/подразделение, категория персонала, объект, услуга, дата начала и окончания классификации. Категории «производственный», «ремонтный», «АУП» и другие нельзя определять по тексту автоматически.',
+                budget: 'Утверждённый бюджет ФОТ: версия бюджета, предприятие, подразделение, категория персонала, вид начисления, месяц, плановая численность/FTE, плановый ФОТ, дата утверждения и сценарий.',
+                comparable: 'Для сравнения с АПГ нужны те же поля за сопоставимый период прошлого года, одинаковый состав предприятия, единая классификация начислений и персонала, а также признаки реорганизации, переводов и корректировок прошлых периодов.'
+            };
+        },
+
+        salaryTooltip(overrides = {}) {
+            return Object.assign({
+                title: 'Расчёты по оплате труда',
+                description: 'Бухгалтерские расчёты с работниками и по страховым взносам.',
+                formula: 'Сальдо и обороты счетов 70 и 69',
+                detail: 'Кредитовое сальдо 70 не доказывает просрочку, а обороты 70 и 69 без классификации не равны ФОТ, выплатам или уплаченным взносам.',
+                required: this.salaryRequirements().balances,
+                norm: 'Норматив не загружен',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'ОСВ счетов 70 и 69'
+            }, overrides);
+        },
+
+        renderSalaryModal(card) {
+            const container = document.getElementById('ki-salary-modal-content');
+            if (!container) return;
+            const req = this.salaryRequirements();
+            const ins = card.insurance || {};
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const tip = (title, formula, value, detail, required, source = 'ОСВ 70/69') =>
+                this.salaryTooltip({
+                    title, formula, detail, required, source,
+                    fact: rub(value),
+                    deviation: value === null || value === undefined
+                        ? 'Нужны данные' : 'Подтверждено бухгалтерскими данными',
+                    deviationClass: value === null || value === undefined ? 'missing' : 'neutral'
+                });
+            const debtTip = tip(
+                'Расчётная задолженность работникам',
+                'max(СКк(70) − СКд(70), 0)', card.value,
+                'Это бухгалтерское кредитовое сальдо на дату, а не подтверждённая просроченная зарплата.',
+                `${req.balances} Для просрочки: ${req.payments}`);
+            const debitTip = tip(
+                'Дебетовое сальдо счёта 70',
+                'max(СКд(70) − СКк(70), 0)', card.debit_balance,
+                'Может отражать переплаты и расчёты с отдельными работниками; природа суммы требует аналитики.',
+                req.balances);
+            const accrualTip = tip(
+                'Начисления работникам',
+                'ОбК(70) за выбранный период', card.credit_turnover,
+                'Это бухгалтерский кредитовый оборот. Он называется ФОТ только после исключения выплат, не входящих в утверждённый состав ФОТ.',
+                `${req.balances} Для подтверждённого ФОТ: ${req.payroll}`);
+            const insuranceDebtTip = tip(
+                'Кредитовое сальдо счёта 69',
+                'max(СКк(69) − СКд(69), 0)', ins.credit_balance,
+                'Сальдо не подтверждает просрочку и не разделяется на виды взносов без субсчетов и обязательств.',
+                `${req.balances} Для сроков: ${req.insurancePayments}`);
+            const movementTip = (account, side, value) => tip(
+                `${side === 'debit' ? 'Дебетовый' : 'Кредитовый'} оборот счёта ${account}`,
+                `Об${side === 'debit' ? 'Д' : 'К'}(${account}) за выбранный период`, value,
+                account === '70'
+                    ? (side === 'debit'
+                        ? 'Включает выплаты, НДФЛ и другие удержания; не называется выплатой зарплаты без корреспонденции.'
+                        : 'Включает бухгалтерские начисления работникам; не весь оборот обязательно входит в ФОТ.')
+                    : (side === 'debit'
+                        ? 'Может включать платежи, зачёты, возвраты и корректировки; не называется уплаченными взносами.'
+                        : 'Может включать начисления, корректировки, пени и штрафы; не называется начисленными взносами без классификации.'),
+                account === '70'
+                    ? `${req.balances} ${side === 'debit' ? `${req.payments} ${req.withholdings}` : req.payroll}`
+                    : `${req.balances} ${req.insurance} ${req.insurancePayments}`);
+
+            const accountRows = [
+                ['70', 'Расчёты с персоналом', card.debit_balance, card.value,
+                    card.debit_turnover, card.credit_turnover],
+                ['69', 'Социальное страхование и обеспечение', ins.debit_balance,
+                    ins.credit_balance, ins.debit_turnover, ins.credit_turnover]
+            ].map(([account, label, debitBalance, creditBalance, debitTurnover, creditTurnover]) => {
+                const rowTip = tip(
+                    `Счёт ${account} — ${label}`, 'Сальдо и обороты по данным ОСВ',
+                    creditBalance,
+                    'Дебетовые и кредитовые показатели показываются раздельно и не получают платёжный статус без первичных регистров.',
+                    account === '70' ? `${req.balances} ${req.payroll} ${req.payments}` :
+                        `${req.balances} ${req.insurance} ${req.insurancePayments}`);
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">сч. ${account}</span>`, rowTip)}
+                    ${this.collectionCell(esc(rub(debitBalance)), rowTip, debitBalance == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub(creditBalance)), rowTip, creditBalance == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub(debitTurnover)), movementTip(account, 'debit', debitTurnover), debitTurnover == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub(creditTurnover)), movementTip(account, 'credit', creditTurnover), creditTurnover == null ? 'cash-value-missing' : '')}
+                </tr>`;
+            }).join('');
+
+            const analyticTable = (rows, account) => rows && rows.length
+                ? rows.map(row => {
+                    const rowTip = tip(
+                        `Аналитика ${account} — ${row.label}`,
+                        'Сальдо и обороты аналитической строки ОСВ',
+                        row.credit_balance,
+                        account === '70'
+                            ? 'Категория персонала и вид начисления не угадываются по названию аналитики.'
+                            : 'Вид взноса, тариф и срок уплаты не угадываются по названию аналитики.',
+                        account === '70' ? `${req.balances} ${req.payroll} ${req.categories}` :
+                            `${req.balances} ${req.insurance} ${req.insurancePayments}`);
+                    return `<tr>
+                        ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, rowTip)}
+                        ${this.collectionCell(esc(rub(row.debit_balance)), rowTip)}
+                        ${this.collectionCell(esc(rub(row.credit_balance)), rowTip)}
+                        ${this.collectionCell(esc(rub(row.debit_turnover)), rowTip)}
+                        ${this.collectionCell(esc(rub(row.credit_turnover)), rowTip)}
+                    </tr>`;
+                }).join('')
+                : `<tr><td colspan="5" class="chart-empty">Аналитики счёта ${account} не представлены. ${esc(req.balances)}</td></tr>`;
+
+            const accrualSeries = card.accrual_series || [];
+            const insuranceSeries = card.insurance_series || [];
+            const balanceSeries = card.series || [];
+            const dynamics = accrualSeries.length
+                ? accrualSeries.map((item, index) => {
+                    const dynTip = this.salaryTooltip({
+                        title: `Динамика расчётов — ${item.label}`,
+                        description: 'Точные месячные бухгалтерские показатели 70 и 69.',
+                        formula: 'ОбК(70), конечное кредитовое сальдо 70 и ОбК(69)',
+                        detail: 'Пропущенные месяцы не заменяются нулями. Средняя зарплата не рассчитывается без кадровой численности.',
+                        required: `${req.balances} Для средней зарплаты: ${req.payroll} ${req.staff}`,
+                        fact: rub(item.value),
+                        deviation: item.value == null ? 'Нужны данные' : 'Подтверждённый оборот',
+                        deviationClass: item.value == null ? 'missing' : 'neutral'
+                    });
+                    return `<tr>
+                        ${this.collectionCell(esc(item.label), dynTip)}
+                        ${this.collectionCell(esc(rub(item.value)), dynTip, item.value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((balanceSeries[index] || {}).value)), dynTip, (balanceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((insuranceSeries[index] || {}).value)), dynTip, (insuranceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell('Нужны данные', this.salaryTooltip({
+                            title: `Средняя зарплата — ${item.label}`,
+                            description: 'Среднее начисление на одного работника или FTE.',
+                            formula: 'Подтверждённый ФОТ / утверждённая численность',
+                            detail: 'Количество строк ОСВ не является численностью.',
+                            required: `${req.payroll} ${req.staff} Нужно также указать методику: среднесписочная численность, средняя численность или FTE.`,
+                            source: 'требуются зарплатный и кадровый регистры 1С'
+                        }), 'cash-value-missing')}
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="5" class="chart-empty">Нет точной месячной серии оборотов счёта 70.</td></tr>';
+
+            const unavailable = [
+                ['Подтверждённый ФОТ', 'начисления, включаемые в ФОТ', req.payroll],
+                ['Просроченная зарплата', 'остаток после установленной даты выплаты', `${req.payments} ${req.withholdings}`],
+                ['Численность', 'среднесписочная / средняя / FTE', req.staff],
+                ['Средняя зарплата', 'ФОТ на работника или FTE', `${req.payroll} ${req.staff}`],
+                ['Категории персонала', 'производственный, ремонтный, АУП и другие', `${req.payroll} ${req.categories}`],
+                ['Структура начислений', 'оклад, премии, отпускные, больничные', req.payroll],
+                ['Выплачено работникам', 'платежи без удержаний и зачётов', `${req.payments} ${req.withholdings}`],
+                ['Начислено взносов', 'по видам и расчётным периодам', req.insurance],
+                ['Уплачено взносов', 'платежи, распределённые по обязательствам', req.insurancePayments],
+                ['Фактические тарифы', 'база, предельная база и применённый тариф', req.insurance],
+                ['План-факт ФОТ', 'утверждённая версия бюджета', `${req.budget} ${req.payroll}`],
+                ['Изменение к АПГ', 'сопоставимые периоды и классификация', req.comparable]
+            ].map(([label, sub, required]) => this.cashMetricCard(
+                label, 'Нужны данные', sub, this.salaryTooltip({
+                    title: label,
+                    description: `Показатель «${label}» не восстанавливается из общего сальдо или оборота 70/69.`,
+                    formula: sub,
+                    detail: 'Демонстрационные численность, ставки, тарифы и статусы макета не используются.',
+                    required,
+                    source: 'требуется дополнительная выгрузка из 1С'
+                }), true)).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Бухгалтерское сальдо не равно просроченной зарплате.</strong>
+                    Обороты 70 и 69 показываются как движения ОСВ без неподтверждённых платёжных статусов.</div>
+                <div class="collection-summary salary-summary">
+                    ${this.cashMetricCard('Задолженность работникам', rub(card.value), 'кредитовое сальдо 70', debtTip, card.value == null)}
+                    ${this.cashMetricCard('Дебетовое сальдо 70', rub(card.debit_balance), 'переплаты и другие расчёты', debitTip, card.debit_balance == null)}
+                    ${this.cashMetricCard('Начисления работникам', rub(card.credit_turnover), 'ОбК 70 · не подтверждённый ФОТ', accrualTip, card.credit_turnover == null)}
+                    ${this.cashMetricCard('Сальдо счёта 69', rub(ins.credit_balance), 'не статус просрочки', insuranceDebtTip, ins.credit_balance == null)}
+                </div>
+                <div class="modal-section-title">Сальдо и бухгалтерские обороты</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table salary-account-table">
+                    <thead><tr><th>Счёт</th><th>Дебетовое сальдо</th><th>Кредитовое сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th></tr></thead>
+                    <tbody>${accountRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика начислений и расчётных остатков</div>
+                <div class="modal-chart-wrap salary-line-chart" id="ki-salary-line-chart"></div>
+                <div class="collection-table-wrap"><table class="collection-detail-table salary-dynamics-table">
+                    <thead><tr><th>Месяц</th><th>ОбК 70</th><th>Кредитовое сальдо 70</th><th>ОбК 69</th><th>Средняя зарплата</th></tr></thead>
+                    <tbody>${dynamics}</tbody>
+                </table></div>
+                <div class="modal-section-title">Фактические аналитики счёта 70</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table salary-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Дебетовое сальдо</th><th>Кредитовое сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th></tr></thead>
+                    <tbody>${analyticTable(card.analytics || [], '70')}</tbody>
+                </table></div>
+                <div class="modal-section-title">Фактические аналитики счёта 69</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table salary-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Дебетовое сальдо</th><th>Кредитовое сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th></tr></thead>
+                    <tbody>${analyticTable(ins.analytics || [], '69')}</tbody>
+                </table></div>
+                <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
+                <div class="revenue-missing-grid salary-missing-grid">${unavailable}</div>`;
+            setTimeout(() => this.renderBarChart(
+                card.accrual_series || [], 'RUB', 'ki-salary-line-chart',
+                Object.assign({}, card, {title: 'Начисления работникам по кредиту 70'})), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -2791,7 +3006,9 @@
             const cogsContent = document.getElementById('ki-cogs-modal-content');
             const profitContent = document.getElementById('ki-profit-modal-content');
             const creditsContent = document.getElementById('ki-credits-modal-content');
+            const salaryContent = document.getElementById('ki-salary-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
+            salaryContent.style.display = 'none';
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
@@ -2880,6 +3097,18 @@
                 profitContent.style.display = 'none';
                 creditsContent.style.display = 'block';
                 this.renderCreditsModal(card);
+            } else if (cardId === 'salary') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
+                salaryContent.style.display = 'block';
+                this.renderSalaryModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
