@@ -149,8 +149,7 @@
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
             let updatedText = state.data.updated_at ? ` · Обновлено: ${esc(state.data.updated_at)}` : '';
-            let prevYearText = state.data.previous_year ? ` (сравнение с ${state.data.previous_year})` : '';
-            subtitle.textContent = `${config.companyName} · Годовые показатели${prevYearText}${updatedText}`;
+            subtitle.textContent = `${config.companyName}${updatedText}`;
             
             this.renderYearSelector();
             

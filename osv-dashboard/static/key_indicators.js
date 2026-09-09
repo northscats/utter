@@ -243,7 +243,7 @@
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
             let updatedText = state.data.updated_at ? ` · Обновлено: ${esc(state.data.updated_at)}` : '';
-            subtitle.textContent = `${config.companyName} · ОСВ по синтетическим счетам${updatedText}`;
+            subtitle.textContent = `${config.companyName}${updatedText}`;
             
             this.renderPeriodSelector();
             this.renderWarnings();

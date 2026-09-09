@@ -31,7 +31,6 @@
 
     <div class="topbar" id="ki-topbar">
       <div class="topbar-left">
-        <div class="logo">ФИНАНС</div>
         <div class="topbar-title">
           Основные показатели
           <small id="ki-topbar-subtitle">{{ company.name }} · Загрузка...</small>
@@ -39,15 +38,9 @@
       </div>
       <div class="topbar-right">
         <div class="mode-selector" id="ki-mode-selector">
-          <button class="mode-btn active" data-mode="operational">Оперативные · ОСВ</button>
-          <button class="mode-btn" data-mode="annual">Годовые · 1С</button>
+          <button class="mode-btn active" data-mode="operational">ОСВ</button>
+          <button class="mode-btn" data-mode="annual">Годовые</button>
         </div>
-        {% if legacy_url %}
-        <a href="{{ legacy_url }}" class="legacy-link" title="Перейти к старому детальному дашборду">
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-            <span>Детальный анализ</span>
-        </a>
-        {% endif %}
         <div class="period-selector" id="ki-period-selector">
           <button class="period-btn" data-period="day">День</button>
           <button class="period-btn active" data-period="month">Месяц</button>
