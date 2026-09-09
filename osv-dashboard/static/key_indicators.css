@@ -89,6 +89,36 @@ select.date-display {
 select.date-display:focus-visible { border-color: #F59E0B; }
 select.date-display option { background: #1E3A5F; color: #fff; }
 
+.annual-year-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.annual-year-btn {
+  min-width: 52px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255,255,255,0.24);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.1);
+  color: #E2E8F0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+.annual-year-btn:hover,
+.annual-year-btn:focus-visible {
+  background: rgba(255,255,255,0.2);
+  outline: none;
+}
+.annual-year-btn.active {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #1E3A5F;
+}
+
 .tabs-bar {
   background: #fff; border-bottom: 1px solid #E5E7EB;
   padding: 0 24px; display: flex; gap: 0;

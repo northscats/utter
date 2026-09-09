@@ -95,6 +95,7 @@
             } else {
                 if (window.KI_AnnualApp) window.KI_AnnualApp.deactivate();
                 document.getElementById('ki-annual-year-select').style.display = 'none';
+                document.getElementById('ki-annual-year-buttons').style.display = 'none';
                 document.getElementById('ki-period-selector').style.display = 'flex';
                 document.querySelector('.tabs-bar').style.display = 'flex';
                 document.getElementById('ki-operational-container').style.display = 'block';
