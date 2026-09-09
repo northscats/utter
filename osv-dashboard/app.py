@@ -2683,11 +2683,6 @@ def _annual_coverage(company_id, year=None):
     all_dates = {r.date for r in all_rows}
     year_dates = {d for d in all_dates if d.year == year}
     year_rows = [r for r in all_rows if r.date.year == year]
-    year_accs = sorted({r.acc for r in year_rows})
-    acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
-    date_acc_indexes = {}
-    for row in year_rows:
-        date_acc_indexes.setdefault(row.date, set()).add(acc_indexes[row.acc])
     data_start = min(all_dates) if all_dates else None
 
     # --- Все загрузки ---
@@ -2722,10 +2717,77 @@ def _annual_coverage(company_id, year=None):
 
     # (year, month) → лучший Upload (с dashboard_file предпочтительнее)
     upl_map = {}
+    month_accs = {}
     for u in all_uploads:
         for key in _upl_ym(u):
             if key not in upl_map or (u.dashboard_file and not upl_map[key].dashboard_file):
                 upl_map[key] = u
+            month_accs.setdefault(key, set()).update(str(acc) for acc in u.accounts_list if acc)
+
+    # Старые Upload-записи могли сохраняться без accounts_loaded. В этом случае
+    # используем уже существующий кэш разбора принятых ОСВ-файлов.
+    source_accs = set()
+    source_date_accs = {}
+    source_years = set()
+    try:
+        from key_indicators_service import (
+            SourceBusyError, SourceReadError, load_company_source,
+        )
+        source, _ = load_company_source(company_id, UPLOADS)
+        for raw_acc, account_data in source.get('accounts', {}).items():
+            acc = str(raw_acc)
+            report_start = account_data.get('report_start')
+            report_end = account_data.get('report_end')
+            try:
+                start_date = _d.fromisoformat(report_start) if report_start else None
+                end_date = _d.fromisoformat(report_end) if report_end else None
+            except (TypeError, ValueError):
+                start_date = end_date = None
+            if start_date:
+                source_years.add(start_date.year)
+            if end_date:
+                source_years.add(end_date.year)
+
+            relevant = bool(
+                start_date and end_date and
+                start_date <= _d(year, 12, 31) and end_date >= _d(year, 1, 1)
+            )
+            for row in account_data.get('daily', []):
+                try:
+                    row_date = _d.fromisoformat(str(row.get('date')))
+                except (TypeError, ValueError):
+                    continue
+                source_years.add(row_date.year)
+                if row_date.year == year:
+                    relevant = True
+                    source_date_accs.setdefault(row_date, set()).add(acc)
+            if relevant:
+                source_accs.add(acc)
+    except (SourceBusyError, SourceReadError, OSError, ValueError) as exc:
+        # Метаданные Upload и DailyRow остаются полноценным источником покрытия,
+        # даже если один из архивных XLS-файлов временно недоступен для разбора.
+        app.logger.warning(
+            'Не удалось восстановить счета покрытия компании %s: %s',
+            company_id, exc,
+        )
+        source_accs = set()
+        source_date_accs = {}
+        source_years = set()
+
+    year_accs = sorted(
+        {r.acc for r in year_rows} |
+        {acc for (acc_year, _), accounts in month_accs.items()
+         if acc_year == year for acc in accounts} |
+        source_accs
+    )
+    acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
+    date_acc_indexes = {}
+    for row in year_rows:
+        date_acc_indexes.setdefault(row.date, set()).add(acc_indexes[row.acc])
+    for row_date, accounts in source_date_accs.items():
+        date_acc_indexes.setdefault(row_date, set()).update(
+            acc_indexes[acc] for acc in accounts if acc in acc_indexes
+        )
 
     MON = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
 
@@ -2763,12 +2825,17 @@ def _annual_coverage(company_id, year=None):
                 st = 'missing'    # пропуск в суточном ряду
             else:
                 st = 'nodata'     # до начала каких-либо данных
+            account_indexes = set(date_acc_indexes.get(day, ()))
+            account_indexes.update(
+                acc_indexes[acc] for acc in month_accs.get((year, m), ())
+                if acc in acc_indexes
+            )
             days.append(dict(
                 day=dn,
                 date=day.strftime('%d.%m'),
                 status=st,
                 is_today=(day == today),
-                account_indexes=sorted(date_acc_indexes.get(day, ())),
+                account_indexes=sorted(account_indexes),
             ))
 
         past  = [d for d in days if d and d['status'] != 'future']
@@ -2796,6 +2863,7 @@ def _annual_coverage(company_id, year=None):
     data_years = sorted(
         {d.year for d in all_dates} |
         {u.uploaded_at.year for u in all_uploads} |
+        source_years |
         {today.year}
     )
     prev_year = year - 1 if (year - 1) in data_years else None
@@ -2820,7 +2888,7 @@ def _annual_coverage(company_id, year=None):
                             if total_months_past else 0,
         has_daily=bool(all_dates),
         accs=year_accs,
-        has_any=bool(all_dates or all_uploads),
+        has_any=bool(all_dates or all_uploads or source_accs),
     )
 
 

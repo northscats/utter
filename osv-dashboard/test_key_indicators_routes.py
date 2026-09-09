@@ -10,7 +10,7 @@ _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
-from database import Company, CompanyMembership, DailyRow, User, UserModuleAccess, db
+from database import Company, CompanyMembership, DailyRow, Upload, User, UserModuleAccess, db
 import key_indicators_service as service
 from key_indicators import build_indicator_source
 
@@ -181,17 +181,52 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                 DailyRow(company_id=self.company, date=date(2026, 9, 1), acc='51'),
                 DailyRow(company_id=self.company, date=date(2026, 9, 1), acc='62'),
                 DailyRow(company_id=self.company, date=date(2026, 9, 2), acc='62'),
+                Upload(
+                    company_id=self.company,
+                    uploaded_by=self.ids['kpi_admin'],
+                    period_label='Август 2026',
+                    accounts_loaded='["20"]',
+                ),
             ])
             db.session.commit()
             coverage = app_module._annual_coverage(self.company, 2026)
             DailyRow.query.filter_by(company_id=self.company).delete()
+            Upload.query.filter_by(company_id=self.company).delete()
             db.session.commit()
 
-        self.assertEqual(coverage['accs'], ['51', '62'])
+        self.assertEqual(coverage['accs'], ['20', '51', '62'])
+        august = coverage['months'][7]
+        august_days = {cell['day']: cell for cell in august['days'] if cell}
+        self.assertEqual(august_days[1]['account_indexes'], [0])
         september = coverage['months'][8]
         days = {cell['day']: cell for cell in september['days'] if cell}
-        self.assertEqual(days[1]['account_indexes'], [0, 1])
-        self.assertEqual(days[2]['account_indexes'], [1])
+        self.assertEqual(days[1]['account_indexes'], [1, 2])
+        self.assertEqual(days[2]['account_indexes'], [2])
+
+    def test_coverage_recovers_accounts_from_accepted_osv_source(self):
+        source = {
+            'accounts': {
+                '51': {
+                    'report_start': '2026-07-01',
+                    'report_end': '2026-08-17',
+                    'daily': [{'date': '2026-07-02'}],
+                },
+                '62': {
+                    'report_start': '2026-07-01',
+                    'report_end': '2026-08-17',
+                    'daily': [{'date': '2026-07-03'}],
+                },
+            },
+        }
+        with self.app.app_context(), patch.object(
+                service, 'load_company_source', return_value=(source, None)):
+            coverage = app_module._annual_coverage(self.company, 2026)
+
+        self.assertEqual(coverage['accs'], ['51', '62'])
+        july = coverage['months'][6]
+        days = {cell['day']: cell for cell in july['days'] if cell}
+        self.assertEqual(days[2]['account_indexes'], [0])
+        self.assertEqual(days[3]['account_indexes'], [1])
 
     def test_empty_company_returns_real_unavailable_cards(self):
         with patch.object(service, 'load_company_source',
