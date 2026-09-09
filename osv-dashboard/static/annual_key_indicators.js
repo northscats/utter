@@ -186,20 +186,30 @@
         renderYearSelector() {
             const sel = document.getElementById('ki-annual-year-select');
             const buttons = document.getElementById('ki-annual-year-buttons');
+            if (!sel && !buttons) return;
             if (state.data.years && state.data.years.length > 0) {
                 // Keep the old select hidden for compatibility with cached pages;
                 // the visible control is a direct button for every available year.
-                sel.style.display = 'none';
-                buttons.style.display = 'flex';
-                buttons.innerHTML = state.data.years.map(y =>
-                    `<button type="button" class="annual-year-btn${y === state.data.year ? ' active' : ''}" ` +
-                    `data-year="${y}" aria-pressed="${y === state.data.year ? 'true' : 'false'}" ` +
-                    `onclick="window.KI_AnnualApp.onYearChange(${y})">${y}</button>`
-                ).join('');
+                if (sel) sel.style.display = 'none';
+                if (buttons) {
+                    buttons.style.display = 'flex';
+                    buttons.innerHTML = state.data.years.map(y =>
+                        `<button type="button" class="annual-year-btn${y === state.data.year ? ' active' : ''}" ` +
+                        `data-year="${y}" aria-pressed="${y === state.data.year ? 'true' : 'false'}" ` +
+                        `onclick="window.KI_AnnualApp.onYearChange(${y})">${y}</button>`
+                    ).join('');
+                } else if (sel) {
+                    sel.style.display = 'inline-block';
+                    sel.innerHTML = state.data.years.map(y =>
+                        `<option value="${y}" ${y === state.data.year ? 'selected' : ''}>${y} год</option>`
+                    ).join('');
+                }
             } else {
-                sel.style.display = 'none';
-                buttons.style.display = 'none';
-                buttons.innerHTML = '';
+                if (sel) sel.style.display = 'none';
+                if (buttons) {
+                    buttons.style.display = 'none';
+                    buttons.innerHTML = '';
+                }
             }
         },
 
