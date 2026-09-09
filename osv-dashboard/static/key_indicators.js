@@ -187,6 +187,12 @@
                 this.fetchData();
             }
         },
+
+        dismissError() {
+            const errorOverlay = document.getElementById('ki-error');
+            if (errorOverlay) errorOverlay.style.display = 'none';
+            this.hideLoading();
+        },
         
         async fetchData() {
             this.showLoading();
