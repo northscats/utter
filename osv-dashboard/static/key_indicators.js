@@ -629,6 +629,159 @@
             badge.style.display = 'inline-block';
         },
         
+        cashMetricCard(label, value, sub, tip, needsData) {
+            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0">
+                <div class="cash-analysis-label">${esc(label)}</div>
+                <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : 'cash-value-ok'}">${esc(value)}</div>
+                <div class="cash-analysis-sub">${esc(sub)}</div>
+                <div class="cash-hover-tip"><strong>${needsData ? 'Какие данные нужны из 1С' : 'Методика расчёта'}</strong>${esc(tip)}</div>
+            </div>`;
+        },
+
+        renderCashModal(card) {
+            const container = document.getElementById('ki-cash-modal-content');
+            const accounts = ['50', '51', '52', '55'];
+            const names = {
+                '50': 'Касса',
+                '51': 'Расчётные счета',
+                '52': 'Валютные счета',
+                '55': 'Специальные счета'
+            };
+            const comments = {
+                '50': 'Наличные денежные средства',
+                '51': 'Рублёвые банковские счета',
+                '52': 'Балансовая стоимость валютных средств в рублях',
+                '55': 'Аккредитивы, депозиты и иные специальные счета'
+            };
+            const parts = {};
+            (card.breakdown || []).forEach(item => {
+                const match = String(item.label || '').match(/(\d{2})/);
+                if (match) parts[match[1]] = item.value;
+            });
+            const cashFormatted = this.formatValue(card.value, card.unit);
+            const delta = card.delta && card.delta.value !== null ? card.delta.value : null;
+            const deltaFormatted = this.formatValue(delta, 'RUB');
+            const deltaText = delta === null ? 'Нужны данные' :
+                `${delta > 0 ? '+' : ''}${deltaFormatted.val} ${deltaFormatted.u}`;
+            const total = Number(card.value) || 0;
+            let rows = '';
+            accounts.forEach(account => {
+                const value = Object.prototype.hasOwnProperty.call(parts, account) ? parts[account] : null;
+                const formatted = this.formatValue(value, card.unit);
+                const share = value !== null && total !== 0 ? `${(value / total * 100).toFixed(1)}%` : '—';
+                rows += `<tr>
+                    <td><strong>Счёт ${account}</strong> — ${esc(names[account])}</td>
+                    <td>${esc(formatted.val)} ${esc(formatted.u)}</td>
+                    <td>${esc(share)}</td>
+                    <td>${esc(comments[account])}</td>
+                    <td><span class="cash-data-state ${value === null ? 'missing' : 'ok'}">${value === null ? 'Нет данных' : 'Загружен'}</span></td>
+                </tr>`;
+            });
+
+            const fullNcfTip = 'Для полного NCF нужна выгрузка движений по счетам 50, 51, 52 и 55 с датой, суммой, корреспондирующим счётом, статьёй движения денежных средств и признаком внутреннего перевода.';
+            const currentLiquidityTip = 'Нужен бухгалтерский баланс либо ОСВ по всем счетам оборотных активов и краткосрочных обязательств, включая 41, 43, 45, 60, 62, 66, 68, 69, 70, 76, а также сроки погашения по счетам 67 и 76.';
+            const absoluteLiquidityTip = 'Нужна аналитика сроков погашения по счетам 60, 66, 67, 68, 69, 70 и 76, чтобы отделить обязательства, подлежащие погашению в ближайшие 12 месяцев.';
+            const runwayTip = 'Нужна банковская выписка и кассовые операции минимум за 90 дней: дата, сумма, назначение платежа, контрагент, статья ДДС и корреспондирующий счёт. Внутренние переводы между счетами должны быть отмечены.';
+            const fuelTip = 'Нужен складской отчёт 1С по топливу в натуральных единицах, вид топлива, доступный остаток, среднесуточный фактический расход и производственный план либо норматив потребления.';
+            const changeTip = delta === null
+                ? 'Нужны конечные сальдо счетов 50, 51, 52 и 55 минимум на две сопоставимые даты с одинаковым составом счетов. ' + fullNcfTip
+                : 'Показано изменение бухгалтерского остатка между двумя сопоставимыми датами. Это не классифицированный отчёт о движении денежных средств. ' + fullNcfTip;
+
+            document.getElementById('ki-modal-title').textContent =
+                'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
+            document.getElementById('ki-modal-subtitle').textContent =
+                `Детализация по данным ОСВ · ${state.data.period && state.data.period.label ? state.data.period.label : 'выбранный период'}`;
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Денежные средства по данным бухгалтерского учёта.</strong>
+                    Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
+                    Средства счёта 55 могут иметь ограничения по использованию.</div>
+                <div class="cash-summary-grid">
+                    <div class="cash-summary-card"><div class="cash-summary-label">Денежные средства</div>
+                        <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
+                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · бухгалтерский остаток</div></div>
+                    <div class="cash-summary-card"><div class="cash-summary-label">Изменение за период</div>
+                        <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : 'cash-value-ok'}">${esc(deltaText)}</div>
+                        <div class="cash-summary-sub">к предыдущей сопоставимой дате</div></div>
+                    <div class="cash-summary-card"><div class="cash-summary-label">Текущая ликвидность</div>
+                        <div class="cash-summary-value cash-value-missing">Нужны данные</div>
+                        <div class="cash-summary-sub">нет полного состава оборотных активов</div></div>
+                    <div class="cash-summary-card"><div class="cash-summary-label">Cash Runway</div>
+                        <div class="cash-summary-value cash-value-missing">Нужны данные</div>
+                        <div class="cash-summary-sub">нет очищенного платёжного потока</div></div>
+                </div>
+                <div class="modal-section-title">Детализация по счетам денежных средств</div>
+                <div style="overflow-x:auto"><table class="cash-table">
+                    <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
+                    <tbody>${rows}<tr><td>ИТОГО</td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
+                </table></div>
+                <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
+                <div class="cash-metrics-grid">
+                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, 'СКд − СКк по счетам 50, 51, 52, 55', 'Используются конечные дебетовые и кредитовые сальдо загруженных ОСВ. Отсутствующий счёт не принимается за ноль.', false)}
+                    ${this.cashMetricCard('NCF / изменение ДС', deltaText, delta === null ? 'нет двух сопоставимых дат' : 'изменение бухгалтерского остатка', changeTip, delta === null)}
+                    ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityTip, true)}
+                    ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityTip, true)}
+                    ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayTip, true)}
+                    ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelTip, true)}
+                </div>
+                <div class="modal-section-title">Динамика денежных средств</div>
+                <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
+                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущему месяцу</span></div>
+                <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
+            this.renderCashLineChart(card.series || []);
+        },
+
+        renderCashLineChart(series) {
+            const container = document.getElementById('ki-cash-line-chart');
+            if (!container) return;
+            const points = series.map((item, index) => ({
+                index, label: item.label, value: item.value === null ? null : Number(item.value) / 1000000
+            }));
+            const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
+            if (!valid.length) {
+                container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
+                return;
+            }
+            const changes = points.map((item, index) => ({
+                index, label: item.label,
+                value: index > 0 && item.value !== null && points[index - 1].value !== null
+                    ? item.value - points[index - 1].value : null
+            }));
+            const values = valid.map(item => item.value).concat(
+                changes.filter(item => item.value !== null).map(item => item.value));
+            const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;
+            let min = Math.min(0, ...values), max = Math.max(0, ...values);
+            if (min === max) max = min + 1;
+            const x = index => left + (points.length === 1 ? 0 : index * (width - left - right) / (points.length - 1));
+            const y = value => top + (max - value) * (height - top - bottom) / (max - min);
+            const pathFor = data => {
+                let path = '', drawing = false;
+                data.forEach(item => {
+                    if (item.value === null || !Number.isFinite(item.value)) { drawing = false; return; }
+                    path += `${drawing ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
+                    drawing = true;
+                });
+                return path;
+            };
+            let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика денежных средств">`;
+            [min, (min + max) / 2, max].forEach(value => {
+                const py = y(value);
+                svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
+                    <text x="${left-6}" y="${py+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(value.toFixed(1))}</text>`;
+            });
+            svg += `<path d="${pathFor(points)}" fill="none" stroke="#3B82F6" stroke-width="3"/>
+                <path d="${pathFor(changes)}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
+            points.forEach((item, index) => {
+                if (item.value !== null && Number.isFinite(item.value)) {
+                    svg += `<circle cx="${x(index)}" cy="${y(item.value)}" r="4" fill="#3B82F6"><title>${esc(item.label)}: ${esc(item.value.toFixed(2))} млн ₽</title></circle>`;
+                }
+                if (changes[index].value !== null) {
+                    svg += `<circle cx="${x(index)}" cy="${y(changes[index].value)}" r="3" fill="#10B981"><title>${esc(item.label)}: изменение ${esc(changes[index].value.toFixed(2))} млн ₽</title></circle>`;
+                }
+                svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
+            });
+            container.innerHTML = svg + '</svg>';
+        },
+
         openModal(cardId) {
             const card = state.data.cards.find(c => c.id === cardId);
             if (!card) return;
@@ -640,7 +793,16 @@
             
             const def = cardDefinitions.find(d => d.id === cardId);
             document.getElementById('ki-modal-icon').innerHTML = def ? def.icon : '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>';
-            
+
+            const cashContent = document.getElementById('ki-cash-modal-content');
+            const genericContent = document.getElementById('ki-generic-modal-content');
+            if (cardId === 'cash') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'block';
+                this.renderCashModal(card);
+            } else {
+                cashContent.style.display = 'none';
+                genericContent.style.display = 'block';
             const rb = document.getElementById('ki-modal-reason-banner');
             if (card.reason) {
                 rb.style.display = 'block';
@@ -700,6 +862,7 @@
             } else {
                 chTitle.style.display = 'none';
                 chCont.style.display = 'none';
+            }
             }
             
             const overlay = document.getElementById('ki-modal');

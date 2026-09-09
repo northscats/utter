@@ -282,7 +282,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .modal-overlay.visible { opacity: 1; visibility: visible; }
 .modal {
   background: #fff; border-radius: 12px; box-shadow: 0 25px 60px rgba(0,0,0,0.35);
-  width: 100%; max-width: 800px; max-height: 90vh;
+  width: 100%; max-width: 980px; max-height: 90vh;
   display: flex; flex-direction: column; overflow: hidden;
   transform: scale(0.92) translateY(20px); transition: transform 0.25s ease;
 }
@@ -345,6 +345,47 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .waterfall-label { flex:1; color: #374151; font-weight: 600; font-size: 11px; }
 .waterfall-value { text-align: right; font-family: ui-monospace, monospace; font-weight: 700; color: #1F2937; font-size: 12px; }
 
+.cash-info-banner {
+  background:#EFF6FF; border-left:4px solid #3B82F6; border-radius:6px;
+  padding:12px 14px; color:#1E3A5F; font-size:12px; line-height:1.6;
+}
+.cash-summary-grid {
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-top:16px;
+}
+.cash-summary-card, .cash-analysis-card {
+  position:relative; background:#fff; border:1px solid #E5E7EB; border-radius:8px;
+  padding:12px; min-height:82px;
+}
+.cash-summary-label, .cash-analysis-label { color:#6B7280; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+.cash-summary-value, .cash-analysis-value { color:#1F2937; font-size:22px; font-weight:800; margin-top:5px; }
+.cash-summary-sub, .cash-analysis-sub { color:#6B7280; font-size:10px; margin-top:4px; line-height:1.35; }
+.cash-value-ok { color:#059669; }
+.cash-value-missing { color:#B45309; font-size:15px; }
+.cash-metrics-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.cash-analysis-card { cursor:help; border-left:4px solid #10B981; }
+.cash-analysis-card.needs-data { border-left-color:#F59E0B; background:#FFFBEB; }
+.cash-analysis-card:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
+.cash-hover-tip {
+  display:none; position:absolute; z-index:30; left:8px; right:8px; top:calc(100% + 6px);
+  background:#111827; color:#F9FAFB; border-radius:7px; padding:10px 11px;
+  box-shadow:0 10px 28px rgba(0,0,0,.28); font-size:10px; line-height:1.5; text-transform:none;
+}
+.cash-hover-tip strong { color:#FCD34D; display:block; margin-bottom:3px; }
+.cash-analysis-card:hover .cash-hover-tip,
+.cash-analysis-card:focus .cash-hover-tip { display:block; }
+.cash-table { width:100%; border-collapse:collapse; font-size:11px; }
+.cash-table th { background:#F3F4F6; color:#4B5563; padding:8px; text-align:right; font-weight:700; }
+.cash-table th:first-child, .cash-table td:first-child { text-align:left; }
+.cash-table td { border-bottom:1px solid #E5E7EB; padding:9px 8px; text-align:right; }
+.cash-table tr:last-child td { font-weight:800; background:#F9FAFB; }
+.cash-data-state { display:inline-block; padding:2px 6px; border-radius:10px; font-size:9px; font-weight:700; }
+.cash-data-state.ok { background:#D1FAE5; color:#047857; }
+.cash-data-state.missing { background:#FEF3C7; color:#92400E; }
+.cash-line-chart { height:250px; border:1px solid #E5E7EB; border-radius:8px; background:#FAFBFC; padding:10px; }
+.cash-line-chart svg { width:100%; height:100%; overflow:visible; }
+.cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
+.cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
+
 .recommendations-card {
   background: #fff; border: 1px solid #E5E7EB; border-left: 4px solid #F59E0B;
   border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
@@ -364,9 +405,12 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .topbar { flex-direction: column; height: auto; padding: 12px 16px; gap: 12px; }
   .topbar-right { flex-wrap: wrap; justify-content: center; }
+  .cash-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .cash-metrics-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width: 480px) {
   .kpi-row { grid-template-columns: 1fr; }
+  .cash-summary-grid, .cash-metrics-grid { grid-template-columns:1fr; }
 }
 
 .ki-loading-overlay {
