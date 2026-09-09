@@ -58,6 +58,7 @@
                 });
             }
             this.bindEvents();
+            this.initRichTooltip();
             if (state.mode === 'operational') {
                 this.fetchData();
             }
@@ -672,6 +673,90 @@
             </div>`;
         },
 
+        initRichTooltip() {
+            if (document.getElementById('ki-rich-tooltip-portal')) return;
+            const portal = document.createElement('div');
+            portal.id = 'ki-rich-tooltip-portal';
+            portal.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(portal);
+            this._richTooltipPortal = portal;
+            this._richTooltipHost = null;
+
+            const hostSelector = '.kpi-card.cash-tooltip-host, .cash-summary-card, .cash-analysis-card, .cash-table .cash-tooltip-host';
+            document.addEventListener('pointerover', event => {
+                const host = event.target.closest(hostSelector);
+                if (!host || host.contains(event.relatedTarget)) return;
+                const source = host.querySelector('.metric-rich-tooltip');
+                if (!source) return;
+                this._richTooltipHost = host;
+                this.showRichTooltipHtml(source.outerHTML, event.clientX, event.clientY);
+            });
+            document.addEventListener('pointermove', event => {
+                if (this._richTooltipHost) this.positionRichTooltip(event.clientX, event.clientY);
+            });
+            document.addEventListener('pointerout', event => {
+                const host = event.target.closest(hostSelector);
+                if (!host || host.contains(event.relatedTarget) || host !== this._richTooltipHost) return;
+                this.hideRichTooltip();
+            });
+            document.addEventListener('focusin', event => {
+                const host = event.target.closest(hostSelector);
+                if (!host) return;
+                const source = host.querySelector('.metric-rich-tooltip');
+                if (!source) return;
+                const rect = host.getBoundingClientRect();
+                this._richTooltipHost = host;
+                this.showRichTooltipHtml(source.outerHTML, rect.left + rect.width / 2, rect.bottom);
+            });
+            document.addEventListener('focusout', event => {
+                const host = event.target.closest(hostSelector);
+                if (host && host === this._richTooltipHost && !host.contains(event.relatedTarget)) {
+                    this.hideRichTooltip();
+                }
+            });
+            window.addEventListener('blur', () => this.hideRichTooltip());
+            window.addEventListener('scroll', () => this.hideRichTooltip(), true);
+        },
+
+        showRichTooltip(data, clientX, clientY) {
+            this.showRichTooltipHtml(this.cashTooltip(data), clientX, clientY);
+        },
+
+        showRichTooltipHtml(html, clientX, clientY) {
+            const portal = this._richTooltipPortal || document.getElementById('ki-rich-tooltip-portal');
+            if (!portal) return;
+            portal.innerHTML = html;
+            portal.classList.add('visible');
+            portal.setAttribute('aria-hidden', 'false');
+            this.positionRichTooltip(clientX, clientY);
+        },
+
+        positionRichTooltip(clientX, clientY) {
+            const portal = this._richTooltipPortal;
+            if (!portal || !portal.classList.contains('visible')) return;
+            const gap = 18;
+            const margin = 8;
+            const rect = portal.getBoundingClientRect();
+            let left = clientX + gap;
+            let top = clientY + gap;
+            if (left + rect.width > window.innerWidth - margin) left = clientX - rect.width - gap;
+            if (top + rect.height > window.innerHeight - margin) top = clientY - rect.height - gap;
+            left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+            top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+            portal.style.left = `${left}px`;
+            portal.style.top = `${top}px`;
+        },
+
+        hideRichTooltip() {
+            const portal = this._richTooltipPortal;
+            if (portal) {
+                portal.classList.remove('visible');
+                portal.setAttribute('aria-hidden', 'true');
+                portal.innerHTML = '';
+            }
+            this._richTooltipHost = null;
+        },
+
         cashMetricCard(label, value, sub, tooltip, needsData) {
             return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0">
                 <div class="cash-analysis-label">${esc(label)}</div>
@@ -732,8 +817,8 @@
                     deviation: required ? 'Расчёт невозможен' : 'Оценивается после задания норматива',
                     source: required ? `требуется ОСВ по счёту ${account}` : `ОСВ по счёту ${account}`
                 });
-                rows += `<tr>
-                    <td><div class="cash-tooltip-host" tabindex="0"><strong>Счёт ${account}</strong> — ${esc(names[account])}${rowTooltip}</div></td>
+                rows += `<tr class="cash-tooltip-host" tabindex="0">
+                    <td><div><strong>Счёт ${account}</strong> — ${esc(names[account])}${rowTooltip}</div></td>
                     <td>${esc(formatted.val)} ${esc(formatted.u)}</td>
                     <td>${esc(share)}</td>
                     <td>${esc(comments[account])}</td>
@@ -840,7 +925,7 @@
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
                 <div style="overflow-x:auto"><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr><td><div class="cash-tooltip-host" tabindex="0">ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
+                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
@@ -907,14 +992,13 @@
                 }
                 svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
             });
-            container.innerHTML = svg + '</svg><div id="ki-cash-chart-tooltip"></div>';
-            const tipContainer = document.getElementById('ki-cash-chart-tooltip');
-            const showPointTip = point => {
+            container.innerHTML = svg + '</svg>';
+            const pointTipData = point => {
                 const index = Number(point.dataset.index);
                 const isChange = point.dataset.kind === 'change';
                 const item = isChange ? changes[index] : points[index];
                 const previous = index > 0 ? points[index - 1] : null;
-                const data = isChange ? {
+                return isChange ? {
                     title: `Изменение денежных средств — ${item.label}`,
                     description: 'Разница между остатком денежных средств текущего и предыдущего сопоставимого месяца.',
                     formula: 'Изменение = Остаток текущего месяца − Остаток предыдущего месяца',
@@ -933,15 +1017,20 @@
                     deviation: changes[index].value === null ? 'Нет предыдущего сопоставимого месяца' : `${changes[index].value >= 0 ? '+' : ''}${changes[index].value.toFixed(2)} млн ₽ к предыдущему месяцу`,
                     source: 'конечные сальдо загруженных ОСВ по денежным счетам'
                 };
-                tipContainer.innerHTML = this.cashTooltip(data);
-                tipContainer.firstElementChild.classList.add('visible');
             };
-            const hidePointTip = () => { tipContainer.innerHTML = ''; };
             container.querySelectorAll('.cash-chart-point').forEach(point => {
-                point.addEventListener('mouseenter', () => showPointTip(point));
-                point.addEventListener('mouseleave', hidePointTip);
-                point.addEventListener('focus', () => showPointTip(point));
-                point.addEventListener('blur', hidePointTip);
+                point.addEventListener('pointerenter', event => {
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(pointTipData(point), event.clientX, event.clientY);
+                });
+                point.addEventListener('pointermove', event => this.positionRichTooltip(event.clientX, event.clientY));
+                point.addEventListener('pointerleave', () => this.hideRichTooltip());
+                point.addEventListener('focus', () => {
+                    const rect = point.getBoundingClientRect();
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(pointTipData(point), rect.left + rect.width / 2, rect.bottom);
+                });
+                point.addEventListener('blur', () => this.hideRichTooltip());
             });
         },
 
