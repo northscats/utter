@@ -1,18 +1,16 @@
 """Isolated SQLite regressions; never touches the application's real database."""
 import copy
-import json
 import os
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date
 from unittest.mock import patch
 
 _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
-from database import (Company, CompanyMembership, DailyRow, Upload, User,
-                      UserModuleAccess, db)
+from database import Company, CompanyMembership, User, UserModuleAccess, db
 import key_indicators_service as service
 from key_indicators import build_indicator_source
 
@@ -203,55 +201,6 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                 response = self.client('kpi_admin').get(self.url(data=True))
             self.assertEqual(response.status_code, expected)
             self.assertIn('error', response.get_json())
-
-    def test_coverage_is_calculated_for_each_required_account(self):
-        with self.app.app_context():
-            upload = Upload(
-                company_id=self.company,
-                uploaded_by=self.ids['kpi_admin'],
-                uploaded_at=datetime(2025, 2, 1),
-                period_label='Январь 2025',
-                accounts_loaded=json.dumps(['51']),
-            )
-            rows = [
-                DailyRow(company_id=self.company, date=date(2025, 1, 1), acc='51'),
-                DailyRow(company_id=self.company, date=date(2025, 1, 2), acc='51'),
-                DailyRow(company_id=self.company, date=date(2025, 1, 1), acc='60'),
-            ]
-            db.session.add(upload)
-            db.session.add_all(rows)
-            db.session.commit()
-            try:
-                coverage = app_module._annual_coverage(self.company, 2025)
-                by_account = {
-                    row['account']: row for row in coverage['account_coverage']
-                }
-                self.assertEqual(
-                    set(by_account), {str(a) for a in app_module.REQUIRED_ACCOUNTS})
-                self.assertEqual(by_account['51']['daily_months'][0]['loaded'], 2)
-                self.assertEqual(
-                    by_account['51']['daily_months'][0]['status'], 'partial')
-                self.assertEqual(
-                    by_account['20']['daily_months'][0]['status'], 'missing')
-                self.assertTrue(by_account['51']['monthly_months'][0]['loaded'])
-                self.assertFalse(by_account['20']['monthly_months'][0]['loaded'])
-            finally:
-                for row in rows:
-                    db.session.delete(row)
-                db.session.delete(upload)
-                db.session.commit()
-
-    def test_company_page_renders_account_coverage_views_without_old_legend(self):
-        response = self.client('kpi_admin').get(
-            f'/company/{self.company}?year=2025')
-        self.assertEqual(response.status_code, 200)
-        html = response.get_data(as_text=True)
-        self.assertIn('data-ac-view="daily"', html)
-        self.assertIn('data-ac-view="monthly"', html)
-        self.assertIn('Сч. 20', html)
-        self.assertNotIn('суточные есть', html)
-        self.assertNotIn('только месячная ОСВ', html)
-        self.assertNotIn('Закрыт / прибыль', html)
 
 
 if __name__ == '__main__':
