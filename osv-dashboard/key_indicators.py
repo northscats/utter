@@ -612,6 +612,51 @@ def build_key_indicators(source, period='month', date=None,
         pl['rows'], pl['rev_rows'], pl['vat_rows'], pl['cost_rows'])
     gross_rev, vat = pl['gross'], pl['vat']
     revenue, cogs, profit = pl['revenue'], pl['cost'], pl['profit']
+    cogs_analytics = []
+    cogs_groups = defaultdict(list)
+    cogs_labels = {}
+    for row in cost_rows:
+        key, analytic_label = _analytic_identity(row)
+        cogs_groups[key].append(row)
+        cogs_labels[key] = analytic_label
+    for key, rows in sorted(
+            cogs_groups.items(), key=lambda item: cogs_labels[item[0]]):
+        cogs_analytics.append({
+            'analytic_key': key,
+            'label': cogs_labels[key],
+            'value': _known_sum(rows, 'obd'),
+        })
+    cost_movements = []
+    for account, movement_label in (
+            ('20', 'Основное производство'),
+            ('25', 'Общепроизводственные затраты'),
+            ('26', 'Общехозяйственные затраты'),
+            ('44', 'Расходы на продажу')):
+        movement_rows = _turnover_basis(_daily(source, account, start, end))
+        cost_movements.append({
+            'account': account,
+            'label': movement_label,
+            'value': _known_sum(movement_rows, 'obd') if movement_rows else None,
+        })
+    recognized_costs = [
+        {
+            'account': '90.02',
+            'label': 'Себестоимость продаж',
+            'value': cogs,
+        },
+        {
+            'account': '90.07',
+            'label': 'Признанные расходы на продажу',
+            'value': _sub_turnover(
+                source, '90', '90.07', start, end, 'obd'),
+        },
+        {
+            'account': '90.08',
+            'label': 'Признанные управленческие расходы',
+            'value': _sub_turnover(
+                source, '90', '90.08', start, end, 'obd'),
+        },
+    ]
 
     cash_parts, cash_reasons = [], []
     for account in ('50', '51', '52', '55'):
@@ -748,7 +793,12 @@ def build_key_indicators(source, period='month', date=None,
               notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие КЗ не задано.']),
         _card('cogs', cogs, 'RUB', 'ОбД(90.02*)',
               'Суточные листовые обороты счёта 90',
-              None if cogs is not None else 'Нет строк точного префикса 90.02'),
+              None if cogs is not None else 'Нет строк точного префикса 90.02',
+              analytics=cogs_analytics,
+              cost_movements=cost_movements,
+              recognized_costs=recognized_costs,
+              notes=['Счета 20, 25, 26 и 44 не прибавляются к 90.02: '
+                     'их суммы могут уже быть включены после закрытия периода.']),
         _card('profit', profit, 'RUB', 'Выручка без НДС − ОбД(90.02*)',
               'Расчёт по субсчетам продаж',
               None if profit is not None else

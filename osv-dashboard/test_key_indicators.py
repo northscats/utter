@@ -140,6 +140,32 @@ class KeyIndicatorTests(unittest.TestCase):
             {item['account']: item['value'] for item in ap['components']},
             {'60.01': 100, '68': 12, '69': 3, '70': 5})
 
+    def test_cogs_detail_keeps_recognized_and_forming_costs_separate(self):
+        src = build_indicator_source({
+            '90': account('90', [
+                day('2026-01-31', '90.01', p1='Тепло', obk=100),
+                day('2026-01-31', '90.03', p1='Тепло', obd=20),
+                day('2026-01-31', '90.02', p1='Тепло', obd=70),
+                day('2026-01-31', '90.07', obd=5),
+                day('2026-01-31', '90.08', obd=3),
+            ]),
+            '20': account('20', [day('2026-01-31', p1='Топливо', obd=40)]),
+            '25': account('25', [day('2026-01-31', p1='Цех', obd=4)]),
+            '26': account('26', [day('2026-01-31', p1='АУП', obd=3)]),
+            '44': account('44', [day('2026-01-31', p1='Сбыт', obd=2)]),
+        })
+        cogs = {x['id']: x for x in build_key_indicators(src)['cards']}['cogs']
+        self.assertEqual(cogs['value'], 70)
+        self.assertEqual(cogs['analytics'][0]['value'], 70)
+        self.assertIn('Тепло', cogs['analytics'][0]['label'])
+        self.assertEqual(
+            {item['account']: item['value'] for item in cogs['recognized_costs']},
+            {'90.02': 70, '90.07': 5, '90.08': 3})
+        self.assertEqual(
+            {item['account']: item['value'] for item in cogs['cost_movements']},
+            {'20': 40, '25': 4, '26': 3, '44': 2})
+        self.assertIn('не прибавляются', cogs['notes'][0])
+
     def test_collection_turnover_is_not_collection(self):
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31', obd=100, obk=90)])

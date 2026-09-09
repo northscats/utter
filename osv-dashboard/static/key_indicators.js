@@ -1834,6 +1834,258 @@
                 card.series || [], 'RUB', 'ki-ap-line-chart', card), 50);
         },
 
+        cogsRequirements() {
+            return {
+                fullCost: 'Учётная политика 1С по закрытию счетов 20, 25, 26 и 44: счета и субсчета закрытия, наличие 90.07 и 90.08, порядок распределения косвенных расходов, база распределения, незавершённое производство и период действия настройки.',
+                articles: 'Справочник статей затрат из 1С: статья, группа «Топливо / Электроэнергия / ФОТ / Амортизация / Ремонт / Реагенты / Прочее», счёт затрат, подразделение, объект, услуга, дата начала и окончания действия классификации.',
+                fuel: 'Данные топлива из 1С: вид топлива, номенклатура, склад, котельная или объект, документ поступления и списания, дата, количество, единица измерения, цена, сумма, статья затрат, подразделение, услуга и выпуск тепловой энергии.',
+                electricity: 'Данные электроэнергии из 1С: договор, поставщик, точка поставки, объект, расчётный период, кВт·ч, мощность, тариф, сумма, НДС, статья затрат, подразделение и назначение потребления.',
+                payroll: 'Данные ФОТ из 1С: подразделение, категория персонала, должность, расчётный период, вид начисления, сумма, страховые взносы, счёт и статья затрат, объект или услуга и распределение начисления по объектам.',
+                depreciation: 'Данные амортизации из 1С: основное средство, инвентарный номер, группа ОС, объект эксплуатации, первоначальная стоимость, накопленная и периодическая амортизация, счёт и статья затрат, услуга и база распределения.',
+                repair: 'Данные ремонта из 1С: вид ремонта, плановый/текущий/аварийный признак, объект, заказ, подрядчик, договор, акт, материалы, собственные трудозатраты, дата, сумма, статья и счёт затрат, источник финансирования.',
+                reagents: 'Данные материалов ХВО из 1С: номенклатура, категория реагента или воды, склад, объект, документ списания, дата, количество, единица, цена, сумма, статья затрат и услуга.',
+                tariff: 'Тарифные данные: услуга, тарифная группа, единица измерения, тариф без НДС и с НДС, период действия, орган и документ утверждения; натуральные данные: фактический объём реализации, выпуск, потери и собственные нужды.',
+                plan: 'Утверждённый план РЭК или бюджет затрат: версия, сценарий, период, предприятие, услуга, объект, статья затрат, плановая сумма и натуральный объём, дата утверждения и статус актуальности.',
+                status: 'Утверждённые нормативы: показатель, статья или услуга, пороги «Норма / Внимание / Критично», единица измерения, источник, дата утверждения и период действия.'
+            };
+        },
+
+        cogsTooltip(overrides = {}) {
+            const required = this.cogsRequirements();
+            return Object.assign({
+                title: 'Себестоимость продаж',
+                description: 'Расходы, признанные по дебету субсчёта 90.02 за выбранный период.',
+                formula: 'Себестоимость продаж = ОбД(90.02*)',
+                detail: 'Обороты 20, 25, 26 и 44 не прибавляются: их суммы могут уже быть включены в 90 после закрытия периода.',
+                required: required.fullCost,
+                norm: 'Индивидуальный норматив не задан',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'дебетовый оборот ОСВ 90.02'
+            }, overrides);
+        },
+
+        renderCogsModal(card) {
+            const container = document.getElementById('ki-cogs-modal-content');
+            if (!container) return;
+            const required = this.cogsRequirements();
+            const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
+            const profitCard = state.data.cards.find(item => item.id === 'profit') || {};
+            const current = card.value;
+            const netRevenue = revenueCard.value !== null && revenueCard.value !== undefined &&
+                !String(revenueCard.title || '').includes('брутто') ? revenueCard.value : null;
+            const costRatio = current !== null && current !== undefined && netRevenue
+                ? current / netRevenue * 100 : null;
+            const change = card.delta && card.delta.value !== null &&
+                card.delta.value !== undefined ? card.delta.value : null;
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+
+            const totalTip = this.cogsTooltip({
+                fact: rub(current),
+                deviation: current === null || current === undefined
+                    ? 'Нет точного оборота 90.02' : 'Фактический оборот 90.02',
+                deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
+            });
+            const changeTip = this.cogsTooltip({
+                title: 'Изменение себестоимости продаж',
+                description: 'Изменение дебетового оборота 90.02 к предыдущему полностью сопоставимому периоду.',
+                formula: 'Δ себестоимости = текущий ОбД(90.02) − предыдущий ОбД(90.02)',
+                detail: 'Неполные и несопоставимые периоды не сравниваются, пропуски не заменяются нулями.',
+                required: change === null ? 'ОСВ 90.02 за два последовательных полных периода с одинаковым составом аналитик.' : null,
+                fact: change === null ? 'Н/Д' : `${change >= 0 ? '+' : ''}${rub(change)}`,
+                deviation: change === null ? 'Нет сопоставимого периода' :
+                    (change > 0 ? 'Себестоимость выросла' : change < 0 ? 'Себестоимость снизилась' : 'Без изменения'),
+                deviationClass: change === null ? 'missing' : 'neutral'
+            });
+            const ratioTip = this.cogsTooltip({
+                title: 'Себестоимость продаж к выручке',
+                description: 'Доля нетто-выручки, приходящаяся на себестоимость продаж.',
+                formula: 'ОбД(90.02) / [ОбК(90.01) − ОбД(90.03)] × 100%',
+                detail: 'Выручка брутто при отсутствии 90.03 не используется скрыто.',
+                required: costRatio === null ? 'ОСВ 90.01, 90.02 и 90.03 за один сопоставимый период.' : null,
+                fact: pct(costRatio),
+                deviation: costRatio === null ? 'Недостаточно данных' :
+                    (costRatio > 100 ? 'Себестоимость выше нетто-выручки' : 'Фактическое соотношение'),
+                deviationClass: costRatio === null ? 'missing' : (costRatio > 100 ? 'bad' : 'neutral'),
+                source: 'ОСВ 90.01, 90.02 и 90.03'
+            });
+            const profitTip = this.cogsTooltip({
+                title: 'Прибыль от продаж до отдельных расходов',
+                description: 'Разница между нетто-выручкой и себестоимостью 90.02.',
+                formula: 'Прибыль = [ОбК(90.01) − ОбД(90.03)] − ОбД(90.02)',
+                detail: 'Это не чистая прибыль и не полный EBIT: 90.07, 90.08, 91 и налог на прибыль учитываются отдельно.',
+                required: profitCard.value === null || profitCard.value === undefined
+                    ? 'ОСВ 90.01, 90.02 и 90.03 за один период; для полного результата — 90.07, 90.08, 91 и налог на прибыль.' : null,
+                fact: rub(profitCard.value),
+                deviation: profitCard.value === null || profitCard.value === undefined
+                    ? 'Недостаточно данных' : (profitCard.value < 0 ? 'Убыток от продаж' : 'Прибыль от продаж'),
+                deviationClass: profitCard.value === null || profitCard.value === undefined
+                    ? 'missing' : (profitCard.value < 0 ? 'bad' : 'good'),
+                source: 'ОСВ 90.01, 90.02 и 90.03'
+            });
+
+            const recognizedRows = (card.recognized_costs || []).map(item => {
+                const recognized = item.account === '90.02';
+                const tip = this.cogsTooltip({
+                    title: item.label,
+                    description: recognized ? 'Себестоимость продаж за период.' :
+                        `Расходы, признанные на субсчёте ${item.account}.`,
+                    formula: `ОбД(${item.account})`,
+                    detail: recognized ? 'Основной подтверждённый показатель окна.' :
+                        'Показывается отдельно и не смешивается с первоначальными оборотами 26 или 44.',
+                    required: item.value === null || item.value === undefined
+                        ? `ОСВ счёта 90 со строкой ${item.account} и дебетовым оборотом за выбранный период. ${required.fullCost}` : required.fullCost,
+                    fact: rub(item.value),
+                    deviation: item.value === null || item.value === undefined ? 'Субсчёт не представлен' : 'Фактический признанный расход',
+                    deviationClass: item.value === null || item.value === undefined ? 'missing' : 'neutral',
+                    source: `дебетовый оборот ОСВ ${item.account}`
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(item.label)}</strong><br><span class="ki-muted">сч. ${esc(item.account)}</span>`, tip)}
+                    ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(recognized ? 'Основной показатель' : 'Показывается отдельно', tip)}
+                </tr>`;
+            }).join('');
+
+            const movementRows = (card.cost_movements || []).map(item => {
+                const tip = this.cogsTooltip({
+                    title: `Движение затрат по счёту ${item.account}`,
+                    description: `${item.label}: дебетовый оборот за выбранный период.`,
+                    formula: `Движение затрат = ОбД(${item.account})`,
+                    detail: 'Это движение по счёту формирования затрат, а не дополнительная сумма к 90.02.',
+                    required: item.value === null || item.value === undefined
+                        ? `ОСВ счёта ${item.account} с дебетовым оборотом и аналитикой статей, подразделений, объектов и услуг.` : required.articles,
+                    fact: rub(item.value),
+                    deviation: item.value === null || item.value === undefined ? 'Данные не представлены' : 'Справочный оборот, не суммируется',
+                    deviationClass: item.value === null || item.value === undefined ? 'missing' : 'neutral',
+                    source: `дебетовый оборот ОСВ ${item.account}`
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(item.label)}</strong><br><span class="ki-muted">сч. ${esc(item.account)}</span>`, tip)}
+                    ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell('Не прибавляется к 90.02', tip)}
+                </tr>`;
+            }).join('');
+
+            const analyticRows = (card.analytics || []).length ? card.analytics.map(row => {
+                const share = current && row.value !== null && row.value !== undefined
+                    ? row.value / current * 100 : null;
+                const tip = this.cogsTooltip({
+                    title: `Себестоимость — ${row.label}`,
+                    description: 'Дебетовый оборот 90.02 по фактическому пути аналитики из ОСВ.',
+                    formula: 'Σ ОбД(90.02) по аналитике',
+                    detail: 'Статья затрат не определяется автоматически по тексту аналитики.',
+                    required: required.articles,
+                    fact: rub(row.value),
+                    deviation: row.value === null || row.value === undefined ? 'Оборот неизвестен' : 'Фактическая аналитика 90.02',
+                    deviationClass: row.value === null || row.value === undefined ? 'missing' : 'neutral'
+                });
+                const categoryTip = this.cogsTooltip({
+                    title: `Статья затрат — ${row.label}`,
+                    description: 'Утверждённая классификация расхода по экономической статье.',
+                    formula: 'Категория берётся из справочника статей затрат',
+                    detail: 'Без справочника аналитика не относится автоматически к топливу, энергии, ФОТ или ремонту.',
+                    required: required.articles,
+                    source: 'требуется справочник статей затрат'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, tip)}
+                    ${this.collectionCell(esc(rub(row.value)), tip)}
+                    ${this.collectionCell(esc(pct(share)), tip)}
+                    ${this.collectionCell('Нужны данные', categoryTip, 'cash-value-missing')}
+                    ${this.collectionCell('Недостаточно данных', this.cogsTooltip({title:`Статус — ${row.label}`, required:`${required.plan} ${required.status}`}), 'cash-value-missing')}
+                </tr>`;
+            }).join('') : `<tr><td colspan="5" class="chart-empty">В ОСВ нет аналитических оборотов 90.02. ${esc(required.articles)}</td></tr>`;
+
+            const objectRows = ((state.data.objects || {}).rows || []).map(row => {
+                const factTip = this.cogsTooltip({
+                    title: `Финансовый результат — ${row.label}`,
+                    description: 'Выручка и себестоимость по совпадающей аналитике счёта 90.',
+                    formula: 'Прибыль = нетто-выручка − себестоимость 90.02',
+                    detail: 'Результат доступен только при точном сопоставлении 90.01, 90.02 и 90.03.',
+                    required: 'Единый аналитический ключ услуги или объекта в 90.01, 90.02 и 90.03.',
+                    source: 'аналитические обороты счёта 90'
+                });
+                const tariffTip = this.cogsTooltip({
+                    title: `Себестоимость единицы и тариф — ${row.label}`,
+                    description: 'Сравнение фактической себестоимости единицы услуги с утверждённым тарифом.',
+                    formula: 'С/с единицы = затраты / натуральный объём; покрытие = тариф / с/с единицы × 100%',
+                    detail: 'Финансовая ОСВ не содержит Гкал, м³, кВт·ч или тарифный справочник.',
+                    required: required.tariff,
+                    source: 'требуются тарифный справочник и натуральные объёмы'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, factTip)}
+                    ${this.collectionCell(esc(rub(row.cost)), factTip)}
+                    ${this.collectionCell(esc(rub(row.revenue)), factTip)}
+                    ${this.collectionCell(esc(rub(row.profit)), factTip)}
+                    ${this.collectionCell(esc(pct(row.margin)), factTip)}
+                    ${this.collectionCell('Нужны данные', tariffTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', tariffTip, 'cash-value-missing')}
+                </tr>`;
+            }).join('') || `<tr><td colspan="7" class="chart-empty">Нет сопоставимых аналитик 90.01 и 90.02.</td></tr>`;
+
+            const unavailable = [
+                ['Топливо', 'газ, уголь, мазут, дизель', required.fuel],
+                ['Электроэнергия', 'собственные нужды', required.electricity],
+                ['ФОТ производства', 'начисления по объектам', required.payroll],
+                ['Амортизация', 'основные средства и объекты', required.depreciation],
+                ['Ремонт и ТО', 'материалы и подрядные работы', required.repair],
+                ['Реагенты, вода, ХВО', 'натуральное списание материалов', required.reagents],
+                ['План РЭК', 'план-факт по статьям', required.plan],
+                ['Тарифное покрытие', 'тариф и себестоимость единицы', required.tariff]
+            ].map(([label, sub, dataRequired]) => this.cashMetricCard(
+                label, 'Нужны данные', sub, this.cogsTooltip({
+                    title: label,
+                    description: `Детализация себестоимости: ${label.toLowerCase()}.`,
+                    formula: 'Расчёт выполняется после точной классификации первичных затрат',
+                    detail: 'Показатель не восстанавливается из похожего оборота и не заполняется демонстрационными значениями.',
+                    required: `${required.articles} ${dataRequired}`,
+                    source: 'требуется детальная выгрузка затрат из 1С'
+                }), true)).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Подтверждённый показатель — ОбД(90.02).</strong>
+                    Обороты 20, 25, 26 и 44 показываются отдельно и не прибавляются к себестоимости продаж.</div>
+                <div class="collection-summary cogs-summary">
+                    ${this.cashMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', totalTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Изменение', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимому периоду', changeTip, change === null)}
+                    ${this.cashMetricCard('Себестоимость / Выручка', pct(costRatio), 'по нетто-выручке', ratioTip, costRatio === null)}
+                    ${this.cashMetricCard('Прибыль от продаж', rub(profitCard.value), 'до отдельных расходов', profitTip, profitCard.value === null || profitCard.value === undefined)}
+                </div>
+                <div class="modal-section-title">Признанные расходы счёта 90</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table cogs-recognized-table">
+                    <thead><tr><th>Показатель</th><th>Сумма</th><th>Использование</th></tr></thead>
+                    <tbody>${recognizedRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика себестоимости продаж 90.02</div>
+                <div class="modal-chart-wrap cogs-line-chart" id="ki-cogs-line-chart"></div>
+                <div class="modal-section-title">Фактические аналитики 90.02</div>
+                <div class="revenue-classification-note">Структура по экономическим статьям появится только после загрузки справочника статей затрат.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table cogs-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Себестоимость</th><th>Доля 90.02</th><th>Статья затрат</th><th>Статус</th></tr></thead>
+                    <tbody>${analyticRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Движение затрат — без прибавления к 90.02</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table cogs-movement-table">
+                    <thead><tr><th>Счёт</th><th>Дебетовый оборот</th><th>Методическое использование</th></tr></thead>
+                    <tbody>${movementRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Себестоимость и финансовый результат по аналитикам</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table cogs-object-table">
+                    <thead><tr><th>Услуга / объект</th><th>Себестоимость</th><th>Выручка</th><th>Прибыль</th><th>Рентабельность</th><th>С/с единицы</th><th>Тариф</th></tr></thead>
+                    <tbody>${objectRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Недоступная структура и тарифные показатели</div>
+                <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
+            setTimeout(() => this.renderBarChart(
+                card.series || [], 'RUB', 'ki-cogs-line-chart', card), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -2119,6 +2371,7 @@
             const collectionContent = document.getElementById('ki-collection-modal-content');
             const arContent = document.getElementById('ki-ar-modal-content');
             const apContent = document.getElementById('ki-ap-modal-content');
+            const cogsContent = document.getElementById('ki-cogs-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
@@ -2126,6 +2379,7 @@
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
@@ -2134,6 +2388,7 @@
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
             } else if (cardId === 'collection') {
@@ -2142,6 +2397,7 @@
                 revenueContent.style.display = 'none';
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 collectionContent.style.display = 'block';
                 this.renderCollectionModal(card);
             } else if (cardId === 'ar') {
@@ -2150,6 +2406,7 @@
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 arContent.style.display = 'block';
                 this.renderArModal(card);
             } else if (cardId === 'ap') {
@@ -2158,14 +2415,25 @@
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 apContent.style.display = 'block';
                 this.renderApModal(card);
+            } else if (cardId === 'cogs') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'none';
+                cogsContent.style.display = 'block';
+                this.renderCogsModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');
