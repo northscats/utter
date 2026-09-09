@@ -374,23 +374,14 @@
                 }
                 
                 const ariaLabel = `${card.title}. Значение: ${formatted.val} ${formatted.u}. Статус: ${card.status_label || card.status}.`;
-                const cashTooltip = id === 'cash' ? this.cashTooltip({
-                    title: 'Денежные средства предприятия',
-                    description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта. Средства на счёте 55 могут иметь ограничения по использованию.',
-                    formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                    detail: 'Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.',
-                    norm: 'Индивидуальный норматив предприятия не задан',
-                    fact: `${formatted.val} ${formatted.u}`,
-                    deviation: card.delta ? `${card.delta.value >= 0 ? '+' : ''}${this.formatValue(card.delta.value, 'RUB').val} млн ₽ к предыдущей сопоставимой дате` : 'Нет сопоставимой предыдущей даты',
-                    source: 'Конечные сальдо загруженных ОСВ по счетам 50, 51, 52 и 55'
-                }) : '';
+                const metricTooltip = this.cashTooltip(this.metricTooltipData(card));
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable ${id === 'cash' ? 'cash-tooltip-host' : ''}" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${deltaHtml}
-                   ${cashTooltip}
+                    ${metricTooltip}
                 </div>
                 `;
             });
@@ -642,7 +633,7 @@
         },
         
         cashTooltip(data) {
-            const deviationClass = data.required ? 'missing' : 'good';
+            const deviationClass = data.deviationClass || (data.required ? 'missing' : 'good');
             return `<div class="metric-rich-tooltip" role="tooltip">
                 <div class="metric-rich-title">${esc(data.title)}</div>
                 <div class="metric-rich-section">
@@ -673,6 +664,83 @@
             </div>`;
         },
 
+        metricTooltipData(card, override) {
+            const definitions = {
+                cash: {
+                    description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта.',
+                    detail: 'Счета 50, 51, 52 и 55. Счёт 52 уже отражён в рублёвой оценке, а средства счёта 55 могут иметь ограничения.',
+                    required: 'Для оценки доступности средств нужны банковская аналитика и назначение специальных счетов 55.'
+                },
+                revenue: {
+                    description: 'Выручка от продаж за выбранный период по данным счёта 90.',
+                    detail: 'Нетто-выручка определяется только при наличии строк 90.03; иначе показывается брутто-выручка без вымышленного НДС.',
+                    required: 'Для плана-факта нужны утверждённый план выручки, тарифы и аналитика 90.01/90.03 по видам услуг и объектам.'
+                },
+                collection: {
+                    description: 'Доля начислений, фактически погашенных потребителями.',
+                    detail: 'Простое отношение кредитового и дебетового оборота счёта 62 не является собираемостью: ОСВ не связывает конкретную оплату с начислением.',
+                    required: 'Реестр начислений и оплат из 1С: потребитель, договор, период начисления, дата и сумма оплаты, распределение платежа, корректировки и авансы.'
+                },
+                ar: {
+                    description: 'Подтверждённая дебиторская задолженность покупателей по субсчёту 62.01.',
+                    detail: 'Прочие дебетовые расчёты счёта 76 не добавляются без утверждённого соответствия аналитик дебиторской задолженности.',
+                    required: 'Для полной ДЗ нужны остатки 62 и 76 по контрагентам, договорам, документам расчётов, датам возникновения и срокам оплаты.'
+                },
+                ap: {
+                    description: 'Подтверждённая задолженность перед поставщиками по субсчёту 60.01.',
+                    detail: 'Обязательства по налогам, персоналу и прочим расчётам не смешиваются с поставщиками без отдельной классификации.',
+                    required: 'Для полной КЗ нужны остатки 60, 68, 69, 70 и 76 по контрагентам, документам, срокам погашения и признаку просрочки.'
+                },
+                cogs: {
+                    description: 'Себестоимость продаж за выбранный период по дебетовому обороту 90.02.',
+                    detail: 'Счета 20, 25, 26 и 44 повторно не прибавляются: их закрытие уже отражается на 90.02.',
+                    required: 'Для структуры и плана-факта нужны аналитика 90.02 по видам услуг/объектам и утверждённый бюджет затрат.'
+                },
+                profit: {
+                    description: 'Финансовый результат от продаж до отдельных прочих доходов, расходов и налога на прибыль.',
+                    detail: 'Это не чистая прибыль. Расчёт использует выручку без НДС и себестоимость продаж без повторного добавления закрытых затрат.',
+                    required: 'Для чистой прибыли нужны счета 91, 99 и налог на прибыль; для плана-факта — утверждённый финансовый план.'
+                },
+                credits: {
+                    description: 'Бухгалтерская задолженность по краткосрочным и долгосрочным кредитам и займам.',
+                    detail: 'Суммируются подтверждённые кредитовые сальдо счетов 66 и 67; отсутствующий счёт не принимается за ноль.',
+                    required: 'Для долговой нагрузки нужны договор, ставка, валюта, график погашения, начисленные проценты и краткосрочная часть счёта 67.'
+                },
+                salary: {
+                    description: 'Расчётная задолженность предприятия перед работниками по счёту 70.',
+                    detail: 'Кредитовое сальдо не доказывает просрочку: на отчётную дату это может быть штатное начисление до дня выплаты.',
+                    required: 'Для определения просрочки нужны ведомости начисления и выплаты, установленная дата зарплаты и фактические даты платежей.'
+                },
+                capex: {
+                    description: 'Капитализируемые вложения за выбранный период по дебетовому обороту счёта 08.',
+                    detail: 'Факт счёта 08 не содержит утверждённый план, готовность объектов и полный инвестиционный денежный поток.',
+                    required: 'Нужны утверждённая инвестпрограмма и реестр объектов: план, факт, дата начала, срок ввода, готовность, источник финансирования и статус.'
+                }
+            };
+            const definition = definitions[card.id] || {};
+            const formatted = this.formatValue(card.value, card.unit);
+            let deviation = 'Нет предыдущего сопоставимого периода';
+            if (card.delta && card.delta.value !== null) {
+                const delta = this.formatValue(card.delta.value, card.delta.unit || card.unit);
+                deviation = `${Number(card.delta.value) > 0 ? '+' : ''}${delta.val} ${delta.u} · ${card.delta.label || 'к предыдущему периоду'}`;
+            } else if (card.reason) {
+                deviation = 'Расчёт невозможен';
+            }
+            return Object.assign({
+                title: card.title,
+                description: definition.description || 'Фактическое значение показателя по данным бухгалтерского учёта.',
+                formula: card.formula || 'Формула не определена',
+                detail: [definition.detail, ...(card.notes || [])].filter(Boolean).join(' '),
+                required: card.value == null ? (definition.required || card.reason) : null,
+                norm: 'Норматив или план предприятия не загружен',
+                fact: card.value == null ? 'Н/Д' : `${formatted.val} ${formatted.u}`,
+                deviation,
+                deviationClass: card.value == null ? 'missing' :
+                    (card.status === 'bad' ? 'missing' : 'good'),
+                source: card.source || 'загруженные данные 1С'
+            }, override || {});
+        },
+
         initRichTooltip() {
             if (document.getElementById('ki-rich-tooltip-portal')) return;
             const portal = document.createElement('div');
@@ -682,7 +750,7 @@
             this._richTooltipPortal = portal;
             this._richTooltipHost = null;
 
-            const hostSelector = '.kpi-card.cash-tooltip-host, .cash-summary-card, .cash-analysis-card, .cash-table .cash-tooltip-host';
+            const hostSelector = '.cash-tooltip-host, .cash-summary-card, .cash-analysis-card';
             document.addEventListener('pointerover', event => {
                 const host = event.target.closest(hostSelector);
                 if (!host || host.contains(event.relatedTarget)) return;
@@ -1055,6 +1123,7 @@
             } else {
                 cashContent.style.display = 'none';
                 genericContent.style.display = 'block';
+            const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');
             if (card.reason) {
                 rb.style.display = 'block';
@@ -1073,7 +1142,13 @@
                 let bdHtml = '<table class="collection-seg-table"><tbody>';
                 card.breakdown.forEach(b => {
                     const f = this.formatValue(b.value, card.unit);
-                    bdHtml += `<tr><td>${esc(b.label)}</td><td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td></tr>`;
+                    const tooltip = this.cashTooltip(this.metricTooltipData(card, {
+                        title: `${card.title}: ${b.label}`,
+                        fact: `${f.val} ${f.u}`,
+                        detail: `${baseTooltip.detail} Детализация: ${b.label}.`,
+                        deviation: 'Составная часть общего показателя'
+                    }));
+                    bdHtml += `<tr class="cash-tooltip-host" tabindex="0"><td>${esc(b.label)}${tooltip}</td><td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td></tr>`;
                 });
                 bdHtml += '</tbody></table>';
                 bdCont.innerHTML = bdHtml;
@@ -1091,10 +1166,19 @@
                 card.details.forEach(d => {
                     const u = d.unit || card.unit;
                     const f = this.formatValue(d.value, u);
-                    dtHtml += `<div class="waterfall-bar">
+                    const tooltip = this.cashTooltip(this.metricTooltipData(card, {
+                        title: `${card.title}: ${d.label}`,
+                        fact: d.value == null ? 'Н/Д' : `${f.val} ${f.u}`,
+                        detail: d.reason || baseTooltip.detail,
+                        required: d.value == null ? (d.reason || baseTooltip.required) : null,
+                        deviation: d.value == null ? 'Расчёт невозможен' : 'Дополнительный факт',
+                        deviationClass: d.value == null ? 'missing' : 'good'
+                    }));
+                    dtHtml += `<div class="waterfall-bar cash-tooltip-host" tabindex="0">
                         <div class="waterfall-label">${esc(d.label)}</div>
                         <div class="waterfall-value">${esc(f.val)} ${esc(f.u)}</div>
                         ${d.reason ? `<div style="flex:1;text-align:right;font-size:10px; color:#EF4444;">${esc(d.reason)}</div>` : ''}
+                        ${tooltip}
                     </div>`;
                 });
                 dtHtml += '</div>';
@@ -1110,7 +1194,7 @@
             if (card.series && card.series.length > 0) {
                 chTitle.style.display = 'block';
                 chCont.style.display = 'block';
-                setTimeout(() => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container'), 50);
+                setTimeout(() => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container', card), 50);
             } else {
                 chTitle.style.display = 'none';
                 chCont.style.display = 'none';
@@ -1136,7 +1220,7 @@
             if (state.lastFocused) state.lastFocused.focus();
         },
         
-        renderBarChart(series, unit, containerId) {
+        renderBarChart(series, unit, containerId, card) {
             const container = document.getElementById(containerId);
             
             const valid = series.map(s => {
@@ -1191,7 +1275,7 @@
                     const barH = Math.abs(zeroY - y);
                     const yStart = v >= 0 ? y : zeroY;
                     const fill = v >= 0 ? '#3B82F6' : '#EF4444';
-                    svg += `<rect x="${cx - barW/2}" y="${yStart}" width="${barW}" height="${Math.max(1, barH)}" fill="${fill}" rx="4"/>`;
+                    svg += `<rect class="metric-chart-point" data-index="${i}" x="${cx - barW/2}" y="${yStart}" width="${barW}" height="${Math.max(1, barH)}" fill="${fill}" rx="4" tabindex="0"/>`;
                     
                     const fmtVal = new Intl.NumberFormat('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 1}).format(v);
                     svg += `<text x="${cx}" y="${v >= 0 ? y - 6 : y + barH + 12}" font-size="10" fill="#4B5563" text-anchor="middle" font-weight="bold">${esc(fmtVal)}</text>`;
@@ -1201,6 +1285,29 @@
             
             svg += '</svg>';
             container.innerHTML = svg;
+            container.querySelectorAll('.metric-chart-point').forEach(point => {
+                const tooltipData = () => {
+                    const item = series[Number(point.dataset.index)];
+                    const formatted = this.formatValue(item.value, unit);
+                    return this.metricTooltipData(card, {
+                        title: `${card.title} — ${item.label}`,
+                        fact: `${formatted.val} ${formatted.u}`,
+                        deviation: 'Факт за выбранный период динамики'
+                    });
+                };
+                point.addEventListener('pointerenter', event => {
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(tooltipData(), event.clientX, event.clientY);
+                });
+                point.addEventListener('pointermove', event => this.positionRichTooltip(event.clientX, event.clientY));
+                point.addEventListener('pointerleave', () => this.hideRichTooltip());
+                point.addEventListener('focus', () => {
+                    const rect = point.getBoundingClientRect();
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(tooltipData(), rect.left + rect.width / 2, rect.bottom);
+                });
+                point.addEventListener('blur', () => this.hideRichTooltip());
+            });
         },
         
         showLoading() {

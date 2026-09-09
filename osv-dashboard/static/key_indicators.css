@@ -410,6 +410,8 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-line-chart { position:relative; }
 .cash-chart-point { cursor:help; outline:none; }
 .cash-chart-point:hover, .cash-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.metric-chart-point { cursor:help; outline:none; }
+.metric-chart-point:hover, .metric-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
 .cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
 
