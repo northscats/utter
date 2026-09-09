@@ -834,6 +834,258 @@
             </div>`;
         },
 
+        revenueSegmentDefinitions() {
+            return [
+                {
+                    id: 'population', label: 'Население', code: '90.01 · население',
+                    match: /населен|физическ.*лиц|граждан/i,
+                    required: 'Аналитика счёта 90.01 с категорией потребителя «Население», документом реализации и суммой; для нетто-выручки — такая же аналитика 90.03.'
+                },
+                {
+                    id: 'uk', label: 'УК / ТСЖ', code: '90.01 · УК/ТСЖ',
+                    match: /(^|[^а-я])(ук|тсж|жск)([^а-я]|$)|управляющ/i,
+                    required: 'Аналитика 90.01 и 90.03 с типом потребителя «УК/ТСЖ», контрагентом, договором и документом реализации.'
+                },
+                {
+                    id: 'budget', label: 'Бюджетные учреждения', code: '90.01 · бюджет',
+                    match: /бюджет|муницип|государствен.*учрежд/i,
+                    required: 'Аналитика 90.01 и 90.03 с явным признаком бюджетного учреждения. Определение категории только по названию контрагента недостаточно.'
+                },
+                {
+                    id: 'legal', label: 'Прочие юридические лица', code: '90.01 · прочие юрлица',
+                    match: /проч.*юр|юридическ.*лиц|коммерческ/i,
+                    required: 'Классификатор категорий покупателей и аналитика 90.01/90.03 по контрагентам и договорам, исключающая население, УК/ТСЖ и бюджет.'
+                },
+                {
+                    id: 'subsidy', label: 'Субсидии / компенсации', code: '90.01 · субсидии',
+                    match: /субсид|компенсац|выпадающ.*доход|льгот/i,
+                    required: 'Регистр субсидий из 1С: вид субсидии, документ начисления, период признания дохода, сумма, плательщик и корреспондирующие счета. Остаток счёта 76 сам по себе не является выручкой.'
+                }
+            ];
+        },
+
+        revenueSegmentTooltip(segment, fact, share) {
+            const missing = fact === null;
+            const unavailableColumns = 'Для собираемости нужен регистр распределения оплат по начислениям; для отклонения от плана — утверждённый план сегмента; для АПГ — полные ОСВ за аналогичный период прошлого года с той же аналитикой.';
+            return {
+                title: `Выручка: ${segment.label}`,
+                description: `Выручка по категории потребителей «${segment.label}».`,
+                formula: 'Выручка сегмента = ОбК(90.01 сегмента) − ОбД(90.03 сегмента)',
+                detail: 'Расчёт допустим только при однозначной и одинаковой аналитике сегмента на счетах 90.01 и 90.03.',
+                required: `${missing ? `${segment.required} ` : ''}${unavailableColumns}`,
+                norm: 'План сегмента не загружен',
+                fact: missing ? 'Н/Д' : `${this.formatValue(fact, 'RUB').val} млн ₽ · ${share}`,
+                deviation: missing ? 'Сегмент не подтверждён аналитикой ОСВ' : 'Отклонение от плана недоступно',
+                deviationClass: missing ? 'missing' : 'good',
+                source: missing ? 'требуется расширенная аналитика 1С' : 'аналитические строки ОСВ счёта 90'
+            };
+        },
+
+        renderRevenueModal(card) {
+            const container = document.getElementById('ki-revenue-modal-content');
+            const grossDetail = (card.details || []).find(item => item.label === 'Выручка брутто');
+            const vatDetail = (card.details || []).find(item => item.label === 'НДС');
+            const gross = grossDetail && grossDetail.value !== null ? Number(grossDetail.value) : null;
+            const vat = vatDetail && vatDetail.value !== null ? Number(vatDetail.value) : null;
+            const total = card.value !== null ? Number(card.value) : null;
+            const totalFormatted = this.formatValue(total, 'RUB');
+            const grossFormatted = this.formatValue(gross, 'RUB');
+            const vatFormatted = this.formatValue(vat, 'RUB');
+            const objectRows = (state.data.objects && state.data.objects.rows) || [];
+            const definitions = this.revenueSegmentDefinitions();
+            const matchedLabels = new Set();
+            const segmentRows = definitions.map(definition => {
+                const matches = objectRows.filter(row => {
+                    const matched = definition.match.test(String(row.label || ''));
+                    if (matched) matchedLabels.add(row.label);
+                    return matched;
+                });
+                const values = matches.map(row => row.revenue).filter(value => value !== null);
+                return {
+                    ...definition,
+                    value: values.length ? values.reduce((sum, value) => sum + Number(value), 0) : null,
+                    labels: matches.map(row => row.label)
+                };
+            });
+            const classifiedTotal = segmentRows.reduce((sum, row) => sum + (row.value || 0), 0);
+            const unclassified = objectRows.filter(row => row.revenue !== null && !matchedLabels.has(row.label));
+            const totalTooltip = this.metricTooltipData(card);
+            const grossTooltip = this.metricTooltipData(card, {
+                title: 'Выручка брутто',
+                description: 'Начисленная выручка до вычета НДС.',
+                formula: 'Выручка брутто = ОбК(90.01*)',
+                detail: 'Суммируются только конечные аналитические строки 90.01, без одновременного сложения родительских итогов.',
+                fact: gross === null ? 'Н/Д' : `${grossFormatted.val} ${grossFormatted.u}`,
+                required: gross === null ? 'Суточная ОСВ счёта 90 с аналитическими строками точного префикса 90.01 и кредитовым оборотом.' : null,
+                source: 'кредитовый оборот 90.01'
+            });
+            const vatTooltip = this.metricTooltipData(card, {
+                title: 'НДС с выручки',
+                description: 'НДС, уменьшающий брутто-выручку до бухгалтерской выручки без НДС.',
+                formula: 'НДС = ОбД(90.03*)',
+                detail: 'Для распределения НДС по сегментам аналитика 90.03 должна совпадать с аналитикой 90.01.',
+                fact: vat === null ? 'Н/Д' : `${vatFormatted.val} ${vatFormatted.u}`,
+                required: vat === null ? 'Суточная ОСВ счёта 90 с аналитическими строками 90.03, дебетовым оборотом и тем же сегментным разрезом, что у 90.01.' : null,
+                deviation: vat === null ? 'Нетто-выручка недоступна' : 'Учтён в расчёте нетто-выручки',
+                deviationClass: vat === null ? 'missing' : 'good',
+                source: 'дебетовый оборот 90.03'
+            });
+            const planTooltip = {
+                title: 'Отклонение выручки от плана',
+                description: 'Сравнение фактической выручки с утверждённым планом за тот же период и в той же базе НДС.',
+                formula: 'Отклонение, % = (Факт / План − 1) × 100%',
+                detail: 'План должен иметь период, версию утверждения и тот же сегментный состав, что фактическая выручка.',
+                required: 'Утверждённый план выручки из 1С по месяцам и сегментам: сумма, база с НДС/без НДС, версия плана, дата утверждения и подразделение.',
+                norm: 'Факт ≥ утверждённого плана',
+                fact: 'Н/Д',
+                deviation: 'План не загружен',
+                deviationClass: 'missing',
+                source: 'требуется регистр или документ финансового планирования 1С'
+            };
+            const collectionRequired = 'Регистр начислений и оплат: потребитель, договор, расчётный период, документ начисления, дата и сумма оплаты, распределение платежа, аванс, корректировка и сторно.';
+            let rowsHtml = '';
+            segmentRows.forEach(segment => {
+                const share = segment.value !== null && total ? `${(segment.value / total * 100).toFixed(1)}%` : '—';
+                const tooltip = this.cashTooltip(this.revenueSegmentTooltip(segment, segment.value, share));
+                rowsHtml += `<tr class="cash-tooltip-host" tabindex="0">
+                    <td><div class="obj-name-wrap"><span>${esc(segment.label)}</span><span class="obj-code">${esc(segment.code)}</span></div>${tooltip}</td>
+                    <td>${segment.value === null ? 'Н/Д' : `${this.formatValue(segment.value, 'RUB').val}`}</td>
+                    <td>${esc(share)}</td>
+                    <td class="cash-value-missing">Нужны данные</td>
+                    <td class="cash-value-missing">Нужны данные</td>
+                    <td class="cash-value-missing">Нужны данные</td>
+                </tr>`;
+            });
+            const tableTooltip = this.cashTooltip({
+                title: 'Итого выручка',
+                description: 'Общая бухгалтерская выручка за выбранный период.',
+                formula: vat === null ? 'ОбК(90.01*), брутто' : 'ОбК(90.01*) − ОбД(90.03*)',
+                detail: unclassified.length
+                    ? `В фиксированные сегменты макета не классифицированы: ${unclassified.map(row => row.label).join(', ')}.`
+                    : 'Все распознанные сегменты сопоставлены с аналитикой счёта 90.',
+                required: classifiedTotal && total && Math.abs(classifiedTotal - total) > 0.01
+                    ? 'Нужен утверждённый классификатор соответствия аналитик 90.01 категориям потребителей.'
+                    : null,
+                norm: 'План не загружен',
+                fact: `${totalFormatted.val} ${totalFormatted.u}`,
+                deviation: card.delta ? `${this.formatValue(card.delta.value, 'RUB').val} млн ₽ к предыдущему сопоставимому периоду` : 'Нет сопоставимого периода',
+                source: card.source
+            });
+
+            document.getElementById('ki-modal-title').textContent = 'Выручка по сегментам (сч. 90.01)';
+            document.getElementById('ki-modal-subtitle').textContent =
+                `Детализация фактической выручки · ${state.data.period && state.data.period.label ? state.data.period.label : 'выбранный период'}`;
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Фактическая выручка предприятия.</strong>
+                    Выручка без НДС рассчитывается как ОбК(90.01*) − ОбД(90.03*). Если 90.03 отсутствует, факт показывается как брутто.</div>
+                <div class="cash-summary-grid">
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Выручка общая</div>
+                        <div class="cash-summary-value cash-value-ok">${esc(totalFormatted.val)}</div><div class="cash-summary-sub">${esc(totalFormatted.u)} · ${vat === null ? 'брутто' : 'без НДС'}</div>${this.cashTooltip(totalTooltip)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Выручка брутто</div>
+                        <div class="cash-summary-value">${esc(grossFormatted.val)}</div><div class="cash-summary-sub">${esc(grossFormatted.u)} · ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">НДС</div>
+                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : esc(vatFormatted.val)}</div><div class="cash-summary-sub">${vat === null ? 'нет аналитики 90.03' : `${esc(vatFormatted.u)} · ОбД 90.03`}</div>${this.cashTooltip(vatTooltip)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
+                        <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
+                </div>
+                <div class="modal-section-title">Детализация выручки по сегментам</div>
+                ${(unclassified.length || (state.data.objects && state.data.objects.reason)) ? `<div class="revenue-classification-note">
+                    ${unclassified.length ? `Не классифицировано по категориям макета: ${esc(unclassified.map(row => row.label).join(', '))}.` : ''}
+                    ${state.data.objects && state.data.objects.reason ? esc(state.data.objects.reason) : ''}
+                </div>` : ''}
+                <div class="revenue-table-wrap"><table class="cash-table revenue-table">
+                    <thead><tr><th>Сегмент</th><th>Выручка, млн ₽</th><th>Доля</th><th>Сбор</th><th>Δ к плану</th><th>Δ к АПГ</th></tr></thead>
+                    <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td>
+                        <td class="cash-value-missing">Нужны данные</td><td class="cash-value-missing">Нужны данные</td><td class="cash-value-missing">Нужны данные</td></tr></tbody>
+                </table></div>
+                <div class="revenue-missing-grid">
+                    ${this.cashMetricCard('Уровень сбора', 'Нужны данные', 'оплаты / начисления', {
+                        title: 'Уровень сбора платежей', description: 'Доля начислений выбранного периода, погашенных оплатами.',
+                        formula: 'Сбор = Оплаты, распределённые на начисления / Начисления × 100%',
+                        detail: 'Обороты счёта 62 без распределения платежей не являются достоверной собираемостью.',
+                        required: collectionRequired, norm: 'Утверждённый норматив не загружен', fact: 'Н/Д',
+                        deviation: 'Расчёт невозможен', deviationClass: 'missing', source: 'требуется регистр взаиморасчётов 1С'
+                    }, true)}
+                    ${this.cashMetricCard('План выручки', 'Нужны данные', 'утверждённый план по сегментам', planTooltip, true)}
+                    ${this.cashMetricCard('Сравнение с АПГ', 'Нужны данные', 'аналогичный период прошлого года', {
+                        title: 'Изменение к аналогичному периоду', description: 'Сравнение факта с тем же календарным периодом предыдущего года.',
+                        formula: 'Δ АПГ = Факт текущего периода − Факт аналогичного периода прошлого года',
+                        detail: 'Периоды должны быть полностью покрыты и рассчитаны в одинаковой базе НДС.',
+                        required: 'Полные ОСВ счёта 90 за текущий и аналогичный период прошлого года с одинаковой аналитикой 90.01 и 90.03.',
+                        norm: 'Индивидуальный норматив не задан', fact: 'Н/Д',
+                        deviation: 'АПГ не рассчитан', deviationClass: 'missing', source: 'требуются сопоставимые периоды ОСВ счёта 90'
+                    }, true)}
+                </div>
+                <div class="modal-section-title">Динамика выручки за 12 месяцев</div>
+                <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#10B981"></i>Выручка общая</span></div>
+                <div class="cash-line-chart revenue-line-chart" id="ki-revenue-line-chart"></div>`;
+            this.renderRevenueLineChart(card);
+        },
+
+        renderRevenueLineChart(card) {
+            const container = document.getElementById('ki-revenue-line-chart');
+            if (!container) return;
+            const points = (card.series || []).slice(-12).map((item, index) => ({
+                index, label: item.label, value: item.value === null ? null : Number(item.value) / 1000000
+            }));
+            const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
+            if (!valid.length) {
+                container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
+                return;
+            }
+            const width = 820, height = 220, left = 50, right = 15, top = 16, bottom = 36;
+            let min = Math.min(0, ...valid.map(item => item.value));
+            let max = Math.max(0, ...valid.map(item => item.value));
+            if (min === max) max = min + 1;
+            const x = index => left + (points.length === 1 ? 0 : index * (width - left - right) / (points.length - 1));
+            const y = value => top + (max - value) * (height - top - bottom) / (max - min);
+            let path = '', drawing = false;
+            points.forEach(item => {
+                if (item.value === null || !Number.isFinite(item.value)) { drawing = false; return; }
+                path += `${drawing ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
+                drawing = true;
+            });
+            let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика выручки">`;
+            [min, (min + max) / 2, max].forEach(value => {
+                const py = y(value);
+                svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
+                    <text x="${left-6}" y="${py+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(value.toFixed(1))}</text>`;
+            });
+            svg += `<path d="${path}" fill="none" stroke="#10B981" stroke-width="3"/>`;
+            points.forEach((item, index) => {
+                if (item.value !== null && Number.isFinite(item.value)) {
+                    svg += `<circle class="revenue-chart-point" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#10B981" tabindex="0"/>`;
+                }
+                svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
+            });
+            container.innerHTML = svg + '</svg>';
+            container.querySelectorAll('.revenue-chart-point').forEach(point => {
+                const tooltipData = () => {
+                    const item = points[Number(point.dataset.index)];
+                    const previous = item.index > 0 ? points[item.index - 1] : null;
+                    const change = previous && previous.value !== null ? item.value - previous.value : null;
+                    return this.metricTooltipData(card, {
+                        title: `Выручка — ${item.label}`,
+                        fact: `${item.value.toFixed(2)} млн ₽`,
+                        deviation: change === null ? 'Нет предыдущего сопоставимого месяца' : `${change >= 0 ? '+' : ''}${change.toFixed(2)} млн ₽ к предыдущему месяцу`,
+                        detail: 'Точка отражает фактическую общую выручку за месяц. Пропущенные периоды не заменяются нулём.'
+                    });
+                };
+                point.addEventListener('pointerenter', event => {
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(tooltipData(), event.clientX, event.clientY);
+                });
+                point.addEventListener('pointermove', event => this.positionRichTooltip(event.clientX, event.clientY));
+                point.addEventListener('pointerleave', () => this.hideRichTooltip());
+                point.addEventListener('focus', () => {
+                    const rect = point.getBoundingClientRect();
+                    this._richTooltipHost = point;
+                    this.showRichTooltip(tooltipData(), rect.left + rect.width / 2, rect.bottom);
+                });
+                point.addEventListener('blur', () => this.hideRichTooltip());
+            });
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -1115,13 +1367,21 @@
             document.getElementById('ki-modal-icon').innerHTML = def ? def.icon : '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>';
 
             const cashContent = document.getElementById('ki-cash-modal-content');
+            const revenueContent = document.getElementById('ki-revenue-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
+                revenueContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
+            } else if (cardId === 'revenue') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'block';
+                this.renderRevenueModal(card);
             } else {
                 cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');
