@@ -48,6 +48,7 @@
                 });
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
+                document.getElementById('ki-quarter-buttons').style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'none';
                 document.getElementById('ki-operational-container').style.display = 'none';
                 document.getElementById('ki-annual-container').style.display = 'block';
@@ -81,6 +82,7 @@
                 if (abortController) abortController.abort();
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
+                document.getElementById('ki-quarter-buttons').style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'none';
                 document.getElementById('tab-analytics').classList.add('active');
                 if (document.getElementById('tab-recommendations')) document.getElementById('tab-recommendations').classList.remove('active');
@@ -120,6 +122,11 @@
                 btn.addEventListener('click', e => {
                     this.onPeriodChange(e.target.dataset.period);
                 });
+            });
+
+            document.getElementById('ki-quarter-buttons').addEventListener('click', e => {
+                const button = e.target.closest('.quarter-btn');
+                if (button && !button.disabled) this.onDateChange(button.dataset.value);
             });
             
             const modal = document.getElementById('ki-modal');
@@ -277,13 +284,36 @@
             });
             
             const sel = document.getElementById('ki-date-select');
+            const quarterButtons = document.getElementById('ki-quarter-buttons');
             if (dataP && dataP.options && dataP.options.length > 0) {
-                sel.style.display = 'inline-block';
                 sel.innerHTML = dataP.options.map(opt => 
                     `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${esc(opt.label)}</option>`
                 ).join('');
+                if (p === 'quarter') {
+                    const activeDate = new Date(`${dataP.date}T00:00:00`);
+                    const activeYear = activeDate.getFullYear();
+                    const byQuarter = new Map(
+                        dataP.options
+                            .filter(opt => new Date(`${opt.value}T00:00:00`).getFullYear() === activeYear)
+                            .map(opt => [Math.floor(new Date(`${opt.value}T00:00:00`).getMonth() / 3) + 1, opt])
+                    );
+                    quarterButtons.innerHTML = [1, 2, 3, 4].map(number => {
+                        const option = byQuarter.get(number);
+                        const active = option && option.value === dataP.date;
+                        return `<button type="button" class="quarter-btn${active ? ' active' : ''}"
+                            ${option ? `data-value="${esc(option.value)}"` : 'disabled'}
+                            aria-label="${number} квартал ${activeYear}"
+                            aria-pressed="${active ? 'true' : 'false'}">${number}</button>`;
+                    }).join('');
+                    quarterButtons.style.display = 'flex';
+                    sel.style.display = 'none';
+                } else {
+                    quarterButtons.style.display = 'none';
+                    sel.style.display = 'inline-block';
+                }
             } else {
                 sel.style.display = 'none';
+                quarterButtons.style.display = 'none';
             }
         },
         

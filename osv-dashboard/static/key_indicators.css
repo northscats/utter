@@ -89,6 +89,39 @@ select.date-display {
 select.date-display:focus-visible { border-color: #F59E0B; }
 select.date-display option { background: #1E3A5F; color: #fff; }
 
+.quarter-buttons {
+  display: flex;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.quarter-btn {
+  min-width: 34px;
+  padding: 7px 11px;
+  border: 0;
+  border-right: 1px solid rgba(255,255,255,0.14);
+  background: transparent;
+  color: #E2E8F0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+.quarter-btn:last-child { border-right: 0; }
+.quarter-btn:hover:not(:disabled) { background: rgba(255,255,255,0.15); }
+.quarter-btn:focus-visible { box-shadow: inset 0 0 0 2px #F59E0B; }
+.quarter-btn.active {
+  background: #F59E0B;
+  color: #1E3A5F;
+  font-weight: 700;
+}
+.quarter-btn:disabled {
+  color: rgba(226,232,240,0.38);
+  cursor: default;
+}
+
 .annual-year-buttons {
   display: flex;
   align-items: center;
