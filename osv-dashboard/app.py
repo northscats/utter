@@ -180,8 +180,9 @@ def _durable_restore():
             db.session.rollback()
             app.logger.exception('could not record durable restore error')
 
-# Обязательный набор счетов ОСВ (17 счетов) — для оценки комплектности
-REQUIRED_ACCOUNTS = [20, 26, 44, 50, 51, 52, 55, 60, 62, 66, 67, 68, 69, 70, 76, 90, 91]
+# Тот же набор из 20 аналитических счетов используется для оценки
+# комплектности загрузок и для блока покрытия данными.
+REQUIRED_ACCOUNTS = list(ANALYTICAL_ACCOUNT_NAMES)
 
 # Префикс пути, если приложение работает не в корне домена.
 # Задаётся через переменную окружения: SCRIPT_NAME=/osv

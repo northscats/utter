@@ -100,7 +100,7 @@ with app.app_context():
         uploaded_by=admin_id,
         period_label='Январь–Август 2026',
         accounts_loaded='[]',
-        files_count=17,
+        files_count=20,
     ))
     db.session.commit()
 
@@ -112,7 +112,7 @@ with app.app_context():
               'w', encoding='utf-8') as dashboard:
         dashboard.write(
             '<script>const D={"accounts_loaded":'
-            '["20","26","44","50","51","52","55","60","62","66",'
+            '["01","08","10","20","26","44","50","51","52","55","60","62","66",'
             '"67","68","69","70","76","90","91"]};</script>')
     try:
         completeness = _company_summary(company)['last_completeness']
@@ -121,6 +121,6 @@ with app.app_context():
 
 check('старые загрузки с пустым метаданным читают счета из дашборда',
       completeness['status'] == 'full'
-      and completeness['found'] == completeness['total'] == 17)
+      and completeness['found'] == completeness['total'] == 20)
 
 print('\\nВСЕ ТЕСТЫ ЗАГРУЗКИ ОСВ ПРОЙДЕНЫ')
