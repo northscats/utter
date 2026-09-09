@@ -210,6 +210,10 @@ tr:last-child td{border-bottom:0}
   padding:4px 9px;font:700 11px 'Segoe UI',sans-serif;cursor:pointer;transition:all .15s}
 .ac-account-btn:hover,.ac-account-btn:focus-visible,.ac-account-btn.active{
   color:#fff;background:var(--water);border-color:var(--water);outline:none}
+.ac-account-btn.is-missing{color:#aeb7bf;background:#fafbfc;border-color:#edf0f2;
+  cursor:default;opacity:.55}
+.ac-account-btn.is-missing:hover,.ac-account-btn.is-missing:focus-visible{
+  color:#aeb7bf;background:#fafbfc;border-color:#edf0f2;outline:none}
 .ac-day{transition:opacity .12s,transform .12s,box-shadow .12s}
 .ac-day.ac-account-muted{opacity:.2}
 .ac-day.ac-account-match{opacity:1;transform:scale(1.12);z-index:3;
@@ -942,11 +946,13 @@ tr:last-child td{border-bottom:0}
       </div>
       {% endfor %}
     </div>
-    {% if ac.accs %}
+    {% if ac.account_buttons %}
     <div class="ac-accounts" aria-label="Счета в суточных ОСВ">
       <span class="ac-accounts-label">Счета:</span>
-      {% for acc in ac.accs %}
-      <button type="button" class="ac-account-btn" data-coverage-account="{{ loop.index0 }}">{{ acc }}</button>
+      {% for account in ac.account_buttons %}
+      <button type="button"
+              class="ac-account-btn{% if not account.available %} is-missing{% endif %}"
+              {% if account.available %}data-coverage-account="{{ account.index }}"{% else %}disabled aria-disabled="true" title="Нет данных по счёту за выбранный год"{% endif %}>{{ account.number }}</button>
       {% endfor %}
     </div>
     {% endif %}

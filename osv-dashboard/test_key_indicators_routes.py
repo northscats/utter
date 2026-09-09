@@ -203,6 +203,16 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertEqual(days[1]['account_indexes'], [1, 2])
         self.assertEqual(days[2]['account_indexes'], [2])
 
+    def test_coverage_lists_all_accounts_and_marks_missing(self):
+        with app_module.app.app_context():
+            coverage = app_module._annual_coverage(self.company, 2025)
+        buttons = {item['number']: item for item in coverage['account_buttons']}
+
+        self.assertEqual(list(buttons)[:3], ['01', '02', '03'])
+        self.assertEqual(list(buttons)[-1], '99')
+        self.assertEqual(len(buttons), 99)
+        self.assertFalse(buttons['01']['available'])
+
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
         source = {
             'accounts': {

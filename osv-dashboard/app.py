@@ -2774,13 +2774,30 @@ def _annual_coverage(company_id, year=None):
         source_date_accs = {}
         source_years = set()
 
+    def _account_sort_key(acc):
+        parts = _re.findall(r'\d+|\D+', str(acc))
+        return tuple(
+            (0, int(part)) if part.isdigit() else (1, part.casefold())
+            for part in parts
+        )
+
     year_accs = sorted(
         {r.acc for r in year_rows} |
         {acc for (acc_year, _), accounts in month_accs.items()
          if acc_year == year for acc in accounts} |
-        source_accs
+        source_accs,
+        key=_account_sort_key,
     )
     acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
+    standard_accs = {f'{number:02d}' for number in range(1, 100)}
+    account_buttons = [
+        dict(
+            number=acc,
+            available=acc in acc_indexes,
+            index=acc_indexes.get(acc),
+        )
+        for acc in sorted(standard_accs | set(year_accs), key=_account_sort_key)
+    ]
     date_acc_indexes = {}
     for row in year_rows:
         date_acc_indexes.setdefault(row.date, set()).add(acc_indexes[row.acc])
@@ -2888,6 +2905,7 @@ def _annual_coverage(company_id, year=None):
                             if total_months_past else 0,
         has_daily=bool(all_dates),
         accs=year_accs,
+        account_buttons=account_buttons,
         has_any=bool(all_dates or all_uploads or source_accs),
     )
 
