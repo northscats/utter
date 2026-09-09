@@ -2682,6 +2682,12 @@ def _annual_coverage(company_id, year=None):
     all_rows = DailyRow.query.filter_by(company_id=company_id).all()
     all_dates = {r.date for r in all_rows}
     year_dates = {d for d in all_dates if d.year == year}
+    year_rows = [r for r in all_rows if r.date.year == year]
+    year_accs = sorted({r.acc for r in year_rows})
+    acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
+    date_acc_indexes = {}
+    for row in year_rows:
+        date_acc_indexes.setdefault(row.date, set()).add(acc_indexes[row.acc])
     data_start = min(all_dates) if all_dates else None
 
     # --- Все загрузки ---
@@ -2757,8 +2763,13 @@ def _annual_coverage(company_id, year=None):
                 st = 'missing'    # пропуск в суточном ряду
             else:
                 st = 'nodata'     # до начала каких-либо данных
-            days.append(dict(day=dn, date=day.strftime('%d.%m'),
-                             status=st, is_today=(day == today)))
+            days.append(dict(
+                day=dn,
+                date=day.strftime('%d.%m'),
+                status=st,
+                is_today=(day == today),
+                account_indexes=sorted(date_acc_indexes.get(day, ())),
+            ))
 
         past  = [d for d in days if d and d['status'] != 'future']
         ok    = [d for d in days if d and d['status'] == 'ok']
@@ -2794,8 +2805,6 @@ def _annual_coverage(company_id, year=None):
     total_past        = sum(m['past_days']  for m in months)
     total_months_ok   = sum(m['months_ok']  for m in months)
     total_months_past = sum(m['months_past'] for m in months)
-    year_accs  = sorted({r.acc for r in all_rows if r.date.year == year})
-
     return dict(
         year=year,
         months=months,

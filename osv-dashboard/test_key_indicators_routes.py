@@ -10,7 +10,7 @@ _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
-from database import Company, CompanyMembership, User, UserModuleAccess, db
+from database import Company, CompanyMembership, DailyRow, User, UserModuleAccess, db
 import key_indicators_service as service
 from key_indicators import build_indicator_source
 
@@ -174,6 +174,24 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;', response.get_data(as_text=True))
         self.assertIn('key_indicators.js', response.get_data(as_text=True))
         self.assertIn('window.KI_CONFIG =', response.get_data(as_text=True))
+
+    def test_coverage_days_include_loaded_account_indexes(self):
+        with self.app.app_context():
+            db.session.add_all([
+                DailyRow(company_id=self.company, date=date(2026, 9, 1), acc='51'),
+                DailyRow(company_id=self.company, date=date(2026, 9, 1), acc='62'),
+                DailyRow(company_id=self.company, date=date(2026, 9, 2), acc='62'),
+            ])
+            db.session.commit()
+            coverage = app_module._annual_coverage(self.company, 2026)
+            DailyRow.query.filter_by(company_id=self.company).delete()
+            db.session.commit()
+
+        self.assertEqual(coverage['accs'], ['51', '62'])
+        september = coverage['months'][8]
+        days = {cell['day']: cell for cell in september['days'] if cell}
+        self.assertEqual(days[1]['account_indexes'], [0, 1])
+        self.assertEqual(days[2]['account_indexes'], [1])
 
     def test_empty_company_returns_real_unavailable_cards(self):
         with patch.object(service, 'load_company_source',

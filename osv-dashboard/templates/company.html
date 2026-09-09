@@ -202,7 +202,19 @@ tr:last-child td{border-bottom:0}
 .ac-card[data-coverage-mode="daily"] .ac-mon-badge{display:none}
 .ac-card[data-coverage-mode="daily"] .ac-d-monthly{background:#fbeae8;border:1px solid #e7b6b0}
 .ac-card[data-coverage-mode="monthly"] .ac-cal,
-.ac-card[data-coverage-mode="monthly"] .ac-cov-bar{display:none}
+.ac-card[data-coverage-mode="monthly"] .ac-cov-bar,
+.ac-card[data-coverage-mode="monthly"] .ac-accounts{display:none}
+.ac-accounts{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;
+  padding-top:11px;border-top:1px solid var(--line)}
+.ac-accounts-label{font-size:11px;font-weight:700;color:var(--mut);margin-right:2px}
+.ac-account-btn{border:1px solid var(--line);border-radius:6px;background:#f7f9fb;color:var(--ink);
+  padding:4px 9px;font:700 11px 'Segoe UI',sans-serif;cursor:pointer;transition:all .15s}
+.ac-account-btn:hover,.ac-account-btn:focus-visible,.ac-account-btn.active{
+  color:#fff;background:var(--water);border-color:var(--water);outline:none}
+.ac-day{transition:opacity .12s,transform .12s,box-shadow .12s}
+.ac-day.ac-account-muted{opacity:.2}
+.ac-day.ac-account-match{opacity:1;transform:scale(1.12);z-index:3;
+  box-shadow:0 0 0 2px #fff,0 0 0 4px var(--water)}
 /* legend */
 .ac-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--mut);
   margin-top:12px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
@@ -888,7 +900,6 @@ tr:last-child td{border-bottom:0}
           <span class="ac-summary-daily">
           Суточных: <b>{{ ac.total_ok }}</b>/{{ ac.total_past }} дн.
           ({{ ac.coverage_pct }}%)
-          {% if ac.accs %} · сч.: {{ ac.accs|join(', ') }}{% endif %}
           </span>
         {% endif %}
       </div>
@@ -917,6 +928,7 @@ tr:last-child td{border-bottom:0}
               <div class="ac-pad"></div>
             {% else %}
               <div class="ac-day ac-d-{{ cell.status }}{% if cell.is_today %} ac-d-today{% endif %}"
+                   data-account-indexes="{{ cell.account_indexes|join(' ') }}"
                    data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'monthly' %} месячная ОСВ{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
               </div>
             {% endif %}
@@ -931,6 +943,14 @@ tr:last-child td{border-bottom:0}
       </div>
       {% endfor %}
     </div>
+    {% if ac.accs %}
+    <div class="ac-accounts" aria-label="Счета в суточных ОСВ">
+      <span class="ac-accounts-label">Счета:</span>
+      {% for acc in ac.accs %}
+      <button type="button" class="ac-account-btn" data-coverage-account="{{ loop.index0 }}">{{ acc }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     </div><!-- /ac-body -->
   </div>
@@ -1337,6 +1357,39 @@ function saveReq() {
   };
 
   applyCoverageMode();
+})();
+
+// --- Подсветка дней по счёту ---
+(function(){
+  var buttons = document.querySelectorAll('[data-coverage-account]');
+  var days = document.querySelectorAll('.ac-day[data-account-indexes]');
+
+  function highlightAccount(index, activeButton){
+    days.forEach(function(day){
+      var indexes = ' ' + (day.getAttribute('data-account-indexes') || '') + ' ';
+      var matches = indexes.indexOf(' ' + index + ' ') !== -1;
+      day.classList.toggle('ac-account-match', matches);
+      day.classList.toggle('ac-account-muted', !matches);
+    });
+    buttons.forEach(function(button){
+      button.classList.toggle('active', button === activeButton);
+    });
+  }
+
+  function clearAccountHighlight(){
+    days.forEach(function(day){
+      day.classList.remove('ac-account-match', 'ac-account-muted');
+    });
+    buttons.forEach(function(button){ button.classList.remove('active'); });
+  }
+
+  buttons.forEach(function(button){
+    var index = button.getAttribute('data-coverage-account');
+    button.addEventListener('mouseenter', function(){ highlightAccount(index, button); });
+    button.addEventListener('mouseleave', clearAccountHighlight);
+    button.addEventListener('focus', function(){ highlightAccount(index, button); });
+    button.addEventListener('blur', clearAccountHighlight);
+  });
 })();
 
 // --- Модалка удаления ---
