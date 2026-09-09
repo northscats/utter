@@ -1208,12 +1208,13 @@ def build_key_indicators(source, period='month', date=None,
                     card_map[cid]['delta'] = {
                         'value': round(current - previous, 2), 'unit': 'RUB',
                         'label': 'к предыдущему сопоставимому периоду'}
-        rows08_prev = _turnover_basis(_daily(source, '08', prev_start, prev_end))
+        previous_capex = _account_turnovers(
+            source, '08', prev_start, prev_end)['debit']
         if (_account_covers(source, '08', start, end) and
                 _account_covers(source, '08', prev_start, prev_end) and
-                d08 and rows08_prev):
+                capex is not None and previous_capex is not None):
             card_map['capex']['delta'] = {
-                'value': round(capex - _sum(rows08_prev, 'obd'), 2),
+                'value': round(capex - previous_capex, 2),
                 'unit': 'RUB', 'label': 'к предыдущему сопоставимому периоду'}
         else:
             card_map['capex']['notes'].append(

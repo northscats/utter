@@ -136,6 +136,18 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(capex['opening_balance'], 0)
         self.assertEqual(capex['closing_balance'], 0)
 
+    def test_capex_comparison_uses_two_loaded_quarters(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2026-03-31', obd=10),
+                day('2026-06-30', obd=25),
+            ], period='за 1 полугодие 2026 г.'),
+        })
+        capex = {item['id']: item for item in build_key_indicators(
+            src, period='quarter', date='2026-06-30')['cards']}['capex']
+        self.assertEqual(capex['value'], 25)
+        self.assertEqual(capex['delta']['value'], 15)
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({
