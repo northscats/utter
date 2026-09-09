@@ -31,6 +31,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyDadataProfile, CompanyDadataSnapshot,
+                       DadataDiagnosticEvent,
                        CompanyFinance, CompanyLicense, CompanyMembership,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
@@ -3359,8 +3360,7 @@ def directory_company_new():
                 error = 'Интеграция DaData выключена в системных настройках.'
             else:
                 try:
-                    from dadata_client import find_party
-                    _party, preview = find_party(_dadata_token(), inn=inn, ogrn=ogrn)
+                    _party, preview = _find_dadata_party(inn=inn, ogrn=ogrn)
                     log_event('dadata_lookup', {'inn': inn, 'ogrn': ogrn, 'found': True})
                 except Exception as exc:
                     error = str(exc)
@@ -3409,9 +3409,8 @@ def directory_company_new():
                         company.internal_code = str(company.id)
                     if form.get('confirm_dadata') == '1' and (inn or ogrn):
                         try:
-                            from dadata_client import find_party
-                            party, normalized = find_party(
-                                _dadata_token(), inn=inn, ogrn=ogrn)
+                            party, normalized = _find_dadata_party(
+                                inn=inn, ogrn=ogrn)
                             dup = duplicate_companies(
                                 normalized.get('inn', ''), normalized.get('ogrn', ''),
                                 normalized.get('kpp', ''), exclude_id=company.id)
@@ -3741,6 +3740,116 @@ def directory_company_delete(company_id):
         cleanup='pending' if storage_errors else None))
 
 
+def _safe_float_setting(key, default, minimum, maximum):
+    try:
+        return min(maximum, max(minimum, float(Setting.get(key, str(default)))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int_setting(key, default, minimum, maximum):
+    try:
+        return min(maximum, max(minimum, int(Setting.get(key, str(default)))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _form_number(key, default, minimum, maximum, caster):
+    try:
+        return min(maximum, max(minimum, caster(request.form.get(key, default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _record_dadata_diagnostic(event):
+    """Best-effort append; only allowlisted operational fields are persisted."""
+    try:
+        table = DadataDiagnosticEvent.__table__
+        values = {
+            'created_at': utcnow(),
+            'attempt_id': str(event.get('attempt_id', ''))[:32],
+            'stage': str(event.get('stage', ''))[:32],
+            'duration_ms': max(0, int(event.get('duration_ms') or 0)),
+            'retry_no': max(0, int(event.get('retry_no') or 0)),
+            'http_status': (int(event['http_status'])
+                            if event.get('http_status') is not None else None),
+            'category': str(event.get('category', ''))[:32],
+            'outcome': str(event.get('outcome', ''))[:24],
+        }
+        # Отдельная транзакция: диагностика не фиксирует и не откатывает
+        # незавершённые бизнес-изменения request-scoped сессии.
+        with db.engine.begin() as connection:
+            connection.execute(table.insert().values(**values))
+            keep_ids = connection.execute(
+                db.select(table.c.id).order_by(table.c.id.desc()).limit(200)
+            ).scalars().all()
+            if keep_ids:
+                connection.execute(
+                    table.delete().where(table.c.id < min(keep_ids)))
+    except Exception:
+        app.logger.warning('could not persist DaData diagnostic event',
+                           exc_info=True)
+
+
+def _dadata_transport_options():
+    return {
+        'timeout': _safe_float_setting('dadata_timeout', 12, 1, 120),
+        'retries': _safe_int_setting('dadata_retries', 1, 0, 5),
+        'backoff': _safe_float_setting('dadata_backoff', 0.35, 0, 30),
+        'close_connection': Setting.get(
+            'dadata_close_connection', '0') == '1',
+        'diagnostic': _record_dadata_diagnostic,
+    }
+
+
+def _find_dadata_party(*, inn='', ogrn=''):
+    """Единая граница всех рабочих обращений к DaData."""
+    from dadata_client import find_party
+    return find_party(
+        _dadata_token(), inn=inn, ogrn=ogrn,
+        **_dadata_transport_options())
+
+
+def _dadata_diagnostic_items():
+    stage_labels = {
+        'sending': 'Отправка',
+        'response': 'Ответ получен',
+        'http_error': 'Ошибка HTTP',
+        'network_error': 'Сетевая ошибка',
+        'completed': 'Завершено',
+    }
+    category_labels = {
+        'authorization': 'Авторизация',
+        'rate_limit': 'Лимит запросов',
+        'provider': 'Сбой DaData',
+        'dns': 'DNS',
+        'connection': 'Соединение',
+        'timeout': 'Тайм-аут',
+        'proxy': 'Proxy',
+        'tls': 'TLS',
+        'invalid_response': 'Некорректный ответ',
+        'not_found': 'Не найдено',
+        'http': 'HTTP',
+    }
+    outcome_labels = {
+        'success': 'Успешно',
+        'retry': 'Будет повтор',
+        'error': 'Ошибка',
+    }
+    rows = DadataDiagnosticEvent.query.order_by(
+        DadataDiagnosticEvent.id.desc()).limit(200).all()
+    return [{
+        'time': row.created_at.isoformat() if row.created_at else '',
+        'attempt_id': row.attempt_id,
+        'stage': stage_labels.get(row.stage, row.stage),
+        'duration_ms': row.duration_ms,
+        'retry_no': row.retry_no,
+        'http_status': row.http_status,
+        'category': category_labels.get(row.category, row.category or ''),
+        'outcome': outcome_labels.get(row.outcome, row.outcome or ''),
+    } for row in rows]
+
+
 @app.route('/directories/companies/<int:company_id>/dadata/refresh', methods=['POST'])
 @admin_required
 def directory_company_dadata_refresh(company_id):
@@ -3751,8 +3860,7 @@ def directory_company_dadata_refresh(company_id):
     kpp = clean_identifier(request.form.get('kpp') or company.kpp, (9,))
     ogrn = clean_identifier(request.form.get('ogrn') or company.ogrn, (13, 15))
     try:
-        from dadata_client import find_party
-        party, normalized = find_party(_dadata_token(), inn=inn, ogrn=ogrn)
+        party, normalized = _find_dadata_party(inn=inn, ogrn=ogrn)
         if kpp and not normalized.get('kpp'):
             normalized['kpp'] = kpp
         duplicates = duplicate_companies(
@@ -3952,13 +4060,23 @@ def settings_test_dadata():
     """Проверяет введённый или сохранённый токен, никогда не возвращая его."""
     from dadata_client import check_token
     token = request.form.get('dadata_api_token', '').strip() or _dadata_token()
-    ok, msg = check_token(token)
+    ok, msg = check_token(token, **_dadata_transport_options())
     now = utcnow().isoformat()
     Setting.set('dadata_last_check', now)
     Setting.set('dadata_last_error', '' if ok else msg[:1000])
     db.session.commit()
     log_event('dadata_connection_checked', {'ok': ok, 'error': '' if ok else msg[:300]})
     return jsonify(ok=ok, msg=msg, checked_at=now)
+
+
+@app.route('/settings/dadata-diagnostics', methods=['GET', 'DELETE'])
+@admin_required
+def settings_dadata_diagnostics():
+    if request.method == 'DELETE':
+        DadataDiagnosticEvent.query.delete()
+        db.session.commit()
+        return jsonify(ok=True, events=[])
+    return jsonify(events=_dadata_diagnostic_items())
 
 
 @app.route('/ai/brief', methods=['POST'])
@@ -4288,6 +4406,15 @@ def settings():
                 '1' if request.form.get('dadata_enabled') == '1' else '0')
             if token:
                 Setting.set('dadata_api_token', encrypt_value(token))
+            Setting.set(
+                'dadata_close_connection',
+                '1' if request.form.get('dadata_close_connection') == '1' else '0')
+            Setting.set('dadata_timeout', str(_form_number(
+                'dadata_timeout', 12, 1, 120, float)))
+            Setting.set('dadata_retries', str(_form_number(
+                'dadata_retries', 1, 0, 5, int)))
+            Setting.set('dadata_backoff', str(_form_number(
+                'dadata_backoff', 0.35, 0, 30, float)))
             db.session.commit()
             log_event('dadata_settings_saved', {
                 'enabled': Setting.get('dadata_enabled', '0') == '1',
@@ -4329,7 +4456,12 @@ def settings():
         'last_check': Setting.get('dadata_last_check', ''),
         'last_sync': Setting.get('dadata_last_sync', ''),
         'last_error': Setting.get('dadata_last_error', ''),
+        'close_connection': Setting.get('dadata_close_connection', '0') == '1',
+        'timeout': Setting.get('dadata_timeout', '12'),
+        'retries': Setting.get('dadata_retries', '1'),
+        'backoff': Setting.get('dadata_backoff', '0.35'),
     }
+    dadata_diagnostics = _dadata_diagnostic_items()
     watchdog_query = AuditLog.query.filter_by(
         action='http_worker_watchdog_recovery')
     watchdog_recent_events = watchdog_query.order_by(
@@ -4367,6 +4499,7 @@ def settings():
                            ai_providers=ai_providers,
                            landing_cfg=landing_cfg,
                            dadata_cfg=dadata_cfg,
+                           dadata_diagnostics=dadata_diagnostics,
                            watchdog_status=watchdog_status)
 
 

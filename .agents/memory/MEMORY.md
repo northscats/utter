@@ -18,3 +18,4 @@
 - [Python publishing dependencies](python-publishing-dependencies.md) — вложенный requirements не заменяет корневой Python-манифест при чистой публикации
 - [Размер образа публикации](deployment-image-size.md) — тестовые браузеры и компиляторы нельзя включать в runtime Nix: их closure легко превышает лимит 8 GiB
 - [Пустые ОСВ 1С](empty-osv-reports.md) — пустой типовой отчёт может не иметь строки счёта; номер берётся из заголовка, а отчёт остаётся нулевым
+- [Изоляция операционной диагностики](operational-diagnostics-isolation.md) — best-effort журнал пишет отдельной транзакцией и не управляет request-scoped бизнес-сессией

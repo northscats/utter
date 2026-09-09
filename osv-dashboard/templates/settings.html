@@ -592,6 +592,23 @@ main{width:100%;max-width:none;margin:0 auto;padding:24px clamp(14px,2.5vw,36px)
                  placeholder="{{ '•••••••••••• (настроен)' if dadata_cfg.token_configured else 'Введите токен DaData' }}">
           <div class="hint">Пустое поле не меняет уже сохранённый токен.</div>
         </div>
+        <label for="dadata-timeout">Тайм-аут, секунд</label>
+        <input type="number" id="dadata-timeout" name="dadata_timeout"
+               min="1" max="120" step="0.5" value="{{ dadata_cfg.timeout }}">
+        <label for="dadata-retries">Повторы</label>
+        <input type="number" id="dadata-retries" name="dadata_retries"
+               min="0" max="5" step="1" value="{{ dadata_cfg.retries }}">
+        <label for="dadata-backoff">Начальная задержка, секунд</label>
+        <input type="number" id="dadata-backoff" name="dadata_backoff"
+               min="0" max="30" step="0.05" value="{{ dadata_cfg.backoff }}">
+        <label for="dadata-close-connection">Закрытый контур</label>
+        <label style="text-align:left;color:var(--ink)">
+          <input style="width:auto" type="checkbox" id="dadata-close-connection"
+                 name="dadata_close_connection" value="1"
+                 {% if dadata_cfg.close_connection %}checked{% endif %}>
+          Новое соединение на каждый запрос
+        </label>
+        <div class="hint">Используйте при нестабильном proxy/NAT. По умолчанию выключено.</div>
       </div>
       <div class="form-actions">
         <button class="btn btn-primary" type="submit">Сохранить</button>
@@ -609,6 +626,34 @@ main{width:100%;max-width:none;margin:0 auto;padding:24px clamp(14px,2.5vw,36px)
         {% if dadata_cfg.last_error %}<br><span style="color:var(--bad)">{{ dadata_cfg.last_error }}</span>{% endif %}
       </span>
     </div>
+    <details style="margin-top:16px" open>
+      <summary style="cursor:pointer;font-weight:700">Последние диагностические события</summary>
+      <p class="desc" style="margin:8px 0 10px">
+        Журнал содержит только технические этапы. Токен, реквизиты и тела ответов не сохраняются.
+      </p>
+      <div class="form-actions" style="margin:0 0 10px">
+        <button class="btn btn-test" type="button" onclick="loadDadataDiagnostics()">Обновить журнал</button>
+        <button class="btn btn-danger" type="button" onclick="clearDadataDiagnostics()">Очистить журнал</button>
+      </div>
+      <div class="table-scroll">
+        <table class="rules-table" id="dadata-diagnostics">
+          <thead><tr><th>Время</th><th>Попытка</th><th>Этап</th><th>Повтор</th><th>Длительность</th><th>HTTP / сеть</th><th>Итог</th></tr></thead>
+          <tbody>
+          {% for event in dadata_diagnostics %}
+            <tr>
+              <td>{{ event.time }}</td><td><code>{{ event.attempt_id }}</code></td>
+              <td>{{ event.stage }}</td><td>{{ event.retry_no }}</td>
+              <td>{{ event.duration_ms }} мс</td>
+              <td>{{ event.http_status or event.category or '—' }}</td>
+              <td>{{ event.outcome or '—' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="empty-rules">Событий пока нет</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
   </div>
   <!-- ─── Интеграция с 1С ─── -->
   <div class="card" id="one_c_integration">
@@ -835,6 +880,7 @@ function testDadata() {
   }).then(r => r.json()).then(d => {
     msg.textContent = d.msg;
     msg.style.color = d.ok ? 'var(--ok)' : 'var(--bad)';
+    loadDadataDiagnostics();
   }).catch(() => {
     msg.textContent = 'Не удалось выполнить запрос';
     msg.style.color = 'var(--bad)';
@@ -842,6 +888,35 @@ function testDadata() {
     btn.disabled = false;
     btn.textContent = 'Проверить подключение';
   });
+}
+function renderDadataDiagnostics(events) {
+  const tbody = document.querySelector('#dadata-diagnostics tbody');
+  tbody.textContent = '';
+  if (!events.length) {
+    const row = tbody.insertRow();
+    const cell = row.insertCell();
+    cell.colSpan = 7; cell.className = 'empty-rules'; cell.textContent = 'Событий пока нет';
+    return;
+  }
+  events.forEach(event => {
+    const row = tbody.insertRow();
+    [event.time, event.attempt_id, event.stage, event.retry_no,
+     event.duration_ms + ' мс', event.http_status || event.category || '—',
+     event.outcome || '—'].forEach(value => {
+       row.insertCell().textContent = value;
+     });
+  });
+}
+function loadDadataDiagnostics() {
+  return fetch('/settings/dadata-diagnostics', {credentials:'same-origin'})
+    .then(r => r.json()).then(d => renderDadataDiagnostics(d.events || []));
+}
+function clearDadataDiagnostics() {
+  if (!confirm('Очистить диагностический журнал DaData?')) return;
+  fetch('/settings/dadata-diagnostics', {
+    method:'DELETE', credentials:'same-origin',
+    headers:{'X-CSRFToken':document.querySelector('meta[name="csrf-token"]').content}
+  }).then(r => r.json()).then(d => renderDadataDiagnostics(d.events || []));
 }
 document.addEventListener('click',function(){var el=document.getElementById('hd-uname');if(el)el.classList.remove('open');});
 </script>

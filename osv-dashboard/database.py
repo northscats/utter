@@ -31,6 +31,22 @@ class Setting(db.Model):
             row.value = value
 
 
+class DadataDiagnosticEvent(db.Model):
+    """Ограниченный технический журнал без содержимого запросов и ответов."""
+    __tablename__ = 'dadata_diagnostic_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                           nullable=False, index=True)
+    attempt_id = db.Column(db.String(32), nullable=False, index=True)
+    stage = db.Column(db.String(32), nullable=False)
+    duration_ms = db.Column(db.Integer, nullable=False, default=0)
+    retry_no = db.Column(db.Integer, nullable=False, default=0)
+    http_status = db.Column(db.Integer)
+    category = db.Column(db.String(32), default='')
+    outcome = db.Column(db.String(24), default='')
+
+
 class EmailRule(db.Model):
     """Правило маршрутизации входящих писем → предприятие."""
     __tablename__ = 'email_rules'

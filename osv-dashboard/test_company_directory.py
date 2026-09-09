@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app import app, decrypt_value, encrypt_value, init_db
 from database import (AiSummary, AuditLog, Company, CompanyContact,
                       CompanyDadataSnapshot, CompanyMembership, CompanyOkved,
+                      DadataDiagnosticEvent,
                       DailyRow, EmailRule, Setting, Upload, User,
                       UserModuleAccess, db)
 from dadata_client import DaDataError, find_party
@@ -331,6 +332,73 @@ check('настройки полноширинные и разделены на 
       and 'settingsTabFromLocation' in body)
 check('прямая ссылка на ИИ поддерживается',
       'id="ai"' in body and "hash === 'ai'" in body)
+check('настройки закрытого контура и журнал показаны администратору',
+      'name="dadata_close_connection"' in body
+      and 'id="dadata-diagnostics"' in body
+      and 'Токен, реквизиты и тела ответов не сохраняются' in body)
+client.post('/settings', data={
+    'action': 'save_dadata', 'dadata_enabled': '1',
+    'dadata_close_connection': '1', 'dadata_timeout': '9.5',
+    'dadata_retries': '3', 'dadata_backoff': '0.5',
+})
+with app.app_context():
+    check('параметры транспорта сохраняются',
+          Setting.get('dadata_close_connection') == '1'
+          and Setting.get('dadata_timeout') == '9.5'
+          and Setting.get('dadata_retries') == '3')
+    db.session.add(DadataDiagnosticEvent(
+        attempt_id='safe-attempt', stage='network_error', duration_ms=12,
+        retry_no=1, category='dns', outcome='error'))
+    db.session.commit()
+diagnostics = client.get('/settings/dadata-diagnostics').get_json()['events']
+check('администратор получает безопасный диагностический журнал',
+      diagnostics and diagnostics[0]['attempt_id'] == 'safe-attempt'
+      and set(diagnostics[0]) == {
+          'time', 'attempt_id', 'stage', 'duration_ms', 'retry_no',
+          'http_status', 'category', 'outcome'})
+check('журнал очищается отдельно от данных предприятий',
+      client.delete('/settings/dadata-diagnostics').get_json()['ok'])
+
+# Все рабочие сценарии используют одну конфигурацию закрытого транспорта.
+with patch('dadata_client.check_token', return_value=(True, 'ok')) as check_token_mock:
+    client.post('/settings/test-dadata', data={'dadata_api_token': ''})
+check('проверка подключения использует настройки транспорта',
+      check_token_mock.call_args.kwargs['timeout'] == 9.5
+      and check_token_mock.call_args.kwargs['retries'] == 3
+      and check_token_mock.call_args.kwargs['close_connection'] is True
+      and callable(check_token_mock.call_args.kwargs['diagnostic']))
+
+with patch('dadata_client.find_party',
+           side_effect=DaDataError('контрольный сбой')) as lookup_mock:
+    client.post('/directories/companies/new', data={
+        'action': 'lookup', 'inn': '7701234567',
+    })
+check('предварительный поиск использует настройки транспорта',
+      lookup_mock.call_args.kwargs['timeout'] == 9.5
+      and lookup_mock.call_args.kwargs['retries'] == 3
+      and lookup_mock.call_args.kwargs['close_connection'] is True)
+
+with patch('dadata_client.find_party',
+           side_effect=DaDataError('контрольный сбой')) as create_mock:
+    client.post('/directories/companies/new', data={
+        'action': 'create', 'name': 'Не сохранять при сбое',
+        'inn': '7801234567', 'confirm_dadata': '1',
+    })
+check('создание через DaData использует настройки транспорта',
+      create_mock.call_args.kwargs['timeout'] == 9.5
+      and create_mock.call_args.kwargs['retries'] == 3
+      and create_mock.call_args.kwargs['close_connection'] is True)
+with app.app_context():
+    check('контрольный сбой создания не сохранил предприятие',
+          Company.query.filter_by(name='Не сохранять при сбое').count() == 0)
+
+with patch('dadata_client.find_party',
+           side_effect=DaDataError('контрольный сбой')) as refresh_mock:
+    client.post(f'/directories/companies/{company_id}/dadata/refresh')
+check('обновление предприятия использует настройки транспорта',
+      refresh_mock.call_args.kwargs['timeout'] == 9.5
+      and refresh_mock.call_args.kwargs['retries'] == 3
+      and refresh_mock.call_args.kwargs['close_connection'] is True)
 embedded_settings = client.get('/settings?embedded=1&tab=integrations')
 check('встроенные настройки открываются без собственной шапки',
       embedded_settings.status_code == 200
@@ -384,6 +452,9 @@ check('проверка IMAP использует сохранённый пар�
 
 # Серверный scope применяется к каталогу и API.
 login_as(client, user_id)
+check('диагностический журнал DaData закрыт для обычного пользователя',
+      client.get('/settings/dadata-diagnostics').status_code == 403
+      and client.delete('/settings/dadata-diagnostics').status_code == 403)
 check('назначенное предприятие доступно в API',
       client.get(f'/api/companies/{company_id}/profile').status_code == 200)
 with app.app_context():
