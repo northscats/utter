@@ -2789,14 +2789,17 @@ def _annual_coverage(company_id, year=None):
         key=_account_sort_key,
     )
     acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
-    standard_accs = {f'{number:02d}' for number in range(1, 100)}
+    analytical_accs = {
+        '01', '08', '10', '20', '26', '44', '50', '51', '52', '55',
+        '60', '62', '66', '67', '68', '69', '70', '76', '90', '91',
+    }
     account_buttons = [
         dict(
             number=acc,
             available=acc in acc_indexes,
             index=acc_indexes.get(acc),
         )
-        for acc in sorted(standard_accs | set(year_accs), key=_account_sort_key)
+        for acc in sorted(analytical_accs, key=_account_sort_key)
     ]
     date_acc_indexes = {}
     for row in year_rows:

@@ -208,9 +208,12 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             coverage = app_module._annual_coverage(self.company, 2025)
         buttons = {item['number']: item for item in coverage['account_buttons']}
 
-        self.assertEqual(list(buttons)[:3], ['01', '02', '03'])
-        self.assertEqual(list(buttons)[-1], '99')
-        self.assertEqual(len(buttons), 99)
+        self.assertEqual(
+            list(buttons),
+            ['01', '08', '10', '20', '26', '44', '50', '51', '52', '55',
+             '60', '62', '66', '67', '68', '69', '70', '76', '90', '91'],
+        )
+        self.assertEqual(len(buttons), 20)
         self.assertFalse(buttons['01']['available'])
 
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
