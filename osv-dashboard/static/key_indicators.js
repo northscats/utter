@@ -1532,6 +1532,308 @@
                 card.series || [], 'RUB', 'ki-ar-line-chart', card), 50);
         },
 
+        apRequirements() {
+            return {
+                fullDebt: 'Остатки из 1С по счетам 60, 68, 69, 70 и 76: предприятие, счёт, субсчёт, аналитика, контрагент, ИНН/КПП, договор, документ расчётов, дебетовое и кредитовое сальдо, дата снимка и признак включения в кредиторскую задолженность.',
+                categories: 'Справочник категорий обязательств из 1С: контрагент, договор, вид закупки, номенклатура или ресурс, объект, категория «Топливо / Электроэнергия / Подрядчики / Прочее», дата начала и окончания действия категории.',
+                terms: 'Регистр обязательств из 1С: документ поступления или начисления, дата возникновения, договорный срок оплаты, сумма, НДС, аванс, зачёт, корректировка, сторно, распределённые платежи, непогашенный остаток и количество дней просрочки на отчётную дату.',
+                dpo: 'Для фактического DPO нужны документы поступления и оплаты из 1С: дата признания обязательства, сумма закупки в кредит без НДС, договорный срок, документ и дата оплаты, распределение оплаты по документам, авансы, зачёты, возвраты, корректировки и непогашенный остаток.',
+                taxes: 'Налоговые обязательства из 1С: вид налога или взноса, налоговый период, начисление, установленный срок уплаты, платёж, дата платежа, остаток, пени и состояние ЕНС.',
+                salary: 'Данные расчётов с персоналом из 1С: расчётный период, ведомость, дата начисления, установленная дата выплаты, сумма к выплате, удержания, депонирование, фактическая дата и сумма выплаты, непогашенный остаток.',
+                priority: 'Утверждённая платёжная политика: вид обязательства, правила очередности, вес срочности и критичности, допустимая просрочка, минимальный платёж, дата утверждения и период действия.',
+                risk: 'Договорные и операционные риски из 1С или договорного реестра: штрафы и пени, условия приостановки поставки, критичность поставщика, заменяемость, претензионный и судебный статус.',
+                status: 'Утверждённые пороги статусов: показатель, категория обязательства, значения «Норма / Внимание / Критично», единица измерения, дата утверждения и период действия.'
+            };
+        },
+
+        apTooltip(overrides = {}) {
+            const required = this.apRequirements();
+            return Object.assign({
+                title: 'Подтверждённая задолженность поставщикам',
+                description: 'Кредитовое сальдо расчётов с поставщиками и подрядчиками по субсчёту 60.01.',
+                formula: 'КЗ поставщикам = max(СКк(60.01) − СКд(60.01), 0)',
+                detail: 'Авансы 60.02, налоги, персонал и несопоставленный счёт 76 не смешиваются с задолженностью поставщикам.',
+                required: required.fullDebt,
+                norm: 'Индивидуальный норматив не задан',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'конечное сальдо ОСВ 60.01'
+            }, overrides);
+        },
+
+        renderApModal(card) {
+            const container = document.getElementById('ki-ap-modal-content');
+            if (!container) return;
+            const required = this.apRequirements();
+            const arCard = state.data.cards.find(item => item.id === 'ar') || {};
+            const current = card.value;
+            const opening = card.opening_value;
+            const knownTotal = card.known_total;
+            const change = current !== null && current !== undefined &&
+                opening !== null && opening !== undefined ? current - opening : null;
+            const arApRatio = current && arCard.value !== null && arCard.value !== undefined
+                ? arCard.value / current : null;
+            const period = state.data.period || {};
+            const startDate = period.start ? new Date(`${period.start}T00:00:00`) : null;
+            const endDate = period.end ? new Date(`${period.end}T00:00:00`) : null;
+            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;
+            const dpo = opening !== null && opening !== undefined &&
+                current !== null && current !== undefined &&
+                card.credit_turnover && days
+                ? ((opening + current) / 2) / card.credit_turnover * days : null;
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+
+            const supplierTip = this.apTooltip({
+                fact: rub(current),
+                deviation: current === null || current === undefined
+                    ? 'Нет точного сальдо 60.01' : 'Фактическое подтверждённое сальдо',
+                deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
+            });
+            const changeTip = this.apTooltip({
+                title: 'Изменение задолженности поставщикам',
+                description: 'Изменение подтверждённого кредитового сальдо 60.01 за выбранный период.',
+                formula: 'Δ КЗ = КЗ на конец − КЗ на начало',
+                detail: 'Сравниваются одинаковые субсчета и аналитики на точных границах одного периода.',
+                required: change === null ? 'ОСВ 60.01 с начальным и конечным дебетовым/кредитовым сальдо за один полный период.' : null,
+                fact: change === null ? 'Н/Д' : `${change >= 0 ? '+' : ''}${rub(change)}`,
+                deviation: change === null ? 'Нет сопоставимых границ периода' :
+                    (change > 0 ? 'Задолженность выросла' : change < 0 ? 'Задолженность снизилась' : 'Без изменения'),
+                deviationClass: change === null ? 'missing' : 'neutral',
+                source: 'начальное и конечное сальдо ОСВ 60.01'
+            });
+            const ratioTip = this.apTooltip({
+                title: 'Узкое соотношение ДЗ / КЗ',
+                description: 'Соотношение подтверждённой задолженности покупателей и задолженности поставщикам.',
+                formula: 'ДЗ / КЗ = ДЗ 62.01 / КЗ 60.01',
+                detail: 'Показатель имеет узкий охват: не включает несопоставленный счёт 76, налоги, взносы и расчёты с персоналом.',
+                required: arApRatio === null ? 'ОСВ 62.01 и 60.01 с конечными сальдо на одну отчётную дату. Для расширенного коэффициента — утверждённый состав обязательств и сопоставленные аналитики 76.' : null,
+                fact: arApRatio === null ? 'Н/Д' : arApRatio.toFixed(2),
+                deviation: arApRatio === null ? 'Недостаточно данных' : 'Фактическое узкое соотношение',
+                deviationClass: arApRatio === null ? 'missing' : 'neutral',
+                source: 'ОСВ 62.01 и 60.01'
+            });
+            const dpoTip = this.apTooltip({
+                title: 'Оценочный DPO по начислениям поставщиков',
+                description: 'Бухгалтерская оценка числа дней обязательств перед поставщиками.',
+                formula: 'Оценочный DPO = [(КЗ начало + КЗ конец) / 2] / ОбК(60.01) × дней в периоде',
+                detail: 'Кредитовый оборот 60.01 используется как приближение начислений поставщиков. Это не фактический средний срок оплаты и не формула по оборотам 20, 26 и 44.',
+                required: dpo === null ? `ОСВ 60.01 с начальным и конечным сальдо и кредитовым оборотом за полный период. ${required.dpo}` : required.dpo,
+                fact: dpo === null ? 'Н/Д' : `${dpo.toFixed(0)} дней`,
+                deviation: dpo === null ? 'Недостаточно сопоставимых данных' : 'Оценочный показатель',
+                deviationClass: dpo === null ? 'missing' : 'neutral',
+                source: 'ОСВ 60.01; для точного DPO нужен регистр документов'
+            });
+
+            const componentTips = {
+                '60.01': supplierTip,
+                '68': this.apTooltip({
+                    title: 'Расчётные обязательства по налогам и сборам',
+                    description: 'Кредитовое сальдо счёта 68 на выбранную дату.',
+                    formula: 'Обязательство 68 = max(СКк(68) − СКд(68), 0)',
+                    detail: 'Кредитовое сальдо не подтверждает наступление срока или налоговую просрочку.',
+                    required: required.taxes, source: 'конечное сальдо ОСВ 68'
+                }),
+                '69': this.apTooltip({
+                    title: 'Расчётные обязательства по страховым взносам',
+                    description: 'Кредитовое сальдо счёта 69 на выбранную дату.',
+                    formula: 'Обязательство 69 = max(СКк(69) − СКд(69), 0)',
+                    detail: 'Срок уплаты и просрочка не определяются из итогового сальдо.',
+                    required: required.taxes, source: 'конечное сальдо ОСВ 69'
+                }),
+                '70': this.apTooltip({
+                    title: 'Расчётная задолженность перед персоналом',
+                    description: 'Кредитовое сальдо счёта 70 на выбранную дату.',
+                    formula: 'Обязательство 70 = max(СКк(70) − СКд(70), 0)',
+                    detail: 'Это расчётный остаток, а не автоматически просроченная заработная плата.',
+                    required: required.salary, source: 'конечное сальдо ОСВ 70'
+                })
+            };
+
+            const components = card.components || [];
+            const componentRows = components.map(item => {
+                const tip = Object.assign({}, componentTips[item.account] || this.apTooltip(), {
+                    fact: rub(item.value),
+                    deviation: item.value === null || item.value === undefined
+                        ? (item.reason || 'Нет точного сальдо') : 'Фактическое расчётное обязательство',
+                    deviationClass: item.value === null || item.value === undefined ? 'missing' : 'neutral'
+                });
+                const share = knownTotal && item.value !== null && item.value !== undefined
+                    ? item.value / knownTotal * 100 : null;
+                const dueTip = this.apTooltip({
+                    title: `Срок и просрочка — ${item.label}`,
+                    description: 'Состояние непогашенного обязательства относительно договорного или нормативного срока.',
+                    formula: 'Просрочка = отчётная дата − установленный срок оплаты',
+                    detail: 'Кредитовое сальдо ОСВ не содержит установленный срок погашения.',
+                    required: item.account === '68' || item.account === '69' ? required.taxes :
+                        item.account === '70' ? required.salary : required.terms,
+                    source: 'требуется регистр обязательств и платежей'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(item.label)}</strong><br><span class="ki-muted">сч. ${esc(item.account)}</span>`, tip)}
+                    ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(pct(share)), tip)}
+                    ${this.collectionCell('Нужны данные', dueTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', dueTip, 'cash-value-missing')}
+                    ${this.collectionCell('Недостаточно данных', this.apTooltip({title:`Статус — ${item.label}`, required:`${required.terms} ${required.status}`}), 'cash-value-missing')}
+                </tr>`;
+            }).join('');
+
+            const analytics = card.analytics || [];
+            const analyticRows = analytics.length ? analytics.map(row => {
+                const share = current ? row.value / current * 100 : null;
+                const tip = this.apTooltip({
+                    title: `КЗ по аналитике — ${row.label}`,
+                    description: 'Кредитовое сальдо 60.01 по фактическому пути аналитики из ОСВ.',
+                    formula: 'max(СКк − СКд, 0) по аналитике 60.01',
+                    detail: 'Категория закупки не определяется автоматически по названию.',
+                    required: required.categories, fact: rub(row.value),
+                    deviation: 'Фактическое сальдо ОСВ', deviationClass: 'neutral'
+                });
+                const categoryTip = this.apTooltip({
+                    title: `Категория обязательства — ${row.label}`,
+                    description: 'Классификация поставщика или договора как топлива, электроэнергии, подрядных работ или прочего.',
+                    formula: 'Категория берётся из утверждённого справочника сопоставлений',
+                    detail: 'Без справочника приложение не угадывает категорию по названию аналитики.',
+                    required: required.categories, source: 'требуется справочник категорий обязательств'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, tip)}
+                    ${this.collectionCell(esc(rub(row.value)), tip)}
+                    ${this.collectionCell(esc(pct(share)), tip)}
+                    ${this.collectionCell('Нужны данные', categoryTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', this.apTooltip({title:`Срок оплаты — ${row.label}`, required: required.terms}), 'cash-value-missing')}
+                    ${this.collectionCell('Недостаточно данных', this.apTooltip({title:`Статус — ${row.label}`, required:`${required.terms} ${required.status}`}), 'cash-value-missing')}
+                </tr>`;
+            }).join('') : `<tr><td colspan="6" class="chart-empty">В ОСВ 60.01 нет аналитических сальдо на выбранную дату. ${esc(required.categories)}</td></tr>`;
+
+            const knownComponents = components.filter(item => item.value !== null && item.value !== undefined);
+            const structure = knownComponents.length ? knownComponents.map((item, index) => {
+                const share = knownTotal ? item.value / knownTotal * 100 : 0;
+                return `<div class="ap-structure-row">
+                    <div class="ap-structure-label"><span>${esc(item.label)} · сч. ${esc(item.account)}</span><strong>${esc(rub(item.value))} · ${esc(pct(share))}</strong></div>
+                    <div class="ap-structure-track"><span class="ap-structure-fill ap-color-${index % 4}" style="width:${Math.max(0, Math.min(100, share))}%"></span></div>
+                </div>`;
+            }).join('') : '<div class="chart-empty">Нет точных кредитовых сальдо для построения структуры.</div>';
+
+            const priorityRows = [
+                ['Расчёты с персоналом', '70', required.salary],
+                ['Налоги и страховые взносы', '68, 69', required.taxes],
+                ['Поставщики и подрядчики', '60.01', required.terms],
+                ['Прочие обязательства', '76', `${required.fullDebt} ${required.terms}`]
+            ].map(([label, account, dataRequired]) => {
+                const taxComponents = components.filter(item =>
+                    ['68', '69'].includes(item.account) &&
+                    item.value !== null && item.value !== undefined);
+                const amount = account === '68, 69'
+                    ? (taxComponents.length
+                        ? taxComponents.reduce((sum, item) => sum + item.value, 0)
+                        : null)
+                    : (components.find(item => item.account === account) || {}).value;
+                const priorityTip = this.apTooltip({
+                    title: `Приоритет платежа — ${label}`,
+                    description: 'Расчётная очередность оплаты с учётом срока, санкций и операционной критичности.',
+                    formula: 'Приоритет определяется утверждённой платёжной политикой',
+                    detail: 'Тип бухгалтерского счёта сам по себе не задаёт номер приоритета.',
+                    required: `${dataRequired} ${required.priority} ${required.risk}`,
+                    source: 'требуется платёжный календарь и утверждённая политика'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">сч. ${esc(account)}</span>`, priorityTip)}
+                    ${this.collectionCell(esc(rub(amount)), priorityTip)}
+                    ${this.collectionCell('Нужны данные', priorityTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', priorityTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', priorityTip, 'cash-value-missing')}
+                </tr>`;
+            }).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Основной факт — задолженность поставщикам 60.01.</strong>
+                    Суммы 68, 69 и 70 показаны отдельно. Счёт 76 не включён без утверждённого сопоставления аналитик.</div>
+                <div class="collection-summary ap-summary">
+                    ${this.cashMetricCard('КЗ поставщикам', rub(current), 'сальдо 60.01', supplierTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Изменение КЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
+                    ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'узкий бухгалтерский охват', ratioTip, arApRatio === null)}
+                    ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
+                </div>
+                <div class="modal-section-title">Структура известных расчётных обязательств</div>
+                <div class="revenue-classification-note">Известная сумма: <strong>${esc(rub(knownTotal))}</strong>. Это не полная КЗ, пока не сопоставлены разрешённые кредитовые аналитики счёта 76. Отсутствующие счета не принимаются за ноль.</div>
+                <div class="ap-structure">${structure}</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table ap-detail-table">
+                    <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Доля известной суммы</th><th>Срок оплаты</th><th>Просрочка</th><th>Статус</th></tr></thead>
+                    <tbody>${componentRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика задолженности поставщикам 60.01</div>
+                <div class="modal-chart-wrap ap-line-chart" id="ki-ap-line-chart"></div>
+                <div class="modal-section-title">Фактические аналитики 60.01</div>
+                <div class="revenue-classification-note">До загрузки справочника категории «Топливо», «Электроэнергия» и «Подрядчики» не назначаются автоматически.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table ap-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>КЗ</th><th>Доля 60.01</th><th>Категория</th><th>Срок оплаты</th><th>Статус</th></tr></thead>
+                    <tbody>${analyticRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Недоступная классификация и сроки</div>
+                <div class="revenue-missing-grid ar-missing-grid">
+                    ${this.cashMetricCard('КЗ за топливо', 'Нужны данные', 'газ, уголь, мазут, дизель', this.apTooltip({
+                        title:'Кредиторская задолженность за топливо',
+                        description:'Непогашенные обязательства перед поставщиками топлива.',
+                        formula:'Σ КЗ 60.01 по договорам категории «Топливо»',
+                        detail:'Название поставщика само по себе не подтверждает вид ресурса.',
+                        required:`${required.categories} Для топлива нужны вид топлива, поставщик, договор, номенклатура, объект потребления и документ поступления.`,
+                        source:'требуется справочник категорий обязательств'
+                    }), true)}
+                    ${this.cashMetricCard('КЗ за электроэнергию', 'Нужны данные', 'собственные нужды', this.apTooltip({
+                        title:'КЗ за электроэнергию на собственные нужды',
+                        description:'Непогашенные обязательства по договорам энергоснабжения.',
+                        formula:'Σ КЗ 60.01 по договорам категории «Электроэнергия»',
+                        detail:'Электроэнергия не выделяется автоматически по названию аналитики.',
+                        required:`${required.categories} Дополнительно нужны договор энергоснабжения, объект и назначение потребления.`,
+                        source:'требуется справочник категорий обязательств'
+                    }), true)}
+                    ${this.cashMetricCard('КЗ подрядчикам', 'Нужны данные', 'ремонт и техническое обслуживание', this.apTooltip({
+                        title:'Кредиторская задолженность подрядчикам',
+                        description:'Обязательства по договорам ремонта, обслуживания и другим подрядным работам.',
+                        formula:'Σ КЗ 60.01 по договорам категории «Подрядчики»',
+                        detail:'Для классификации нужен вид договора и работ.',
+                        required:`${required.categories} Дополнительно нужны вид работ, объект ремонта, заказ или этап работ.`,
+                        source:'требуется справочник категорий обязательств'
+                    }), true)}
+                    ${this.cashMetricCard('Прочая КЗ 76', 'Нужны данные', 'только разрешённые аналитики', this.apTooltip({
+                        title:'Прочая кредиторская задолженность',
+                        description:'Кредитовые остатки утверждённых аналитик счёта 76.',
+                        formula:'Σ max(СКк − СКд, 0) по разрешённым аналитикам 76',
+                        detail:'Весь кредит счёта 76 не включается автоматически из-за разнородных расчётов.',
+                        required:required.fullDebt,
+                        source:'требуется сопоставление аналитик 76'
+                    }), true)}
+                    ${this.cashMetricCard('Просроченная КЗ', 'Нужны данные', 'документы и сроки оплаты', this.apTooltip({
+                        title:'Просроченная кредиторская задолженность',
+                        description:'Непогашенные обязательства после наступления установленного срока оплаты.',
+                        formula:'Σ остатков документов, где срок оплаты раньше отчётной даты',
+                        detail:'Кредитовое сальдо ОСВ не подтверждает просрочку.',
+                        required:required.terms,
+                        source:'требуется регистр обязательств и платежей'
+                    }), true)}
+                    ${this.cashMetricCard('Фактический DPO', 'Нужны данные', 'распределение оплат по документам', this.apTooltip({
+                        title:'Фактический средний срок оплаты',
+                        description:'Среднее время между признанием обязательства и его фактическим погашением.',
+                        formula:'Средневзвешенное число дней от документа поступления до распределённой оплаты',
+                        detail:'Оценочный DPO по обороту 60.01 не заменяет этот показатель.',
+                        required:required.dpo,
+                        source:'требуется регистр документов поступления и оплаты'
+                    }), true)}
+                </div>
+                <div class="modal-section-title">Приоритизация платежей</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table ap-priority-table">
+                    <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Срочность</th><th>Риск неоплаты</th><th>Приоритет</th></tr></thead>
+                    <tbody>${priorityRows}</tbody>
+                </table></div>`;
+            setTimeout(() => this.renderBarChart(
+                card.series || [], 'RUB', 'ki-ap-line-chart', card), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -1816,12 +2118,14 @@
             const revenueContent = document.getElementById('ki-revenue-modal-content');
             const collectionContent = document.getElementById('ki-collection-modal-content');
             const arContent = document.getElementById('ki-ar-modal-content');
+            const apContent = document.getElementById('ki-ap-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
+                apContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
@@ -1829,6 +2133,7 @@
                 cashContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
+                apContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
             } else if (cardId === 'collection') {
@@ -1836,6 +2141,7 @@
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 arContent.style.display = 'none';
+                apContent.style.display = 'none';
                 collectionContent.style.display = 'block';
                 this.renderCollectionModal(card);
             } else if (cardId === 'ar') {
@@ -1843,13 +2149,23 @@
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
+                apContent.style.display = 'none';
                 arContent.style.display = 'block';
                 this.renderArModal(card);
+            } else if (cardId === 'ap') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'block';
+                this.renderApModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
+                apContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');

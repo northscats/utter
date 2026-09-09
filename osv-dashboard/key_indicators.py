@@ -465,7 +465,7 @@ def _sub_opening_balance(source, account, sub, start, credit=False):
     return round(max(0.0, value), 2)
 
 
-def _sub_balance_analytics(source, account, sub, end):
+def _sub_balance_analytics(source, account, sub, end, credit=False):
     """Return non-duplicated analytic balances at an exact report end."""
     acc = source['accounts'].get(account)
     if not acc:
@@ -487,7 +487,10 @@ def _sub_balance_analytics(source, account, sub, end):
         labels[key] = label
     result = []
     for key, rows in sorted(grouped.items(), key=lambda item: labels[item[0]]):
-        value = round(sum(max(0.0, row.get('skd', 0) - row.get('skk', 0))
+        value = round(sum(max(
+            0.0,
+            row.get('skk', 0) - row.get('skd', 0) if credit else
+            row.get('skd', 0) - row.get('skk', 0))
                           for row in rows), 2)
         result.append({
             'analytic_key': key,
@@ -495,6 +498,13 @@ def _sub_balance_analytics(source, account, sub, end):
             'value': value,
         })
     return result
+
+
+def _sub_turnover(source, account, sub, start, end, side):
+    """Return turnover for an exact subaccount without parent/child duplication."""
+    rows = _daily(source, account, start, end)
+    basis = _leaf_rows(rows, lambda row: _has_prefix(row, sub))
+    return _known_sum(basis, side) if basis else None
 
 
 def _top_balance(source, account, end, credit=False):
@@ -658,6 +668,33 @@ def build_key_indicators(source, period='month', date=None,
     ar_opening = _sub_opening_balance(source, '62', '62.01', start)
     ar_analytics = _sub_balance_analytics(source, '62', '62.01', end)
     ap, ap_reason = _sub_balance(source, '60', '60.01', end, credit=True)
+    ap_opening = _sub_opening_balance(
+        source, '60', '60.01', start, credit=True)
+    ap_analytics = _sub_balance_analytics(
+        source, '60', '60.01', end, credit=True)
+    ap_credit_turnover = _sub_turnover(
+        source, '60', '60.01', start, end, 'obk')
+    ap_components = [{
+        'account': '60.01',
+        'label': 'Поставщики и подрядчики',
+        'value': ap,
+        'reason': ap_reason,
+    }]
+    for account, label in (
+            ('68', 'Налоги и сборы'),
+            ('69', 'Страховые взносы'),
+            ('70', 'Расчёты с персоналом')):
+        value, reason = _top_balance(source, account, end, credit=True)
+        ap_components.append({
+            'account': account,
+            'label': label,
+            'value': value,
+            'reason': reason,
+        })
+    known_ap_values = [
+        item['value'] for item in ap_components if item['value'] is not None]
+    known_ap_total = (
+        round(sum(known_ap_values), 2) if known_ap_values else None)
     credit_parts = []
     credit_reasons = []
     for account in ('66', '67'):
@@ -703,6 +740,11 @@ def build_key_indicators(source, period='month', date=None,
                notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие ДЗ не задано.']),
         _card('ap', ap, 'RUB', 'max(СКк − СКд, 0) по 60.01',
               'Сальдо субсчёта 60.01', ap_reason,
+              opening_value=ap_opening,
+              analytics=ap_analytics,
+              credit_turnover=ap_credit_turnover,
+              known_total=known_ap_total,
+              components=ap_components,
               notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие КЗ не задано.']),
         _card('cogs', cogs, 'RUB', 'ОбД(90.02*)',
               'Суточные листовые обороты счёта 90',

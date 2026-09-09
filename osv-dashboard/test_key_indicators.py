@@ -114,6 +114,32 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(ar['analytics'][0]['value'], 100)
         self.assertIn('Покупатель А', ar['analytics'][0]['label'])
 
+    def test_ap_detail_exposes_components_opening_turnover_and_analytics(self):
+        report_row = dict(lvl=1, label='60.01', p0='60', p1='60.01',
+                          p2='', p3='', snd=0, snk=80, obd=0, obk=20,
+                          skd=0, skk=100)
+        supplier = day('2026-01-31', '60.01', p1='Поставщик А',
+                       obd=0, obk=20, snd=0, snk=80, skd=0, skk=100)
+        src = build_indicator_source({
+            '60': account('60', [supplier], [report_row]),
+            '68': account('68', [day('2026-01-31')],
+                          top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=12)),
+            '69': account('69', [day('2026-01-31')],
+                          top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=3)),
+            '70': account('70', [day('2026-01-31')],
+                          top=dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=5)),
+        })
+        ap = {x['id']: x for x in build_key_indicators(src)['cards']}['ap']
+        self.assertEqual(ap['value'], 100)
+        self.assertEqual(ap['opening_value'], 80)
+        self.assertEqual(ap['credit_turnover'], 20)
+        self.assertEqual(ap['known_total'], 120)
+        self.assertEqual(ap['analytics'][0]['value'], 100)
+        self.assertIn('Поставщик А', ap['analytics'][0]['label'])
+        self.assertEqual(
+            {item['account']: item['value'] for item in ap['components']},
+            {'60.01': 100, '68': 12, '69': 3, '70': 5})
+
     def test_collection_turnover_is_not_collection(self):
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31', obd=100, obk=90)])
