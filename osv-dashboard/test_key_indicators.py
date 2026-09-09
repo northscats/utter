@@ -98,6 +98,22 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(ar['value'], 12)
         self.assertIn('76', ar['notes'][0])
 
+    def test_ar_detail_exposes_opening_and_analytic_balance(self):
+        report_row = dict(lvl=1, label='62.01', p0='62', p1='62.01',
+                          p2='', p3='', snd=80, snk=0, obd=20, obk=0,
+                          skd=100, skk=0)
+        analytic = day('2026-01-31', '62.01', p1='Покупатель А',
+                       obd=20, obk=0, snd=80, snk=0, skd=100, skk=0)
+        src = build_indicator_source({
+            '62': account('62', [analytic], [report_row])
+        })
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        self.assertEqual(ar['value'], 100)
+        self.assertEqual(ar['opening_value'], 80)
+        self.assertEqual(len(ar['analytics']), 1)
+        self.assertEqual(ar['analytics'][0]['value'], 100)
+        self.assertIn('Покупатель А', ar['analytics'][0]['label'])
+
     def test_collection_turnover_is_not_collection(self):
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31', obd=100, obk=90)])

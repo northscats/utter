@@ -1343,6 +1343,195 @@
             }, 50);
         },
 
+        arRequirements() {
+            return {
+                fullDebt: 'Остатки из 1С по счетам 62 и 76: предприятие, контрагент, ИНН/КПП, договор, лицевой счёт, документ расчётов, субсчёт, аналитика, дебетовое и кредитовое сальдо, дата снимка и признак включения в дебиторскую задолженность.',
+                segments: 'Справочник категорий должников из 1С: контрагент, ИНН/КПП, договор, лицевой счёт, категория «Население / УК-ТСЖ / Бюджет / Прочие юрлица / Субсидии», дата начала и окончания действия категории.',
+                aging: 'Регистр задолженности из 1С: документ начисления, дата возникновения долга, расчётный период, договорный срок оплаты, дата наступления просрочки, исходная сумма, распределённые оплаты, корректировки, сторно, непогашенный остаток и количество дней просрочки на отчётную дату.',
+                overdue: 'Для просрочки свыше 180 дней нужны по каждому документу: дата возникновения, срок оплаты, непогашенный остаток, дата последнего погашения, корректировки и количество календарных дней просрочки.',
+                subsidy: 'Регистр субсидий и компенсаций из 1С: бюджет и программа, получатель, расчётный период, документ начисления дохода, подтверждённая сумма, ожидаемая дата компенсации, поступления, распределение поступлений и непогашенный остаток.',
+                status: 'Утверждённые правила оценки из 1С или финансовой политики: показатель, категория должника, пороги «Норма / Внимание / Критично», единица измерения, дата утверждения и период действия.'
+            };
+        },
+
+        arTooltip(overrides = {}) {
+            const required = this.arRequirements();
+            return Object.assign({
+                title: 'Подтверждённая дебиторская задолженность покупателей',
+                description: 'Дебетовое сальдо расчётов с покупателями по субсчёту 62.01 на выбранную дату.',
+                formula: 'ДЗ покупателей = max(СКд(62.01) − СКк(62.01), 0)',
+                detail: 'Счёт 76 не добавляется автоматически: он содержит разнородные расчёты. Отсутствующий счёт или аналитика не принимаются за ноль.',
+                required: required.fullDebt,
+                norm: 'Индивидуальный норматив не задан',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'конечное сальдо ОСВ 62.01'
+            }, overrides);
+        },
+
+        renderArModal(card) {
+            const container = document.getElementById('ki-ar-modal-content');
+            if (!container) return;
+            const required = this.arRequirements();
+            const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
+            const current = card.value;
+            const opening = card.opening_value;
+            const change = current !== null && current !== undefined &&
+                opening !== null && opening !== undefined ? current - opening : null;
+            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');
+            const ratio = current !== null && current !== undefined && revenueIsNet
+                ? current / revenueCard.value * 100 : null;
+            const period = state.data.period || {};
+            const startDate = period.start ? new Date(`${period.start}T00:00:00`) : null;
+            const endDate = period.end ? new Date(`${period.end}T00:00:00`) : null;
+            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;
+            const dso = current !== null && current !== undefined &&
+                opening !== null && opening !== undefined && revenueIsNet && days
+                ? ((opening + current) / 2) / revenueCard.value * days : null;
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+
+            const totalTip = this.arTooltip({
+                fact: rub(current),
+                required: current === null || current === undefined
+                    ? 'ОСВ счёта 62 с конечным дебетовым и кредитовым сальдо субсчёта 62.01 на выбранную дату.'
+                    : required.fullDebt,
+                deviation: 'Фактическое подтверждённое сальдо 62.01',
+                deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
+            });
+            const changeTip = this.arTooltip({
+                title: 'Изменение дебиторской задолженности',
+                description: 'Изменение подтверждённого сальдо 62.01 за выбранный период.',
+                formula: 'Δ ДЗ = ДЗ на конец периода − ДЗ на начало периода',
+                detail: 'Начальное и конечное сальдо должны иметь одинаковый состав субсчетов и аналитик.',
+                required: change === null ? 'ОСВ 62.01 с начальным и конечным дебетовым/кредитовым сальдо за один полный период.' : null,
+                fact: change === null ? 'Н/Д' : `${change >= 0 ? '+' : ''}${rub(change)}`,
+                deviation: change === null ? 'Нет сопоставимых границ периода' :
+                    (change > 0 ? 'Задолженность выросла' : change < 0 ? 'Задолженность снизилась' : 'Без изменения'),
+                deviationClass: change === null ? 'missing' : (change > 0 ? 'bad' : 'good'),
+                source: 'начальное и конечное сальдо ОСВ 62.01'
+            });
+            const dsoTip = this.arTooltip({
+                title: 'Оценочный DSO',
+                description: 'Бухгалтерская оценка числа дней выручки, находящихся в дебиторской задолженности.',
+                formula: 'DSO = [(ДЗ начало + ДЗ конец) / 2] / Выручка без НДС × дней в периоде',
+                detail: 'DSO не является фактическим средним сроком оплаты документов. При неполном периоде результат требует отдельного предупреждения.',
+                required: dso === null ? 'ОСВ 62.01 с начальным и конечным сальдо и ОСВ 90.01/90.03 за тот же полный период. Для фактического срока оплаты дополнительно нужен регистр распределённых оплат по документам.' : null,
+                fact: dso === null ? 'Н/Д' : `${dso.toFixed(0)} дней`,
+                deviation: dso === null ? 'Недостаточно сопоставимых данных' : 'Оценочный бухгалтерский показатель',
+                deviationClass: dso === null ? 'missing' : 'neutral',
+                source: 'ОСВ 62.01, 90.01 и 90.03'
+            });
+            const ratioTip = this.arTooltip({
+                title: 'Дебиторская задолженность к выручке',
+                description: 'Доля выручки выбранного периода, находящаяся в конечной задолженности покупателей.',
+                formula: 'ДЗ / Выручка = ДЗ 62.01 на конец / [ОбК(90.01) − ОбД(90.03)] × 100%',
+                detail: 'Период выручки всегда показывается явно. Брутто-выручка при отсутствии 90.03 не используется скрыто.',
+                required: ratio === null ? 'ОСВ 62.01 с конечным сальдо и ОСВ 90.01/90.03 за один сопоставимый период.' : null,
+                fact: pct(ratio), deviation: ratio === null ? 'Недостаточно данных' : 'Фактическое соотношение',
+                deviationClass: ratio === null ? 'missing' : 'neutral',
+                source: 'ОСВ 62.01, 90.01 и 90.03'
+            });
+
+            const analytics = card.analytics || [];
+            const rows = analytics.length ? analytics.map(row => {
+                const share = current ? row.value / current * 100 : null;
+                const analyticTip = this.arTooltip({
+                    title: `ДЗ по аналитике — ${row.label}`,
+                    description: 'Дебетовое сальдо 62.01 по фактическому пути аналитики из ОСВ.',
+                    formula: 'max(СКд − СКк, 0) по аналитике 62.01',
+                    detail: 'Строка не называется сегментом потребителей до загрузки справочника категорий.',
+                    required: required.segments, fact: rub(row.value),
+                    deviation: 'Фактическое сальдо ОСВ', deviationClass: 'neutral',
+                    source: 'аналитическое сальдо ОСВ 62.01'
+                });
+                const shareTip = this.arTooltip({
+                    title: `Доля в подтверждённой ДЗ — ${row.label}`,
+                    description: 'Доля аналитики в общей подтверждённой задолженности 62.01.',
+                    formula: 'Доля = ДЗ аналитики / общая ДЗ 62.01 × 100%',
+                    detail: 'Доля не включает несопоставленные дебетовые расчёты счёта 76.',
+                    required: null, fact: pct(share), deviation: 'Фактическая структура 62.01',
+                    deviationClass: 'neutral', source: 'ОСВ 62.01'
+                });
+                const overdueTip = this.arTooltip({
+                    title: `Просрочка — ${row.label}`,
+                    description: 'Непогашенная задолженность после наступления договорного срока оплаты.',
+                    formula: 'Просрочка = Σ непогашенных остатков документов с датой оплаты раньше отчётной даты',
+                    detail: 'Возраст бухгалтерского сальдо нельзя восстановить из одной итоговой строки ОСВ.',
+                    required: `${required.aging} ${required.segments}`,
+                    source: 'требуется регистр задолженности по документам'
+                });
+                const statusTip = this.arTooltip({
+                    title: `Статус задолженности — ${row.label}`,
+                    description: 'Оценка задолженности по утверждённым порогам предприятия.',
+                    formula: 'Статус определяется по доле, сроку просрочки и утверждённым порогам.',
+                    detail: 'Демонстрационные отраслевые значения макета не считаются нормативом предприятия.',
+                    required: `${required.aging} ${required.status} ${required.segments}`,
+                    source: 'требуются сроки задолженности и утверждённые пороги'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, analyticTip)}
+                    ${this.collectionCell(esc(rub(row.value)), analyticTip)}
+                    ${this.collectionCell(esc(pct(share)), shareTip)}
+                    ${this.collectionCell('Нужны данные', overdueTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', overdueTip, 'cash-value-missing')}
+                    ${this.collectionCell('Недостаточно данных', statusTip, 'cash-value-missing')}
+                </tr>`;
+            }).join('') : `<tr><td colspan="6" class="chart-empty">В ОСВ 62.01 нет аналитических сальдо на выбранную дату. ${esc(required.segments)}</td></tr>`;
+
+            const overdueTip = this.arTooltip({
+                title: 'Просроченная ДЗ свыше 180 дней',
+                description: 'Непогашенная задолженность, просроченная более чем на 180 календарных дней.',
+                formula: 'Σ непогашенных остатков, где отчётная дата − договорный срок оплаты > 180 дней',
+                detail: 'Дата бухгалтерской проводки не заменяет договорный срок оплаты.',
+                required: required.overdue, source: 'требуется регистр задолженности по документам'
+            });
+            const agingTip = this.arTooltip({
+                title: 'Старение дебиторской задолженности',
+                description: 'Распределение непогашенного долга по интервалам 0–30, 31–90, 91–180, 181–365 и более 365 дней.',
+                formula: 'Возраст = отчётная дата − договорный срок оплаты документа',
+                detail: 'График не строится из демонстрационных значений и не заполняется нулями.',
+                required: required.aging, source: 'требуется регистр задолженности по документам'
+            });
+            const subsidyTip = this.arTooltip({
+                title: 'Задолженность по субсидиям и компенсациям',
+                description: 'Подтверждённые, но не компенсированные бюджетом суммы.',
+                formula: 'ДЗ субсидий = подтверждённая сумма − распределённые поступления',
+                detail: 'Весь дебет счёта 76 нельзя считать субсидиями.',
+                required: required.subsidy, source: 'требуется регистр субсидий и подтверждённая аналитика 76'
+            });
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>В расчёт включена только подтверждённая ДЗ покупателей 62.01.</strong>
+                    Дебетовое сальдо счёта 76 добавляется только после утверждённого сопоставления аналитик.</div>
+                <div class="collection-summary ar-summary">
+                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), 'сальдо 62.01', totalTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Изменение ДЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
+                    ${this.cashMetricCard('Оценочный DSO', dso === null ? 'Нужны данные' : `${dso.toFixed(0)} дней`, 'бухгалтерская оценка', dsoTip, dso === null)}
+                    ${this.cashMetricCard('ДЗ / Выручка', pct(ratio), period.label || 'выбранный период', ratioTip, ratio === null)}
+                </div>
+                <div class="modal-section-title">Динамика подтверждённой ДЗ 62.01</div>
+                <div class="modal-chart-wrap ar-line-chart" id="ki-ar-line-chart"></div>
+                <div class="modal-section-title">Детализация по фактическим аналитикам 62.01</div>
+                <div class="revenue-classification-note">Аналитики не относятся к населению, УК/ТСЖ, бюджету или другим сегментам автоматически. Для этого нужен справочник категорий должников из 1С.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table ar-detail-table">
+                    <thead><tr><th>Аналитика 1С</th><th>ДЗ</th><th>Доля</th><th>Просрочка</th><th>Возраст долга</th><th>Статус</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Недоступные показатели макета</div>
+                <div class="revenue-missing-grid ar-missing-grid">
+                    ${this.cashMetricCard('Просрочка >180 дней', 'Нужны данные', 'документы и сроки оплаты', overdueTip, true)}
+                    ${this.cashMetricCard('Старение задолженности', 'Нужны данные', 'непогашенные остатки по документам', agingTip, true)}
+                    ${this.cashMetricCard('ДЗ по сегментам', 'Нужны данные', 'категории должников', this.arTooltip({title:'ДЗ по сегментам потребителей', required: required.segments}), true)}
+                    ${this.cashMetricCard('ДЗ по субсидиям', 'Нужны данные', 'отдельный регистр компенсаций', subsidyTip, true)}
+                </div>`;
+            setTimeout(() => this.renderBarChart(
+                card.series || [], 'RUB', 'ki-ar-line-chart', card), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -1626,29 +1815,41 @@
             const cashContent = document.getElementById('ki-cash-modal-content');
             const revenueContent = document.getElementById('ki-revenue-modal-content');
             const collectionContent = document.getElementById('ki-collection-modal-content');
+            const arContent = document.getElementById('ki-ar-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
                 genericContent.style.display = 'none';
                 cashContent.style.display = 'none';
                 collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
             } else if (cardId === 'collection') {
                 genericContent.style.display = 'none';
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
+                arContent.style.display = 'none';
                 collectionContent.style.display = 'block';
                 this.renderCollectionModal(card);
+            } else if (cardId === 'ar') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'block';
+                this.renderArModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');

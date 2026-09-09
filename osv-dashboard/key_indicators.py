@@ -443,6 +443,60 @@ def _sub_balance(source, account, sub, end, credit=False):
     return round(max(0.0, value), 2), None
 
 
+def _sub_opening_balance(source, account, sub, start, credit=False):
+    """Return a subaccount opening balance only from an exact report boundary."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return None
+    reports = list(acc.get('balance_reports') or [])
+    if acc.get('report_start') == start.isoformat():
+        reports.append({
+            'report_start': acc.get('report_start'),
+            'rows': acc.get('rows') or [],
+        })
+    report = next((item for item in reversed(reports)
+                   if item.get('report_start') == start.isoformat()), None)
+    row = next((item for item in (report.get('rows') if report else []) or []
+                if item.get('label') == sub), None)
+    if not row:
+        return None
+    value = row.get('snk', 0) - row.get('snd', 0) if credit else \
+        row.get('snd', 0) - row.get('snk', 0)
+    return round(max(0.0, value), 2)
+
+
+def _sub_balance_analytics(source, account, sub, end):
+    """Return non-duplicated analytic balances at an exact report end."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return []
+    observations = (acc.get('balance_observations') or []) + acc.get('daily', [])
+    explicit = [
+        row for row in observations
+        if row.get('date') == end.isoformat()
+        and _has_prefix(row, sub)
+        and _analytic_parts(row)
+        and any(key in row for key in ('skd', 'skk'))
+    ]
+    basis = _leaf_rows(explicit, lambda row: True)
+    grouped = defaultdict(list)
+    labels = {}
+    for row in basis:
+        key, label = _analytic_identity(row)
+        grouped[key].append(row)
+        labels[key] = label
+    result = []
+    for key, rows in sorted(grouped.items(), key=lambda item: labels[item[0]]):
+        value = round(sum(max(0.0, row.get('skd', 0) - row.get('skk', 0))
+                          for row in rows), 2)
+        result.append({
+            'analytic_key': key,
+            'label': labels[key],
+            'value': value,
+        })
+    return result
+
+
 def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
@@ -601,6 +655,8 @@ def build_key_indicators(source, period='month', date=None,
             })
 
     ar, ar_reason = _sub_balance(source, '62', '62.01', end)
+    ar_opening = _sub_opening_balance(source, '62', '62.01', start)
+    ar_analytics = _sub_balance_analytics(source, '62', '62.01', end)
     ap, ap_reason = _sub_balance(source, '60', '60.01', end, credit=True)
     credit_parts = []
     credit_reasons = []
@@ -642,7 +698,9 @@ def build_key_indicators(source, period='month', date=None,
                         'reason': 'ОСВ не содержит сроков возникновения и погашения долга'}]),
         _card('ar', ar, 'RUB', 'max(СКд − СКк, 0) по 62.01',
               'Сальдо субсчёта 62.01', ar_reason,
-              notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие ДЗ не задано.']),
+               opening_value=ar_opening,
+               analytics=ar_analytics,
+               notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие ДЗ не задано.']),
         _card('ap', ap, 'RUB', 'max(СКк − СКд, 0) по 60.01',
               'Сальдо субсчёта 60.01', ap_reason,
               notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие КЗ не задано.']),

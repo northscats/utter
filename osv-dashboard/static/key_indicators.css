@@ -474,13 +474,18 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .collection-detail-table tbody tr:hover { background:#F9FAFB; }
 .collection-detail-table .cash-value-missing { color:#B45309; font-size:10px; white-space:nowrap; }
 .collection-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.ar-summary { margin-bottom:18px; }
+.ar-line-chart { margin-top:0; height:270px; }
+.ar-detail-table { min-width:920px; }
+.ar-detail-table th:first-child { min-width:280px; }
+.ar-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media (max-width:820px) {
   .collection-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .collection-chart-grid { grid-template-columns:1fr; }
 }
 @media (max-width:560px) {
   .revenue-missing-grid { grid-template-columns:1fr; }
-  .collection-summary, .collection-missing-grid { grid-template-columns:1fr; }
+  .collection-summary, .collection-missing-grid, .ar-missing-grid { grid-template-columns:1fr; }
 }
 .cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
 .cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
