@@ -967,6 +967,7 @@ tr:last-child td{border-bottom:0}
             {% else %}
               <div class="ac-day ac-d-{{ cell.status }}{% if cell.is_today %} ac-d-today{% endif %}"
                    data-account-indexes="{{ cell.account_indexes|join(' ') }}"
+                    data-report-day="{{ cell.day }}"
                    data-tip="{{ cell.date }}{% if cell.status == 'ok' %} ✓{% elif cell.status == 'monthly' %} месячная ОСВ{% elif cell.status == 'missing' %} пропущен{% elif cell.status == 'future' %} будущее{% endif %}">
               </div>
             {% endif %}
@@ -1016,7 +1017,7 @@ tr:last-child td{border-bottom:0}
       </div>
       <div class="ac-report-body" id="ac-report-body"></div>
       <div class="ac-report-foot">
-        <button type="button" class="ac-report-btn" id="ac-report-download">Скачать таблицу CSV</button>
+        <button type="button" class="ac-report-btn" id="ac-report-download">Скачать выгрузку Excel</button>
         <button type="button" class="ac-report-btn primary" id="ac-report-done">Закрыть</button>
       </div>
     </div>
@@ -1481,9 +1482,12 @@ function saveReq() {
   var accountButtons = Array.from(document.querySelectorAll('[data-report-account]'));
   var monthCards = Array.from(document.querySelectorAll('[data-report-month]'));
   var reportRows = [];
+  var reportMonths = [];
   var selectionMode = false;
   var year = {{ ac.year|tojson }};
   var companyName = {{ company.name|tojson }};
+  var excelReportUrl = {{ url_for('coverage_report_excel', company_id=company.id)|tojson }};
+  var csrfToken = {{ csrf_token()|tojson }};
   var fullMonthNames = [
     '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
     'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
@@ -1503,28 +1507,18 @@ function saveReq() {
     }
   }
 
-  function monthHasAccount(month, accountButton){
+  function dayHasAccount(day, accountButton){
     var index = accountButton.getAttribute('data-coverage-account');
     if(index === null) return false;
-    return Array.from(month.querySelectorAll('.ac-day[data-account-indexes]')).some(function(day){
-      var indexes = ' ' + (day.getAttribute('data-account-indexes') || '') + ' ';
-      return indexes.indexOf(' ' + index + ' ') !== -1;
-    });
+    var indexes = ' ' + (day.getAttribute('data-account-indexes') || '') + ' ';
+    return indexes.indexOf(' ' + index + ' ') !== -1;
   }
 
-  function rowFor(month, accountButton, automatic){
-    var monthNumber = Number(month.getAttribute('data-report-month'));
-    var hasData = monthHasAccount(month, accountButton);
-    return {
-      account: accountButton.getAttribute('data-report-account'),
-      accountName: accountButton.getAttribute('data-report-account-name'),
-      month: monthNumber,
-      period: fullMonthNames[monthNumber] + ' ' + year,
-      status: hasData
-        ? 'Выбрано для дополнительного запроса'
-        : 'Данные отсутствуют',
-      automatic: automatic
-    };
+  function missingDays(month, accountButton){
+    return Array.from(month.querySelectorAll('.ac-day[data-report-day]'))
+      .filter(function(day){ return !day.classList.contains('ac-d-future'); })
+      .filter(function(day){ return !dayHasAccount(day, accountButton); })
+      .map(function(day){ return Number(day.getAttribute('data-report-day')); });
   }
 
   function escapeHtml(value){
@@ -1533,24 +1527,11 @@ function saveReq() {
     });
   }
 
-  function renderReport(rows, automatic){
-    var grouped = {};
-    rows.forEach(function(row){
-      if(!grouped[row.account]){
-        grouped[row.account] = {
-          account: row.account,
-          accountName: row.accountName,
-          periods: [],
-          status: row.automatic
-            ? 'Предоставить ОСВ по счёту за отсутствующие периоды'
-            : 'Предоставить ОСВ по счёту за выбранные периоды'
-        };
-      }
-      grouped[row.account].periods.push(row.period);
+  function renderReport(rows, months, automatic){
+    reportRows = rows;
+    reportMonths = months.map(function(month){
+      return Number(month.getAttribute('data-report-month'));
     });
-    reportRows = Object.keys(grouped).sort(function(a, b){
-      return a.localeCompare(b, 'ru', {numeric:true});
-    }).map(function(account){ return grouped[account]; });
     modalMeta.textContent = automatic
       ? 'Автоматически: недостающие данные за ' + year + ' год'
       : 'По выбранным счетам и месяцам · ' + year + ' год';
@@ -1559,15 +1540,21 @@ function saveReq() {
         '<div class="ac-report-empty">Недостающих данных за выбранный период не обнаружено.</div>';
       document.getElementById('ac-report-download').disabled = true;
     }else{
+      var monthHeaders = reportMonths.map(function(month){
+        return '<th>' + escapeHtml(fullMonthNames[month]) + '</th>';
+      }).join('');
       var bodyRows = reportRows.map(function(row){
+        var dayCells = reportMonths.map(function(month){
+          var days = row.daysByMonth[String(month)] || [];
+          return '<td>' + (days.length ? escapeHtml(days.join(', ')) : '—') + '</td>';
+        }).join('');
         return '<tr><td>' + escapeHtml(row.account) + '</td>' +
           '<td>' + escapeHtml(row.accountName) + '</td>' +
-          '<td>' + escapeHtml(row.periods.join(', ')) + '</td>' +
-          '<td>' + escapeHtml(row.status) + '</td></tr>';
+          dayCells + '</tr>';
       }).join('');
       modalBody.innerHTML =
         '<table class="ac-report-table"><thead><tr>' +
-        '<th>Счёт</th><th>Расшифровка</th><th>Период</th><th>Что необходимо предоставить</th>' +
+        '<th>Счёт</th><th>Расшифровка</th>' + monthHeaders +
         '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
       document.getElementById('ac-report-download').disabled = false;
     }
@@ -1576,39 +1563,48 @@ function saveReq() {
   }
 
   function buildReport(){
-    var rows = [];
+    var months;
+    var accounts;
     if(selectionMode){
-      var selectedMonths = monthCards.filter(function(month){
+      months = monthCards.filter(function(month){
         return month.classList.contains('report-selected');
       });
-      var selectedAccounts = accountButtons.filter(function(account){
+      accounts = accountButtons.filter(function(account){
         return account.classList.contains('report-selected');
       });
-      if(!selectedMonths.length || !selectedAccounts.length){
+      if(!months.length || !accounts.length){
         hint.textContent = 'Выберите хотя бы один месяц и один счёт';
         return;
       }
-      selectedMonths.forEach(function(month){
-        selectedAccounts.forEach(function(account){
-          rows.push(rowFor(month, account, false));
-        });
-      });
     }else{
-      var elapsedMonths = monthCards.filter(function(month){
-        return !month.classList.contains('ac-upl-future');
-      });
-      elapsedMonths.forEach(function(month){
-        accountButtons.forEach(function(account){
-          if(!monthHasAccount(month, account)){
-            rows.push(rowFor(month, account, true));
-          }
-        });
-      });
+      months = monthCards.slice();
+      accounts = accountButtons.slice();
     }
-    rows.sort(function(a, b){
-      return a.month - b.month || a.account.localeCompare(b.account, 'ru', {numeric:true});
+    months.sort(function(a, b){
+      return Number(a.getAttribute('data-report-month')) -
+        Number(b.getAttribute('data-report-month'));
     });
-    renderReport(rows, !selectionMode);
+    var rows = accounts.map(function(account){
+      var daysByMonth = {};
+      months.forEach(function(month){
+        var monthNumber = month.getAttribute('data-report-month');
+        daysByMonth[monthNumber] = missingDays(month, account);
+      });
+      return {
+        account: account.getAttribute('data-report-account'),
+        accountName: account.getAttribute('data-report-account-name'),
+        daysByMonth: daysByMonth
+      };
+    }).filter(function(row){
+      if(selectionMode) return true;
+      return Object.keys(row.daysByMonth).some(function(month){
+        return row.daysByMonth[month].length > 0;
+      });
+    });
+    rows.sort(function(a, b){
+      return a.account.localeCompare(b.account, 'ru', {numeric:true});
+    });
+    renderReport(rows, months, !selectionMode);
   }
 
   function closeModal(){
@@ -1616,32 +1612,40 @@ function saveReq() {
     buildButton.focus();
   }
 
-  function csvCell(value){
-    return '"' + String(value).replace(/"/g, '""') + '"';
-  }
-
-  function downloadReport(){
+  async function downloadReport(){
     if(!reportRows.length) return;
-    var lines = [
-      [companyName],
-      ['Запрос недостающих данных', year + ' год'],
-      [],
-      ['Счёт', 'Расшифровка', 'Период', 'Что необходимо предоставить']
-    ];
-    reportRows.forEach(function(row){
-      lines.push([row.account, row.accountName, row.periods.join(', '), row.status]);
-    });
-    var csv = '\uFEFF' + lines.map(function(line){
-      return line.map(csvCell).join(';');
-    }).join('\r\n');
-    var blobUrl = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
-    var link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = 'Запрос_данных_' + year + '.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(blobUrl);
+    var button = document.getElementById('ac-report-download');
+    var originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Формируем Excel…';
+    try{
+      var response = await fetch(excelReportUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({
+          year: year,
+          months: reportMonths,
+          rows: reportRows
+        })
+      });
+      if(!response.ok) throw new Error('Не удалось сформировать Excel');
+      var blobUrl = URL.createObjectURL(await response.blob());
+      var link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = 'Запрос_данных_' + year + '.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(blobUrl);
+    }catch(error){
+      hint.textContent = error.message;
+    }finally{
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 
   selectButton.addEventListener('click', function(){

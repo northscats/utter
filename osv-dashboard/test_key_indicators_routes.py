@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from datetime import date
+from io import BytesIO
 from unittest.mock import patch
 
 _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
@@ -215,6 +216,38 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         )
         self.assertEqual(len(buttons), 20)
         self.assertFalse(buttons['01']['available'])
+
+    def test_coverage_report_downloads_readable_excel_matrix(self):
+        payload = {
+            'year': 2026,
+            'months': [1, 3],
+            'rows': [{
+                'account': '01',
+                'accountName': 'Подменять серверное название нельзя',
+                'daysByMonth': {'1': [1, 2, 15], '3': [4, 5]},
+            }],
+        }
+        response = self.client('kpi_allowed').post(
+            f'/company/{self.company}/coverage-report.xlsx',
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.mimetype,
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+        from openpyxl import load_workbook
+        workbook = load_workbook(BytesIO(response.data), read_only=True)
+        sheet = workbook['Запрос данных']
+        self.assertEqual(sheet['A4'].value, 'Счёт')
+        self.assertEqual(sheet['C4'].value, 'Январь')
+        self.assertEqual(sheet['D4'].value, 'Март')
+        self.assertEqual(sheet['A5'].value, '01')
+        self.assertEqual(sheet['B5'].value, 'Основные средства')
+        self.assertEqual(sheet['C5'].value, '1, 2, 15')
+        self.assertEqual(sheet['D5'].value, '4, 5')
+        workbook.close()
 
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
         source = {

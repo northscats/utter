@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+from io import BytesIO
 from datetime import datetime, timedelta, timezone
 import re
 import time
@@ -13,7 +14,7 @@ import threading
 
 import bcrypt
 from flask import (Flask, Response, abort, g, has_request_context, jsonify,
-                   redirect, render_template, request, send_from_directory,
+                   redirect, render_template, request, send_file, send_from_directory,
                    url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
@@ -52,6 +53,29 @@ DOCS_STORAGE = os.path.join(BASE, 'uploads', 'docs')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 os.makedirs(DOCS_STORAGE, exist_ok=True)
+
+ANALYTICAL_ACCOUNT_NAMES = {
+    '01': 'Основные средства',
+    '08': 'Вложения во внеоборотные активы',
+    '10': 'Материалы',
+    '20': 'Основное производство',
+    '26': 'Общехозяйственные расходы',
+    '44': 'Расходы на продажу',
+    '50': 'Касса',
+    '51': 'Расчётные счета',
+    '52': 'Валютные счета',
+    '55': 'Специальные счета в банках',
+    '60': 'Расчёты с поставщиками и подрядчиками',
+    '62': 'Расчёты с покупателями и заказчиками',
+    '66': 'Краткосрочные кредиты и займы',
+    '67': 'Долгосрочные кредиты и займы',
+    '68': 'Расчёты по налогам и сборам',
+    '69': 'Расчёты по социальному страхованию и обеспечению',
+    '70': 'Расчёты с персоналом по оплате труда',
+    '76': 'Расчёты с разными дебиторами и кредиторами',
+    '90': 'Продажи',
+    '91': 'Прочие доходы и расходы',
+}
 
 _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
@@ -2789,40 +2813,14 @@ def _annual_coverage(company_id, year=None):
         key=_account_sort_key,
     )
     acc_indexes = {acc: index for index, acc in enumerate(year_accs)}
-    analytical_accs = {
-        '01', '08', '10', '20', '26', '44', '50', '51', '52', '55',
-        '60', '62', '66', '67', '68', '69', '70', '76', '90', '91',
-    }
-    analytical_account_names = {
-        '01': 'Основные средства',
-        '08': 'Вложения во внеоборотные активы',
-        '10': 'Материалы',
-        '20': 'Основное производство',
-        '26': 'Общехозяйственные расходы',
-        '44': 'Расходы на продажу',
-        '50': 'Касса',
-        '51': 'Расчётные счета',
-        '52': 'Валютные счета',
-        '55': 'Специальные счета в банках',
-        '60': 'Расчёты с поставщиками и подрядчиками',
-        '62': 'Расчёты с покупателями и заказчиками',
-        '66': 'Краткосрочные кредиты и займы',
-        '67': 'Долгосрочные кредиты и займы',
-        '68': 'Расчёты по налогам и сборам',
-        '69': 'Расчёты по социальному страхованию и обеспечению',
-        '70': 'Расчёты с персоналом по оплате труда',
-        '76': 'Расчёты с разными дебиторами и кредиторами',
-        '90': 'Продажи',
-        '91': 'Прочие доходы и расходы',
-    }
     account_buttons = [
         dict(
             number=acc,
-            name=analytical_account_names[acc],
+            name=ANALYTICAL_ACCOUNT_NAMES[acc],
             available=acc in acc_indexes,
             index=acc_indexes.get(acc),
         )
-        for acc in sorted(analytical_accs, key=_account_sort_key)
+        for acc in sorted(ANALYTICAL_ACCOUNT_NAMES, key=_account_sort_key)
     ]
     date_acc_indexes = {}
     for row in year_rows:
@@ -2933,6 +2931,136 @@ def _annual_coverage(company_id, year=None):
         accs=year_accs,
         account_buttons=account_buttons,
         has_any=bool(all_dates or all_uploads or source_accs),
+    )
+
+
+@app.route('/company/<int:company_id>/coverage-report.xlsx', methods=['POST'])
+@login_required
+def coverage_report_excel(company_id):
+    """Build a readable Excel matrix for a missing-data request."""
+    company = _require_company_access(company_id)
+    payload = request.get_json(silent=True) or {}
+    raw_months = payload.get('months')
+    raw_rows = payload.get('rows')
+    if not isinstance(raw_months, list) or not isinstance(raw_rows, list):
+        return jsonify(error='Некорректные данные отчёта'), 400
+
+    months = []
+    for value in raw_months[:12]:
+        try:
+            month = int(value)
+        except (TypeError, ValueError):
+            return jsonify(error='Некорректный месяц'), 400
+        if month not in range(1, 13) or month in months:
+            return jsonify(error='Некорректный список месяцев'), 400
+        months.append(month)
+    if not months:
+        return jsonify(error='Не выбраны месяцы'), 400
+    months.sort()
+
+    normalized_rows = []
+    seen_accounts = set()
+    for item in raw_rows[:len(ANALYTICAL_ACCOUNT_NAMES)]:
+        if not isinstance(item, dict):
+            return jsonify(error='Некорректная строка отчёта'), 400
+        account = str(item.get('account', ''))
+        if account not in ANALYTICAL_ACCOUNT_NAMES or account in seen_accounts:
+            return jsonify(error='Некорректный счёт'), 400
+        seen_accounts.add(account)
+        raw_days = item.get('daysByMonth', {})
+        if not isinstance(raw_days, dict):
+            return jsonify(error='Некорректные даты отчёта'), 400
+        days_by_month = {}
+        for month in months:
+            values = raw_days.get(str(month), raw_days.get(month, []))
+            if not isinstance(values, list):
+                return jsonify(error='Некорректные дни отчёта'), 400
+            days = []
+            for value in values[:31]:
+                try:
+                    day = int(value)
+                except (TypeError, ValueError):
+                    return jsonify(error='Некорректный день'), 400
+                if day not in range(1, 32):
+                    return jsonify(error='Некорректный день'), 400
+                if day not in days:
+                    days.append(day)
+            days_by_month[month] = sorted(days)
+        normalized_rows.append((account, days_by_month))
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    month_names = [
+        '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+        'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+    ]
+    year = payload.get('year')
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        year = datetime.now().year
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = 'Запрос данных'
+    last_column = 2 + len(months)
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_column)
+    sheet['A1'] = f'Запрос недостающих данных — {company.name}'
+    sheet['A1'].font = Font(size=15, bold=True, color='FFFFFF')
+    sheet['A1'].fill = PatternFill('solid', fgColor='1F7A9C')
+    sheet['A1'].alignment = Alignment(horizontal='center', vertical='center')
+    sheet.row_dimensions[1].height = 27
+    sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=last_column)
+    sheet['A2'] = f'Отчётный год: {year}. В ячейках указаны дни, за которые требуется предоставить данные.'
+    sheet['A2'].alignment = Alignment(horizontal='left', vertical='center')
+
+    headers = ['Счёт', 'Расшифровка'] + [month_names[month] for month in months]
+    thin = Side(style='thin', color='C8D3DA')
+    for column, header in enumerate(headers, 1):
+        cell = sheet.cell(row=4, column=column, value=header)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill('solid', fgColor='315468')
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for row_number, (account, days_by_month) in enumerate(normalized_rows, 5):
+        values = [account, ANALYTICAL_ACCOUNT_NAMES[account]]
+        values.extend(
+            ', '.join(str(day) for day in days_by_month[month]) or '—'
+            for month in months
+        )
+        for column, value in enumerate(values, 1):
+            cell = sheet.cell(row=row_number, column=column, value=value)
+            cell.alignment = Alignment(
+                horizontal='center' if column != 2 else 'left',
+                vertical='top',
+                wrap_text=True,
+            )
+            cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            if column == 1:
+                cell.font = Font(bold=True)
+            if row_number % 2 == 0:
+                cell.fill = PatternFill('solid', fgColor='F3F7F9')
+
+    sheet.column_dimensions['A'].width = 10
+    sheet.column_dimensions['B'].width = 42
+    for column in range(3, last_column + 1):
+        sheet.column_dimensions[get_column_letter(column)].width = 18
+    sheet.freeze_panes = 'C5'
+    sheet.auto_filter.ref = f'A4:{get_column_letter(last_column)}{max(4, 4 + len(normalized_rows))}'
+    sheet.page_setup.orientation = 'landscape'
+    sheet.sheet_view.showGridLines = False
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f'Запрос_данных_{year}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
 
 
