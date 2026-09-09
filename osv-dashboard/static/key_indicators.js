@@ -373,12 +373,23 @@
                 }
                 
                 const ariaLabel = `${card.title}. Значение: ${formatted.val} ${formatted.u}. Статус: ${card.status_label || card.status}.`;
+                const cashTooltip = id === 'cash' ? this.cashTooltip({
+                    title: 'Денежные средства предприятия',
+                    description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта. Средства на счёте 55 могут иметь ограничения по использованию.',
+                    formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                    detail: 'Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.',
+                    norm: 'Индивидуальный норматив предприятия не задан',
+                    fact: `${formatted.val} ${formatted.u}`,
+                    deviation: card.delta ? `${card.delta.value >= 0 ? '+' : ''}${this.formatValue(card.delta.value, 'RUB').val} млн ₽ к предыдущей сопоставимой дате` : 'Нет сопоставимой предыдущей даты',
+                    source: 'Конечные сальдо загруженных ОСВ по счетам 50, 51, 52 и 55'
+                }) : '';
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable ${id === 'cash' ? 'cash-tooltip-host' : ''}" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${deltaHtml}
+                   ${cashTooltip}
                 </div>
                 `;
             });
@@ -629,12 +640,44 @@
             badge.style.display = 'inline-block';
         },
         
-        cashMetricCard(label, value, sub, tip, needsData) {
+        cashTooltip(data) {
+            const deviationClass = data.required ? 'missing' : 'good';
+            return `<div class="metric-rich-tooltip" role="tooltip">
+                <div class="metric-rich-title">${esc(data.title)}</div>
+                <div class="metric-rich-section">
+                    <div class="metric-rich-label">Описание</div>
+                    <div>${esc(data.description)}</div>
+                </div>
+                <div class="metric-rich-section">
+                    <div class="metric-rich-label">Формула расчёта</div>
+                    <div class="metric-rich-formula">${esc(data.formula)}</div>
+                </div>
+                <div class="metric-rich-section">
+                    <div class="metric-rich-label">Детализация</div>
+                    <div>${esc(data.detail)}</div>
+                </div>
+                ${data.required ? `<div class="metric-rich-section">
+                    <div class="metric-rich-label">Требуемые данные из 1С</div>
+                    <div class="metric-rich-required">${esc(data.required)}</div>
+                </div>` : ''}
+                <div class="metric-rich-section">
+                    <div class="metric-rich-label">Нормативное значение и факт</div>
+                    <div class="metric-rich-facts">
+                        <div class="metric-rich-fact-row"><span>Норматив:</span><strong>${esc(data.norm)}</strong></div>
+                        <div class="metric-rich-fact-row"><span>Факт:</span><strong>${esc(data.fact)}</strong></div>
+                        <div class="metric-rich-fact-row"><span>Отклонение:</span><strong class="${deviationClass}">${esc(data.deviation)}</strong></div>
+                    </div>
+                </div>
+                <div class="metric-rich-source">Основание: ${esc(data.source)}</div>
+            </div>`;
+        },
+
+        cashMetricCard(label, value, sub, tooltip, needsData) {
             return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0">
                 <div class="cash-analysis-label">${esc(label)}</div>
                 <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : 'cash-value-ok'}">${esc(value)}</div>
                 <div class="cash-analysis-sub">${esc(sub)}</div>
-                <div class="cash-hover-tip"><strong>${needsData ? 'Какие данные нужны из 1С' : 'Методика расчёта'}</strong>${esc(tip)}</div>
+                ${this.cashTooltip(tooltip)}
             </div>`;
         },
 
@@ -653,6 +696,12 @@
                 '52': 'Балансовая стоимость валютных средств в рублях',
                 '55': 'Аккредитивы, депозиты и иные специальные счета'
             };
+            const accountDetails = {
+                '50': 'Наличные деньги в кассах предприятия. Подотчётные суммы учитываются отдельно и в остаток счёта 50 не включаются.',
+                '51': 'Денежные средства на расчётных счетах в рублях. Назначение конкретного банковского счёта определяется только из банковской аналитики 1С.',
+                '52': 'Валютные денежные средства в рублёвой бухгалтерской оценке. Повторное умножение остатка ОСВ на курс валюты не выполняется.',
+                '55': 'Аккредитивы, депозиты, чековые книжки и специальные счета. Часть средств может быть ограничена или иметь целевое назначение.'
+            };
             const parts = {};
             (card.breakdown || []).forEach(item => {
                 const match = String(item.label || '').match(/(\d{2})/);
@@ -669,8 +718,22 @@
                 const value = Object.prototype.hasOwnProperty.call(parts, account) ? parts[account] : null;
                 const formatted = this.formatValue(value, card.unit);
                 const share = value !== null && total !== 0 ? `${(value / total * 100).toFixed(1)}%` : '—';
+                const required = value === null
+                    ? `ОСВ по счёту ${account} на выбранную дату с начальным и конечным дебетовым/кредитовым сальдо.`
+                    : null;
+                const rowTooltip = this.cashTooltip({
+                    title: `${names[account]} — счёт ${account}`,
+                    description: comments[account] + '.',
+                    formula: `Остаток счёта ${account} = СКд(${account}) − СКк(${account})`,
+                    detail: accountDetails[account],
+                    required,
+                    norm: 'Индивидуальный норматив не задан',
+                    fact: `${formatted.val} ${formatted.u}${share !== '—' ? ` · ${share} от денежных средств` : ''}`,
+                    deviation: required ? 'Расчёт невозможен' : 'Оценивается после задания норматива',
+                    source: required ? `требуется ОСВ по счёту ${account}` : `ОСВ по счёту ${account}`
+                });
                 rows += `<tr>
-                    <td><strong>Счёт ${account}</strong> — ${esc(names[account])}</td>
+                    <td><div class="cash-tooltip-host" tabindex="0"><strong>Счёт ${account}</strong> — ${esc(names[account])}${rowTooltip}</div></td>
                     <td>${esc(formatted.val)} ${esc(formatted.u)}</td>
                     <td>${esc(share)}</td>
                     <td>${esc(comments[account])}</td>
@@ -686,6 +749,71 @@
             const changeTip = delta === null
                 ? 'Нужны конечные сальдо счетов 50, 51, 52 и 55 минимум на две сопоставимые даты с одинаковым составом счетов. ' + fullNcfTip
                 : 'Показано изменение бухгалтерского остатка между двумя сопоставимыми датами. Это не классифицированный отчёт о движении денежных средств. ' + fullNcfTip;
+            const cashTipData = {
+                title: 'Денежные средства предприятия',
+                description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта. Средства на счёте 55 могут иметь ограничения по использованию.',
+                formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                detail: 'Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.',
+                norm: 'Индивидуальный норматив предприятия не задан',
+                fact: `${cashFormatted.val} ${cashFormatted.u}`,
+                deviation: delta === null ? 'Нет сопоставимой предыдущей даты' : `${delta > 0 ? '+' : ''}${deltaFormatted.val} ${deltaFormatted.u}`,
+                source: 'конечные сальдо загруженных ОСВ по счетам 50, 51, 52 и 55'
+            };
+            const changeTipData = {
+                title: 'NCF / изменение денежных средств',
+                description: 'Изменение бухгалтерского остатка денежных средств между двумя сопоставимыми датами. Без статей ДДС это не полный отчёт о денежных потоках.',
+                formula: 'Изменение ДС = Остаток на конец периода − Остаток на конец предыдущего периода',
+                detail: 'Сравнение выполняется только при одинаковом составе счетов 50, 51, 52 и 55.',
+                required: delta === null ? changeTip : fullNcfTip,
+                norm: 'Положительное значение не является универсальной нормой',
+                fact: deltaText,
+                deviation: delta === null ? 'Расчёт невозможен' : 'Фактическое изменение остатка',
+                source: 'сопоставимые ОСВ; для полного NCF требуется аналитика движения денежных средств'
+            };
+            const currentLiquidityData = {
+                title: 'Коэффициент текущей ликвидности',
+                description: 'Показывает способность предприятия погасить краткосрочные обязательства за счёт оборотных активов.',
+                formula: 'КТЛ = Оборотные активы / Краткосрочные обязательства',
+                detail: 'Текущие 20 счетов не содержат полного состава оборотных активов и не разделяют все обязательства по срокам погашения.',
+                required: currentLiquidityTip,
+                norm: 'Задаётся утверждённой методикой предприятия',
+                fact: 'Н/Д',
+                deviation: 'Расчёт невозможен',
+                source: 'требуется бухгалтерский баланс или расширенная ОСВ'
+            };
+            const absoluteLiquidityData = {
+                title: 'Коэффициент абсолютной ликвидности',
+                description: 'Доля краткосрочных обязательств, которую можно погасить денежными средствами немедленно.',
+                formula: 'КАЛ = Денежные средства / Краткосрочные обязательства',
+                detail: 'Сумма денежных средств доступна, но краткосрочная часть обязательств без сроков погашения не определена.',
+                required: absoluteLiquidityTip,
+                norm: 'Задаётся утверждённой методикой предприятия',
+                fact: 'Н/Д',
+                deviation: 'Расчёт невозможен',
+                source: 'требуется аналитика сроков погашения обязательств из 1С'
+            };
+            const runwayData = {
+                title: 'Cash Runway',
+                description: 'Расчётное число дней, на которое хватит текущего денежного остатка при сохранении среднего темпа внешних платежей.',
+                formula: 'Cash Runway = Остаток денежных средств / Среднедневные внешние платежи',
+                detail: 'Обороты ОСВ включают внутренние переводы и не позволяют надёжно выделить внешний расход.',
+                required: runwayTip,
+                norm: 'Устанавливается финансовой политикой предприятия',
+                fact: 'Н/Д',
+                deviation: 'Расчёт невозможен',
+                source: 'требуются банковские и кассовые операции из 1С'
+            };
+            const fuelData = {
+                title: 'Обеспеченность топливом',
+                description: 'Количество дней работы, обеспеченное фактическим доступным запасом топлива.',
+                formula: 'Дни запаса = Натуральный остаток топлива / Среднесуточный расход',
+                detail: 'Денежное сальдо счёта 10 не заменяет натуральное количество топлива и производственный расход.',
+                required: fuelTip,
+                norm: 'Зависит от вида топлива, сезона и утверждённого норматива',
+                fact: 'Н/Д',
+                deviation: 'Расчёт невозможен',
+                source: 'требуется складская и производственная аналитика 1С'
+            };
 
             document.getElementById('ki-modal-title').textContent =
                 'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
@@ -696,32 +824,32 @@
                     Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
                     Средства счёта 55 могут иметь ограничения по использованию.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card"><div class="cash-summary-label">Денежные средства</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
-                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · бухгалтерский остаток</div></div>
-                    <div class="cash-summary-card"><div class="cash-summary-label">Изменение за период</div>
+                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · бухгалтерский остаток</div>${this.cashTooltip(cashTipData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение за период</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : 'cash-value-ok'}">${esc(deltaText)}</div>
-                        <div class="cash-summary-sub">к предыдущей сопоставимой дате</div></div>
-                    <div class="cash-summary-card"><div class="cash-summary-label">Текущая ликвидность</div>
+                        <div class="cash-summary-sub">к предыдущей сопоставимой дате</div>${this.cashTooltip(changeTipData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Текущая ликвидность</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
-                        <div class="cash-summary-sub">нет полного состава оборотных активов</div></div>
-                    <div class="cash-summary-card"><div class="cash-summary-label">Cash Runway</div>
+                        <div class="cash-summary-sub">нет полного состава оборотных активов</div>${this.cashTooltip(currentLiquidityData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Cash Runway</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
-                        <div class="cash-summary-sub">нет очищенного платёжного потока</div></div>
+                        <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>
                 </div>
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
                 <div style="overflow-x:auto"><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr><td>ИТОГО</td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
+                    <tbody>${rows}<tr><td><div class="cash-tooltip-host" tabindex="0">ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
-                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, 'СКд − СКк по счетам 50, 51, 52, 55', 'Используются конечные дебетовые и кредитовые сальдо загруженных ОСВ. Отсутствующий счёт не принимается за ноль.', false)}
-                    ${this.cashMetricCard('NCF / изменение ДС', deltaText, delta === null ? 'нет двух сопоставимых дат' : 'изменение бухгалтерского остатка', changeTip, delta === null)}
-                    ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityTip, true)}
-                    ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityTip, true)}
-                    ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayTip, true)}
-                    ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelTip, true)}
+                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, 'СКд − СКк по счетам 50, 51, 52, 55', cashTipData, false)}
+                    ${this.cashMetricCard('NCF / изменение ДС', deltaText, delta === null ? 'нет двух сопоставимых дат' : 'изменение бухгалтерского остатка', changeTipData, delta === null)}
+                    ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityData, true)}
+                    ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
+                    ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
+                    ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelData, true)}
                 </div>
                 <div class="modal-section-title">Динамика денежных средств</div>
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
@@ -772,14 +900,49 @@
                 <path d="${pathFor(changes)}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
             points.forEach((item, index) => {
                 if (item.value !== null && Number.isFinite(item.value)) {
-                    svg += `<circle cx="${x(index)}" cy="${y(item.value)}" r="4" fill="#3B82F6"><title>${esc(item.label)}: ${esc(item.value.toFixed(2))} млн ₽</title></circle>`;
+                    svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#3B82F6" tabindex="0"/>`;
                 }
                 if (changes[index].value !== null) {
-                    svg += `<circle cx="${x(index)}" cy="${y(changes[index].value)}" r="3" fill="#10B981"><title>${esc(item.label)}: изменение ${esc(changes[index].value.toFixed(2))} млн ₽</title></circle>`;
+                    svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="#10B981" tabindex="0"/>`;
                 }
                 svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
             });
-            container.innerHTML = svg + '</svg>';
+            container.innerHTML = svg + '</svg><div id="ki-cash-chart-tooltip"></div>';
+            const tipContainer = document.getElementById('ki-cash-chart-tooltip');
+            const showPointTip = point => {
+                const index = Number(point.dataset.index);
+                const isChange = point.dataset.kind === 'change';
+                const item = isChange ? changes[index] : points[index];
+                const previous = index > 0 ? points[index - 1] : null;
+                const data = isChange ? {
+                    title: `Изменение денежных средств — ${item.label}`,
+                    description: 'Разница между остатком денежных средств текущего и предыдущего сопоставимого месяца.',
+                    formula: 'Изменение = Остаток текущего месяца − Остаток предыдущего месяца',
+                    detail: previous ? `Сравниваются ${previous.label} и ${item.label}. Используется одинаковый состав доступных счетов 50, 51, 52 и 55.` : 'Предыдущий сопоставимый месяц отсутствует.',
+                    norm: 'Индивидуальный норматив не задан',
+                    fact: `${item.value >= 0 ? '+' : ''}${item.value.toFixed(2)} млн ₽`,
+                    deviation: 'Фактическое изменение остатка',
+                    source: 'месячные конечные сальдо ОСВ по денежным счетам'
+                } : {
+                    title: `Остаток денежных средств — ${item.label}`,
+                    description: 'Бухгалтерский остаток денежных средств на конец выбранного месяца.',
+                    formula: 'Остаток = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                    detail: 'Отсутствующие в выбранном месяце счета не принимаются за ноль.',
+                    norm: 'Индивидуальный норматив не задан',
+                    fact: `${item.value.toFixed(2)} млн ₽`,
+                    deviation: changes[index].value === null ? 'Нет предыдущего сопоставимого месяца' : `${changes[index].value >= 0 ? '+' : ''}${changes[index].value.toFixed(2)} млн ₽ к предыдущему месяцу`,
+                    source: 'конечные сальдо загруженных ОСВ по денежным счетам'
+                };
+                tipContainer.innerHTML = this.cashTooltip(data);
+                tipContainer.firstElementChild.classList.add('visible');
+            };
+            const hidePointTip = () => { tipContainer.innerHTML = ''; };
+            container.querySelectorAll('.cash-chart-point').forEach(point => {
+                point.addEventListener('mouseenter', () => showPointTip(point));
+                point.addEventListener('mouseleave', hidePointTip);
+                point.addEventListener('focus', () => showPointTip(point));
+                point.addEventListener('blur', hidePointTip);
+            });
         },
 
         openModal(cardId) {

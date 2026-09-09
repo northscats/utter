@@ -365,14 +365,44 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-analysis-card { cursor:help; border-left:4px solid #10B981; }
 .cash-analysis-card.needs-data { border-left-color:#F59E0B; background:#FFFBEB; }
 .cash-analysis-card:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
-.cash-hover-tip {
-  display:none; position:absolute; z-index:30; left:8px; right:8px; top:calc(100% + 6px);
-  background:#111827; color:#F9FAFB; border-radius:7px; padding:10px 11px;
-  box-shadow:0 10px 28px rgba(0,0,0,.28); font-size:10px; line-height:1.5; text-transform:none;
+.cash-tooltip-host { position:relative; cursor:help; }
+.metric-rich-tooltip {
+  display:none; position:absolute; z-index:7000; top:calc(100% + 8px); left:50%;
+  width:min(470px,calc(100vw - 42px)); transform:translateX(-50%);
+  background:#1F2937; color:#F9FAFB; border:1px solid #374151; border-left:5px solid #F59E0B;
+  border-radius:8px; padding:14px 15px; box-shadow:0 18px 42px rgba(0,0,0,.38);
+  text-align:left; font-family:system-ui,sans-serif; font-size:11px; line-height:1.5;
+  text-transform:none; letter-spacing:normal; white-space:normal; pointer-events:none;
 }
-.cash-hover-tip strong { color:#FCD34D; display:block; margin-bottom:3px; }
-.cash-analysis-card:hover .cash-hover-tip,
-.cash-analysis-card:focus .cash-hover-tip { display:block; }
+.metric-rich-tooltip::before {
+  content:""; position:absolute; left:50%; top:-7px; width:12px; height:12px;
+  background:#1F2937; border-left:1px solid #374151; border-top:1px solid #374151;
+  transform:translateX(-50%) rotate(45deg);
+}
+.metric-rich-title { color:#F59E0B; font-size:14px; font-weight:800; margin-bottom:10px; }
+.metric-rich-section { border-top:1px solid #374151; padding-top:8px; margin-top:8px; }
+.metric-rich-label { color:#9CA3AF; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+.metric-rich-formula {
+  background:#111827; color:#FCD34D; border:1px solid #374151; border-radius:5px;
+  padding:7px 9px; font-family:ui-monospace,monospace; font-size:10px;
+}
+.metric-rich-facts { background:#111827; border:1px solid #374151; border-radius:5px; padding:6px 9px; }
+.metric-rich-fact-row { display:flex; gap:12px; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #374151; }
+.metric-rich-fact-row:last-child { border-bottom:0; }
+.metric-rich-fact-row span:first-child { color:#9CA3AF; }
+.metric-rich-fact-row strong { color:#FCD34D; text-align:right; }
+.metric-rich-fact-row strong.good { color:#6EE7B7; }
+.metric-rich-fact-row strong.missing { color:#FBBF24; }
+.metric-rich-required { background:#451A03; color:#FDE68A; border-radius:5px; padding:7px 9px; }
+.metric-rich-source { color:#9CA3AF; font-style:italic; font-size:9px; margin-top:9px; }
+.kpi-card.cash-tooltip-host:hover > .metric-rich-tooltip,
+.kpi-card.cash-tooltip-host:focus > .metric-rich-tooltip,
+.cash-summary-card:hover > .metric-rich-tooltip,
+.cash-summary-card:focus > .metric-rich-tooltip,
+.cash-analysis-card:hover > .metric-rich-tooltip,
+.cash-analysis-card:focus > .metric-rich-tooltip,
+.cash-table tr:hover .metric-rich-tooltip,
+.cash-table tr:focus-within .metric-rich-tooltip { display:block; }
 .cash-table { width:100%; border-collapse:collapse; font-size:11px; }
 .cash-table th { background:#F3F4F6; color:#4B5563; padding:8px; text-align:right; font-weight:700; }
 .cash-table th:first-child, .cash-table td:first-child { text-align:left; }
@@ -383,6 +413,11 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-data-state.missing { background:#FEF3C7; color:#92400E; }
 .cash-line-chart { height:250px; border:1px solid #E5E7EB; border-radius:8px; background:#FAFBFC; padding:10px; }
 .cash-line-chart svg { width:100%; height:100%; overflow:visible; }
+.cash-line-chart { position:relative; }
+.cash-chart-point { cursor:help; outline:none; }
+.cash-chart-point:hover, .cash-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.cash-line-chart .metric-rich-tooltip { top:18px; left:50%; transform:translateX(-50%); }
+.cash-line-chart .metric-rich-tooltip.visible { display:block; }
 .cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
 .cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
 
