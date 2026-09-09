@@ -531,6 +531,49 @@ def _top_balance(source, account, end, credit=False):
                          if credit else top['skd'] - top['skk']), 2), None
 
 
+def _account_balance_analytics(source, account, end):
+    """Return leaf analytic balances from an exact account report boundary."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return []
+    observations = (acc.get('balance_observations') or []) + acc['daily']
+    explicit = [
+        row for row in observations
+        if row.get('date') == end.isoformat()
+        and any((row.get('path1'), row.get('path2'), row.get('path3')))
+        and any(key in row for key in ('skd', 'skk'))
+    ]
+    if explicit:
+        basis = _leaf_rows(explicit, lambda row: True)
+        return [{
+            'account': account,
+            'label': _analytic_identity(row)[1],
+            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'debit_turnover': row.get('obd') if row.get('obd_known') is not False else None,
+            'credit_turnover': row.get('obk') if row.get('obk_known') is not False else None,
+        } for row in basis]
+    report = next((item for item in reversed(acc.get('balance_reports') or [])
+                   if item.get('report_end') == end.isoformat()), None)
+    rows = report.get('rows', []) if report else (
+        acc.get('rows', []) if acc.get('report_end') == end.isoformat() else [])
+    result = []
+    for index, row in enumerate(rows):
+        level = row.get('lvl', 0)
+        next_level = rows[index + 1].get('lvl', 0) if index + 1 < len(rows) else -1
+        if level <= 0 or next_level > level:
+            continue
+        parts = [row.get(key) for key in ('p1', 'p2', 'p3') if row.get(key)]
+        label = ' › '.join(parts) if parts else row.get('label') or 'Без аналитики'
+        result.append({
+            'account': account,
+            'label': label,
+            'value': round(max(0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+            'debit_turnover': row.get('obd'),
+            'credit_turnover': row.get('obk'),
+        })
+    return result
+
+
 def _balance_provenance(source, account, end):
     acc = source['accounts'].get(account, {})
     report = next((r for r in reversed(acc.get('balance_reports') or [])
@@ -782,13 +825,42 @@ def build_key_indicators(source, period='month', date=None,
         round(sum(known_ap_values), 2) if known_ap_values else None)
     credit_parts = []
     credit_reasons = []
+    credit_accounts = []
+    credit_analytics = []
     for account in ('66', '67'):
         value, why = _top_balance(source, account, end, credit=True)
+        account_daily = _daily(source, account, start, end)
+        plain_turnovers = [
+            row for row in account_daily
+            if not any((row.get('path1'), row.get('path2'), row.get('path3')))
+        ]
+        turnover_rows = (
+            plain_turnovers if plain_turnovers else
+            _turnover_basis(account_daily))
+        debit_turnover = (
+            _known_sum(turnover_rows, 'obd') if turnover_rows else None)
+        credit_turnover = (
+            _known_sum(turnover_rows, 'obk') if turnover_rows else None)
         if value is not None:
             credit_parts.append((account, value))
         elif account in source['accounts']:
             credit_reasons.append(f'{account}: {why}')
+        credit_accounts.append({
+            'account': account,
+            'label': ('Краткосрочные кредиты и займы' if account == '66'
+                      else 'Долгосрочные кредиты и займы'),
+            'value': value,
+            'reason': why,
+            'debit_turnover': debit_turnover,
+            'credit_turnover': credit_turnover,
+        })
+        credit_analytics.extend(
+            _account_balance_analytics(source, account, end))
     credits = round(sum(x[1] for x in credit_parts), 2) if credit_parts else None
+    for item in credit_accounts:
+        item['share'] = (
+            round(item['value'] / credits * 100, 2)
+            if item['value'] is not None and credits else None)
     credits_reason = None if credit_parts else ('; '.join(credit_reasons) or 'Счета 66/67 не загружены')
     salary, salary_reason = _top_balance(source, '70', end, credit=True)
     d08 = _turnover_basis(_daily(source, '08', start, end))
@@ -872,6 +944,16 @@ def build_key_indicators(source, period='month', date=None,
         _card('credits', credits, 'RUB', 'Кредитовое сальдо счетов 66 и 67',
               'Конечные сальдо ОСВ', credits_reason,
               breakdown=[{'label': f'Счёт {a}', 'value': v} for a, v in credit_parts],
+              accounts=credit_accounts,
+              analytics=credit_analytics,
+              coverage={
+                  'loaded': [item['account'] for item in credit_accounts
+                             if item['value'] is not None],
+                  'missing': [item['account'] for item in credit_accounts
+                              if item['value'] is None],
+                  'complete': all(item['value'] is not None
+                                  for item in credit_accounts),
+              },
               notes=(['Поддерживаемый охват: счета ' +
                       ', '.join(a for a, _ in credit_parts) + '.'] +
                      (['Частичный охват: отсутствует поддерживаемое сальдо по ' +

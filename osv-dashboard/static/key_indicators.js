@@ -2316,6 +2316,193 @@
                 Object.assign({}, card, {title: 'Валовая прибыль'})), 50);
         },
 
+        creditsRequirements() {
+            return {
+                balances: 'ОСВ счетов 66 и 67 на одну отчётную дату: счёт, субсчёт, полный путь аналитики, контрагент, договор, транш, валюта, начальное и конечное дебетовое/кредитовое сальдо, дебетовый и кредитовый оборот.',
+                contract: 'Справочник кредитных договоров 1С: банк или заимодавец, номер и дата договора, транш, назначение, валюта, лимит, основной долг, фиксированная/плавающая ставка, маржа, период действия ставки, дата окончательного погашения, обеспечение и статус договора.',
+                schedule: 'Актуальный график 1С по каждому договору: номер платежа, плановая дата, тело долга, проценты, комиссия, валюта, остаток после платежа, фактическая дата и сумма, просрочка, реструктуризация и досрочное погашение.',
+                movement: 'Для денежных привлечений и погашений: документ, дата, сумма, договор, транш, вид операции и корреспондирующий счёт 51/52; отдельно тело долга, проценты, комиссии, переоценка и перевод между 66 и 67.',
+                interest: 'Регистр начисления процентов: договор и транш, период, ставка, база начисления, начисленные, уплаченные, просроченные и капитализированные проценты, комиссия, документ, статья 91.02 и счёт задолженности.',
+                ebitda: 'Договорный расчёт EBITDA: период, прибыль от продаж, классификация статей 91, начисленная амортизация по регистру ОС, разрешённые корректировки, аннуализация и подтверждённая итоговая EBITDA.',
+                covenants: 'Регистр ковенантов по договору: название, точная формула, состав числителя и знаменателя, допустимые корректировки, порог, оператор сравнения, период и частота проверки, дата действия, льготный период, waiver и последствия нарушения.',
+                liquidity: 'Бухгалтерский баланс и расшифровка оборотных активов и краткосрочных обязательств, включая текущую часть счёта 67, исключаемые договором статьи и отчётную дату.',
+                netAssets: 'Полный бухгалтерский баланс, все активы и обязательства, исключаемые статьи по утверждённой методике, отчётная дата и договорный минимальный порог чистых активов.',
+                overdueAr: 'Регистр дебиторской задолженности: контрагент, договор, документ начисления, дата, срок оплаты, сумма, распределённые платежи, остаток, дата начала просрочки, реструктуризация и исключения по методике банка.'
+            };
+        },
+
+        creditsTooltip(overrides = {}) {
+            return Object.assign({
+                title: 'Кредиты и займы',
+                description: 'Подтверждённая бухгалтерская задолженность по кредитам и займам.',
+                formula: 'max(СКк − СКд, 0) по счетам 66 и 67',
+                detail: 'Остаток может включать основной долг, начисленные проценты, переоценку и другие начисления.',
+                required: this.creditsRequirements().balances,
+                norm: 'Договорный норматив не загружен',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'конечные сальдо ОСВ 66 и 67'
+            }, overrides);
+        },
+
+        renderCreditsModal(card) {
+            const container = document.getElementById('ki-credits-modal-content');
+            if (!container) return;
+            const req = this.creditsRequirements();
+            const accounts = card.accounts || [];
+            const byAccount = Object.fromEntries(accounts.map(item => [item.account, item]));
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const change = card.delta && card.delta.value !== null &&
+                card.delta.value !== undefined ? card.delta.value : null;
+            const debtTip = (title, value, formula, detail, required = req.balances) =>
+                this.creditsTooltip({
+                    title, formula, detail, required,
+                    fact: rub(value),
+                    deviation: value === null || value === undefined
+                        ? 'Нужны данные' : 'Подтверждённое бухгалтерское сальдо',
+                    deviationClass: value === null || value === undefined ? 'missing' : 'neutral'
+                });
+            const totalTip = debtTip(
+                'Подтверждённый общий долг', card.value,
+                'max(СКк−СКд, 0) сч. 66 + max(СКк−СКд, 0) сч. 67',
+                card.coverage && card.coverage.complete
+                    ? 'Оба счёта представлены.' : 'Показана сумма доступных счетов; отсутствующий счёт не принят за ноль.');
+            const shortTip = debtTip(
+                'Краткосрочные кредиты и займы', (byAccount['66'] || {}).value,
+                'max(СКк−СКд, 0) счёта 66',
+                'Бухгалтерская классификация счёта 66 не заменяет договорный график платежей.');
+            const longTip = debtTip(
+                'Долгосрочные кредиты и займы', (byAccount['67'] || {}).value,
+                'max(СКк−СКд, 0) счёта 67',
+                'Без графика нельзя разделить остаток на интервалы 1–3 года и более трёх лет.');
+            const changeTip = this.creditsTooltip({
+                title: 'Изменение задолженности',
+                description: 'Изменение подтверждённых сальдо 66/67 между сопоставимыми отчётными датами.',
+                formula: 'Долг на текущую дату − долг на предыдущую дату',
+                detail: 'Это изменение бухгалтерского остатка, а не сумма полученных или погашенных денежных траншей.',
+                required: change === null ? `${req.balances} Нужны минимум две сопоставимые отчётные даты.` : req.movement,
+                fact: change === null ? 'Н/Д' : `${change >= 0 ? '+' : ''}${rub(change)}`,
+                deviation: change === null ? 'Нет предыдущей сопоставимой даты' :
+                    (change > 0 ? 'Задолженность выросла' : change < 0 ? 'Задолженность снизилась' : 'Без изменения'),
+                deviationClass: change === null ? 'missing' : 'neutral'
+            });
+
+            const accountRows = accounts.map(item => {
+                const tip = debtTip(
+                    `Счёт ${item.account} — ${item.label}`, item.value,
+                    `max(СКк−СКд, 0) счёта ${item.account}`,
+                    'Дебетовый и кредитовый обороты показываются как бухгалтерские движения и не называются погашением или привлечением без корреспонденции.',
+                    `${req.balances} ${req.movement}`);
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(item.label)}</strong><br><span class="ki-muted">сч. ${esc(item.account)}</span>`, tip)}
+                    ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(pct(item.share)), tip)}
+                    ${this.collectionCell(esc(rub(item.debit_turnover)), tip, item.debit_turnover === null || item.debit_turnover === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub(item.credit_turnover)), tip, item.credit_turnover === null || item.credit_turnover === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(item.value === null || item.value === undefined ? 'Нет точного сальдо' : 'Подтверждено', tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                </tr>`;
+            }).join('');
+
+            const analyticRows = (card.analytics || []).length
+                ? card.analytics.map(row => {
+                    const tip = debtTip(
+                        `Аналитика ${row.account} — ${row.label}`, row.value,
+                        'max(СКк−СКд, 0) по аналитической строке',
+                        'Банк, договор, основной долг, ставка и срок не угадываются по тексту аналитики.',
+                        `${req.balances} ${req.contract}`);
+                    const contractTip = this.creditsTooltip({
+                        title: `Договорные условия — ${row.label}`,
+                        description: 'Условия кредитного договора, связанные с аналитической строкой ОСВ.',
+                        formula: 'Данные берутся из карточки договора и актуального графика',
+                        detail: 'Демонстрационные банки, ставки и сроки макета не используются.',
+                        required: `${req.contract} ${req.schedule}`,
+                        source: 'требуется справочник кредитных договоров 1С'
+                    });
+                    return `<tr>
+                        ${this.collectionCell(`<strong>${esc(row.label)}</strong><br><span class="ki-muted">сч. ${esc(row.account)}</span>`, tip)}
+                        ${this.collectionCell(esc(rub(row.value)), tip)}
+                        ${this.collectionCell(esc(rub(row.debit_turnover)), tip)}
+                        ${this.collectionCell(esc(rub(row.credit_turnover)), tip)}
+                        ${this.collectionCell('Нужны данные', contractTip, 'cash-value-missing')}
+                        ${this.collectionCell('Нужны данные', contractTip, 'cash-value-missing')}
+                        ${this.collectionCell('Нужны данные', contractTip, 'cash-value-missing')}
+                    </tr>`;
+                }).join('')
+                : `<tr><td colspan="7" class="chart-empty">Аналитические сальдо 66/67 не представлены. ${esc(req.balances)}</td></tr>`;
+
+            const dynamics = (card.series || []).length
+                ? card.series.map(item => {
+                    const tip = debtTip(
+                        `Общий долг — ${item.label}`, item.value,
+                        'Сальдо 66 + 67 на точную отчётную дату',
+                        'Пропущенные месяцы не заменяются нулями. Нужны отдельные точные сальдо на конец каждого месяца.');
+                    return `<tr>
+                        ${this.collectionCell(esc(item.label), tip)}
+                        ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(item.value === null || item.value === undefined ? 'Нет точного сальдо' : 'Подтверждено', tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
+                    </tr>`;
+                }).join('')
+                : '<tr><td colspan="3" class="chart-empty">Нет месячной серии сальдо.</td></tr>';
+
+            const unavailable = [
+                ['Основной долг', 'без процентов и переоценки', `${req.balances} ${req.contract}`],
+                ['Средняя ставка', 'взвешенная по остаткам', req.contract],
+                ['График на 12 месяцев', 'тело, проценты и комиссии', req.schedule],
+                ['Структура по срокам', 'до года / 1–3 / свыше 3 лет', `${req.contract} ${req.schedule}`],
+                ['Процентные расходы', 'начислено за период', req.interest],
+                ['Долг / EBITDA', 'по формуле договора', `${req.contract} ${req.ebitda} ${req.covenants}`],
+                ['ICR', 'покрытие процентов', `${req.interest} ${req.ebitda} ${req.covenants}`],
+                ['Текущая ликвидность', 'по договорной методике', `${req.liquidity} ${req.covenants}`],
+                ['Чистые активы', 'по утверждённой методике', `${req.netAssets} ${req.covenants}`],
+                ['Просроченная ДЗ', 'доля по методике банка', `${req.overdueAr} ${req.covenants}`],
+                ['Обеспечение', 'залог, гарантия, поручительство', req.contract],
+                ['Статус ковенант', 'факт, порог и запас', req.covenants]
+            ].map(([label, sub, required]) => this.cashMetricCard(
+                label, 'Нужны данные', sub, this.creditsTooltip({
+                    title: label,
+                    description: `Показатель «${label}» не определяется из общего сальдо 66/67.`,
+                    formula: sub,
+                    detail: 'Демонстрационные ставки, графики и банковские нормативы макета не используются.',
+                    required,
+                    source: 'требуется дополнительная выгрузка из 1С'
+                }), true)).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Показан бухгалтерский долг.</strong>
+                    Остаток 66/67 не считается автоматически телом долга и не подтверждает ставку, срок или просрочку.</div>
+                <div class="collection-summary credits-summary">
+                    ${this.cashMetricCard('Подтверждённый долг', rub(card.value), card.coverage && card.coverage.complete ? 'полный охват 66/67' : 'частичный охват', totalTip, card.value === null || card.value === undefined)}
+                    ${this.cashMetricCard('Краткосрочный сч. 66', rub((byAccount['66'] || {}).value), `доля ${pct((byAccount['66'] || {}).share)}`, shortTip, (byAccount['66'] || {}).value === null || (byAccount['66'] || {}).value === undefined)}
+                    ${this.cashMetricCard('Долгосрочный сч. 67', rub((byAccount['67'] || {}).value), `доля ${pct((byAccount['67'] || {}).share)}`, longTip, (byAccount['67'] || {}).value === null || (byAccount['67'] || {}).value === undefined)}
+                    ${this.cashMetricCard('Изменение долга', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимой дате', changeTip, change === null)}
+                </div>
+                <div class="modal-section-title">Счета и бухгалтерские обороты</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table credits-account-table">
+                    <thead><tr><th>Счёт</th><th>Сальдо</th><th>Доля</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Статус</th></tr></thead>
+                    <tbody>${accountRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика подтверждённого долга</div>
+                <div class="modal-chart-wrap credits-line-chart" id="ki-credits-line-chart"></div>
+                <div class="collection-table-wrap"><table class="collection-detail-table credits-dynamics-table">
+                    <thead><tr><th>Месяц</th><th>Общий долг</th><th>Качество данных</th></tr></thead>
+                    <tbody>${dynamics}</tbody>
+                </table></div>
+                <div class="modal-section-title">Фактические аналитики 66/67</div>
+                <div class="revenue-classification-note">Банк и договор можно подтвердить только после связи аналитики ОСВ с карточкой кредитного договора.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table credits-analytics-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Банк / договор</th><th>Ставка</th><th>Срок</th></tr></thead>
+                    <tbody>${analyticRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Показатели, требующие договорных данных 1С</div>
+                <div class="revenue-missing-grid credits-missing-grid">${unavailable}</div>`;
+            setTimeout(() => this.renderBarChart(
+                card.series || [], 'RUB', 'ki-credits-line-chart', card), 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -2603,6 +2790,7 @@
             const apContent = document.getElementById('ki-ap-modal-content');
             const cogsContent = document.getElementById('ki-cogs-modal-content');
             const profitContent = document.getElementById('ki-profit-modal-content');
+            const creditsContent = document.getElementById('ki-credits-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
@@ -2612,6 +2800,7 @@
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
@@ -2622,6 +2811,7 @@
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
             } else if (cardId === 'collection') {
@@ -2632,6 +2822,7 @@
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 collectionContent.style.display = 'block';
                 this.renderCollectionModal(card);
             } else if (cardId === 'ar') {
@@ -2642,6 +2833,7 @@
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 arContent.style.display = 'block';
                 this.renderArModal(card);
             } else if (cardId === 'ap') {
@@ -2652,6 +2844,7 @@
                 arContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 apContent.style.display = 'block';
                 this.renderApModal(card);
             } else if (cardId === 'cogs') {
@@ -2662,6 +2855,7 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 cogsContent.style.display = 'block';
                 this.renderCogsModal(card);
             } else if (cardId === 'profit') {
@@ -2672,8 +2866,20 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 profitContent.style.display = 'block';
                 this.renderProfitModal(card);
+            } else if (cardId === 'credits') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
+                creditsContent.style.display = 'block';
+                this.renderCreditsModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
@@ -2682,6 +2888,7 @@
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
                 profitContent.style.display = 'none';
+                creditsContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');

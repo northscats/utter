@@ -213,6 +213,35 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(profit['profit_before_tax'])
         self.assertIn('Валовая прибыль', profit['title'])
 
+    def test_credit_detail_exposes_accounts_turnovers_and_analytics_without_double_count(self):
+        src = build_indicator_source({
+            '66': account('66', [
+                day('2026-01-31', obd=6, obk=10, skd=0, skk=30),
+                day('2026-01-31', p1='Банк А', obd=6, obk=10,
+                    skd=0, skk=30),
+            ], top=dict(snd=0, snk=20, obd=6, obk=10, skd=0, skk=30)),
+            '67': account('67', [
+                day('2026-01-31', obd=7, obk=12, skd=0, skk=70),
+                day('2026-01-31', p1='Банк Б', obd=7, obk=12,
+                    skd=0, skk=70),
+            ], top=dict(snd=0, snk=65, obd=7, obk=12, skd=0, skk=70)),
+        })
+        credits = {item['id']: item for item in
+                   build_key_indicators(src)['cards']}['credits']
+        self.assertEqual(credits['value'], 100)
+        self.assertTrue(credits['coverage']['complete'])
+        self.assertEqual(
+            {item['account']: item['value'] for item in credits['accounts']},
+            {'66': 30, '67': 70})
+        self.assertEqual(
+            {item['account']: item['debit_turnover']
+             for item in credits['accounts']},
+            {'66': 6, '67': 7})
+        self.assertEqual(len(credits['analytics']), 2)
+        self.assertEqual(
+            {item['label']: item['value'] for item in credits['analytics']},
+            {'«Банк А»': 30, '«Банк Б»': 70})
+
     def test_collection_turnover_is_not_collection(self):
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31', obd=100, obk=90)])
