@@ -960,6 +960,16 @@ tr:last-child td{border-bottom:0}
     </div><!-- /ac-body -->
   </div>
 
+  <script>
+  (function(){
+    var requisitesCard = document.querySelector('.req-card');
+    var coverageCard = document.getElementById('ac-card');
+    if(requisitesCard && coverageCard){
+      requisitesCard.insertAdjacentElement('afterend', coverageCard);
+    }
+  })();
+  </script>
+
   <!-- ─── Заключение ИИ ─── -->
   {% set _ai_ok  = ai_provider_configured | default(false) %}
   {% set _ai_sum = ai_summary | default(none) %}
