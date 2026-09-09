@@ -1872,6 +1872,9 @@
             const required = this.cogsRequirements();
             const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
             const profitCard = state.data.cards.find(item => item.id === 'profit') || {};
+            const cogsGrossProfit = profitCard.gross_profit !== null &&
+                profitCard.gross_profit !== undefined
+                ? profitCard.gross_profit : profitCard.value;
             const current = card.value;
             const netRevenue = revenueCard.value !== null && revenueCard.value !== undefined &&
                 !String(revenueCard.title || '').includes('брутто') ? revenueCard.value : null;
@@ -1920,11 +1923,11 @@
                 detail: 'Это не чистая прибыль и не полный EBIT: 90.07, 90.08, 91 и налог на прибыль учитываются отдельно.',
                 required: profitCard.value === null || profitCard.value === undefined
                     ? 'ОСВ 90.01, 90.02 и 90.03 за один период; для полного результата — 90.07, 90.08, 91 и налог на прибыль.' : null,
-                fact: rub(profitCard.value),
-                deviation: profitCard.value === null || profitCard.value === undefined
-                    ? 'Недостаточно данных' : (profitCard.value < 0 ? 'Убыток от продаж' : 'Прибыль от продаж'),
-                deviationClass: profitCard.value === null || profitCard.value === undefined
-                    ? 'missing' : (profitCard.value < 0 ? 'bad' : 'good'),
+                fact: rub(cogsGrossProfit),
+                deviation: cogsGrossProfit === null || cogsGrossProfit === undefined
+                    ? 'Недостаточно данных' : (cogsGrossProfit < 0 ? 'Валовой убыток' : 'Валовая прибыль'),
+                deviationClass: cogsGrossProfit === null || cogsGrossProfit === undefined
+                    ? 'missing' : (cogsGrossProfit < 0 ? 'bad' : 'good'),
                 source: 'ОСВ 90.01, 90.02 и 90.03'
             });
 
@@ -2055,7 +2058,7 @@
                     ${this.cashMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', totalTip, current === null || current === undefined)}
                     ${this.cashMetricCard('Изменение', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимому периоду', changeTip, change === null)}
                     ${this.cashMetricCard('Себестоимость / Выручка', pct(costRatio), 'по нетто-выручке', ratioTip, costRatio === null)}
-                    ${this.cashMetricCard('Прибыль от продаж', rub(profitCard.value), 'до отдельных расходов', profitTip, profitCard.value === null || profitCard.value === undefined)}
+                    ${this.cashMetricCard('Валовая прибыль', rub(cogsGrossProfit), 'нетто-выручка − 90.02', profitTip, cogsGrossProfit === null || cogsGrossProfit === undefined)}
                 </div>
                 <div class="modal-section-title">Признанные расходы счёта 90</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table cogs-recognized-table">
@@ -2084,6 +2087,233 @@
                 <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
             setTimeout(() => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-cogs-line-chart', card), 50);
+        },
+
+        profitRequirements() {
+            return {
+                sales: 'ОСВ счёта 90 за один период: полный путь аналитики, 90.01, 90.02, 90.03, 90.07 и 90.08, дебетовый и кредитовый оборот, услуга, объект, подразделение и учётная политика закрытия 20, 25, 26 и 44.',
+                other: 'ОСВ счёта 91: отдельные субсчета 91.01 и 91.02 без повторного учёта закрывающего 91.09; полный путь аналитики, статья прочих доходов/расходов, документ, дата, контрагент, сумма и корреспондирующий счёт.',
+                classification: 'Классификатор статей 91 из 1С: операционная/неоперационная статья, процентная/непроцентная, штрафы, пени, курсовая разница, выбытие ОС, резерв, субсидия, RAB-доход, налоговая статья и период действия классификации.',
+                interest: 'Кредитный регистр 1С: договор, кредитор, вид займа, валюта, основной долг, ставка, период начисления, начисленные, уплаченные, просроченные и капитализированные проценты, документ начисления и статья 91.02.',
+                rab: 'Данные RAB и субсидий: программа и бюджет, документ назначения, документ и дата признания дохода, счёт и аналитика, период дохода, сумма, услуга, НВВ, база инвестированного капитала, ставка доходности и поступление денег.',
+                tax: 'Данные налога на прибыль: аналитика 99 и 68.04, текущий налог, отложенный налог, постоянный налоговый расход/доход, документ, период, обороты закрытия 99 на 84 и дата реформации баланса.',
+                depreciation: 'Регистр амортизации 1С: основное средство, инвентарный номер, объект эксплуатации, период, начисленная амортизация, счёт и статья затрат, услуга, капитализированная часть и распределение по производственным, коммерческим и управленческим расходам.',
+                assets: 'Бухгалтерский баланс или полный набор счетов активов: активы на начало и конец периода, состав и валюта баланса, корректировки, чистая прибыль того же периода.',
+                objects: 'Единый аналитический ключ услуги или объекта в 90.01, 90.02 и 90.03; для полной прибыли — распределение 90.07, 90.08 и статей 91 по тем же ключам и база распределения.',
+                plan: 'Утверждённый финансовый план или план РЭК: версия, сценарий, период, предприятие, услуга, объект, статья, плановая выручка, затраты и прибыль, дата утверждения и статус актуальности.',
+                status: 'Утверждённые пороги: показатель, услуга, границы «Норма / Внимание / Критично», единица измерения, документ-основание, дата утверждения и период действия.'
+            };
+        },
+
+        profitTooltip(overrides = {}) {
+            return Object.assign({
+                title: 'Валовая прибыль',
+                description: 'Финансовый результат после себестоимости продаж, до отдельных коммерческих, управленческих, прочих расходов и налога.',
+                formula: 'Валовая прибыль = [ОбК(90.01) − ОбД(90.03)] − ОбД(90.02)',
+                detail: 'Счета 20, 26 и 44 повторно не вычитаются.',
+                required: this.profitRequirements().sales,
+                norm: 'Индивидуальный норматив не задан',
+                fact: 'Н/Д',
+                deviation: 'Недостаточно данных',
+                deviationClass: 'missing',
+                source: 'ОСВ субсчетов 90'
+            }, overrides);
+        },
+
+        renderProfitModal(card) {
+            const container = document.getElementById('ki-profit-modal-content');
+            if (!container) return;
+            const req = this.profitRequirements();
+            const revenue = state.data.cards.find(item => item.id === 'revenue') || {};
+            const cogs = state.data.cards.find(item => item.id === 'cogs') || {};
+            const objects = (state.data.objects || {}).rows || [];
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const margin = value => value !== null && value !== undefined && revenue.value
+                ? value / revenue.value * 100 : null;
+            const metricTip = (title, formula, value, detail, required, source = 'ОСВ субсчетов 90') =>
+                this.profitTooltip({
+                    title, formula, detail, required,
+                    fact: rub(value),
+                    deviation: value === null || value === undefined
+                        ? 'Нужны данные' : (value < 0 ? 'Отрицательный результат' : 'Положительный результат'),
+                    deviationClass: value === null || value === undefined
+                        ? 'missing' : (value < 0 ? 'bad' : 'good'),
+                    source
+                });
+            const grossTip = metricTip(
+                'Валовая прибыль',
+                '[ОбК(90.01) − ОбД(90.03)] − ОбД(90.02)',
+                card.gross_profit,
+                'Это не прибыль от продаж и не чистая прибыль.',
+                req.sales);
+            const salesTip = metricTip(
+                'Прибыль от продаж',
+                'Валовая прибыль − ОбД(90.07) − ОбД(90.08)',
+                card.profit_from_sales,
+                'Используются признанные расходы 90.07 и 90.08. Обороты 26 и 44 повторно не вычитаются.',
+                req.sales);
+            const otherTip = metricTip(
+                'Сальдо прочих доходов и расходов',
+                'ОбК(91.01) − ОбД(91.02)',
+                card.other_result,
+                'Закрывающий субсчёт 91.09 не включается.',
+                `${req.other} ${req.classification}`,
+                'ОСВ 91.01 и 91.02');
+            const pretaxTip = metricTip(
+                'Расчётный результат до налога',
+                'Прибыль от продаж + сальдо 91.01/91.02',
+                card.profit_before_tax,
+                'Результат показан до выделения процентов и налога; это не подтверждённая чистая прибыль.',
+                `${req.sales} ${req.other}`,
+                'ОСВ 90 и 91');
+
+            const decomposition = [
+                ['Нетто-выручка', 'ОбК(90.01) − ОбД(90.03)', revenue.value, 1, req.sales, 'Выручка после выделения НДС.'],
+                ['Себестоимость продаж', 'ОбД(90.02)', cogs.value, -1, req.sales, 'Признанная себестоимость продаж.'],
+                ['Валовая прибыль', 'Нетто-выручка − 90.02', card.gross_profit, 1, req.sales, 'Результат до отдельных расходов.'],
+                ['Коммерческие расходы', 'ОбД(90.07)', card.selling_expense, -1, req.sales, 'Признанные расходы на продажу.'],
+                ['Управленческие расходы', 'ОбД(90.08)', card.admin_expense, -1, req.sales, 'Признанные управленческие расходы.'],
+                ['Прибыль от продаж', 'Валовая прибыль − 90.07 − 90.08', card.profit_from_sales, 1, req.sales, 'Результат основной деятельности.'],
+                ['Прочие доходы', 'ОбК(91.01)', card.other_income, 1, req.other, 'Доходы счёта 91 без 91.09.'],
+                ['Прочие расходы', 'ОбД(91.02)', card.other_expense, -1, req.other, 'Расходы счёта 91 без 91.09.'],
+                ['Результат до налога', 'Прибыль от продаж + 91.01 − 91.02', card.profit_before_tax, 1, `${req.sales} ${req.other}`, 'Не является чистой прибылью.'],
+                ['Налог на прибыль', 'Текущий + отложенный налог', null, -1, req.tax, 'Не выводится из общего сальдо счёта 68.'],
+                ['Чистая прибыль', 'Результат до налога − налог', null, 1, req.tax, 'Нужны точные данные 99 и 68.04.']
+            ].map(([label, formula, value, sign, required, detail]) => {
+                const tip = metricTip(label, formula, value, detail, required,
+                    label.includes('Проч') ? 'ОСВ 91' : 'ОСВ 90/91/99');
+                const shown = value === null || value === undefined
+                    ? 'Нужны данные' : `${sign < 0 ? '− ' : value > 0 ? '+ ' : ''}${rub(Math.abs(value))}`;
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">${esc(formula)}</span>`, tip)}
+                    ${this.collectionCell(esc(shown), tip, value === null || value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(detail), tip)}
+                </tr>`;
+            }).join('');
+
+            const otherRows = (card.other_analytics || []).length
+                ? card.other_analytics.map(row => {
+                    const net = row.income !== null && row.income !== undefined &&
+                        row.expense !== null && row.expense !== undefined
+                        ? row.income - row.expense : null;
+                    const tip = metricTip(
+                        `Статья 91 — ${row.label}`,
+                        'Доход 91.01 − расход 91.02',
+                        net,
+                        'Статья показывается по фактическому пути аналитики; её вид не угадывается по названию.',
+                        `${req.other} ${req.classification}`,
+                        'аналитические обороты 91.01/91.02');
+                    return `<tr>
+                        ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, tip)}
+                        ${this.collectionCell(esc(rub(row.income)), tip, row.income === null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub(row.expense)), tip, row.expense === null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub(net)), tip, net === null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell('Нужна классификация', tip, 'cash-value-missing')}
+                    </tr>`;
+                }).join('')
+                : `<tr><td colspan="5" class="chart-empty">Аналитики 91.01/91.02 не представлены. ${esc(req.other)}</td></tr>`;
+
+            const objectRows = objects.length ? objects.map(row => {
+                const tip = this.profitTooltip({
+                    title: `Валовой результат — ${row.label}`,
+                    description: 'Выручка и себестоимость по совпадающему аналитическому ключу счёта 90.',
+                    formula: 'Нетто-выручка аналитики − себестоимость 90.02',
+                    detail: 'Без распределения 90.07, 90.08 и статей 91 это валовой, а не полный результат услуги.',
+                    required: req.objects,
+                    fact: rub(row.profit),
+                    deviation: row.profit === null || row.profit === undefined
+                        ? 'Нужны данные' : (row.profit < 0 ? 'Валовой убыток' : 'Валовая прибыль'),
+                    deviationClass: row.profit === null || row.profit === undefined
+                        ? 'missing' : (row.profit < 0 ? 'bad' : 'good')
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, tip)}
+                    ${this.collectionCell(esc(rub(row.revenue)), tip)}
+                    ${this.collectionCell(esc(rub(row.cost)), tip)}
+                    ${this.collectionCell(esc(rub(row.profit)), tip)}
+                    ${this.collectionCell(esc(pct(row.margin)), tip)}
+                    ${this.collectionCell(row.profit === null || row.profit === undefined ? 'Нужны данные' : row.profit < 0 ? 'Валовой убыток' : 'Валовая прибыль', tip, row.profit === null || row.profit === undefined ? 'cash-value-missing' : '')}
+                </tr>`;
+            }).join('') : '<tr><td colspan="6" class="chart-empty">Нет сопоставимых аналитик 90.01/90.02/90.03.</td></tr>';
+
+            const series = card.gross_series || [];
+            const salesSeries = card.sales_profit_series || [];
+            const otherSeries = card.other_result_series || [];
+            const pretaxSeries = card.pretax_series || [];
+            const dynamics = series.length ? series.map((item, index) => {
+                const tip = metricTip(
+                    `Финансовый результат — ${item.label}`,
+                    'См. значения отдельных уровней результата',
+                    item.value,
+                    'Пропуски не заменяются нулями.',
+                    `${req.sales} ${req.other}`);
+                return `<tr>
+                    ${this.collectionCell(esc(item.label), tip)}
+                    ${this.collectionCell(esc(rub(item.value)), tip, item.value === null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub((salesSeries[index] || {}).value)), tip, (salesSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub((otherSeries[index] || {}).value)), tip, (otherSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub((pretaxSeries[index] || {}).value)), tip, (pretaxSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
+                </tr>`;
+            }).join('') : '<tr><td colspan="5" class="chart-empty">Нет месячной серии.</td></tr>';
+
+            const unavailable = [
+                ['EBIT', 'до процентов и налога', `${req.classification} ${req.interest}`],
+                ['EBITDA', 'EBIT + амортизация', `${req.classification} ${req.interest} ${req.depreciation}`],
+                ['Чистая прибыль', 'после налога на прибыль', req.tax],
+                ['ROA', 'чистая прибыль / средние активы', `${req.tax} ${req.assets}`],
+                ['Процентные расходы', 'начисленные проценты', req.interest],
+                ['RAB-доход и субсидии', 'без повторного учёта', req.rab],
+                ['Плановая прибыль', 'финансовый план / план РЭК', req.plan],
+                ['Нормативный статус', 'утверждённые пороги', req.status]
+            ].map(([label, sub, required]) => this.cashMetricCard(
+                label, 'Нужны данные', sub, this.profitTooltip({
+                    title: label,
+                    description: `Показатель «${label}» не восстанавливается из похожего оборота ОСВ.`,
+                    formula: sub,
+                    detail: 'Демонстрационные нормативы и значения макета не используются.',
+                    required,
+                    source: 'требуется дополнительная выгрузка из 1С'
+                }), true)).join('');
+
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Уровни результата разделены.</strong>
+                    Валовая прибыль, прибыль от продаж и результат до налога не называются чистой прибылью.</div>
+                <div class="collection-summary profit-summary">
+                    ${this.cashMetricCard('Валовая прибыль', rub(card.gross_profit), `Рв = ${pct(margin(card.gross_profit))}`, grossTip, card.gross_profit === null || card.gross_profit === undefined)}
+                    ${this.cashMetricCard('Прибыль от продаж', rub(card.profit_from_sales), `Рп = ${pct(margin(card.profit_from_sales))}`, salesTip, card.profit_from_sales === null || card.profit_from_sales === undefined)}
+                    ${this.cashMetricCard('Сальдо счёта 91', rub(card.other_result), '91.01 − 91.02', otherTip, card.other_result === null || card.other_result === undefined)}
+                    ${this.cashMetricCard('Результат до налога', rub(card.profit_before_tax), 'не чистая прибыль', pretaxTip, card.profit_before_tax === null || card.profit_before_tax === undefined)}
+                </div>
+                <div class="modal-section-title">Декомпозиция финансового результата</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table profit-waterfall-table">
+                    <thead><tr><th>Уровень</th><th>Сумма</th><th>Комментарий</th></tr></thead>
+                    <tbody>${decomposition}</tbody>
+                </table></div>
+                <div class="modal-section-title">Динамика валовой прибыли</div>
+                <div class="modal-chart-wrap profit-line-chart" id="ki-profit-line-chart"></div>
+                <div class="collection-table-wrap"><table class="collection-detail-table profit-dynamics-table">
+                    <thead><tr><th>Месяц</th><th>Валовая прибыль</th><th>Прибыль от продаж</th><th>Сальдо 91</th><th>До налога</th></tr></thead>
+                    <tbody>${dynamics}</tbody>
+                </table></div>
+                <div class="modal-section-title">Фактические аналитики счёта 91</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table profit-other-table">
+                    <thead><tr><th>Аналитика 1С</th><th>Доходы</th><th>Расходы</th><th>Сальдо</th><th>Классификация</th></tr></thead>
+                    <tbody>${otherRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Валовая рентабельность по аналитикам счёта 90</div>
+                <div class="revenue-classification-note">Полная прибыль услуги требует распределения 90.07, 90.08 и статей 91 по тому же аналитическому ключу.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table profit-object-table">
+                    <thead><tr><th>Услуга / объект</th><th>Выручка</th><th>Себестоимость</th><th>Валовая прибыль</th><th>Рентабельность</th><th>Статус</th></tr></thead>
+                    <tbody>${objectRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
+                <div class="revenue-missing-grid profit-missing-grid">${unavailable}</div>`;
+            setTimeout(() => this.renderBarChart(
+                card.gross_series || [], 'RUB', 'ki-profit-line-chart',
+                Object.assign({}, card, {title: 'Валовая прибыль'})), 50);
         },
 
         renderCashModal(card) {
@@ -2372,6 +2602,7 @@
             const arContent = document.getElementById('ki-ar-modal-content');
             const apContent = document.getElementById('ki-ap-modal-content');
             const cogsContent = document.getElementById('ki-cogs-modal-content');
+            const profitContent = document.getElementById('ki-profit-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
@@ -2380,6 +2611,7 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
@@ -2389,6 +2621,7 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
             } else if (cardId === 'collection') {
@@ -2398,6 +2631,7 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 collectionContent.style.display = 'block';
                 this.renderCollectionModal(card);
             } else if (cardId === 'ar') {
@@ -2407,6 +2641,7 @@
                 collectionContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 arContent.style.display = 'block';
                 this.renderArModal(card);
             } else if (cardId === 'ap') {
@@ -2416,6 +2651,7 @@
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 apContent.style.display = 'block';
                 this.renderApModal(card);
             } else if (cardId === 'cogs') {
@@ -2425,8 +2661,19 @@
                 collectionContent.style.display = 'none';
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 cogsContent.style.display = 'block';
                 this.renderCogsModal(card);
+            } else if (cardId === 'profit') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
+                arContent.style.display = 'none';
+                apContent.style.display = 'none';
+                cogsContent.style.display = 'none';
+                profitContent.style.display = 'block';
+                this.renderProfitModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
@@ -2434,6 +2681,7 @@
                 arContent.style.display = 'none';
                 apContent.style.display = 'none';
                 cogsContent.style.display = 'none';
+                profitContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');

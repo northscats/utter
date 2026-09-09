@@ -166,6 +166,53 @@ class KeyIndicatorTests(unittest.TestCase):
             {'20': 40, '25': 4, '26': 3, '44': 2})
         self.assertIn('не прибавляются', cogs['notes'][0])
 
+    def test_profit_detail_separates_gross_sales_other_and_pretax_results(self):
+        src = build_indicator_source({
+            '90': account('90', [
+                day('2026-01-31', '90.01', p1='Тепло', obk=100),
+                day('2026-01-31', '90.03', p1='Тепло', obd=20),
+                day('2026-01-31', '90.02', p1='Тепло', obd=70),
+                day('2026-01-31', '90.07', obd=5),
+                day('2026-01-31', '90.08', obd=3),
+            ]),
+            '91': account('91', [
+                day('2026-01-31', '91.01', p1='Прочий доход', obk=4),
+                day('2026-01-31', '91.02', p1='Прочий расход', obd=1),
+            ]),
+            '26': account('26', [day('2026-01-31', obd=3)]),
+            '44': account('44', [day('2026-01-31', obd=5)]),
+        })
+        result = build_key_indicators(src)
+        profit = {item['id']: item for item in result['cards']}['profit']
+        self.assertEqual(profit['gross_profit'], 10)
+        self.assertEqual(profit['profit_from_sales'], 2)
+        self.assertEqual(profit['value'], 2)
+        self.assertEqual(profit['other_income'], 4)
+        self.assertEqual(profit['other_expense'], 1)
+        self.assertEqual(profit['other_result'], 3)
+        self.assertEqual(profit['profit_before_tax'], 5)
+        self.assertEqual(result['objects']['totals']['profit'], 10)
+        self.assertNotEqual(profit['value'], -6)
+
+    def test_profit_does_not_assume_missing_recognized_expenses_are_zero(self):
+        src = build_indicator_source({
+            '90': account('90', [
+                day('2026-01-31', '90.01', obk=100),
+                day('2026-01-31', '90.03', obd=20),
+                day('2026-01-31', '90.02', obd=70),
+            ]),
+            '91': account('91', [
+                day('2026-01-31', '91.01', obk=4),
+            ]),
+        })
+        profit = {item['id']: item for item in
+                  build_key_indicators(src)['cards']}['profit']
+        self.assertEqual(profit['value'], 10)
+        self.assertIsNone(profit['profit_from_sales'])
+        self.assertIsNone(profit['other_result'])
+        self.assertIsNone(profit['profit_before_tax'])
+        self.assertIn('Валовая прибыль', profit['title'])
+
     def test_collection_turnover_is_not_collection(self):
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31', obd=100, obk=90)])

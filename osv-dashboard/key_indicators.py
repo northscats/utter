@@ -611,7 +611,7 @@ def build_key_indicators(source, period='month', date=None,
     d90, rev_rows, vat_rows, cost_rows = (
         pl['rows'], pl['rev_rows'], pl['vat_rows'], pl['cost_rows'])
     gross_rev, vat = pl['gross'], pl['vat']
-    revenue, cogs, profit = pl['revenue'], pl['cost'], pl['profit']
+    revenue, cogs, gross_profit = pl['revenue'], pl['cost'], pl['profit']
     cogs_analytics = []
     cogs_groups = defaultdict(list)
     cogs_labels = {}
@@ -657,6 +657,46 @@ def build_key_indicators(source, period='month', date=None,
                 source, '90', '90.08', start, end, 'obd'),
         },
     ]
+    selling_expense = recognized_costs[1]['value']
+    admin_expense = recognized_costs[2]['value']
+    profit_from_sales = (
+        round(gross_profit - selling_expense - admin_expense, 2)
+        if gross_profit is not None
+        and selling_expense is not None
+        and admin_expense is not None else None)
+    other_income = _sub_turnover(
+        source, '91', '91.01', start, end, 'obk')
+    other_expense = _sub_turnover(
+        source, '91', '91.02', start, end, 'obd')
+    other_result = (
+        round(other_income - other_expense, 2)
+        if other_income is not None and other_expense is not None else None)
+    profit_before_tax = (
+        round(profit_from_sales + other_result, 2)
+        if profit_from_sales is not None and other_result is not None else None)
+    profit_display = (
+        profit_from_sales if profit_from_sales is not None else gross_profit)
+
+    other_analytics_map = {}
+    for sub, side, kind in (
+            ('91.01', 'obk', 'income'),
+            ('91.02', 'obd', 'expense')):
+        rows = _leaf_rows(
+            _daily(source, '91', start, end),
+            lambda row, prefix=sub: _has_prefix(row, prefix))
+        grouped = defaultdict(list)
+        labels = {}
+        for row in rows:
+            key, label = _analytic_identity(row)
+            grouped[key].append(row)
+            labels[key] = label
+        for key, group in grouped.items():
+            item = other_analytics_map.setdefault(
+                key, {'analytic_key': key, 'label': labels[key],
+                      'income': None, 'expense': None})
+            item[kind] = _known_sum(group, side)
+    other_analytics = sorted(
+        other_analytics_map.values(), key=lambda item: item['label'])
 
     cash_parts, cash_reasons = [], []
     for account in ('50', '51', '52', '55'):
@@ -799,14 +839,36 @@ def build_key_indicators(source, period='month', date=None,
               recognized_costs=recognized_costs,
               notes=['Счета 20, 25, 26 и 44 не прибавляются к 90.02: '
                      'их суммы могут уже быть включены после закрытия периода.']),
-        _card('profit', profit, 'RUB', 'Выручка без НДС − ОбД(90.02*)',
-              'Расчёт по субсчетам продаж',
-              None if profit is not None else
+        _card('profit', profit_display, 'RUB',
+              ('Выручка без НДС − ОбД(90.02*) − ОбД(90.07*) − ОбД(90.08*)'
+               if profit_from_sales is not None else
+               'Выручка без НДС − ОбД(90.02*)'),
+              'Расчёт по субсчетам 90 и 91',
+              None if profit_display is not None else
               ('НДС 90.03 отсутствует: прибыль нельзя получить из выручки брутто'
                if gross_rev is not None and vat is None else
                'Недостаточно данных выручки или себестоимости'),
-              notes=['Это прибыль от продаж до отдельных расходов, а не чистая прибыль.',
-                     'Обороты счетов 20, 26 и 44 повторно не добавляются.']),
+              gross_profit=gross_profit,
+              selling_expense=selling_expense,
+              admin_expense=admin_expense,
+              profit_from_sales=profit_from_sales,
+              other_income=other_income,
+              other_expense=other_expense,
+              other_result=other_result,
+              profit_before_tax=profit_before_tax,
+              other_analytics=other_analytics,
+              gross_series=[],
+              sales_profit_series=[],
+              other_result_series=[],
+              pretax_series=[],
+              notes=[
+                  ('Основная карточка показывает прибыль от продаж по 90.02, '
+                   '90.07 и 90.08.' if profit_from_sales is not None else
+                   'Основная карточка показывает валовую прибыль: 90.07 и/или '
+                   '90.08 отсутствуют и не приняты за ноль.'),
+                  'Обороты счетов 20, 26 и 44 повторно не добавляются.',
+                  'Чистая прибыль, EBIT, EBITDA и ROA не выводятся без '
+                  'дополнительной классификации и источников.']),
         _card('credits', credits, 'RUB', 'Кредитовое сальдо счетов 66 и 67',
               'Конечные сальдо ОСВ', credits_reason,
               breakdown=[{'label': f'Счёт {a}', 'value': v} for a, v in credit_parts],
@@ -836,9 +898,14 @@ def build_key_indicators(source, period='month', date=None,
             note = _balance_provenance(source, account, end)
             if note:
                 card_map[cid]['notes'].append(note)
-    if profit is not None and profit < 0:
+    if profit_display is not None and profit_display < 0:
         card_map['profit']['status'] = 'bad'
         card_map['profit']['status_label'] = 'Убыток от продаж'
+    if profit_from_sales is None and gross_profit is not None:
+        card_map['profit']['title'] = (
+            'Валовая прибыль (отдельные расходы недоступны)')
+        card_map['profit']['status_label'] = (
+            'Валовая прибыль' if gross_profit >= 0 else 'Валовой убыток')
     if cogs is not None and revenue is not None and cogs > revenue:
         card_map['cogs']['status'] = 'warning'
         card_map['cogs']['status_label'] = 'Выше выручки'
@@ -850,11 +917,40 @@ def build_key_indicators(source, period='month', date=None,
         month_end = _iso(option['value'])
         month_start, _ = _range('month', month_end)
         month_pl = _pl_facts(source, month_start, month_end)
+        month_selling = _sub_turnover(
+            source, '90', '90.07', month_start, month_end, 'obd')
+        month_admin = _sub_turnover(
+            source, '90', '90.08', month_start, month_end, 'obd')
+        month_sales_profit = (
+            round(month_pl['profit'] - month_selling - month_admin, 2)
+            if month_pl['profit'] is not None
+            and month_selling is not None and month_admin is not None else None)
+        month_other_income = _sub_turnover(
+            source, '91', '91.01', month_start, month_end, 'obk')
+        month_other_expense = _sub_turnover(
+            source, '91', '91.02', month_start, month_end, 'obd')
+        month_other_result = (
+            round(month_other_income - month_other_expense, 2)
+            if month_other_income is not None
+            and month_other_expense is not None else None)
+        month_pretax = (
+            round(month_sales_profit + month_other_result, 2)
+            if month_sales_profit is not None
+            and month_other_result is not None else None)
         month_values = {
             'revenue': month_pl['revenue'],
             'cogs': month_pl['cost'],
-            'profit': month_pl['profit'],
+            'profit': (month_sales_profit if month_sales_profit is not None
+                       else month_pl['profit']),
         }
+        card_map['profit']['gross_series'].append({
+            'label': option['label'], 'value': month_pl['profit']})
+        card_map['profit']['sales_profit_series'].append({
+            'label': option['label'], 'value': month_sales_profit})
+        card_map['profit']['other_result_series'].append({
+            'label': option['label'], 'value': month_other_result})
+        card_map['profit']['pretax_series'].append({
+            'label': option['label'], 'value': month_pretax})
         rows08 = _turnover_basis(_daily(source, '08', month_start, month_end))
         month_values['capex'] = _sum(rows08, 'obd') if rows08 else None
         month_values['collection'] = None
@@ -904,6 +1000,16 @@ def build_key_indicators(source, period='month', date=None,
             for cid, key in (('revenue', 'revenue'), ('cogs', 'cost'),
                              ('profit', 'profit')):
                 current, previous = card_map[cid]['value'], previous_pl[key]
+                if cid == 'profit' and profit_from_sales is not None:
+                    previous_selling = _sub_turnover(
+                        source, '90', '90.07', prev_start, prev_end, 'obd')
+                    previous_admin = _sub_turnover(
+                        source, '90', '90.08', prev_start, prev_end, 'obd')
+                    previous = (
+                        round(previous - previous_selling - previous_admin, 2)
+                        if previous is not None
+                        and previous_selling is not None
+                        and previous_admin is not None else None)
                 if current is not None and previous is not None:
                     card_map[cid]['delta'] = {
                         'value': round(current - previous, 2), 'unit': 'RUB',
@@ -1014,9 +1120,9 @@ def build_key_indicators(source, period='month', date=None,
     objects = {
         'rows': object_rows,
         'totals': {'revenue': obj_rev, 'cost': obj_cost,
-                   'profit': profit,
-                   'margin': round(profit / obj_rev * 100, 2)
-                   if profit is not None and obj_rev else None},
+                   'profit': gross_profit,
+                   'margin': round(gross_profit / obj_rev * 100, 2)
+                   if gross_profit is not None and obj_rev else None},
         'reason': obj_reason, 'notes': obj_notes,
     }
     mapping = {}
@@ -1111,11 +1217,14 @@ def build_key_indicators(source, period='month', date=None,
                        not conflicts and not unclassified),
     }
     recommendations = []
-    if profit is not None and profit < 0:
+    if profit_display is not None and profit_display < 0:
         recommendations.append({
             'id': 'sales-loss', 'severity': 'bad',
-            'title': 'Отрицательная прибыль от продаж',
-            'description': 'Проверьте состав выручки и себестоимости по убыточным объектам учёта.',
+            'title': ('Отрицательная прибыль от продаж'
+                      if profit_from_sales is not None else
+                      'Отрицательная валовая прибыль'),
+            'description': ('Проверьте состав выручки, себестоимости и '
+                            'признанных расходов по убыточным объектам учёта.'),
             'metric_id': 'profit',
         })
     if cogs is not None and revenue is not None and cogs > revenue:
