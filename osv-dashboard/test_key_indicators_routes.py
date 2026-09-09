@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import date
 from io import BytesIO
+from urllib.parse import unquote
 from unittest.mock import patch
 
 _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
@@ -239,6 +240,12 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             response.mimetype,
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
+        disposition = unquote(response.headers['Content-Disposition'])
+        self.assertIn(
+            'Запрос_Данных_Источник_script_не_HTML_',
+            disposition,
+        )
+        self.assertTrue(disposition.endswith('.xlsx'))
 
         from openpyxl import load_workbook
         workbook = load_workbook(BytesIO(response.data), read_only=True)

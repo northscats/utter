@@ -3074,10 +3074,19 @@ def coverage_report_excel(company_id):
     output = BytesIO()
     workbook.save(output)
     output.seek(0)
+    safe_company_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', company.name)
+    safe_company_name = re.sub(r'\s+', '_', safe_company_name).strip(' ._')[:100]
+    safe_company_name = re.sub(r'_+', '_', safe_company_name)
+    if not safe_company_name:
+        safe_company_name = f'Предприятие_{company.id}'
+    moscow_now = datetime.now(timezone(timedelta(hours=3)))
+    download_filename = (
+        f'Запрос_Данных_{safe_company_name}_{moscow_now:%d.%m.%Y}.xlsx'
+    )
     return send_file(
         output,
         as_attachment=True,
-        download_name=f'Запрос_данных_{year}.xlsx',
+        download_name=download_filename,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
 
