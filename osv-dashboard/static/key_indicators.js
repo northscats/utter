@@ -6,6 +6,7 @@
     const state = {
         period: 'month',
         date: null,
+        dateFrom: null,
         data: null,
         lastFocused: null,
         reqId: 0
@@ -48,6 +49,7 @@
                 });
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
+                document.getElementById('ki-date-from-select').style.display = 'none';
                 document.getElementById('ki-quarter-buttons').style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'none';
                 document.getElementById('ki-operational-container').style.display = 'none';
@@ -82,6 +84,7 @@
                 if (abortController) abortController.abort();
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
+                document.getElementById('ki-date-from-select').style.display = 'none';
                 document.getElementById('ki-quarter-buttons').style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'none';
                 document.getElementById('tab-analytics').classList.add('active');
@@ -179,12 +182,23 @@
             if (state.period === kind) return;
             state.period = kind;
             state.date = null;
+            state.dateFrom = null;
             this.fetchData();
         },
         
         onDateChange(val) {
             if (state.date === val) return;
             state.date = val;
+            if (state.period === 'month' && state.dateFrom && state.dateFrom > val) {
+                state.dateFrom = val;
+            }
+            this.fetchData();
+        },
+
+        onDateFromChange(val) {
+            if (state.dateFrom === val) return;
+            state.dateFrom = val;
+            if (state.date && val > state.date) state.date = val;
             this.fetchData();
         },
         
@@ -214,6 +228,9 @@
                 if (!config || !config.dataUrl) throw new Error('Не настроен адрес источника показателей.');
                 let url = `${config.dataUrl}?period=${encodeURIComponent(state.period)}`;
                 if (state.date) url += `&date=${encodeURIComponent(state.date)}`;
+                if (state.period === 'month' && state.dateFrom) {
+                    url += `&date_from=${encodeURIComponent(state.dateFrom)}`;
+                }
                 const response = await fetch(url, { 
                     signal: abortController.signal, 
                     headers: { 'Accept': 'application/json' }
@@ -243,6 +260,7 @@
                 if (data.period) {
                     state.period = data.period.kind;
                     state.date = data.period.date;
+                    state.dateFrom = data.period.date_from || data.period.date;
                 }
                 
                 this.render();
@@ -284,11 +302,17 @@
             });
             
             const sel = document.getElementById('ki-date-select');
+            const fromSel = document.getElementById('ki-date-from-select');
             const quarterButtons = document.getElementById('ki-quarter-buttons');
             if (dataP && dataP.options && dataP.options.length > 0) {
-                sel.innerHTML = dataP.options.map(opt => 
-                    `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${esc(opt.label)}</option>`
+                sel.innerHTML = dataP.options.map(opt =>
+                    `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${p === 'month' ? 'по ' : ''}${esc(opt.label)}</option>`
                 ).join('');
+                fromSel.innerHTML = dataP.options
+                    .filter(opt => opt.value <= dataP.date)
+                    .map(opt =>
+                        `<option value="${esc(opt.value)}" ${opt.value === dataP.date_from ? 'selected' : ''}>с ${esc(opt.label)}</option>`
+                    ).join('');
                 if (p === 'quarter') {
                     const activeDate = new Date(`${dataP.date}T00:00:00`);
                     const activeYear = activeDate.getFullYear();
@@ -307,12 +331,19 @@
                     }).join('');
                     quarterButtons.style.display = 'flex';
                     sel.style.display = 'none';
+                    fromSel.style.display = 'none';
+                } else if (p === 'month') {
+                    quarterButtons.style.display = 'none';
+                    fromSel.style.display = 'inline-block';
+                    sel.style.display = 'inline-block';
                 } else {
                     quarterButtons.style.display = 'none';
+                    fromSel.style.display = 'none';
                     sel.style.display = 'inline-block';
                 }
             } else {
                 sel.style.display = 'none';
+                fromSel.style.display = 'none';
                 quarterButtons.style.display = 'none';
             }
         },

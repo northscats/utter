@@ -646,7 +646,7 @@ def _card(cid, value, unit, formula, source_label, reason=None, **extra):
     return card
 
 
-def build_key_indicators(source, period='month', date=None,
+def build_key_indicators(source, period='month', date=None, date_from=None,
                          revenue_mappings=None):
     """Calculate the strict JSON response contract from a source snapshot."""
     if not isinstance(source, dict) or source.get('version') != 1 \
@@ -673,6 +673,20 @@ def build_key_indicators(source, period='month', date=None,
             raise ValueError('date is not an available option for selected period')
     start, end = _range(period, endpoint)
     label = next(x['label'] for x in options if x['value'] == endpoint.isoformat())
+    range_start_endpoint = endpoint
+    if period == 'month' and date_from is not None:
+        range_start_endpoint = _iso(date_from)
+        option_values = {x['value'] for x in options}
+        if range_start_endpoint is None or date_from not in option_values:
+            raise ValueError('date_from is not an available month')
+        if range_start_endpoint > endpoint:
+            raise ValueError('date_from must not be after date')
+        start, _ = _range('month', range_start_endpoint)
+        start_label = next(
+            x['label'] for x in options if x['value'] == date_from)
+        label = (
+            label if range_start_endpoint == endpoint
+            else f'{start_label} — {label}')
     warnings = list(source.get('warnings') or [])
     loaded_accounts = list(source['accounts'])
     partial = bool(loaded_accounts) and not any(
@@ -1181,8 +1195,10 @@ def build_key_indicators(source, period='month', date=None,
 
     # Compare only an immediately preceding equivalent selection with a
     # declared complete report span and identical calculation basis.
-    selected_idx = next((i for i, item in enumerate(options)
-                         if item['value'] == endpoint.isoformat()), -1)
+    ranged_month = period == 'month' and range_start_endpoint != endpoint
+    selected_idx = (-1 if ranged_month else next(
+        (i for i, item in enumerate(options)
+         if item['value'] == endpoint.isoformat()), -1))
     if selected_idx > 0:
         prev_end = _iso(options[selected_idx - 1]['value'])
         prev_start, _ = _range(period, prev_end)
@@ -1457,7 +1473,9 @@ def build_key_indicators(source, period='month', date=None,
          'text': 'Отсутствие счёта, аналитики или периода возвращает null с причиной, а не искусственный ноль.'},
     ]
     return {
-        'period': {'kind': period, 'date': endpoint.isoformat(), 'label': label,
+        'period': {'kind': period, 'date': endpoint.isoformat(),
+                   'date_from': range_start_endpoint.isoformat(),
+                   'label': label,
                    'start': start.isoformat(), 'end': end.isoformat(),
                    'options': options, 'available_kinds': available,
                    'warnings': list(dict.fromkeys(warnings))},

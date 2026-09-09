@@ -2408,13 +2408,18 @@ def key_indicators_data(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     period = request.args.get('period', 'month')
     date = request.args.get('date') or None
+    date_from = request.args.get('date_from') or None
     if period not in ('day', 'month', 'quarter', 'year'):
         return jsonify(error='Неизвестный период'), 400
-    if date is not None:
+    for value in (date, date_from):
+        if value is None:
+            continue
         try:
-            datetime.strptime(date, '%Y-%m-%d')
+            datetime.strptime(value, '%Y-%m-%d')
         except ValueError:
             return jsonify(error='Дата должна иметь формат ГГГГ-ММ-ДД'), 400
+    if date_from is not None and period != 'month':
+        return jsonify(error='Начальная дата доступна только для периода «Месяц»'), 400
     try:
         source, updated_at = load_company_source(company_id, UPLOADS)
         mappings = [{
@@ -2425,7 +2430,8 @@ def key_indicators_data(company_id):
         } for row in RevenueAnalyticMapping.query.filter_by(
             company_id=company_id).all()]
         payload = build_key_indicators(
-            source, period=period, date=date, revenue_mappings=mappings)
+            source, period=period, date=date, date_from=date_from,
+            revenue_mappings=mappings)
         payload['company'] = {'id': company.id, 'name': company.name}
         payload['updated_at'] = updated_at
     except SourceBusyError as exc:

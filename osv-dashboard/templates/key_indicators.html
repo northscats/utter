@@ -53,7 +53,8 @@
           <button class="period-btn active" data-period="month">Месяц</button>
           <button class="period-btn" data-period="day">День</button>
         </div>
-        <select id="ki-date-select" class="date-display" onchange="window.KI_App.onDateChange(this.value)" style="display:none;"></select>
+        <select id="ki-date-from-select" class="date-display" onchange="window.KI_App.onDateFromChange(this.value)" aria-label="Начальный месяц" style="display:none;"></select>
+        <select id="ki-date-select" class="date-display" onchange="window.KI_App.onDateChange(this.value)" aria-label="Конечная дата" style="display:none;"></select>
         <div id="ki-quarter-buttons" class="quarter-buttons" role="group" aria-label="Выбор квартала" style="display:none;"></div>
         <select id="ki-annual-year-select" class="date-display" onchange="window.KI_AnnualApp.onYearChange(this.value)" style="display:none;"></select>
         <div id="ki-annual-year-buttons" class="annual-year-buttons" role="group" aria-label="Доступные годы" style="display:none;"></div>

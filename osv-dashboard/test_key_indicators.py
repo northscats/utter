@@ -39,6 +39,24 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cards['revenue']['value'], 100)
         self.assertIn('брутто', cards['revenue']['formula'])
 
+    def test_month_range_sums_from_selected_start_through_end(self):
+        rows = [
+            day('2026-08-31', '90.01', obk=10),
+            day('2026-09-30', '90.01', obk=20),
+            day('2026-10-31', '90.01', obk=30),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({
+                '90': account('90', rows, period='за 3 квартал 2026 г.'),
+            }),
+            period='month', date='2026-10-31', date_from='2026-08-31')
+        revenue = {card['id']: card for card in result['cards']}['revenue']
+        self.assertEqual(revenue['value'], 60)
+        self.assertEqual(result['period']['start'], '2026-08-01')
+        self.assertEqual(result['period']['end'], '2026-10-31')
+        self.assertEqual(result['period']['date_from'], '2026-08-31')
+        self.assertIsNone(revenue['delta'])
+
     def test_balance_only_at_original_report_boundary(self):
         top = dict(snd=1, snk=0, obd=0, obk=0, skd=25, skk=0)
         src = build_indicator_source({
