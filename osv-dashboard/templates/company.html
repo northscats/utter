@@ -214,6 +214,41 @@ tr:last-child td{border-bottom:0}
   cursor:default;opacity:.55}
 .ac-account-btn.is-missing:hover,.ac-account-btn.is-missing:focus-visible{
   color:#aeb7bf;background:#fafbfc;border-color:#edf0f2;outline:none}
+.ac-card.report-selecting .ac-month,.ac-card.report-selecting .ac-account-btn{
+  cursor:pointer}
+.ac-card.report-selecting .ac-month{transition:border-color .15s,box-shadow .15s}
+.ac-card.report-selecting .ac-month.report-selected{
+  border-color:var(--water);box-shadow:0 0 0 2px rgba(31,122,156,.2)}
+.ac-card.report-selecting .ac-account-btn.report-selected{
+  color:#fff;background:var(--water);border-color:var(--water);opacity:1}
+.ac-report-actions{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;
+  border-top:1px solid var(--line)}
+.ac-report-btn{border:1px solid var(--water);border-radius:7px;background:#fff;color:var(--water);
+  padding:7px 13px;font:700 12px 'Segoe UI',sans-serif;cursor:pointer}
+.ac-report-btn.primary{background:var(--water);color:#fff}
+.ac-report-btn.active{background:#e8f4fb;box-shadow:0 0 0 2px rgba(31,122,156,.15)}
+.ac-report-hint{font-size:11px;color:var(--mut);margin-left:4px}
+.ac-report-overlay{display:none;position:fixed;inset:0;background:rgba(20,35,45,.55);
+  z-index:1200;padding:28px;align-items:center;justify-content:center}
+.ac-report-overlay.open{display:flex}
+.ac-report-modal{background:#fff;border-radius:14px;width:min(980px,100%);max-height:90vh;
+  display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.ac-report-head{padding:20px 24px;border-bottom:1px solid var(--line);
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+.ac-report-head h2{font-size:18px;margin:0 0 4px}.ac-report-company{font-weight:700;color:var(--ink)}
+.ac-report-meta{font-size:12px;color:var(--mut)}
+.ac-report-close{border:0;background:#f0f3f5;border-radius:7px;width:32px;height:32px;
+  cursor:pointer;font-size:20px}
+.ac-report-body{padding:18px 24px;overflow:auto}
+.ac-report-table{width:100%;border-collapse:collapse;font-size:12px}
+.ac-report-table th{position:sticky;top:0;background:#edf4f7;color:#31424f;text-align:left}
+.ac-report-table th,.ac-report-table td{padding:9px 10px;border:1px solid var(--line);
+  vertical-align:top}
+.ac-report-table td:first-child{font-weight:700;white-space:nowrap}
+.ac-report-empty{padding:28px;text-align:center;color:var(--mut)}
+.ac-report-foot{padding:14px 24px;border-top:1px solid var(--line);
+  display:flex;justify-content:flex-end;gap:8px}
+@media(max-width:640px){.ac-report-overlay{padding:10px}.ac-report-hint{width:100%;margin:0}}
 .ac-day{transition:opacity .12s,transform .12s,box-shadow .12s}
 .ac-day.ac-account-muted{opacity:.2}
 .ac-day.ac-account-match{opacity:1;transform:scale(1.12);z-index:3;
@@ -913,7 +948,7 @@ tr:last-child td{border-bottom:0}
     <div class="ac-months">
       {% for mon in ac.months %}
       {% set upl = mon.upload %}
-      <div class="ac-month ac-upl-{{ mon.upl_status }}">
+      <div class="ac-month ac-upl-{{ mon.upl_status }}" data-report-month="{{ mon.num }}" data-report-month-name="{{ mon.name }}">
         <!-- Шапка месяца: статус периодической ОСВ -->
         <div class="ac-mon-hdr"
              title="{% if upl %}Загружена {{ upl.uploaded_at.strftime('%d.%m.%Y') }} · {{ upl.period_label }}{% else %}ОСВ за этот месяц не загружена{% endif %}">
@@ -952,12 +987,39 @@ tr:last-child td{border-bottom:0}
       {% for account in ac.account_buttons %}
       <button type="button"
               class="ac-account-btn{% if not account.available %} is-missing{% endif %}"
-              {% if account.available %}data-coverage-account="{{ account.index }}"{% else %}disabled aria-disabled="true" title="Нет данных по счёту за выбранный год"{% endif %}>{{ account.number }}</button>
+              data-report-account="{{ account.number }}"
+              data-report-account-name="{{ account.name }}"
+              title="{{ account.name }}{% if not account.available %} — нет данных за выбранный год{% endif %}"
+              {% if account.available %}data-coverage-account="{{ account.index }}"{% endif %}>{{ account.number }}</button>
       {% endfor %}
     </div>
     {% endif %}
+    <div class="ac-report-actions">
+      <button type="button" class="ac-report-btn" id="ac-report-select">Выбор данных</button>
+      <button type="button" class="ac-report-btn primary" id="ac-report-build">Сформировать отчёт</button>
+      <span class="ac-report-hint" id="ac-report-hint">Без выбора — все недостающие данные за {{ ac.year }} год</span>
+    </div>
 
     </div><!-- /ac-body -->
+  </div>
+
+  <div class="ac-report-overlay" id="ac-report-modal" role="dialog" aria-modal="true"
+       aria-labelledby="ac-report-title">
+    <div class="ac-report-modal">
+      <div class="ac-report-head">
+        <div>
+          <h2 id="ac-report-title">Запрос недостающих данных</h2>
+          <div class="ac-report-company">{{ company.name }}</div>
+          <div class="ac-report-meta" id="ac-report-meta"></div>
+        </div>
+        <button type="button" class="ac-report-close" id="ac-report-close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="ac-report-body" id="ac-report-body"></div>
+      <div class="ac-report-foot">
+        <button type="button" class="ac-report-btn" id="ac-report-download">Скачать таблицу CSV</button>
+        <button type="button" class="ac-report-btn primary" id="ac-report-done">Закрыть</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -1404,6 +1466,206 @@ function saveReq() {
     button.addEventListener('mouseleave', clearAccountHighlight);
     button.addEventListener('focus', function(){ highlightAccount(index, button); });
     button.addEventListener('blur', clearAccountHighlight);
+  });
+})();
+
+// --- Отчёт для запроса недостающих данных в бухгалтерии ---
+(function(){
+  var card = document.getElementById('ac-card');
+  var selectButton = document.getElementById('ac-report-select');
+  var buildButton = document.getElementById('ac-report-build');
+  var hint = document.getElementById('ac-report-hint');
+  var modal = document.getElementById('ac-report-modal');
+  var modalBody = document.getElementById('ac-report-body');
+  var modalMeta = document.getElementById('ac-report-meta');
+  var accountButtons = Array.from(document.querySelectorAll('[data-report-account]'));
+  var monthCards = Array.from(document.querySelectorAll('[data-report-month]'));
+  var reportRows = [];
+  var selectionMode = false;
+  var year = {{ ac.year|tojson }};
+  var companyName = {{ company.name|tojson }};
+  var fullMonthNames = [
+    '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+  ];
+
+  function setSelectionMode(enabled){
+    selectionMode = enabled;
+    card.classList.toggle('report-selecting', enabled);
+    selectButton.classList.toggle('active', enabled);
+    selectButton.textContent = enabled ? 'Отменить выбор' : 'Выбор данных';
+    hint.textContent = enabled
+      ? 'Выберите месяцы в календаре и необходимые счета'
+      : 'Без выбора — все недостающие данные за ' + year + ' год';
+    if(!enabled){
+      monthCards.forEach(function(month){ month.classList.remove('report-selected'); });
+      accountButtons.forEach(function(account){ account.classList.remove('report-selected'); });
+    }
+  }
+
+  function monthHasAccount(month, accountButton){
+    var index = accountButton.getAttribute('data-coverage-account');
+    if(index === null) return false;
+    return Array.from(month.querySelectorAll('.ac-day[data-account-indexes]')).some(function(day){
+      var indexes = ' ' + (day.getAttribute('data-account-indexes') || '') + ' ';
+      return indexes.indexOf(' ' + index + ' ') !== -1;
+    });
+  }
+
+  function rowFor(month, accountButton, automatic){
+    var monthNumber = Number(month.getAttribute('data-report-month'));
+    var hasData = monthHasAccount(month, accountButton);
+    return {
+      account: accountButton.getAttribute('data-report-account'),
+      accountName: accountButton.getAttribute('data-report-account-name'),
+      month: monthNumber,
+      period: fullMonthNames[monthNumber] + ' ' + year,
+      status: hasData
+        ? 'Выбрано для дополнительного запроса'
+        : 'Данные отсутствуют',
+      automatic: automatic
+    };
+  }
+
+  function escapeHtml(value){
+    return String(value).replace(/[&<>"']/g, function(char){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char];
+    });
+  }
+
+  function renderReport(rows, automatic){
+    var grouped = {};
+    rows.forEach(function(row){
+      if(!grouped[row.account]){
+        grouped[row.account] = {
+          account: row.account,
+          accountName: row.accountName,
+          periods: [],
+          status: row.automatic
+            ? 'Предоставить ОСВ по счёту за отсутствующие периоды'
+            : 'Предоставить ОСВ по счёту за выбранные периоды'
+        };
+      }
+      grouped[row.account].periods.push(row.period);
+    });
+    reportRows = Object.keys(grouped).sort(function(a, b){
+      return a.localeCompare(b, 'ru', {numeric:true});
+    }).map(function(account){ return grouped[account]; });
+    modalMeta.textContent = automatic
+      ? 'Автоматически: недостающие данные за ' + year + ' год'
+      : 'По выбранным счетам и месяцам · ' + year + ' год';
+    if(!reportRows.length){
+      modalBody.innerHTML =
+        '<div class="ac-report-empty">Недостающих данных за выбранный период не обнаружено.</div>';
+      document.getElementById('ac-report-download').disabled = true;
+    }else{
+      var bodyRows = reportRows.map(function(row){
+        return '<tr><td>' + escapeHtml(row.account) + '</td>' +
+          '<td>' + escapeHtml(row.accountName) + '</td>' +
+          '<td>' + escapeHtml(row.periods.join(', ')) + '</td>' +
+          '<td>' + escapeHtml(row.status) + '</td></tr>';
+      }).join('');
+      modalBody.innerHTML =
+        '<table class="ac-report-table"><thead><tr>' +
+        '<th>Счёт</th><th>Расшифровка</th><th>Период</th><th>Что необходимо предоставить</th>' +
+        '</tr></thead><tbody>' + bodyRows + '</tbody></table>';
+      document.getElementById('ac-report-download').disabled = false;
+    }
+    modal.classList.add('open');
+    document.getElementById('ac-report-close').focus();
+  }
+
+  function buildReport(){
+    var rows = [];
+    if(selectionMode){
+      var selectedMonths = monthCards.filter(function(month){
+        return month.classList.contains('report-selected');
+      });
+      var selectedAccounts = accountButtons.filter(function(account){
+        return account.classList.contains('report-selected');
+      });
+      if(!selectedMonths.length || !selectedAccounts.length){
+        hint.textContent = 'Выберите хотя бы один месяц и один счёт';
+        return;
+      }
+      selectedMonths.forEach(function(month){
+        selectedAccounts.forEach(function(account){
+          rows.push(rowFor(month, account, false));
+        });
+      });
+    }else{
+      var elapsedMonths = monthCards.filter(function(month){
+        return !month.classList.contains('ac-upl-future');
+      });
+      elapsedMonths.forEach(function(month){
+        accountButtons.forEach(function(account){
+          if(!monthHasAccount(month, account)){
+            rows.push(rowFor(month, account, true));
+          }
+        });
+      });
+    }
+    rows.sort(function(a, b){
+      return a.month - b.month || a.account.localeCompare(b.account, 'ru', {numeric:true});
+    });
+    renderReport(rows, !selectionMode);
+  }
+
+  function closeModal(){
+    modal.classList.remove('open');
+    buildButton.focus();
+  }
+
+  function csvCell(value){
+    return '"' + String(value).replace(/"/g, '""') + '"';
+  }
+
+  function downloadReport(){
+    if(!reportRows.length) return;
+    var lines = [
+      [companyName],
+      ['Запрос недостающих данных', year + ' год'],
+      [],
+      ['Счёт', 'Расшифровка', 'Период', 'Что необходимо предоставить']
+    ];
+    reportRows.forEach(function(row){
+      lines.push([row.account, row.accountName, row.periods.join(', '), row.status]);
+    });
+    var csv = '\uFEFF' + lines.map(function(line){
+      return line.map(csvCell).join(';');
+    }).join('\r\n');
+    var blobUrl = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    var link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = 'Запрос_данных_' + year + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
+  }
+
+  selectButton.addEventListener('click', function(){
+    setSelectionMode(!selectionMode);
+  });
+  monthCards.forEach(function(month){
+    month.addEventListener('click', function(){
+      if(selectionMode) month.classList.toggle('report-selected');
+    });
+  });
+  accountButtons.forEach(function(account){
+    account.addEventListener('click', function(){
+      if(selectionMode) account.classList.toggle('report-selected');
+    });
+  });
+  buildButton.addEventListener('click', buildReport);
+  document.getElementById('ac-report-close').addEventListener('click', closeModal);
+  document.getElementById('ac-report-done').addEventListener('click', closeModal);
+  document.getElementById('ac-report-download').addEventListener('click', downloadReport);
+  modal.addEventListener('click', function(event){
+    if(event.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', function(event){
+    if(event.key === 'Escape' && modal.classList.contains('open')) closeModal();
   });
 })();
 
