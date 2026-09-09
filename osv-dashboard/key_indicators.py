@@ -573,6 +573,7 @@ def build_key_indicators(source, period='month', date=None,
     collection_reason = ('ОСВ не связывает начисления с оплатами и не содержит '
                          'распределение платежей по срокам; собираемость недоступна')
     turnover_ratio = None
+    collection_analytics = []
     if d62:
         # Account-level rows and analytic rows must never be added together.
         plain = [r for r in d62 if not any((r['path1'], r['path2'], r['path3']))]
@@ -580,6 +581,24 @@ def build_key_indicators(source, period='month', date=None,
         charged, paid = _sum(basis, 'obd'), _sum(basis, 'obk')
         if charged:
             turnover_ratio = round(paid / charged * 100, 2)
+        analytic_rows = _leaf_rows(
+            d62, lambda r: bool(_analytic_parts(r)))
+        analytic_groups = defaultdict(list)
+        analytic_labels = {}
+        for row in analytic_rows:
+            key, label = _analytic_identity(row)
+            analytic_groups[key].append(row)
+            analytic_labels[key] = label
+        for key, rows in sorted(
+                analytic_groups.items(), key=lambda item: analytic_labels[item[0]]):
+            debit = _known_sum(rows, 'obd')
+            credit = _known_sum(rows, 'obk')
+            ratio = (round(credit / debit * 100, 2)
+                     if debit not in (None, 0) and credit is not None else None)
+            collection_analytics.append({
+                'analytic_key': key, 'label': analytic_labels[key],
+                'debit': debit, 'credit': credit, 'turnover_ratio': ratio,
+            })
 
     ar, ar_reason = _sub_balance(source, '62', '62.01', end)
     ap, ap_reason = _sub_balance(source, '60', '60.01', end, credit=True)
@@ -612,6 +631,9 @@ def build_key_indicators(source, period='month', date=None,
                         **({'reason': 'Строки 90.03 отсутствуют'} if vat is None else {})}]),
         _card('collection', collection, '%', 'Требуется распределение оплат по начислениям',
               'Суточные обороты счёта 62', collection_reason,
+               turnover_ratio=turnover_ratio,
+               turnover_series=[],
+               analytics=collection_analytics,
               details=[{'label': 'Соотношение оборотов, не собираемость',
                         'value': turnover_ratio, 'unit': '%',
                         **({} if turnover_ratio is not None else
@@ -686,6 +708,15 @@ def build_key_indicators(source, period='month', date=None,
         rows08 = _turnover_basis(_daily(source, '08', month_start, month_end))
         month_values['capex'] = _sum(rows08, 'obd') if rows08 else None
         month_values['collection'] = None
+        month62 = _turnover_basis(_daily(source, '62', month_start, month_end))
+        month_debit = _known_sum(month62, 'obd') if month62 else None
+        month_credit = _known_sum(month62, 'obk') if month62 else None
+        month_turnover_ratio = (
+            round(month_credit / month_debit * 100, 2)
+            if month_debit not in (None, 0) and month_credit is not None else None)
+        card_map['collection']['turnover_series'].append({
+            'label': option['label'], 'value': month_turnover_ratio,
+            'debit': month_debit, 'credit': month_credit})
         cash_month = []
         for account in ('50', '51', '52', '55'):
             value, _ = _top_balance(source, account, month_end)

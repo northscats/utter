@@ -679,7 +679,7 @@
                 collection: {
                     description: 'Доля начислений, фактически погашенных потребителями.',
                     detail: 'Простое отношение кредитового и дебетового оборота счёта 62 не является собираемостью: ОСВ не связывает конкретную оплату с начислением.',
-                    required: 'Реестр начислений и оплат из 1С: потребитель, договор, период начисления, дата и сумма оплаты, распределение платежа, корректировки и авансы.'
+                    required: 'Регистр начислений и распределённых оплат из 1С: предприятие, потребитель, категория потребителя, договор, лицевой счёт, услуга, расчётный период, документ и дата начисления, сумма начисления, документ и дата оплаты, сумма оплаты, распределение платежа по начислениям, погашенная сумма, аванс и его зачёт, корректировка, сторно и возврат.'
                 },
                 ar: {
                     description: 'Подтверждённая дебиторская задолженность покупателей по субсчёту 62.01.',
@@ -1136,6 +1136,213 @@
             });
         },
 
+        collectionRequirements() {
+            return {
+                fact: 'Регистр начислений и распределённых оплат из 1С: предприятие, потребитель, категория потребителя, договор, лицевой счёт, услуга, расчётный период, документ и дата начисления, сумма начисления, документ и дата оплаты, сумма оплаты, распределение платежа по начислениям, погашенная сумма, аванс и его зачёт, корректировка, сторно и возврат.',
+                plan: 'Утверждённый план собираемости из 1С или системы бюджетирования: предприятие, сегмент потребителей, месяц, плановый процент, версия плана, дата утверждения, ответственное лицо и период действия.',
+                previousYear: 'Те же регистры начислений и распределённых оплат за полный аналогичный период прошлого года, рассчитанные по тем же сегментам, услугам и правилам учёта авансов, корректировок и сторно.',
+                segments: 'Справочник соответствия аналитик счёта 62 категориям потребителей: контрагент, договор, лицевой счёт, вид договора, категория «Население / УК-ТСЖ / Бюджет / Прочие юрлица / Субсидии», дата начала и окончания действия категории.',
+                subsidy: 'Регистр субсидий и компенсаций: бюджет, программа, получатель, расчётный период, документ начисления дохода, заявленная сумма, подтверждённая сумма, дата поступления, платёжный документ и распределение поступления по начислениям.'
+            };
+        },
+
+        collectionTooltip(overrides = {}) {
+            const required = this.collectionRequirements();
+            return Object.assign({
+                title: 'Фактический уровень собираемости',
+                description: 'Доля начислений выбранного расчётного периода, погашенная распределёнными платежами.',
+                formula: 'Собираемость = Оплаты, распределённые на начисления периода / Начисления периода после корректировок × 100%',
+                detail: 'Дебетовый и кредитовый обороты счёта 62 не связывают платёж с начислением и поэтому сами по себе не являются собираемостью.',
+                required: required.fact,
+                norm: 'План или норматив предприятия не загружен',
+                fact: 'Н/Д',
+                deviation: 'Расчёт невозможен по одной ОСВ',
+                deviationClass: 'missing',
+                source: 'требуется регистр начислений и распределённых оплат из 1С'
+            }, overrides);
+        },
+
+        collectionCell(content, tooltip, className = '') {
+            return `<td class="cash-tooltip-host ${className}" tabindex="0">${content}${this.cashTooltip(tooltip)}</td>`;
+        },
+
+        renderCollectionModal(card) {
+            const container = document.getElementById('ki-collection-modal-content');
+            if (!container) return;
+            const required = this.collectionRequirements();
+            const arCard = state.data.cards.find(item => item.id === 'ar') || {};
+            const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
+            const availableAr = (arCard.series || []).filter(item => item.value !== null);
+            const currentAr = availableAr.length ? availableAr[availableAr.length - 1] : null;
+            const previousAr = availableAr.length > 1 ? availableAr[availableAr.length - 2] : null;
+            const arChange = currentAr && previousAr ? currentAr.value - previousAr.value : null;
+            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');
+            const arRevenueRatio = arCard.value !== null && arCard.value !== undefined &&
+                revenueIsNet ? arCard.value / revenueCard.value * 100 : null;
+            const turnover = card.turnover_ratio;
+            const rub = value => value === null || value === undefined
+                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined
+                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+
+            const factTip = this.collectionTooltip();
+            const turnoverTip = this.collectionTooltip({
+                title: 'Соотношение оборотов счёта 62 — не собираемость',
+                description: 'Справочное отношение кредитового оборота расчётов с покупателями к дебетовому обороту.',
+                formula: 'Оборотный коэффициент = ОбК(62) / ОбД(62) × 100%',
+                detail: 'ОбК может включать оплату старого долга, авансы, зачёты и сторно; ОбД — корректировки и иные операции. Значение не оценивается по нормативу собираемости.',
+                required: null, norm: 'Не применяется', fact: pct(turnover),
+                deviation: 'Справочный бухгалтерский индикатор', deviationClass: 'neutral',
+                source: 'обороты загруженной ОСВ счёта 62'
+            });
+            const arChangeTip = this.collectionTooltip({
+                title: 'Изменение дебиторской задолженности',
+                description: 'Изменение конечного дебетового сальдо 62.01 между двумя доступными месячными снимками.',
+                formula: 'Δ ДЗ = ДЗ на конец текущего месяца − ДЗ на конец предыдущего доступного месяца',
+                detail: arChange === null ? 'Нет двух сопоставимых конечных сальдо 62.01.' : 'Рост ДЗ является косвенным сигналом ухудшения расчётов, но не заменяет собираемость.',
+                required: arChange === null ? 'ОСВ счёта 62 с конечным сальдо 62.01 на две сопоставимые месячные даты.' : null,
+                norm: 'Индивидуальный норматив не задан',
+                fact: arChange === null ? 'Н/Д' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`,
+                deviation: arChange === null ? 'Недостаточно снимков' : (arChange > 0 ? 'Задолженность выросла' : 'Задолженность снизилась'),
+                deviationClass: arChange === null ? 'missing' : (arChange > 0 ? 'bad' : 'good'),
+                source: 'конечные сальдо ОСВ 62.01'
+            });
+            const ratioTip = this.collectionTooltip({
+                title: 'Дебиторская задолженность к выручке',
+                description: 'Отношение конечной ДЗ покупателей к выручке за выбранный период.',
+                formula: 'ДЗ / Выручка = СКд(62.01) / [ОбК(90.01) − ОбД(90.03)] × 100%',
+                detail: 'Показатель характеризует объём средств в задолженности, но не показывает распределение оплат по начислениям.',
+                required: arRevenueRatio === null ? 'ОСВ 62.01 с конечным дебетовым сальдо и ОСВ 90.01/90.03 за один сопоставимый период.' : null,
+                norm: 'Индивидуальный норматив не задан', fact: pct(arRevenueRatio),
+                deviation: arRevenueRatio === null ? 'Недостаточно данных' : 'Фактическое соотношение',
+                deviationClass: arRevenueRatio === null ? 'missing' : 'neutral',
+                source: 'ОСВ 62.01, 90.01 и 90.03'
+            });
+
+            const analytics = card.analytics || [];
+            const analyticRows = analytics.length ? analytics.map(row => {
+                const analyticBase = `Аналитика 1С: ${row.label}.`;
+                const debitTip = this.collectionTooltip({
+                    title: `Дебетовый оборот 62 — ${row.label}`,
+                    description: 'Бухгалтерский дебетовый оборот выбранной аналитики счёта 62.',
+                    formula: 'Σ ОбД(62) по аналитике и выбранному периоду',
+                    detail: `${analyticBase} Оборот может включать начисления, корректировки и другие операции.`,
+                    required: null, norm: 'Не применяется', fact: rub(row.debit),
+                    deviation: 'Факт ОСВ, не подтверждённые начисления', deviationClass: 'neutral',
+                    source: 'ОСВ счёта 62'
+                });
+                const creditTip = this.collectionTooltip({
+                    title: `Кредитовый оборот 62 — ${row.label}`,
+                    description: 'Бухгалтерский кредитовый оборот выбранной аналитики счёта 62.',
+                    formula: 'Σ ОбК(62) по аналитике и выбранному периоду',
+                    detail: `${analyticBase} Оборот может включать оплаты, зачёты, авансы, корректировки и сторно.`,
+                    required: null, norm: 'Не применяется', fact: rub(row.credit),
+                    deviation: 'Факт ОСВ, не подтверждённые оплаты', deviationClass: 'neutral',
+                    source: 'ОСВ счёта 62'
+                });
+                const rowTurnoverTip = this.collectionTooltip({
+                    title: `Соотношение оборотов — ${row.label}`,
+                    description: 'Справочное соотношение оборотов выбранной аналитики, не фактическая собираемость.',
+                    formula: 'ОбК(62, аналитика) / ОбД(62, аналитика) × 100%',
+                    detail: analyticBase,
+                    required: `${required.fact} ${required.segments}`,
+                    norm: 'Норматив собираемости неприменим', fact: pct(row.turnover_ratio),
+                    deviation: row.turnover_ratio === null ? 'Нет ненулевой базы ОбД' : 'Справочный индикатор',
+                    deviationClass: row.turnover_ratio === null ? 'missing' : 'neutral',
+                    source: 'аналитические обороты ОСВ счёта 62'
+                });
+                const segmentFactTip = this.collectionTooltip({
+                    title: `Фактическая собираемость — ${row.label}`,
+                    detail: `${analyticBase} Для расчёта требуется связать оплаты с начислениями этой аналитики.`,
+                    required: `${required.fact} ${required.segments}`
+                });
+                const planTip = this.collectionTooltip({
+                    title: `План собираемости — ${row.label}`,
+                    description: 'Утверждённое целевое значение для сегмента и месяца.',
+                    formula: 'План берётся из утверждённой версии бюджета, а не выводится из ОСВ.',
+                    detail: analyticBase, required: `${required.plan} ${required.segments}`,
+                    source: 'требуется план из 1С или системы бюджетирования'
+                });
+                const apgTip = this.collectionTooltip({
+                    title: `Изменение к АПГ — ${row.label}`,
+                    description: 'Разница собираемости с тем же календарным периодом прошлого года.',
+                    formula: 'Δ АПГ = Собираемость текущего периода − Собираемость аналогичного периода прошлого года',
+                    detail: analyticBase, required: `${required.previousYear} ${required.segments}`,
+                    source: 'требуются сопоставимые регистры за два года'
+                });
+                const planDeltaTip = this.collectionTooltip({
+                    title: `Отклонение от плана — ${row.label}`,
+                    description: 'Разница фактической собираемости и утверждённого плана сегмента.',
+                    formula: 'Δ к плану = Фактическая собираемость − План собираемости',
+                    detail: analyticBase, required: `${required.fact} ${required.plan} ${required.segments}`,
+                    source: 'требуются регистр оплат и утверждённый план'
+                });
+                const statusTip = this.collectionTooltip({
+                    title: `Статус — ${row.label}`,
+                    description: 'Оценка выполнения утверждённого плана собираемости.',
+                    formula: 'Статус определяется по отклонению факта от утверждённого плана и согласованным порогам.',
+                    detail: 'Статус не назначается по справочному отношению оборотов счёта 62.',
+                    required: `${required.fact} ${required.plan} Справочник порогов статусов из 1С: сегмент, допустимое отклонение, уровень «Норма / Внимание / Критично», дата начала действия.`,
+                    source: 'требуются факт, план и утверждённые пороги'
+                });
+                return `<tr>
+                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, this.collectionTooltip({
+                        title: `Аналитика счёта 62 — ${row.label}`, description: 'Фактическая аналитика из загруженной ОСВ.',
+                        formula: 'Группа определяется полным путём аналитики 1С.', detail: 'Автоматическое отнесение к категории потребителя не выполняется.',
+                        required: required.segments, norm: 'Не применяется', fact: 'Есть в ОСВ',
+                        deviation: 'Категория потребителя не подтверждена', deviationClass: 'missing', source: 'ОСВ счёта 62'
+                    }))}
+                    ${this.collectionCell(esc(rub(row.debit)), debitTip)}
+                    ${this.collectionCell(esc(rub(row.credit)), creditTip)}
+                    ${this.collectionCell(esc(pct(row.turnover_ratio)), rowTurnoverTip)}
+                    ${this.collectionCell('Нужны данные', segmentFactTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', planTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', planDeltaTip, 'cash-value-missing')}
+                    ${this.collectionCell('Нужны данные', apgTip, 'cash-value-missing')}
+                    ${this.collectionCell('Недостаточно данных', statusTip, 'cash-value-missing')}
+                </tr>`;
+            }).join('') : `<tr><td colspan="9" class="chart-empty">В ОСВ счёта 62 нет доступной аналитической детализации. ${esc(required.segments)}</td></tr>`;
+
+            container.innerHTML = `
+                <div class="modal-info-banner"><strong>Фактическая собираемость не выводится из оборотов ОСВ.</strong>
+                    Отношение ОбК(62) / ОбД(62) показано отдельно как бухгалтерский индикатор и не сравнивается с нормативом 95%.</div>
+                <div class="modal-summary collection-summary">
+                    ${this.cashMetricCard('Фактическая собираемость', 'Нужны данные', 'распределённые оплаты / начисления', factTip, true)}
+                    ${this.cashMetricCard('Соотношение оборотов 62', pct(turnover), 'справочно, не собираемость', turnoverTip, turnover === null)}
+                    ${this.cashMetricCard('Изменение ДЗ', arChange === null ? 'Нужны данные' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`, 'к предыдущему доступному месяцу', arChangeTip, arChange === null)}
+                    ${this.cashMetricCard('ДЗ / Выручка', pct(arRevenueRatio), 'бухгалтерский индикатор', ratioTip, arRevenueRatio === null)}
+                </div>
+                <div class="modal-section-title">Доступная динамика по ОСВ</div>
+                <div class="collection-chart-grid">
+                    <div><div class="collection-chart-title">Соотношение оборотов 62, % — не собираемость</div><div class="modal-chart-wrap" id="ki-collection-turnover-chart"></div></div>
+                    <div><div class="collection-chart-title">Дебиторская задолженность 62.01, млн ₽</div><div class="modal-chart-wrap" id="ki-collection-ar-chart"></div></div>
+                </div>
+                <div class="modal-section-title">Детализация по фактическим аналитикам счёта 62</div>
+                <div class="revenue-classification-note">Строки не называются сегментами потребителей до загрузки справочника соответствия. Субсидии нельзя автоматически определять по счёту 76.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table">
+                    <thead><tr><th>Аналитика 1С</th><th>ОбД 62</th><th>ОбК 62</th><th>ОбК/ОбД</th><th>Факт сбора</th><th>План</th><th>Δ к плану</th><th>Δ к АПГ</th><th>Статус</th></tr></thead>
+                    <tbody>${analyticRows}</tbody>
+                </table></div>
+                <div class="modal-section-title">Какие данные нужны для полного окна</div>
+                <div class="revenue-missing-grid collection-missing-grid">
+                    ${this.cashMetricCard('Собираемость и Δ к плану', 'Нужны данные', 'начисления и распределённые оплаты', this.collectionTooltip({required: `${required.fact} ${required.plan}`}), true)}
+                    ${this.cashMetricCard('Сравнение с АПГ', 'Нужны данные', 'полный сопоставимый период', this.collectionTooltip({title:'Сравнение собираемости с АПГ', required: required.previousYear}), true)}
+                    ${this.cashMetricCard('Сегменты потребителей', 'Нужны данные', 'справочник категорий', this.collectionTooltip({title:'Собираемость по сегментам', required: required.segments}), true)}
+                    ${this.cashMetricCard('Субсидии и компенсации', 'Нужны данные', 'отдельный регистр поступлений', this.collectionTooltip({title:'Собираемость субсидий и компенсаций', required: required.subsidy}), true)}
+                </div>`;
+
+            setTimeout(() => {
+                this.renderBarChart(card.turnover_series || [], '%', 'ki-collection-turnover-chart', {
+                    id: 'collection',
+                    title: 'Соотношение оборотов счёта 62',
+                    formula: 'ОбК(62) / ОбД(62) × 100%',
+                    source: 'месячные обороты ОСВ счёта 62',
+                    reason: 'Показатель не является фактической собираемостью'
+                });
+                this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard);
+            }, 50);
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -1418,20 +1625,30 @@
 
             const cashContent = document.getElementById('ki-cash-modal-content');
             const revenueContent = document.getElementById('ki-revenue-modal-content');
+            const collectionContent = document.getElementById('ki-collection-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
             if (cardId === 'cash') {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
             } else if (cardId === 'revenue') {
                 genericContent.style.display = 'none';
                 cashContent.style.display = 'none';
+                collectionContent.style.display = 'none';
                 revenueContent.style.display = 'block';
                 this.renderRevenueModal(card);
+            } else if (cardId === 'collection') {
+                genericContent.style.display = 'none';
+                cashContent.style.display = 'none';
+                revenueContent.style.display = 'none';
+                collectionContent.style.display = 'block';
+                this.renderCollectionModal(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
+                collectionContent.style.display = 'none';
                 genericContent.style.display = 'block';
             const baseTooltip = this.metricTooltipData(card);
             const rb = document.getElementById('ki-modal-reason-banner');

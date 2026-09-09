@@ -105,7 +105,23 @@ class KeyIndicatorTests(unittest.TestCase):
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
         self.assertEqual(card['details'][0]['value'], 90)
+        self.assertEqual(card['turnover_ratio'], 90)
+        self.assertEqual(card['turnover_series'][0]['value'], 90)
         self.assertIn('не собираемость', card['details'][0]['label'])
+
+    def test_collection_analytics_do_not_double_count_parent_rows(self):
+        rows = [
+            day('2026-01-31', '62.01', p1='Население', obd=100, obk=80),
+            day('2026-01-31', '62.01.1', p1='Население', obd=100, obk=80),
+        ]
+        src = build_indicator_source({'62': account('62', rows)})
+        card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
+        self.assertIsNone(card['value'])
+        self.assertEqual(card['turnover_ratio'], 80)
+        self.assertEqual(len(card['analytics']), 1)
+        self.assertEqual(card['analytics'][0]['debit'], 100)
+        self.assertEqual(card['analytics'][0]['credit'], 80)
+        self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
     def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))

@@ -432,8 +432,32 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0;
 }
 .revenue-line-chart { margin-top:4px; }
+.collection-summary { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.collection-chart-grid {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-bottom:18px;
+}
+.collection-chart-grid .modal-chart-wrap { height:250px; margin:0; }
+.collection-chart-title { margin:0 0 8px; color:#374151; font-size:11px; font-weight:700; }
+.collection-table-wrap { overflow-x:auto; margin-bottom:18px; }
+.collection-detail-table {
+  width:100%; min-width:1260px; border-collapse:collapse; font-size:11px;
+}
+.collection-detail-table th {
+  padding:9px 8px; background:#F3F4F6; border-bottom:2px solid #D1D5DB;
+  color:#4B5563; text-align:right; white-space:nowrap;
+}
+.collection-detail-table th:first-child { min-width:230px; text-align:left; }
+.collection-detail-table td {
+  padding:9px 8px; border-bottom:1px solid #E5E7EB; color:#374151;
+  text-align:right; vertical-align:middle;
+}
+.collection-detail-table td:first-child { text-align:left; }
+.collection-detail-table tbody tr:hover { background:#F9FAFB; }
+.collection-detail-table .cash-value-missing { color:#B45309; font-size:10px; white-space:nowrap; }
+.collection-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 @media (max-width:760px) {
   .revenue-missing-grid { grid-template-columns:1fr; }
+  .collection-summary, .collection-chart-grid, .collection-missing-grid { grid-template-columns:1fr; }
 }
 .cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
 .cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
