@@ -166,18 +166,6 @@
             document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add('active');
             document.getElementById(`tab-${tabName}`).classList.add('active');
         },
-
-        openData() {
-            if (config && config.embedded && window.parent && window.parent !== window &&
-                    typeof window.parent.setNavView === 'function') {
-                const navItem = window.parent.document.querySelector('.sl-nav-item[data-nav="history"]');
-                window.parent.setNavView('history', navItem);
-                return;
-            }
-            if (config && config.dataPageUrl) {
-                window.location.href = config.dataPageUrl;
-            }
-        },
         
         onPeriodChange(kind) {
             if (state.period === kind) return;
