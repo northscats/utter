@@ -2802,8 +2802,6 @@ def _annual_coverage(company_id, year=None):
     # --- Все суточные строки ---
     all_rows = DailyRow.query.filter_by(company_id=company_id).all()
     all_dates = {r.date for r in all_rows}
-    year_dates = {d for d in all_dates if d.year == year}
-    year_rows = [r for r in all_rows if r.date.year == year]
     data_start = min(all_dates) if all_dates else None
 
     # --- Все загрузки ---
@@ -2847,7 +2845,7 @@ def _annual_coverage(company_id, year=None):
 
     # Старые Upload-записи могли сохраняться без accounts_loaded. В этом случае
     # используем уже существующий кэш разбора принятых ОСВ-файлов.
-    source_accs = set()
+    source_ranges = {}
     source_date_accs = {}
     source_years = set()
     try:
@@ -2868,22 +2866,16 @@ def _annual_coverage(company_id, year=None):
                 source_years.add(start_date.year)
             if end_date:
                 source_years.add(end_date.year)
-
-            relevant = bool(
-                start_date and end_date and
-                start_date <= _d(year, 12, 31) and end_date >= _d(year, 1, 1)
-            )
+            if start_date and end_date and start_date <= end_date:
+                source_years.update(range(start_date.year, end_date.year + 1))
+                source_ranges[acc] = (start_date, end_date)
             for row in account_data.get('daily', []):
                 try:
                     row_date = _d.fromisoformat(str(row.get('date')))
                 except (TypeError, ValueError):
                     continue
                 source_years.add(row_date.year)
-                if row_date.year == year:
-                    relevant = True
-                    source_date_accs.setdefault(row_date, set()).add(acc)
-            if relevant:
-                source_accs.add(acc)
+                source_date_accs.setdefault(row_date, set()).add(acc)
     except (SourceBusyError, SourceReadError, OSError, ValueError) as exc:
         # Метаданные Upload и DailyRow остаются полноценным источником покрытия,
         # даже если один из архивных XLS-файлов временно недоступен для разбора.
@@ -2891,9 +2883,31 @@ def _annual_coverage(company_id, year=None):
             'Не удалось восстановить счета покрытия компании %s: %s',
             company_id, exc,
         )
-        source_accs = set()
+        source_ranges = {}
         source_date_accs = {}
         source_years = set()
+
+    # Год данных определяется периодом отчёта, а не датой его загрузки.
+    # Не добавляем текущий год, если данных за него нет.
+    data_years = sorted(
+        {d.year for d in all_dates} |
+        {upload_year for upload_year, _ in upl_map} |
+        source_years
+    )
+    if data_years and year not in data_years:
+        year = data_years[-1]
+    year_dates = {d for d in all_dates if d.year == year}
+    year_rows = [r for r in all_rows if r.date.year == year]
+    source_date_accs = {
+        day: accounts for day, accounts in source_date_accs.items()
+        if day.year == year
+    }
+    source_accs = {
+        acc for acc, (start, end) in source_ranges.items()
+        if start <= _d(year, 12, 31) and end >= _d(year, 1, 1)
+    }
+    for accounts in source_date_accs.values():
+        source_accs.update(accounts)
 
     def _account_sort_key(acc):
         parts = _re.findall(r'\d+|\D+', str(acc))
@@ -2998,14 +3012,8 @@ def _annual_coverage(company_id, year=None):
         ))
 
     # Навигация по годам
-    data_years = sorted(
-        {d.year for d in all_dates} |
-        {u.uploaded_at.year for u in all_uploads} |
-        source_years |
-        {today.year}
-    )
-    prev_year = year - 1 if (year - 1) in data_years else None
-    next_year = year + 1 if (year + 1) in data_years else None
+    prev_year = max((y for y in data_years if y < year), default=None)
+    next_year = min((y for y in data_years if y > year), default=None)
 
     total_ok          = sum(m['ok_days']    for m in months)
     total_past        = sum(m['past_days']  for m in months)

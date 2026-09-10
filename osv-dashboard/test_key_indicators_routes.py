@@ -272,6 +272,64 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertEqual(len(buttons), 20)
         self.assertFalse(buttons['01']['available'])
 
+    def test_coverage_year_select_uses_data_periods_and_updates_coverage(self):
+        from datetime import datetime
+        source = {'accounts': {'51': {
+            'report_start': '2021-01-01', 'report_end': '2023-12-31',
+            'daily': [],
+        }}}
+        with self.app.app_context():
+            db.session.add_all([
+                DailyRow(company_id=self.company, date=date(2024, 5, 2), acc='62'),
+                Upload(company_id=self.company, uploaded_by=self.ids['kpi_admin'],
+                       uploaded_at=datetime(2030, 1, 1),
+                       period_label='Август 2020', accounts_loaded='["20"]'),
+            ])
+            db.session.commit()
+        try:
+            with patch.object(service, 'load_company_source', return_value=(source, None)):
+                with self.app.app_context():
+                    default = app_module._annual_coverage(self.company)
+                    old = app_module._annual_coverage(self.company, 2020)
+                    middle = app_module._annual_coverage(self.company, 2022)
+                self.assertEqual(default['data_years'], [2020, 2021, 2022, 2023, 2024])
+                self.assertEqual(default['year'], 2024)
+                self.assertEqual(default['accs'], ['62'])
+                self.assertEqual(old['year'], 2020)
+                self.assertEqual(old['accs'], ['20'])
+                self.assertEqual(old['months'][7]['upl_status'], 'uploaded')
+                self.assertEqual(middle['accs'], ['51'])
+                response = self.client('kpi_admin').get(
+                    f'/company/{self.company}?year=2020&embedded=1')
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            select = html.split('<select id="ac-year-select"', 1)[1].split('</select>', 1)[0]
+            self.assertIn('onchange="setCoverageYear(this.value)"', select)
+            self.assertIn('onclick="event.stopPropagation()"', select)
+            self.assertIn('<option value="2020" selected>', select)
+            for year in range(2021, 2025):
+                self.assertIn(f'<option value="{year}"', select)
+            self.assertNotIn('value="2030"', select)
+            self.assertEqual(select.count('<option'), 5)
+        finally:
+            with self.app.app_context():
+                DailyRow.query.filter_by(company_id=self.company).delete()
+                Upload.query.filter_by(company_id=self.company).delete()
+                db.session.commit()
+
+    def test_coverage_year_select_empty_company(self):
+        with patch.object(service, 'load_company_source', return_value=({'accounts': {}}, None)):
+            with self.app.app_context():
+                coverage = app_module._annual_coverage(self.company)
+            response = self.client('kpi_admin').get(f'/company/{self.company}')
+        self.assertEqual(coverage['data_years'], [])
+        self.assertEqual(response.status_code, 200)
+        select = response.get_data(as_text=True).split(
+            '<select id="ac-year-select"', 1)[1].split('</select>', 1)[0]
+        self.assertIn('disabled', select)
+        self.assertIn('Нет данных', select)
+        self.assertEqual(select.count('<option'), 1)
+
     def test_coverage_report_downloads_readable_excel_matrix(self):
         payload = {
             'year': 2026,

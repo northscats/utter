@@ -131,12 +131,11 @@ tr:last-child td{border-bottom:0}
 .ac-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .ac-title{font-size:13px;font-weight:700;color:#31424f;text-transform:uppercase;
   letter-spacing:.07em;flex:1}
-.ac-year-nav{display:flex;align-items:center;gap:6px}
-.ac-year-btn{background:#f0f3f5;border:1px solid var(--line);border-radius:6px;
-  padding:3px 10px;font:600 12px 'Segoe UI',sans-serif;color:var(--ink);cursor:pointer;
-  text-decoration:none;transition:background .15s}
-.ac-year-btn:hover{background:#e2e8ec}
-.ac-year-cur{font:700 15px 'Segoe UI',sans-serif;color:var(--ink);padding:0 4px}
+.ac-year-select{font:700 14px 'Segoe UI',sans-serif;color:var(--ink);
+  background:#fff;border:1px solid var(--line);border-radius:6px;
+  padding:5px 26px 5px 9px;cursor:pointer;letter-spacing:normal}
+.ac-year-select:focus-visible{outline:2px solid var(--water);outline-offset:2px}
+.ac-year-select:disabled{cursor:default;color:var(--mut)}
 .ac-summary{font-size:12px;color:var(--mut)}
 .ac-summary b{color:var(--ink)}
 .ac-mode-switch{display:flex;align-items:center;gap:3px;padding:3px;background:#f0f3f5;
@@ -908,7 +907,18 @@ tr:last-child td{border-bottom:0}
   <!-- Годовая карта покрытия -->
   <div class="ac-card" id="ac-card" data-coverage-mode="daily">
     <div class="ac-header" style="cursor:pointer" onclick="toggleAC()" title="Свернуть / развернуть">
-      <div class="ac-title">Покрытие данными — {{ ac.year }}</div>
+      <div class="ac-title">
+        <label for="ac-year-select">Покрытие данными —</label>
+        <select id="ac-year-select" class="ac-year-select" aria-label="Год покрытия данными"
+                onclick="event.stopPropagation()" title="Выберите год с данными"
+                onchange="setCoverageYear(this.value)" {% if not ac.data_years %}disabled{% endif %}>
+          {% for available_year in ac.data_years | reverse %}
+          <option value="{{ available_year }}" {% if available_year == ac.year %}selected{% endif %}>{{ available_year }}</option>
+          {% else %}
+          <option value="">Нет данных</option>
+          {% endfor %}
+        </select>
+      </div>
       <div class="ac-mode-switch" role="group" aria-label="Режим отображения покрытия" onclick="event.stopPropagation()">
         <button type="button" class="ac-mode-btn active" data-coverage-mode-btn="daily"
                 aria-pressed="true" onclick="setCoverageMode('daily')">Суточные</button>
@@ -917,15 +927,6 @@ tr:last-child td{border-bottom:0}
       </div>
       <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
-      <div class="ac-year-nav" onclick="event.stopPropagation()">
-        {% if ac.prev_year %}
-        <a class="ac-year-btn" href="?year={{ ac.prev_year }}">← {{ ac.prev_year }}</a>
-        {% endif %}
-        <span class="ac-year-cur">{{ ac.year }}</span>
-        {% if ac.next_year %}
-        <a class="ac-year-btn" href="?year={{ ac.next_year }}">{{ ac.next_year }} →</a>
-        {% endif %}
-      </div>
       {% if ac.has_any %}
       <div class="ac-summary">
         {% if ac.total_months_past > 0 %}
@@ -1386,6 +1387,13 @@ function saveReq() {
 }
 
 // --- Сворачивание карты покрытия ---
+function setCoverageYear(year){
+  if(!/^\d{4}$/.test(year)) return;
+  var url = new URL(window.location.href);
+  url.searchParams.set('year', year);
+  window.location.assign(url.toString());
+}
+
 (function(){
   var collapsed = localStorage.getItem('ac_collapsed') === '1';
   function applyAC(anim){
