@@ -20,6 +20,12 @@ Inspect all managed workflow states before repeating a restart of an already res
 
 **How to apply:** Check the dashboard PID, recent logs, proxied HTTP and all workflow states. Inspect the actual startup-probe responses of each service before concluding that a workspace interruption is external.
 
+Workflow status is not proof that the previous operating-system process stopped.
+
+**Why:** A later launch failed with address-in-use errors while the previous dashboard and API processes were still serving. Node processes can appear as `MainThread` in the process-name column, so filtering only names containing `node` can falsely suggest they disappeared. A duplicate Vite instance also moved to the next port and appeared running while the proxy still targeted the older instance.
+
+**How to apply:** Match listening socket owners to their command line and working directory before diagnosing a crash or terminating a stale process. Stop the managed workflow first, then gracefully terminate only verified leftover application owners. Do not infer coordinated process termination from workflow labels alone.
+
 ## Development readiness differs from published health configuration
 
 Keep an inexpensive successful response at each probed service entry point, not just its configured production health URL.
