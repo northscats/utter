@@ -78,3 +78,17 @@ mtime_ms = 1789041862300
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/163181e3-2b0f-4d5c-abcc-baa416725afb/c82ef117-aca3-4f1b-96a1-16866a50f121"
 storage_version_token = "1789041869094086"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "SZby2ac0o1F8cngnM749a"
+uri = "file://reports/collection_metrics_audit.xlsx"
+type = "table"
+title = "Уровень собираемости — критический аналитический отчёт"
+description = "Excel, 8 листов: 15 метрик, таблица и графики, достоверность источников, необходимые данные, 10 рекомендаций, 5 контрольных примеров и ссылки на код. С фильтрами и закреплёнными заголовками."
+logical_id = "35858856-7e45-432c-a0d7-863131c92a05"
+content_hash = "sha256:bbcfe77301d319f57438acfafb6f3934c8fb3501bbb1d50c2699b61bb3ba9864"
+size = 50011
+mtime_ms = 1789046098185
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/35858856-7e45-432c-a0d7-863131c92a05/025e07ac-9a5e-443d-8457-d33aa123a3d9"
+storage_version_token = "1789046106932349"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
