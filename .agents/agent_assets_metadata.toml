@@ -50,3 +50,17 @@ mtime_ms = 1788519191578
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/fc8226e5-9a26-47c5-8324-d11201181c71/1a1944ef-d9e2-41aa-a492-afbf6f081796"
 storage_version_token = "1788519194427579"
 content_type = "application/msword"
+
+[[outputs]]
+id = "i1mbZJGV8vJ4jWz74exbb"
+uri = "file://reports/cash_metrics_audit_2026-09-10.xlsx"
+type = "table"
+title = "Денежные средства — аналитический отчёт"
+description = "Excel: 6 листов, 34 пункта анализа, 10 итоговых рекомендаций, источники, фильтры и закреплённые заголовки. Экспорт предыдущего отчёта; последующие исправления приложения не переаудированы."
+logical_id = "f0ceb2f2-5b85-4fda-8a30-452e95118dd7"
+content_hash = "sha256:cf133c0d41cccfd8fd423839e7fac10bb6b2c1aa31773ecb7aaee0660582ebd4"
+size = 37974
+mtime_ms = 1789031225916
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/f0ceb2f2-5b85-4fda-8a30-452e95118dd7/a1a56685-8d64-434b-b8f4-c0ed88a0a313"
+storage_version_token = "1789031232776368"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
