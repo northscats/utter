@@ -92,3 +92,17 @@ mtime_ms = 1789046098185
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/35858856-7e45-432c-a0d7-863131c92a05/025e07ac-9a5e-443d-8457-d33aa123a3d9"
 storage_version_token = "1789046106932349"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "_W_H4QwCA8RjLz0vgxeWs"
+uri = "file://reports/receivables_metrics_audit.xlsx"
+type = "table"
+title = "Критический анализ дебиторской задолженности"
+description = "Excel-отчёт на 11 листах: 16 показателей и расчётных оснований, все столбцы таблицы, графики, источники, оценка достоверности и полноты, рекомендации и 14 контрольных примеров."
+logical_id = "5e5a3b13-d99d-4309-9eb7-a28b8279e903"
+content_hash = "sha256:e8f5ddb4e552870215919f97de347bf2934cda9a150d361d19edb6af50225258"
+size = 74370
+mtime_ms = 1789053797881
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/5e5a3b13-d99d-4309-9eb7-a28b8279e903/0011319b-2707-4f74-8c57-dff419dba132"
+storage_version_token = "1789053838476480"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

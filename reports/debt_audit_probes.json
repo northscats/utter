@@ -1,0 +1,1303 @@
+{
+  "report_id": "debt-audit-probes",
+  "purpose": "Synthetic read-only AR/accounting probes against pure key_indicators helpers and extracted frontend DSO expressions",
+  "scope_note": "The prior 66/67 credit-share probe is excluded from this AR report; no 66/67 results are delivered here.",
+  "status_semantics": "implementation_status=PASS means the source probe assertion was verified; audit_assessment=FINDING means the observed behavior differs from the audit-safe/accounting expectation.",
+  "execution": {
+    "runner": "reports/debt_audit_probes.py",
+    "command": "python3 reports/debt_audit_probes.py",
+    "python": "3.11.14",
+    "node": "v24.13.0",
+    "imports": [
+      "key_indicators"
+    ],
+    "forbidden_imports_not_used": [
+      "app",
+      "key_indicators_service",
+      "database"
+    ],
+    "database_connections": false,
+    "network_calls": false,
+    "services_started": false
+  },
+  "source_files": {
+    "osv-dashboard/key_indicators.py": {
+      "sha256": "1d6ed5fb97146e942ab6bca0786fe87ff04c314ea4e077997b156f93ef673671",
+      "role": "pure Python source under probe"
+    },
+    "osv-dashboard/static/key_indicators.js": {
+      "sha256": "2102fa2b84d6fafb23b7743167ad5de51eb5f18880782dd6e146e8f823f69ce3",
+      "role": "source of extracted DSO/VAT-scope expressions"
+    },
+    "osv-dashboard/test_key_indicators.py": {
+      "sha256": "a62800d8c0a0eef432d59b598f51c216b6c9a98bd369ccb0490115edb462dd33",
+      "role": "fixture/source-shape reference inspected for probes"
+    },
+    "osv-dashboard/osvparser.py": {
+      "sha256": "51beeb0a3da1a095ff7e3d7f1aa1b444811cde327e2d53a224bf96db198e5d5b",
+      "role": "parser evidence for daily/report balance fields"
+    },
+    "osv-dashboard/key_indicators_service.py": {
+      "sha256": "ad88b657d7ab528137a7d7381cf551ee6316c6c5f46f38be0c894aa95cd5a7f1",
+      "role": "loader evidence; inspected, not imported"
+    }
+  },
+  "assertions_verified": 14,
+  "finding_count": 6,
+  "summary_ru": [
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-001-root-and-analytic-total-double-count; фактически: {\"ar_analytic_values\": [100.0], \"ar_total\": 200.0, \"direct_ar\": 200.0, \"direct_ar_analytics\": [100.0]}",
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-002-duplicate-balance-lists-helper-risk; фактически: {\"analytic_value\": 160.0, \"card_value\": 160.0, \"direct_value\": 160.0, \"source_balance_observation_count\": 1, \"source_daily_count\": 1}",
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-003-standard-source-analytic-detail-gap; фактически: {\"analytic_row_count\": 0, \"analytic_rows\": [], \"card_value\": 100.0, \"direct_analytic_rows\": [], \"source_daily_balance_keys\": [], \"source_report_row_count\": 2}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-004-debit-credit-netting; фактически: {\"analytic_value\": 0.0, \"card_reason\": null, \"card_value\": 0.0, \"direct_reason\": null, \"direct_value\": 0.0}",
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-005-hierarchy-mismatch-share-over-100; фактически: {\"analytic_labels\": [\"«Покупатель Ж»\", \"«Покупатель З»\"], \"analytic_values\": [100.0, 0.0], \"frontend_shares\": [{\"display\": \"166.7%\", \"index\": 0, \"share\": 166.66666666666669, \"value\": 100}, {\"display\": \"0.0%\", \"index\": 1, \"share\": 0, \"value\": 0}], \"total_value\": 60.0}",
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-006-missing-balance-side-zero-fill; фактически: {\"card_reason\": null, \"card_value\": 55.0, \"direct_reason\": null, \"direct_value\": 55.0, \"source_balance_keys\": [\"skd\"]}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-007-exact-date-missing-no-cross-date-leak; фактически: {\"ar_card_reason\": \"Сальдо доступно только на исходную границу отчёта\", \"ar_card_value\": null, \"available_dates\": [\"2026-01-30\", \"2026-01-31\", \"2026-03-31\"], \"direct_reason\": \"Сальдо доступно только на исходную границу отчёта\", \"direct_value\": null}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-008-opening-closing-and-provenance; фактически: {\"card_provenance_notes\": [\"Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx.\"], \"closing_value\": 60.0, \"direct_opening_value\": 40.0, \"opening_value\": 40.0, \"period_bounds\": {\"end\": \"2026-01-31\", \"start\": \"2026-01-01\"}, \"provenance\": \"Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx.\"}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-009-vat-scope-for-net-revenue; фактически: {\"with_90_03\": {\"formula\": \"ОбК(90.01*) − ОбД(90.03*)\", \"title\": \"Выручка\", \"value\": 80.0, \"vat_detail\": {\"label\": \"НДС\", \"unit\": \"RUB\", \"value\": 20.0}}, \"without_90_03\": {\"formula\": \"ОбК(90.01*), брутто\", \"title\": \"Выручка брутто (НДС недоступен)\", \"value\": 100.0, \"vat_detail\": {\"label\": \"НДС\", \"reason\": \"Строки 90.03 отсутствуют\", \"unit\": \"RUB\", \"value\": null}}}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-010-dso-frontend-net-positive; фактически: {\"days\": 31, \"id\": \"net-positive\", \"result\": {\"is_finite\": true, \"js_value\": \"19.375\", \"value\": 19.375}, \"revenue_is_net\": true}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-011-dso-frontend-zero-ar; фактически: {\"days\": 31, \"id\": \"zero-ar\", \"result\": {\"is_finite\": true, \"js_value\": \"0\", \"value\": 0}, \"revenue_is_net\": true}",
+    "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-012-dso-frontend-negative-net-revenue; фактически: {\"days\": 31, \"id\": \"negative-net-revenue\", \"result\": {\"is_finite\": true, \"js_value\": \"-31\", \"value\": -31}, \"revenue_is_net\": true}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-013-dso-frontend-zero-revenue; фактически: {\"days\": 31, \"id\": \"zero-revenue\", \"result\": {\"is_finite\": null, \"js_value\": \"null\", \"value\": null}, \"revenue_is_net\": false}",
+    "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-014-dso-frontend-vat-scope; фактически: {\"days\": 31, \"id\": \"gross-revenue-no-vat\", \"result\": {\"is_finite\": null, \"js_value\": \"null\", \"value\": null}, \"revenue_is_net\": false}"
+  ],
+  "tests": [
+    {
+      "test_id": "AR-001-root-and-analytic-total-double-count",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 100,
+                "skk": 0
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель А",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 100,
+                "skk": 0
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "ar_total": 200.0,
+        "ar_analytic_values": [
+          100.0
+        ],
+        "direct_ar": 200.0,
+        "direct_ar_analytics": [
+          100.0
+        ]
+      },
+      "expected": {
+        "ar_total": 100,
+        "ar_analytic_values": [
+          70
+        ],
+        "direct_ar": 100,
+        "direct_ar_analytics": [
+          70
+        ]
+      },
+      "interpretation": "FINDING: a root 62.01 row without analytics and a same-code 62.01 row for Buyer A are both included by _sub_balance, so the total is 200 while the analytic detail is 100. This is exactly the total-plus-detail double-count shape requested; the synthetic fixture is not asserted to be an enterprise export.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-001-root-and-analytic-total-double-count; фактически: {\"ar_analytic_values\": [100.0], \"ar_total\": 200.0, \"direct_ar\": 200.0, \"direct_ar_analytics\": [100.0]}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:419-443 (_sub_balance)",
+          "osv-dashboard/key_indicators.py:468-500 (_sub_balance_analytics)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observation": "Same date: root path3=62.01, analytic='' has skd=100; Buyer A path3=62.01 has skd=100. The helper sums both exact-code rows, while detail excludes the root row."
+      },
+      "reproducibility": {
+        "assertion": "actual AR total == 200, exactly one analytic detail == 100, and direct helper agrees",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-002-duplicate-balance-lists-helper-risk",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель Д",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 80,
+                "skk": 0
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 0,
+              "skk": 0
+            },
+            "balance_observations": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель Д",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 80,
+                "skk": 0
+              }
+            ]
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "source_daily_count": 1,
+        "source_balance_observation_count": 1,
+        "card_value": 160.0,
+        "analytic_value": 160.0,
+        "direct_value": 160.0
+      },
+      "expected": {
+        "audit_safe_value": 80,
+        "implementation_value": 160,
+        "implementation_rule": "(balance_observations + daily) are both traversed by _sub_balance"
+      },
+      "interpretation": "FINDING / CONDITIONAL: with the same per-subaccount observation in balance_observations and daily, _sub_balance returns 160 instead of 80. The loader can append an uncovered DailyRow observation to balance_observations and daily (key_indicators_service.py:151-160), but that runtime DailyRow observation has path1/path2/path3 all empty (lines 151-154). Therefore this is a pure-helper contract risk conditional on future/upstream per-subaccount observations, not an established current DailyRow AR incident.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-002-duplicate-balance-lists-helper-risk; фактически: {\"analytic_value\": 160.0, \"card_value\": 160.0, \"direct_value\": 160.0, \"source_balance_observation_count\": 1, \"source_daily_count\": 1}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:424-433 (_sub_balance concatenates observations and daily)",
+          "osv-dashboard/key_indicators_service.py:151-160 (DailyRow observation is put in both lists when uncovered)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observation": "The source snapshot contains one identical path3=62.01 observation in each list; the report explicitly limits the finding to that helper contract."
+      },
+      "reproducibility": {
+        "assertion": "source has one item in each list and card/direct/analytic values are all 160 from one underlying 80 observation",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-003-standard-source-analytic-detail-gap",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 100,
+                "obk": 0
+              }
+            ],
+            "rows": [
+              {
+                "lvl": 1,
+                "label": "62.01",
+                "p0": "62",
+                "p1": "62.01",
+                "p2": "",
+                "p3": "",
+                "snd": 0,
+                "snk": 0,
+                "obd": 100,
+                "obk": 0,
+                "skd": 100,
+                "skk": 0
+              },
+              {
+                "lvl": 2,
+                "label": "Покупатель Е",
+                "p0": "62",
+                "p1": "62.01",
+                "p2": "Покупатель Е",
+                "p3": "",
+                "snd": 0,
+                "snk": 0,
+                "obd": 100,
+                "obk": 0,
+                "skd": 100,
+                "skk": 0
+              }
+            ],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 100,
+              "obk": 0,
+              "skd": 100,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "card_value": 100.0,
+        "analytic_rows": [],
+        "analytic_row_count": 0,
+        "direct_analytic_rows": [],
+        "source_daily_balance_keys": [],
+        "source_report_row_count": 2
+      },
+      "expected": {
+        "card_value": 100,
+        "analytic_row_count": 0,
+        "pipeline_contract": "standard parser report rows carry balances, but _sub_balance_analytics reads explicit observations only"
+      },
+      "interpretation": "FINDING / MAIN PIPELINE GAP: the accepted parser-shaped source has a 62.01 report row and a child analytic report row, each with skd=100, while its daily row has only obd/obk. The AR card correctly obtains 100 from the report row, but the analytic table is empty because _sub_balance_analytics does not fall back to report rows. This is distinct from the conditional duplicate-list helper risk.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-003-standard-source-analytic-detail-gap; фактически: {\"analytic_row_count\": 0, \"analytic_rows\": [], \"card_value\": 100.0, \"direct_analytic_rows\": [], \"source_daily_balance_keys\": [], \"source_report_row_count\": 2}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/osvparser.py:283-289 (daily rows carry obd/obk only)",
+          "osv-dashboard/osvparser.py:294-298 (report rows retain skd/skk)",
+          "osv-dashboard/key_indicators.py:468-500 (_sub_balance_analytics has no rows fallback)",
+          "osv-dashboard/key_indicators.py:850-852 (AR card wiring)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observation": "A standard monthly report-shaped source has two balance rows but no explicit daily/balance_observations balance."
+      },
+      "reproducibility": {
+        "assertion": "card_value == 100, report row count == 2, daily balance keys are empty, and analytic rows remain []",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-004-debit-credit-netting",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель Б",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 120,
+                "skk": 200
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "card_value": 0.0,
+        "card_reason": null,
+        "direct_value": 0.0,
+        "direct_reason": null,
+        "analytic_value": 0.0
+      },
+      "expected": {
+        "card_value": 0,
+        "direct_value": 0,
+        "analytic_value": 0,
+        "rule": "max(СКд − СКк, 0)"
+      },
+      "interpretation": "PASS: a debit balance of 120 netted against credit 200 is not reported as a negative receivable; the debit AR result is zero.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-004-debit-credit-netting; фактически: {\"analytic_value\": 0.0, \"card_reason\": null, \"card_value\": 0.0, \"direct_reason\": null, \"direct_value\": 0.0}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:419-443 (_sub_balance)",
+          "osv-dashboard/key_indicators.py:490-499 (_sub_balance_analytics)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observed_input_rule": "СКд=120, СКк=200"
+      },
+      "reproducibility": {
+        "assertion": "card, direct helper, and leaf analytic all return 0 for СКд=120 and СКк=200",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-005-hierarchy-mismatch-share-over-100",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 100,
+                "skk": 40
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель Ж",
+                "path2": "",
+                "path3": "62.01.1",
+                "obd": 0,
+                "obk": 0,
+                "skd": 100,
+                "skk": 0
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель З",
+                "path2": "",
+                "path3": "62.01.2",
+                "obd": 0,
+                "obk": 0,
+                "skd": 0,
+                "skk": 40
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "total_value": 60.0,
+        "analytic_values": [
+          100.0,
+          0.0
+        ],
+        "analytic_labels": [
+          "«Покупатель Ж»",
+          "«Покупатель З»"
+        ],
+        "frontend_shares": [
+          {
+            "index": 0,
+            "value": 100,
+            "share": 166.66666666666669,
+            "display": "166.7%"
+          },
+          {
+            "index": 1,
+            "value": 0,
+            "share": 0,
+            "display": "0.0%"
+          }
+        ]
+      },
+      "expected": {
+        "total_value": 60,
+        "analytic_values": [
+          100,
+          0
+        ],
+        "share_for_100_detail": 166.66666666666666,
+        "displayed_share_for_100_detail": "166.7%",
+        "safe_interpretation": "hierarchy totals must reconcile before presenting detail shares"
+      },
+      "interpretation": "FINDING / CONDITIONAL SYNTHETIC HIERARCHY CASE: the exact parent 62.01 nets to 60, while leaf details net to 100 and 0. The extracted frontend share expression therefore displays 166.7% for Buyer Ж. This demonstrates hierarchy mismatch behavior, not an assertion that an enterprise export contains these inconsistent totals.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-005-hierarchy-mismatch-share-over-100; фактически: {\"analytic_labels\": [\"«Покупатель Ж»\", \"«Покупатель З»\"], \"analytic_values\": [100.0, 0.0], \"frontend_shares\": [{\"display\": \"166.7%\", \"index\": 0, \"share\": 166.66666666666669, \"value\": 100}, {\"display\": \"0.0%\", \"index\": 1, \"share\": 0, \"value\": 0}], \"total_value\": 60.0}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:419-443 (_sub_balance)",
+          "osv-dashboard/key_indicators.py:468-500 (_sub_balance_analytics and leaf selection)"
+        ],
+        "frontend": {
+          "frontend": "osv-dashboard/static/key_indicators.js",
+          "expression_extracted_at_runtime": {
+            "lines": "1524-1524",
+            "fragment": "                const share = current ? row.value / current * 100 : null;"
+          },
+          "execution": "node -e with extracted AR share expression; no DOM/app/network"
+        },
+        "source_built_by": "build_indicator_source",
+        "observation": "Synthetic same-date parent net=60; child A net=100; child B net=0. The helper does not reconcile parent and children before the UI share expression."
+      },
+      "reproducibility": {
+        "assertion": "real helper returns total 60 and details [100,0]; extracted frontend expression returns raw share 166.666... and display 166.7% for the 100 detail",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-006-missing-balance-side-zero-fill",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Покупатель В",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 55
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "source_balance_keys": [
+          "skd"
+        ],
+        "card_value": 55.0,
+        "card_reason": null,
+        "direct_value": 55.0,
+        "direct_reason": null
+      },
+      "expected": {
+        "audit_safe_value": null,
+        "audit_safe_reason": "credit closing side is unknown",
+        "implementation_behavior": "missing skk is read as 0"
+      },
+      "interpretation": "FINDING: build_indicator_source preserves that skk is absent, but _sub_balance then uses r.get('skk', 0). A missing credit side becomes a numeric AR value 55 with no missing-data reason. That is not evidence that the credit side is truly zero.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-006-missing-balance-side-zero-fill; фактически: {\"card_reason\": null, \"card_value\": 55.0, \"direct_reason\": null, \"direct_value\": 55.0, \"source_balance_keys\": [\"skd\"]}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:419-443 (_sub_balance)",
+          "osv-dashboard/key_indicators.py:430-432 (missing side default)",
+          "osv-dashboard/key_indicators.py:227-233 (optional balance sides in source builder)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observed_input_rule": "only skd=55 is supplied; skk is absent"
+      },
+      "reproducibility": {
+        "assertion": "source row has skd but no skk, while the card and direct helper both return 55 and no reason",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-007-exact-date-missing-no-cross-date-leak",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [
+              {
+                "date": "2026-01-30",
+                "month": "2026-01",
+                "path1": "",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0,
+                "skd": 15,
+                "skk": 0
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "",
+                "path2": "",
+                "path3": "62.01",
+                "obd": 0,
+                "obk": 0
+              }
+            ],
+            "rows": [],
+            "period": "за 1 квартал 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 0,
+              "obk": 0,
+              "skd": 100,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31",
+        "period_kind": "day"
+      },
+      "actual": {
+        "ar_card_value": null,
+        "ar_card_reason": "Сальдо доступно только на исходную границу отчёта",
+        "direct_value": null,
+        "direct_reason": "Сальдо доступно только на исходную границу отчёта",
+        "available_dates": [
+          "2026-01-30",
+          "2026-01-31",
+          "2026-03-31"
+        ]
+      },
+      "expected": {
+        "ar_card_value": null,
+        "direct_value": null,
+        "rule": "balance is valid only on the exact requested date"
+      },
+      "interpretation": "PASS: a balance observed on 30 January and a report balance at 31 March do not create a 31 January 62.01 balance. The missing exact date remains unavailable.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-007-exact-date-missing-no-cross-date-leak; фактически: {\"ar_card_reason\": \"Сальдо доступно только на исходную границу отчёта\", \"ar_card_value\": null, \"available_dates\": [\"2026-01-30\", \"2026-01-31\", \"2026-03-31\"], \"direct_reason\": \"Сальдо доступно только на исходную границу отчёта\", \"direct_value\": null}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:419-443 (_sub_balance)",
+          "osv-dashboard/key_indicators.py:1104-1106 (exact-date chart rule)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observed_input_rule": "balance on 2026-01-30; no balance on 2026-01-31; report boundary on 2026-03-31"
+      },
+      "reproducibility": {
+        "assertion": "AR card and direct _sub_balance for 2026-01-31 are both None",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-008-opening-closing-and-provenance",
+      "input": {
+        "parsed_data": {
+          "62": {
+            "acc": "62",
+            "daily": [],
+            "rows": [
+              {
+                "lvl": 1,
+                "label": "62.01",
+                "p0": "62",
+                "p1": "62.01",
+                "p2": "",
+                "p3": "",
+                "snd": 40,
+                "snk": 0,
+                "obd": 20,
+                "obk": 0,
+                "skd": 60,
+                "skk": 0
+              }
+            ],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 20,
+              "obk": 0,
+              "skd": 60,
+              "skk": 0
+            },
+            "source_file": "osv62-2026-01.xlsx"
+          }
+        },
+        "selected_date": "2026-01-31",
+        "opening_boundary": "2026-01-01"
+      },
+      "actual": {
+        "closing_value": 60.0,
+        "opening_value": 40.0,
+        "direct_opening_value": 40.0,
+        "provenance": "Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx.",
+        "card_provenance_notes": [
+          "Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx."
+        ],
+        "period_bounds": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        }
+      },
+      "expected": {
+        "closing_value": 60,
+        "opening_value": 40,
+        "direct_opening_value": 40,
+        "provenance_contains": [
+          "за январь 2026 г.",
+          "osv62-2026-01.xlsx"
+        ]
+      },
+      "interpretation": "PASS: the exact report row supplies opening debit 40 and closing debit 60; the AR card also carries the report period and source-file provenance. Opening and closing are not reconstructed from an unrelated date.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-008-opening-closing-and-provenance; фактически: {\"card_provenance_notes\": [\"Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx.\"], \"closing_value\": 60.0, \"direct_opening_value\": 40.0, \"opening_value\": 40.0, \"period_bounds\": {\"end\": \"2026-01-31\", \"start\": \"2026-01-01\"}, \"provenance\": \"Источник сальдо счёта 62: за январь 2026 г. · osv62-2026-01.xlsx.\"}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:446-465 (_sub_opening_balance)",
+          "osv-dashboard/key_indicators.py:618-632 (_balance_provenance)",
+          "osv-dashboard/key_indicators.py:850-852 (AR card wiring)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observed_input_rule": "report row: snd=40, skd=60; period and source file are provided explicitly"
+      },
+      "reproducibility": {
+        "assertion": "closing == 60, opening == 40, direct opening == 40, and provenance contains period plus source filename",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-009-vat-scope-for-net-revenue",
+      "input": {
+        "with_vat": {
+          "90": {
+            "acc": "90",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Услуга",
+                "path2": "",
+                "path3": "90.01",
+                "obd": 0,
+                "obk": 100
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Услуга",
+                "path2": "",
+                "path3": "90.03",
+                "obd": 20,
+                "obk": 0
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Услуга",
+                "path2": "",
+                "path3": "90.02",
+                "obd": 60,
+                "obk": 0
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 80,
+              "obk": 100,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "without_vat": {
+          "90": {
+            "acc": "90",
+            "daily": [
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Услуга",
+                "path2": "",
+                "path3": "90.01",
+                "obd": 0,
+                "obk": 100
+              },
+              {
+                "date": "2026-01-31",
+                "month": "2026-01",
+                "path1": "Услуга",
+                "path2": "",
+                "path3": "90.02",
+                "obd": 60,
+                "obk": 0
+              }
+            ],
+            "rows": [],
+            "period": "за январь 2026 г.",
+            "warnings": [],
+            "check_ok": true,
+            "top": {
+              "snd": 0,
+              "snk": 0,
+              "obd": 60,
+              "obk": 100,
+              "skd": 0,
+              "skk": 0
+            }
+          }
+        },
+        "selected_date": "2026-01-31"
+      },
+      "actual": {
+        "with_90_03": {
+          "value": 80.0,
+          "formula": "ОбК(90.01*) − ОбД(90.03*)",
+          "title": "Выручка",
+          "vat_detail": {
+            "label": "НДС",
+            "value": 20.0,
+            "unit": "RUB"
+          }
+        },
+        "without_90_03": {
+          "value": 100.0,
+          "formula": "ОбК(90.01*), брутто",
+          "title": "Выручка брутто (НДС недоступен)",
+          "vat_detail": {
+            "label": "НДС",
+            "value": null,
+            "unit": "RUB",
+            "reason": "Строки 90.03 отсутствуют"
+          }
+        }
+      },
+      "expected": {
+        "with_90_03": {
+          "value": 80,
+          "basis": "ОбК(90.01*) − ОбД(90.03*)"
+        },
+        "without_90_03": {
+          "value": 100,
+          "basis": "ОбК(90.01*), брутто",
+          "vat_value": null
+        }
+      },
+      "interpretation": "PASS: only an exact 90.03 debit turnover reduces 90.01 gross revenue. When 90.03 is absent, the implementation labels the result gross and does not invent VAT.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-009-vat-scope-for-net-revenue; фактически: {\"with_90_03\": {\"formula\": \"ОбК(90.01*) − ОбД(90.03*)\", \"title\": \"Выручка\", \"value\": 80.0, \"vat_detail\": {\"label\": \"НДС\", \"unit\": \"RUB\", \"value\": 20.0}}, \"without_90_03\": {\"formula\": \"ОбК(90.01*), брутто\", \"title\": \"Выручка брутто (НДС недоступен)\", \"value\": 100.0, \"vat_detail\": {\"label\": \"НДС\", \"reason\": \"Строки 90.03 отсутствуют\", \"unit\": \"RUB\", \"value\": null}}}",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:400-417 (_pl_facts)",
+          "osv-dashboard/key_indicators.py:950-963 (revenue card formula and VAT detail)"
+        ],
+        "source_built_by": "build_indicator_source",
+        "observed_input_rule": "90.01 credit=100; with VAT 90.03 debit=20; without VAT no 90.03 row"
+      },
+      "reproducibility": {
+        "assertion": "with 90.03 value == 80 and net formula; without 90.03 value == 100, gross formula, and VAT detail is null",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-010-dso-frontend-net-positive",
+      "input": {
+        "formula_source": "osv-dashboard/static/key_indicators.js",
+        "period": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "scenario": {
+          "id": "net-positive",
+          "current": 60,
+          "opening": 40,
+          "revenue": 80.0,
+          "title": "Выручка",
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "opening_and_closing_from": "AR-008",
+        "net_revenue_from": "AR-009"
+      },
+      "actual": {
+        "id": "net-positive",
+        "revenue_is_net": true,
+        "days": 31,
+        "result": {
+          "value": 19.375,
+          "js_value": "19.375",
+          "is_finite": true
+        }
+      },
+      "expected": {
+        "result": {
+          "value": 19.375,
+          "js_value": "19.375"
+        },
+        "days": 31,
+        "revenue_is_net": true
+      },
+      "interpretation": "PASS: the real frontend expression produces the expected accounting estimate from AR-008 opening/closing balances and AR-009 net revenue; this is not a document-level payment term.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-010-dso-frontend-net-positive; фактически: {\"days\": 31, \"id\": \"net-positive\", \"result\": {\"is_finite\": true, \"js_value\": \"19.375\", \"value\": 19.375}, \"revenue_is_net\": true}",
+      "evidence": {
+        "frontend": "osv-dashboard/static/key_indicators.js",
+        "expressions_extracted_at_runtime": {
+          "revenueIsNet": {
+            "lines": "1262-1262",
+            "fragment": "            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');"
+          },
+          "dso": {
+            "lines": "1472-1474",
+            "fragment": "            const dso = current !== null && current !== undefined &&\n                opening !== null && opening !== undefined && revenueIsNet && days\n                ? ((opening + current) / 2) / revenueCard.value * days : null;"
+          },
+          "days": {
+            "lines": "1471-1471",
+            "fragment": "            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;"
+          }
+        },
+        "execution": "node -e with extracted expressions; no DOM/app/network"
+      },
+      "reproducibility": {
+        "assertion": "extracted JS returns 19.375 for (40+60)/2 / 80 * 31 and recognizes the title as net revenue",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-011-dso-frontend-zero-ar",
+      "input": {
+        "formula_source": "osv-dashboard/static/key_indicators.js",
+        "period": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "scenario": {
+          "id": "zero-ar",
+          "current": 0,
+          "opening": 0,
+          "revenue": 100,
+          "title": "Выручка",
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        }
+      },
+      "actual": {
+        "id": "zero-ar",
+        "revenue_is_net": true,
+        "days": 31,
+        "result": {
+          "value": 0,
+          "js_value": "0",
+          "is_finite": true
+        }
+      },
+      "expected": {
+        "result": {
+          "value": 0,
+          "js_value": "0"
+        },
+        "interpretation": "zero AR with positive net revenue gives zero DSO"
+      },
+      "interpretation": "PASS: zero opening and closing AR produce a numeric zero, not a missing value, when positive net revenue is available.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-011-dso-frontend-zero-ar; фактически: {\"days\": 31, \"id\": \"zero-ar\", \"result\": {\"is_finite\": true, \"js_value\": \"0\", \"value\": 0}, \"revenue_is_net\": true}",
+      "evidence": {
+        "frontend": "osv-dashboard/static/key_indicators.js",
+        "expressions_extracted_at_runtime": {
+          "revenueIsNet": {
+            "lines": "1262-1262",
+            "fragment": "            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');"
+          },
+          "dso": {
+            "lines": "1472-1474",
+            "fragment": "            const dso = current !== null && current !== undefined &&\n                opening !== null && opening !== undefined && revenueIsNet && days\n                ? ((opening + current) / 2) / revenueCard.value * days : null;"
+          },
+          "days": {
+            "lines": "1471-1471",
+            "fragment": "            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;"
+          }
+        },
+        "execution": "node -e with extracted expressions; no DOM/app/network"
+      },
+      "reproducibility": {
+        "assertion": "extracted JS result value == 0 and is finite",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-012-dso-frontend-negative-net-revenue",
+      "input": {
+        "formula_source": "osv-dashboard/static/key_indicators.js",
+        "period": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "scenario": {
+          "id": "negative-net-revenue",
+          "current": 120,
+          "opening": 80,
+          "revenue": -100,
+          "title": "Выручка",
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        }
+      },
+      "actual": {
+        "id": "negative-net-revenue",
+        "revenue_is_net": true,
+        "days": 31,
+        "result": {
+          "value": -31,
+          "js_value": "-31",
+          "is_finite": true
+        }
+      },
+      "expected": {
+        "result": null,
+        "safe_interpretation": "DSO should be unavailable when net revenue is non-positive"
+      },
+      "interpretation": "FINDING: the extracted frontend formula returns -31 days for negative net revenue because revenueIsNet checks truthiness and does not require a positive denominator. A negative DSO is not an audit-safe duration.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: НАЙДЕНО; AR-012-dso-frontend-negative-net-revenue; фактически: {\"days\": 31, \"id\": \"negative-net-revenue\", \"result\": {\"is_finite\": true, \"js_value\": \"-31\", \"value\": -31}, \"revenue_is_net\": true}",
+      "evidence": {
+        "frontend": "osv-dashboard/static/key_indicators.js",
+        "expressions_extracted_at_runtime": {
+          "revenueIsNet": {
+            "lines": "1262-1262",
+            "fragment": "            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');"
+          },
+          "dso": {
+            "lines": "1472-1474",
+            "fragment": "            const dso = current !== null && current !== undefined &&\n                opening !== null && opening !== undefined && revenueIsNet && days\n                ? ((opening + current) / 2) / revenueCard.value * days : null;"
+          },
+          "days": {
+            "lines": "1471-1471",
+            "fragment": "            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;"
+          }
+        },
+        "execution": "node -e with extracted expressions; no DOM/app/network"
+      },
+      "reproducibility": {
+        "assertion": "extracted JS recognizes -100 as net revenue and returns finite value -31",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING"
+    },
+    {
+      "test_id": "AR-013-dso-frontend-zero-revenue",
+      "input": {
+        "formula_source": "osv-dashboard/static/key_indicators.js",
+        "period": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "scenario": {
+          "id": "zero-revenue",
+          "current": 120,
+          "opening": 80,
+          "revenue": 0,
+          "title": "Выручка",
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        }
+      },
+      "actual": {
+        "id": "zero-revenue",
+        "revenue_is_net": false,
+        "days": 31,
+        "result": {
+          "value": null,
+          "js_value": "null",
+          "is_finite": null
+        }
+      },
+      "expected": {
+        "result": null,
+        "safe_interpretation": "DSO unavailable when net revenue is zero"
+      },
+      "interpretation": "PASS with limitation: the frontend truthiness check makes revenueIsNet false for a zero revenue value, so the formula returns null before entering the arithmetic branch. The reason is not surfaced as a distinct zero-revenue diagnostic.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-013-dso-frontend-zero-revenue; фактически: {\"days\": 31, \"id\": \"zero-revenue\", \"result\": {\"is_finite\": null, \"js_value\": \"null\", \"value\": null}, \"revenue_is_net\": false}",
+      "evidence": {
+        "frontend": "osv-dashboard/static/key_indicators.js",
+        "expressions_extracted_at_runtime": {
+          "revenueIsNet": {
+            "lines": "1262-1262",
+            "fragment": "            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');"
+          },
+          "dso": {
+            "lines": "1472-1474",
+            "fragment": "            const dso = current !== null && current !== undefined &&\n                opening !== null && opening !== undefined && revenueIsNet && days\n                ? ((opening + current) / 2) / revenueCard.value * days : null;"
+          },
+          "days": {
+            "lines": "1471-1471",
+            "fragment": "            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;"
+          }
+        },
+        "execution": "node -e with extracted expressions; no DOM/app/network"
+      },
+      "reproducibility": {
+        "assertion": "extracted JS revenueIsNet is false for zero and result is null",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    },
+    {
+      "test_id": "AR-014-dso-frontend-vat-scope",
+      "input": {
+        "formula_source": "osv-dashboard/static/key_indicators.js",
+        "period": {
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        },
+        "scenario": {
+          "id": "gross-revenue-no-vat",
+          "current": 120,
+          "opening": 80,
+          "revenue": 100,
+          "title": "Выручка брутто (НДС недоступен)",
+          "start": "2026-01-01",
+          "end": "2026-01-31"
+        }
+      },
+      "actual": {
+        "id": "gross-revenue-no-vat",
+        "revenue_is_net": false,
+        "days": 31,
+        "result": {
+          "value": null,
+          "js_value": "null",
+          "is_finite": null
+        }
+      },
+      "expected": {
+        "result": null,
+        "safe_interpretation": "Do not compute DSO from gross revenue when 90.03/VAT is unavailable"
+      },
+      "interpretation": "PASS: the real frontend expression refuses DSO when the revenue card title explicitly marks gross revenue due to unavailable VAT. This agrees with the backend gross fallback probe.",
+      "summary_ru": "Реализация: ПРОЙДЕНА; аудит: ПРОЙДЕНО; AR-014-dso-frontend-vat-scope; фактически: {\"days\": 31, \"id\": \"gross-revenue-no-vat\", \"result\": {\"is_finite\": null, \"js_value\": \"null\", \"value\": null}, \"revenue_is_net\": false}",
+      "evidence": {
+        "frontend": "osv-dashboard/static/key_indicators.js",
+        "expressions_extracted_at_runtime": {
+          "revenueIsNet": {
+            "lines": "1262-1262",
+            "fragment": "            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');"
+          },
+          "dso": {
+            "lines": "1472-1474",
+            "fragment": "            const dso = current !== null && current !== undefined &&\n                opening !== null && opening !== undefined && revenueIsNet && days\n                ? ((opening + current) / 2) / revenueCard.value * days : null;"
+          },
+          "days": {
+            "lines": "1471-1471",
+            "fragment": "            const days = startDate && endDate ? Math.round((endDate - startDate) / 86400000) + 1 : null;"
+          }
+        },
+        "execution": "node -e with extracted expressions; no DOM/app/network"
+      },
+      "reproducibility": {
+        "assertion": "extracted JS sees the gross/VAT-missing title, sets revenueIsNet false, and returns null",
+        "assertion_verified": true,
+        "runner": "reports/debt_audit_probes.py",
+        "command": "python3 reports/debt_audit_probes.py",
+        "isolation": [
+          "pure key_indicators import only",
+          "no Flask/app import",
+          "no service import",
+          "no database connection"
+        ]
+      },
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS"
+    }
+  ],
+  "limitations": [
+    "Fixtures are synthetic source snapshots, not a read of an enterprise file or database; no application/service was imported or started.",
+    "OSV turnover and balance data cannot prove document-level payment allocation, due dates, aging, overdue status, subsidies, or a factual payment DSO.",
+    "The parent/leaf fixture follows the daily-row shape used by the tests and source builder; it does not validate every possible parser export layout.",
+    "The frontend probe extracts and executes current JavaScript expressions in Node, but it is not a browser/DOM rendering test.",
+    "VAT scope is limited to exact 90.03 turnover and does not validate tax rates, invoices, exemptions, or document-level VAT allocation.",
+    "Missing-side zero-fill is reported as a finding because the helper cannot distinguish an explicitly booked zero from an absent balance side.",
+    "The duplicate-list 62.01 probe is conditional helper contract risk only. Current osvparser daily rows carry turnovers without balance sides, and current DailyRow loader observations have empty analytic paths; the probe does not establish a current end-to-end duplicate incident."
+  ]
+}
