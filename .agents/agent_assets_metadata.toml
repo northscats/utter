@@ -64,3 +64,17 @@ mtime_ms = 1789031225916
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/f0ceb2f2-5b85-4fda-8a30-452e95118dd7/a1a56685-8d64-434b-b8f4-c0ed88a0a313"
 storage_version_token = "1789031232776368"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "WaZzSe8cVjg7lfivwonVY"
+uri = "file://reports/revenue_metrics_audit.xlsx"
+type = "table"
+title = "Выручка — критический аналитический отчёт"
+description = "Excel, 7 листов: 13 метрик, таблица и график, достоверность и полнота источников, 11 рекомендаций, контрольные примеры и ссылки на код. Фильтры и закреплённые заголовки."
+logical_id = "163181e3-2b0f-4d5c-abcc-baa416725afb"
+content_hash = "sha256:8073e19a9cd2a1ffb107d26c9792d31917c8934fd9fb65ae085f8a7813bd8ef6"
+size = 46958
+mtime_ms = 1789041862300
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/163181e3-2b0f-4d5c-abcc-baa416725afb/c82ef117-aca3-4f1b-96a1-16866a50f121"
+storage_version_token = "1789041869094086"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
