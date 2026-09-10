@@ -106,3 +106,17 @@ mtime_ms = 1789053797881
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/5e5a3b13-d99d-4309-9eb7-a28b8279e903/0011319b-2707-4f74-8c57-dff419dba132"
 storage_version_token = "1789053838476480"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "jFHp6S7FdQZzX7fywqNE8"
+uri = "file://reports/payables_metrics_audit.xlsx"
+type = "table"
+title = "Критический анализ кредиторской задолженности"
+description = "Excel-отчёт на 11 листах: 28 паспортов показателей и расчётных оснований, все столбцы трёх таблиц, графики, источники, оценка достоверности и полноты, рекомендации и 11 групп контрольных примеров."
+logical_id = "90d32714-229e-4691-b7ca-d26e06ecfc04"
+content_hash = "sha256:f335cd0e17e182396b19ff03196aa2aa6f22f596bbad79ebdde88a9134468295"
+size = 80103
+mtime_ms = 1789055824303
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/90d32714-229e-4691-b7ca-d26e06ecfc04/11d7067a-66f4-4a04-89f5-d64d166e7020"
+storage_version_token = "1789055833827215"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
