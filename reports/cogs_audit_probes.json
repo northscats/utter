@@ -1,0 +1,867 @@
+{
+  "report_id": "cogs-audit-probes",
+  "purpose_ru": "Изолированные synthetic probes текущей методики COGS: признанная себестоимость, аналитика, gross guard, расходы 90, object reconciliation, delta и monthly series.",
+  "scope_ru": "COGS: счета 90.02, 90.07, 90.08; выручка 90.01 и НДС 90.03; формирующие счета 20, 25, 26, 44; Python helpers и extracted COGS JS.",
+  "status_semantics_ru": "implementation_status=PASS означает, что фактический результат текущей реализации совпал с expected_actual и assert прошёл. audit_assessment=FINDING означает расхождение наблюдаемого контракта с audit-safe ожиданием, а не падение runner.",
+  "execution": {
+    "runner": "reports/cogs_audit_probes.py",
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 reports/cogs_audit_probes.py",
+    "python": "3.11.14",
+    "node": "v24.13.0",
+    "imports": [
+      "key_indicators"
+    ],
+    "forbidden_imports_not_used": [
+      "Flask",
+      "app",
+      "key_indicators_service",
+      "database",
+      "os.environ"
+    ],
+    "network_calls": false,
+    "database_connections": false,
+    "application_writes": false,
+    "services_started": false,
+    "node_vm_only": true
+  },
+  "source_files": {
+    "osv-dashboard/key_indicators.py": {
+      "sha256": "1d6ed5fb97146e942ab6bca0786fe87ff04c314ea4e077997b156f93ef673671",
+      "role": "pure Python calculation module imported by probes"
+    },
+    "osv-dashboard/static/key_indicators.js": {
+      "sha256": "2102fa2b84d6fafb23b7743167ad5de51eb5f18880782dd6e146e8f823f69ce3",
+      "role": "frontend COGS expressions extracted and executed in Node VM"
+    },
+    "reports/cogs_audit_probes.py": {
+      "sha256": "302bc1fee157b01795fcda71ee12f7ffb0f566beaf475cad343edda702076dfb",
+      "role": "this bounded probe runner"
+    }
+  },
+  "js_extractions": {
+    "costRatio": {
+      "lines": "1964-1965",
+      "fragment": "            const costRatio = current !== null && current !== undefined && netRevenue\n                ? current / netRevenue * 100 : null;"
+    },
+    "cogsGrossProfit": {
+      "lines": "1958-1960",
+      "fragment": "            const cogsGrossProfit = profitCard.gross_profit !== null &&\n                profitCard.gross_profit !== undefined\n                ? profitCard.gross_profit : profitCard.value;"
+    }
+  },
+  "case_count": 14,
+  "assertions_verified": 14,
+  "finding_count": 5,
+  "cases": [
+    {
+      "test_id": "COGS-01-parent-leaf-no-double-count",
+      "title_ru": "90.02 и лист 90.02.1: родитель не удваивает себестоимость",
+      "input_ru": "На одну дату даны 90.02=100 и более глубокий 90.02.1=60 с одинаковой аналитикой «Услуга», а также 90.01=100 и 90.03=20.",
+      "actual": {
+        "card_value": 60.0,
+        "analytic_values": [
+          60.0
+        ],
+        "cost_paths_used": [
+          "90.02.1"
+        ]
+      },
+      "expected_actual": {
+        "card_value": 60.0,
+        "analytic_values": [
+          60.0
+        ],
+        "cost_paths_used": [
+          "90.02.1"
+        ]
+      },
+      "assessment_ru": "ПРОЙДЕНО: _leaf_rows оставляет более глубокую строку для одной даты и аналитического ключа; 90.02 не складывается с 90.02.1.",
+      "scope_ru": "Только синтетический источник 90 и чистые helpers; не проверка XLS.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:312-331 (_leaf_rows)",
+          "osv-dashboard/key_indicators.py:400-416 (_pl_facts)"
+        ],
+        "observation": "В cost_rows фактически остался только путь 90.02.1."
+      },
+      "assertion_ru": "Фактическая карточка, аналитика и выбранные пути равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-02-string-prefix-boundary",
+      "title_ru": "Граница строкового префикса 90.02",
+      "input_ru": "Кроме родителя 90.02 и листа 90.02.1 synthetic snapshot содержит искусственный код 90.020=9 с аналитикой «Б».",
+      "actual": {
+        "card_value": 69.0,
+        "cost_paths_used": [
+          "90.02.1",
+          "90.020"
+        ]
+      },
+      "expected_actual": {
+        "card_value": 69.0,
+        "cost_paths_used": [
+          "90.02.1",
+          "90.020"
+        ]
+      },
+      "assessment_ru": "FINDING / УСЛОВНО: текущий _has_prefix использует str.startswith('90.02'), поэтому synthetic 90.020 тоже принят. Это наблюдение контракта helper, а не утверждение о реальной ОСВ.",
+      "scope_ru": "Искусственный код 90.020 не заявляется как допустимый код 1С; проверяется только текущая граница строки.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:334-336 (_has_prefix)",
+          "osv-dashboard/key_indicators.py:400-408 (_pl_facts)"
+        ],
+        "observation": "Текущие cost_rows содержат 90.02.1 и 90.020."
+      },
+      "assertion_ru": "Наблюдаемые card_value и cost_paths_used совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-03-leaf-scope-is-analytic-coordinate",
+      "title_ru": "Leaf-dedup действует внутри analytic coordinate, не между путями",
+      "input_ru": "Для «Сегмент А» есть 90.02=100 и leaf 90.02.1=60; для другого path2 «Сегмент Б» отдельно есть 90.02=40.",
+      "actual": {
+        "card_value": 100.0,
+        "cost_paths_used": [
+          {
+            "path2": "Сегмент А",
+            "path3": "90.02.1",
+            "obd": 60.0
+          },
+          {
+            "path2": "Сегмент Б",
+            "path3": "90.02",
+            "obd": 40.0
+          }
+        ],
+        "analytics": [
+          {
+            "label": "«Услуга» / «Сегмент А»",
+            "value": 60.0
+          },
+          {
+            "label": "«Услуга» / «Сегмент Б»",
+            "value": 40.0
+          }
+        ]
+      },
+      "expected_actual": {
+        "card_value": 100.0,
+        "cost_paths_used": [
+          {
+            "path2": "Сегмент А",
+            "path3": "90.02.1",
+            "obd": 60.0
+          },
+          {
+            "path2": "Сегмент Б",
+            "path3": "90.02",
+            "obd": 40.0
+          }
+        ],
+        "analytics": [
+          {
+            "label": "«Услуга» / «Сегмент А»",
+            "value": 60.0
+          },
+          {
+            "label": "«Услуга» / «Сегмент Б»",
+            "value": 40.0
+          }
+        ]
+      },
+      "assessment_ru": "ПРОЙДЕНО как текущий контракт: для одной analytic coordinate остаётся deepest account code, но строка 90.02 другого path2 не удаляется как чужой total. Поэтому итог 60+40=100 — это не parent/leaf double count, а две разные координаты.",
+      "scope_ru": "Пути path2 заданы synthetic; probe не решает, является ли отдельный parent path фактическим итогом или самостоятельной аналитикой.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:312-331 (_leaf_rows)",
+          "osv-dashboard/key_indicators.py:317-320 (analytic coordinate grouping)"
+        ],
+        "observation": "A uses 90.02.1=60; B retains 90.02=40; both are included."
+      },
+      "assertion_ru": "Фактические cost paths, card value и analytics равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-04-signed-missing-and-partial",
+      "title_ru": "Знаковый оборот, неизвестная сумма и неполный период",
+      "input_ru": "Проверены cost=70−20; отдельно cost с obd=None; отдельно 15 дней января при заявленном квартале.",
+      "actual": {
+        "signed_cost": 50.0,
+        "signed_known_flags": [
+          true,
+          true
+        ],
+        "missing_cost": null,
+        "missing_cost_analytic": null,
+        "missing_obd_normalized": 0.0,
+        "missing_obd_known": false,
+        "partial_cost": 70.0,
+        "partial_warning": true,
+        "partial_period": {
+          "start": "2026-01-01",
+          "end": "2026-01-15"
+        }
+      },
+      "expected_actual": {
+        "signed_cost": 50.0,
+        "signed_known_flags": [
+          true,
+          true
+        ],
+        "missing_cost": null,
+        "missing_cost_analytic": null,
+        "missing_obd_normalized": 0.0,
+        "missing_obd_known": false,
+        "partial_cost": 70.0,
+        "partial_warning": true,
+        "partial_period": {
+          "start": "2026-01-01",
+          "end": "2026-01-15"
+        }
+      },
+      "assessment_ru": "ПРОЙДЕНО: отрицательная известная строка сохраняет знак и входит в сумму; неизвестный obd становится 0 только в snapshot, но _known_sum возвращает null; неполный конец периода помечен warning.",
+      "scope_ru": "Synthetic source snapshots; null означает неизвестную сумму, а не подтверждённый нулевой оборот.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:45-48 (_number)",
+          "osv-dashboard/key_indicators.py:366-369 (_known_sum)",
+          "osv-dashboard/key_indicators.py:692-703 (partial warning)"
+        ],
+        "observation": "В source missing obd=0.0, obd_known=False; итог cogs и analytic value остаются None."
+      },
+      "assertion_ru": "Все три synthetic состояния точно равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-05-card-analytics-reconciliation",
+      "title_ru": "Карточка себестоимости сверяется с аналитиками 90.02",
+      "input_ru": "90.02 содержит две конечные аналитики: «Тепло»=60 и «Вода»=40; родительских строк в snapshot нет.",
+      "actual": {
+        "card_value": 100.0,
+        "analytics": [
+          {
+            "label": "«Вода»",
+            "value": 40.0
+          },
+          {
+            "label": "«Тепло»",
+            "value": 60.0
+          }
+        ],
+        "analytics_sum": 100.0,
+        "shares": [
+          40.0,
+          60.0
+        ]
+      },
+      "expected_actual": {
+        "card_value": 100.0,
+        "analytics": [
+          {
+            "label": "«Вода»",
+            "value": 40.0
+          },
+          {
+            "label": "«Тепло»",
+            "value": 60.0
+          }
+        ],
+        "analytics_sum": 100.0,
+        "shares": [
+          40.0,
+          60.0
+        ]
+      },
+      "assessment_ru": "ПРОЙДЕНО: сумма фактически построенных аналитик равна card.value; расчёт долей не требует отдельной суммы.",
+      "scope_ru": "Сверка Python card и Python analytics на одной synthetic дате.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:713-726 (cogs analytics)",
+          "osv-dashboard/key_indicators.py:987-994 (cogs card)"
+        ],
+        "observation": "40+60=100 и доли 40%/60%."
+      },
+      "assertion_ru": "Карточка, строки аналитики, сумма и доли равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-06-no-vat-gross-revenue-guard",
+      "title_ru": "Без 90.03 выручка брутто не попадает в ratio и прибыль",
+      "input_ru": "Есть 90.01 кредит=100 и 90.02 дебет=60; строки 90.03 в synthetic snapshot отсутствуют.",
+      "actual": {
+        "revenue_value": 100.0,
+        "revenue_title": "Выручка брутто (НДС недоступен)",
+        "revenue_formula": "ОбК(90.01*), брутто",
+        "vat_detail": {
+          "label": "НДС",
+          "value": null,
+          "unit": "RUB",
+          "reason": "Строки 90.03 отсутствуют"
+        },
+        "gross_profit": null,
+        "profit_card_value": null,
+        "cost_ratio_with_gross_guard": null
+      },
+      "expected_actual": {
+        "revenue_value": 100.0,
+        "revenue_title": "Выручка брутто (НДС недоступен)",
+        "revenue_formula": "ОбК(90.01*), брутто",
+        "vat_detail": {
+          "label": "НДС",
+          "value": null,
+          "unit": "RUB",
+          "reason": "Строки 90.03 отсутствуют"
+        },
+        "gross_profit": null,
+        "profit_card_value": null,
+        "cost_ratio_with_gross_guard": null
+      },
+      "assessment_ru": "ПРОЙДЕНО: backend показывает брутто и оставляет VAT detail null; извлечённое JS-условие не считает COGS/нетто-выручка при gross guard.",
+      "scope_ru": "Тест отсутствия 90.03 и реального cogs ratio expression без DOM.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:400-416 (_pl_facts)",
+          "osv-dashboard/key_indicators.py:956-962 (revenue card)"
+        ],
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "expression": "costRatio",
+          "lines": "1964-1965"
+        }
+      },
+      "assertion_ru": "Фактические backend-поля и JS ratio равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-07-js-ratio-zero-and-negative-denominator",
+      "title_ru": "Фактический JS ratio: нулевой числитель и отрицательный знаменатель",
+      "input_ru": "Node VM исполняет актуальное costRatio expression для (current, netRevenue)=(0,100),(50,0),(50,-100),(50,100).",
+      "actual": {
+        "expression_lines": "1964-1965",
+        "ratio_zero_numerator": 0,
+        "ratio_zero_denominator": null,
+        "ratio_negative_denominator": -50,
+        "ratio_positive": 50
+      },
+      "expected_actual": {
+        "expression_lines": "1964-1965",
+        "ratio_zero_numerator": 0,
+        "ratio_zero_denominator": null,
+        "ratio_negative_denominator": -50,
+        "ratio_positive": 50
+      },
+      "assessment_ru": "FINDING: текущий truthiness guard возвращает 0 при нулевом числителе, null при нулевом знаменателе и -50 при отрицательной нетто-выручке. Последнее не является audit-safe процентом, но фиксирует реальный JS-контракт без подмены desired-результатом.",
+      "scope_ru": "Только извлечённое выражение frontend; не browser/UI тест.",
+      "evidence": {
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "expression": "costRatio",
+          "lines": "1964-1965",
+          "fragment": "            const costRatio = current !== null && current !== undefined && netRevenue\n                ? current / netRevenue * 100 : null;"
+        },
+        "execution": "Node vm; no DOM, network, application, or browser."
+      },
+      "assertion_ru": "Четыре результата Node VM точно равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-08-gross-profit-card-fallback-contract",
+      "title_ru": "Валовая прибыль COGS-модалки и fallback profitCard.value",
+      "input_ru": "Node VM получает profitCard с gross_profit=10/value=2, gross_profit=null/value=10 и без gross_profit/value=2.",
+      "actual": {
+        "expression_lines": "1958-1960",
+        "normal_backend_profit_card": {
+          "gross_profit": 10.0,
+          "value": 2.0
+        },
+        "gross_present_prefers_gross_profit": 10,
+        "gross_null_falls_back_to_value": 10,
+        "gross_omitted_falls_back_to_value": 2
+      },
+      "expected_actual": {
+        "expression_lines": "1958-1960",
+        "normal_backend_profit_card": {
+          "gross_profit": 10.0,
+          "value": 2.0
+        },
+        "gross_present_prefers_gross_profit": 10,
+        "gross_null_falls_back_to_value": 10,
+        "gross_omitted_falls_back_to_value": 2
+      },
+      "assessment_ru": "ПРОЙДЕНО / УСЛОВНЫЙ КОНТРАКТ: при наличии gross_profit берётся именно он; fallback на value срабатывает только при null/undefined. Текущий обычный backend payload с 90.07/90.08 даёт gross_profit=10 и value=2, поэтому модалка не подменяет gross profit более широким profitCard.value. Без backend-контракта, что value в fallback-состоянии является валовой прибылью, fallback сам по себе не доказывает смысл метрики.",
+      "scope_ru": "Synthetic profitCard objects и реальное JS expression; не утверждается, что произвольный payload приложения корректен.",
+      "evidence": {
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "expression": "cogsGrossProfit",
+          "lines": "1958-1960",
+          "fragment": "            const cogsGrossProfit = profitCard.gross_profit !== null &&\n                profitCard.gross_profit !== undefined\n                ? profitCard.gross_profit : profitCard.value;"
+        },
+        "python_contract": "key_indicators.py:775-776, 1004-1007"
+      },
+      "assertion_ru": "Результаты трёх ветвей extracted JS равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-09-delta-gap-partial-analytics",
+      "title_ru": "Гарантии delta: полный период, пропуск месяца, partial и смена аналитики",
+      "input_ru": "Сравнены четыре synthetic snapshots: январь→февраль с одной аналитикой; январь→март с пропуском; 15 дней января после декабря; январь «А»→февраль «Б».",
+      "actual": {
+        "complete_same_analytics": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "warning": false
+        },
+        "gap_month": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "available_dates": [
+            {
+              "value": "2026-01-31",
+              "label": "Янв 2026"
+            },
+            {
+              "value": "2026-03-31",
+              "label": "Мар 2026"
+            }
+          ],
+          "warning": false
+        },
+        "partial_month": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "period_end": "2026-01-15",
+          "warning": true
+        },
+        "changed_analytics": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "warning": false
+        }
+      },
+      "expected_actual": {
+        "complete_same_analytics": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "warning": false
+        },
+        "gap_month": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "available_dates": [
+            {
+              "value": "2026-01-31",
+              "label": "Янв 2026"
+            },
+            {
+              "value": "2026-03-31",
+              "label": "Мар 2026"
+            }
+          ],
+          "warning": false
+        },
+        "partial_month": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "period_end": "2026-01-15",
+          "warning": true
+        },
+        "changed_analytics": {
+          "value": 80.0,
+          "delta": {
+            "value": 10.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "warning": false
+        }
+      },
+      "assessment_ru": "FINDING: текущая delta появляется для объявленных полностью покрытых периодов даже при календарном gap и смене аналитики; для partial-периода warning есть, но delta также рассчитана. _account_covers проверяет наличие одного span на всё окно, а не union фактически наблюдённых дат. Единственная явно проверенная безопасная ветвь здесь — последовательные полные месяцы с одинаковой аналитикой.",
+      "scope_ru": "Синтетические даты и аналитики; проверяется фактический delta contract build_key_indicators, а не нормативное сравнение.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1208-1238 (delta)",
+          "osv-dashboard/key_indicators.py:692-703 (partial warning)"
+        ],
+        "observation": "Для gap, partial и changed analytics фактическая delta равна 10.0 RUB и не блокируется."
+      },
+      "assertion_ru": "Все четыре ветви period/value/delta/warning совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-10-forming-accounts-not-added",
+      "title_ru": "20, 25, 26 и 44 показываются отдельно и не добавляются",
+      "input_ru": "90.02=60; справочные дебетовые обороты 20=40, 25=4, 26=3, 44=2 добавлены отдельными счетами.",
+      "actual": {
+        "cogs_card": 60.0,
+        "cost_movements": {
+          "20": 40.0,
+          "25": 4.0,
+          "26": 3.0,
+          "44": 2.0
+        },
+        "sum_movements": 49.0,
+        "note": "Счета 20, 25, 26 и 44 не прибавляются к 90.02: их суммы могут уже быть включены после закрытия периода."
+      },
+      "expected_actual": {
+        "cogs_card": 60.0,
+        "cost_movements": {
+          "20": 40.0,
+          "25": 4.0,
+          "26": 3.0,
+          "44": 2.0
+        },
+        "sum_movements": 49.0,
+        "note": "Счета 20, 25, 26 и 44 не прибавляются к 90.02: их суммы могут уже быть включены после закрытия периода."
+      },
+      "assessment_ru": "ПРОЙДЕНО: cost_movements сохраняют 49 отдельно, а card.value остаётся ровно 60 по признанному 90.02.",
+      "scope_ru": "Проверка только разделения признанных и формирующих затрат.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:727-738 (cost_movements)",
+          "osv-dashboard/key_indicators.py:987-994 (cogs card note)"
+        ],
+        "observation": "60 не превращается в 109."
+      },
+      "assertion_ru": "Карточка, четыре movement values, их сумма и note равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-11-recognized-expenses-and-objects",
+      "title_ru": "Признанные 90.07/90.08 и объектная сверка 90.01/90.02/90.03",
+      "input_ru": "Для «Тепло»: 90.01 кредит=100, 90.03 дебет=20, 90.02 дебет=70; отдельно 90.07=5 и 90.08=3 без аналитики.",
+      "actual": {
+        "cogs": 70.0,
+        "recognized_costs": {
+          "90.02": 70.0,
+          "90.07": 5.0,
+          "90.08": 3.0
+        },
+        "profit_card": {
+          "gross_profit": 10.0,
+          "profit_from_sales": 2.0,
+          "value": 2.0
+        },
+        "objects_rows": [
+          {
+            "label": "Тепло",
+            "revenue": 80.0,
+            "cost": 70.0,
+            "profit": 10.0,
+            "margin": 12.5
+          }
+        ],
+        "objects_totals": {
+          "revenue": 80.0,
+          "cost": 70.0,
+          "profit": 10.0,
+          "margin": 12.5
+        }
+      },
+      "expected_actual": {
+        "cogs": 70.0,
+        "recognized_costs": {
+          "90.02": 70.0,
+          "90.07": 5.0,
+          "90.08": 3.0
+        },
+        "profit_card": {
+          "gross_profit": 10.0,
+          "profit_from_sales": 2.0,
+          "value": 2.0
+        },
+        "objects_rows": [
+          {
+            "label": "Тепло",
+            "revenue": 80.0,
+            "cost": 70.0,
+            "profit": 10.0,
+            "margin": 12.5
+          }
+        ],
+        "objects_totals": {
+          "revenue": 80.0,
+          "cost": 70.0,
+          "profit": 10.0,
+          "margin": 12.5
+        }
+      },
+      "assessment_ru": "ПРОЙДЕНО: 90.07 и 90.08 признаны отдельно; gross profit=10, profitCard.value=profit_from_sales=2; объектная таблица сверяет нетто-выручку 80 и 90.02=70 в gross result=10.",
+      "scope_ru": "Объектная сверка возможна только для совпадающего synthetic path1; распределение 90.07/90.08 по объектам не выдумывается.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:739-764 (recognized costs)",
+          "osv-dashboard/key_indicators.py:1313-1349 (objects)"
+        ],
+        "observation": "Итого objects.profit равен gross_profit, а не profit_from_sales."
+      },
+      "assertion_ru": "recognized costs, profit card и objects фактически равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-12-monthly-series-conservation",
+      "title_ru": "Месячная серия COGS сохраняет источник и пропуск марта",
+      "input_ru": "В квартале есть 90.02=70 за январь и 30 за февраль; март выбранной границы не содержит строки оборота.",
+      "actual": {
+        "card_value": 100.0,
+        "series_kind": "month",
+        "series": [
+          {
+            "label": "Янв 2026",
+            "value": 70.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": 30.0
+          },
+          {
+            "label": "Мар 2026",
+            "value": null
+          }
+        ],
+        "known_series_sum": 100.0,
+        "series_null_count": 1
+      },
+      "expected_actual": {
+        "card_value": 100.0,
+        "series_kind": "month",
+        "series": [
+          {
+            "label": "Янв 2026",
+            "value": 70.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": 30.0
+          },
+          {
+            "label": "Мар 2026",
+            "value": null
+          }
+        ],
+        "known_series_sum": 100.0,
+        "series_null_count": 1
+      },
+      "assessment_ru": "ПРОЙДЕНО: card.value=100 равен сумме известных точек серии; отсутствующий март остаётся null, а не превращается в ноль.",
+      "scope_ru": "Synthetic monthly source conservation; календарное заполнение UI не тестируется.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1104-1122 (series dates)",
+          "osv-dashboard/key_indicators.py:1143-1148 (monthly cogs value)"
+        ],
+        "observation": "Известные точки 70+30 сохраняют card.value=100."
+      },
+      "assertion_ru": "Card, series, kind, conservation sum и null gap равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-13-object-first-component-merge",
+      "title_ru": "Объекты используют только первый компонент аналитики",
+      "input_ru": "Две полные аналитические цепочки имеют общий path1 «Услуга», но разные path2 «Сегмент А» и «Сегмент Б».",
+      "actual": {
+        "cogs_analytics": [
+          {
+            "label": "«Услуга» / «Сегмент А»",
+            "value": 60.0
+          },
+          {
+            "label": "«Услуга» / «Сегмент Б»",
+            "value": 20.0
+          }
+        ],
+        "object_row_count": 1,
+        "object_rows": [
+          {
+            "label": "Услуга",
+            "revenue": 120.0,
+            "cost": 80.0,
+            "profit": 40.0,
+            "margin": 33.33
+          }
+        ],
+        "object_totals": {
+          "revenue": 120.0,
+          "cost": 80.0,
+          "profit": 40.0,
+          "margin": 33.33
+        }
+      },
+      "expected_actual": {
+        "cogs_analytics": [
+          {
+            "label": "«Услуга» / «Сегмент А»",
+            "value": 60.0
+          },
+          {
+            "label": "«Услуга» / «Сегмент Б»",
+            "value": 20.0
+          }
+        ],
+        "object_row_count": 1,
+        "object_rows": [
+          {
+            "label": "Услуга",
+            "revenue": 120.0,
+            "cost": 80.0,
+            "profit": 40.0,
+            "margin": 33.33
+          }
+        ],
+        "object_totals": {
+          "revenue": 120.0,
+          "cost": 80.0,
+          "profit": 40.0,
+          "margin": 33.33
+        }
+      },
+      "assessment_ru": "FINDING: cogs analytics сохраняет два полных analytic identity, а objects группирует по _analytic_label — первому не-счётному компоненту — и сливает оба сегмента в одну строку. Это точное наблюдение текущей реализации на synthetic hierarchy.",
+      "scope_ru": "Пути path1/path2 искусственно заданы для проверки identity; не утверждается, что такая комбинация встречается в XLS.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:339-344 (_analytic_label)",
+          "osv-dashboard/key_indicators.py:1286-1332 (objects grouping)",
+          "osv-dashboard/key_indicators.py:353-363 (_analytic_identity)"
+        ],
+        "observation": "Полные labels A/B раздельны у COGS analytics, но objects label равен одному первому component «Услуга»."
+      },
+      "assertion_ru": "Фактические COGS analytics и слияние objects равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "COGS-14-missing-vat-object-warning-modal",
+      "title_ru": "Без VAT объекты остаются брутто, а COGS-модалка не показывает warning",
+      "input_ru": "Есть 90.01=100 и 90.02=60 для «Тепло», строки 90.03 нет; backend objects и исходник renderCogsModal проверены отдельно.",
+      "actual": {
+        "object_rows": [
+          {
+            "label": "Тепло",
+            "revenue": 100.0,
+            "cost": 60.0,
+            "profit": null,
+            "margin": null
+          }
+        ],
+        "object_reason": "Строки НДС 90.03 отсутствуют; выручка показана брутто",
+        "object_notes": [
+          "Прибыль и рентабельность объектов недоступны без НДС."
+        ],
+        "modal_reads_object_rows": true,
+        "modal_reads_object_reason": false,
+        "modal_reads_object_notes": false
+      },
+      "expected_actual": {
+        "object_rows": [
+          {
+            "label": "Тепло",
+            "revenue": 100.0,
+            "cost": 60.0,
+            "profit": null,
+            "margin": null
+          }
+        ],
+        "object_reason": "Строки НДС 90.03 отсутствуют; выручка показана брутто",
+        "object_notes": [
+          "Прибыль и рентабельность объектов недоступны без НДС."
+        ],
+        "modal_reads_object_rows": true,
+        "modal_reads_object_reason": false,
+        "modal_reads_object_notes": false
+      },
+      "assessment_ru": "FINDING: backend оставляет object revenue=100 (брутто), profit=null и заполняет reason/notes о недоступном НДС. Текущий renderCogsModal читает только objects.rows и не читает objects.reason или objects.notes, поэтому предупреждение в этой модалке теряется. Это source inspection, не browser render test.",
+      "scope_ru": "Проверены фактический Python payload и текст текущей функции renderCogsModal; DOM/UI не запускались.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1333-1349 (object VAT reason/notes)",
+          "osv-dashboard/key_indicators.py:1308-1329 (object revenue/profit)"
+        ],
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "function": "renderCogsModal(card)",
+          "observation": "objectRows берутся из state.data.objects.rows; objects.reason и objects.notes в функции не упоминаются."
+        }
+      },
+      "assertion_ru": "Backend object payload и три статических modal-флага равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    }
+  ],
+  "limitations_ru": [
+    "Все входы synthetic source snapshots, созданные в памяти; реальные XLS, предприятия, БД и service layer не читались.",
+    "Проверены только текущие pure helpers key_indicators и выбранные JS expressions; Flask, DOM, browser и UI не запускались.",
+    "Синтетический код 90.020 в COGS-02 нужен для проверки строковой границы startswith и не доказывает наличие такого кода в реальной выгрузке.",
+    "Оборот 90.02 может быть отрицательным как signed synthetic строка; probe фиксирует поведение helper, не классифицирует сторно или корректировки в учёте.",
+    "Missing obd сохраняется как obd_known=false; это нельзя интерпретировать как подтверждённый нулевой оборот.",
+    "Delta findings ограничены synthetic gap, partial и сменой аналитики; они не являются доказательством фактического enterprise calendar or source coverage.",
+    "Objects profit — валовой результат совпадающих аналитик; распределение 90.07/90.08 и полный EBIT/чистая прибыль этим отчётом не утверждаются."
+  ]
+}

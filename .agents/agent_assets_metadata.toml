@@ -120,3 +120,17 @@ mtime_ms = 1789055824303
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/90d32714-229e-4691-b7ca-d26e06ecfc04/11d7067a-66f4-4a04-89f5-d64d166e7020"
 storage_version_token = "1789055833827215"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "cTKxQxm41w-5hjmBg_uwo"
+uri = "file://reports/cogs_metrics_audit.xlsx"
+type = "table"
+title = "Себестоимость продаж — критический аудит"
+description = "11 листов: 32 паспорта показателей, разбор всех 18 столбцов четырёх таблиц, графики, формулы и источники, оценка достоверности и полноты, рекомендации по отображению и 14 контрольных примеров."
+logical_id = "cbda9b05-1a25-4fcb-9a7b-bfb33760e4fe"
+content_hash = "sha256:7e81d5fd67021b369ccc25d6dfc6de4ff2c48fa494d0bc3194116108576e9128"
+size = 91372
+mtime_ms = 1789061178844
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/cbda9b05-1a25-4fcb-9a7b-bfb33760e4fe/8c5ba6f6-d0d7-45ce-8b05-cfa5cfc50c13"
+storage_version_token = "1789061189747943"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
