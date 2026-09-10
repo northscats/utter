@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { healthCheck } from "./routes/health";
 
 const app: Express = express();
 
@@ -29,6 +30,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Development startup probes reach the service root, independently of the
+// public /api prefix. Respond without querying a database or external service.
+app.get("/", healthCheck);
 app.use("/api", router);
 
 export default app;
