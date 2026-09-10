@@ -7,6 +7,7 @@
         period: 'month',
         date: null,
         dateFrom: null,
+        quarterAnchor: null,
         data: null,
         lastFocused: null,
         reqId: 0
@@ -129,7 +130,7 @@
 
             document.getElementById('ki-quarter-buttons').addEventListener('click', e => {
                 const button = e.target.closest('.quarter-btn');
-                if (button && !button.disabled) this.onDateChange(button.dataset.value);
+                if (button && !button.disabled) this.onQuarterChange(button.dataset.value);
             });
             
             const modal = document.getElementById('ki-modal');
@@ -183,13 +184,27 @@
             state.period = kind;
             state.date = null;
             state.dateFrom = null;
+            state.quarterAnchor = null;
+            this.fetchData();
+        },
+
+        onQuarterChange(val) {
+            if (!state.quarterAnchor) {
+                state.quarterAnchor = val;
+                state.dateFrom = val;
+                state.date = val;
+            } else {
+                [state.dateFrom, state.date] = [state.quarterAnchor, val].sort();
+                state.quarterAnchor = null;
+            }
             this.fetchData();
         },
         
         onDateChange(val) {
             if (state.date === val) return;
             state.date = val;
-            if (state.period === 'month' && state.dateFrom && state.dateFrom > val) {
+            if ((state.period === 'month' || state.period === 'day')
+                    && state.dateFrom && state.dateFrom > val) {
                 state.dateFrom = val;
             }
             this.fetchData();
@@ -228,7 +243,8 @@
                 if (!config || !config.dataUrl) throw new Error('Не настроен адрес источника показателей.');
                 let url = `${config.dataUrl}?period=${encodeURIComponent(state.period)}`;
                 if (state.date) url += `&date=${encodeURIComponent(state.date)}`;
-                if (state.period === 'month' && state.dateFrom) {
+                if (['month', 'day', 'quarter'].includes(state.period)
+                        && state.dateFrom) {
                     url += `&date_from=${encodeURIComponent(state.dateFrom)}`;
                 }
                 const response = await fetch(url, { 
@@ -277,7 +293,7 @@
             if (!state.data) return;
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
-            subtitle.textContent = config.companyName;
+            subtitle.textContent = `${config.companyName} · ${state.data.period.label}`;
             
             this.renderPeriodSelector();
             this.renderWarnings();
@@ -306,7 +322,7 @@
             const quarterButtons = document.getElementById('ki-quarter-buttons');
             if (dataP && dataP.options && dataP.options.length > 0) {
                 sel.innerHTML = dataP.options.map(opt =>
-                    `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${p === 'month' ? 'по ' : ''}${esc(opt.label)}</option>`
+                    `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${p === 'month' || p === 'day' ? 'по ' : ''}${esc(opt.label)}</option>`
                 ).join('');
                 fromSel.innerHTML = dataP.options
                     .filter(opt => opt.value <= dataP.date)
@@ -323,16 +339,20 @@
                     );
                     quarterButtons.innerHTML = [1, 2, 3, 4].map(number => {
                         const option = byQuarter.get(number);
-                        const active = option && option.value === dataP.date;
+                        const active = option && option.value >= dataP.date_from
+                            && option.value <= dataP.date;
                         return `<button type="button" class="quarter-btn${active ? ' active' : ''}"
                             ${option ? `data-value="${esc(option.value)}"` : 'disabled'}
                             aria-label="${number} квартал ${activeYear}"
                             aria-pressed="${active ? 'true' : 'false'}">${number}</button>`;
                     }).join('');
                     quarterButtons.style.display = 'flex';
+                    quarterButtons.title = state.quarterAnchor
+                        ? 'Нажмите конечный квартал диапазона'
+                        : 'Нажмите начальный, затем конечный квартал диапазона';
                     sel.style.display = 'none';
                     fromSel.style.display = 'none';
-                } else if (p === 'month') {
+                } else if (p === 'month' || p === 'day') {
                     quarterButtons.style.display = 'none';
                     fromSel.style.display = 'inline-block';
                     sel.style.display = 'inline-block';
@@ -1069,7 +1089,7 @@
                         deviation: 'АПГ не рассчитан', deviationClass: 'missing', source: 'требуются сопоставимые периоды ОСВ счёта 90'
                     }, true)}
                 </div>
-                <div class="modal-section-title">Динамика выручки за 12 месяцев</div>
+                <div class="modal-section-title">Динамика выручки внутри выбранного периода</div>
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#10B981"></i>Выручка общая</span></div>
                 <div class="cash-line-chart revenue-line-chart" id="ki-revenue-line-chart"></div>`;
             this.renderRevenueLineChart(card);
@@ -1136,7 +1156,7 @@
         renderRevenueLineChart(card) {
             const container = document.getElementById('ki-revenue-line-chart');
             if (!container) return;
-            const points = (card.series || []).slice(-12).map((item, index) => ({
+            const points = (card.series || []).map((item, index) => ({
                 index, label: item.label, value: item.value === null ? null : Number(item.value) / 1000000
             }));
             const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
@@ -1157,6 +1177,7 @@
                 drawing = true;
             });
             let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика выручки">`;
+            if (valid.length === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
                 const py = y(value);
                 svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
@@ -1167,7 +1188,8 @@
                 if (item.value !== null && Number.isFinite(item.value)) {
                     svg += `<circle class="revenue-chart-point" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#10B981" tabindex="0"/>`;
                 }
-                svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
+                if (index % Math.max(1, Math.ceil(points.length / 8)) === 0 || index === points.length - 1)
+                    svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(item.label)}</text>`;
             });
             container.innerHTML = svg + '</svg>';
             container.querySelectorAll('.revenue-chart-point').forEach(point => {
@@ -1178,8 +1200,8 @@
                     return this.metricTooltipData(card, {
                         title: `Выручка — ${item.label}`,
                         fact: `${item.value.toFixed(2)} млн ₽`,
-                        deviation: change === null ? 'Нет предыдущего сопоставимого месяца' : `${change >= 0 ? '+' : ''}${change.toFixed(2)} млн ₽ к предыдущему месяцу`,
-                        detail: 'Точка отражает фактическую общую выручку за месяц. Пропущенные периоды не заменяются нулём.'
+                        deviation: change === null ? 'Нет предыдущей точки' : `${change >= 0 ? '+' : ''}${change.toFixed(2)} млн ₽ к предыдущей точке`,
+                        detail: 'Точка отражает фактическую выручку за интервал динамики. Пропущенные периоды не заменяются нулём.'
                     });
                 };
                 point.addEventListener('pointerenter', event => {
@@ -2356,7 +2378,7 @@
                 <div class="modal-section-title">Динамика валовой прибыли</div>
                 <div class="modal-chart-wrap profit-line-chart" id="ki-profit-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table profit-dynamics-table">
-                    <thead><tr><th>Месяц</th><th>Валовая прибыль</th><th>Прибыль от продаж</th><th>Сальдо 91</th><th>До налога</th></tr></thead>
+                    <thead><tr><th>Дата / период</th><th>Валовая прибыль</th><th>Прибыль от продаж</th><th>Сальдо 91</th><th>До налога</th></tr></thead>
                     <tbody>${dynamics}</tbody>
                 </table></div>
                 <div class="modal-section-title">Фактические аналитики счёта 91</div>
@@ -2549,7 +2571,7 @@
                 <div class="modal-section-title">Динамика подтверждённого долга</div>
                 <div class="modal-chart-wrap credits-line-chart" id="ki-credits-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table credits-dynamics-table">
-                    <thead><tr><th>Месяц</th><th>Общий долг</th><th>Качество данных</th></tr></thead>
+                    <thead><tr><th>Дата / период</th><th>Общий долг</th><th>Качество данных</th></tr></thead>
                     <tbody>${dynamics}</tbody>
                 </table></div>
                 <div class="modal-section-title">Фактические аналитики 66/67</div>
@@ -2759,7 +2781,7 @@
                 <div class="modal-section-title">Динамика начислений и расчётных остатков</div>
                 <div class="modal-chart-wrap salary-line-chart" id="ki-salary-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table salary-dynamics-table">
-                    <thead><tr><th>Месяц</th><th>ОбК 70</th><th>Кредитовое сальдо 70</th><th>ОбК 69</th><th>Средняя зарплата</th></tr></thead>
+                    <thead><tr><th>Дата / период</th><th>ОбК 70</th><th>Кредитовое сальдо 70</th><th>ОбК 69</th><th>Средняя зарплата</th></tr></thead>
                     <tbody>${dynamics}</tbody>
                 </table></div>
                 <div class="modal-section-title">Фактические аналитики счёта 70</div>
@@ -2909,7 +2931,7 @@
                 ? debitSeries.map((item, index) => {
                     const dynTip = this.capexTooltip({
                         title: `Динамика счёта 08 — ${item.label}`,
-                        description: 'Бухгалтерские обороты и точное сальдо счёта 08 за месяц.',
+                        description: 'Бухгалтерские обороты и точное сальдо счёта 08 за интервал динамики.',
                         formula: 'ОбД(08), ОбК(08), СКд(08)',
                         detail: 'Пропущенные месяцы не заменяются нулями. Плановая линия не строится без утверждённого календарного плана.',
                         required: `${req.balances} Для план-факта: ${req.program}`,
@@ -2975,7 +2997,7 @@
                 <div class="modal-section-title">Динамика бухгалтерских вложений</div>
                 <div class="modal-chart-wrap capex-line-chart" id="ki-capex-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table capex-dynamics-table">
-                    <thead><tr><th>Месяц</th><th>ОбД 08</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
+                    <thead><tr><th>Дата / период</th><th>ОбД 08</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
                     <tbody>${dynamics}</tbody>
                 </table></div>
                 <div class="modal-section-title">Фактические аналитики счёта 08</div>
@@ -3163,7 +3185,7 @@
                 </div>
                 <div class="modal-section-title">Динамика денежных средств</div>
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
-                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущему месяцу</span></div>
+                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущей точке</span></div>
                 <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
             this.renderCashLineChart(card.series || []);
         },
@@ -3201,6 +3223,7 @@
                 return path;
             };
             let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика денежных средств">`;
+            if (valid.length === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
                 const py = y(value);
                 svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
@@ -3215,7 +3238,8 @@
                 if (changes[index].value !== null) {
                     svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="#10B981" tabindex="0"/>`;
                 }
-                svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(String(item.label || '').slice(0, 8))}</text>`;
+                if (index % Math.max(1, Math.ceil(points.length / 8)) === 0 || index === points.length - 1)
+                    svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(item.label)}</text>`;
             });
             container.innerHTML = svg + '</svg>';
             const pointTipData = point => {
@@ -3506,12 +3530,13 @@
         
         renderBarChart(series, unit, containerId, card) {
             const container = document.getElementById(containerId);
+            if (!container) return;
             
             const valid = series.map(s => {
                 let v = s.value;
                 if (v !== null && unit === 'RUB') v = v / 1000000;
                 return { ...s, scaledValue: v };
-            }).filter(s => s.scaledValue !== null);
+            }).filter(s => s.scaledValue != null && Number.isFinite(Number(s.scaledValue)));
             
             if(valid.length === 0) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для графика<br>(недостаточно периодов)</div>';
@@ -3533,10 +3558,10 @@
             }
             const range = maxVal - minVal;
             
-            const barW = Math.max(10, (w / series.length) * 0.6);
             const step = w / series.length;
             
             let svg = `<svg viewBox="0 0 ${width} ${height}" style="width:100%; height:100%; display:block;">`;
+            if (valid.length === 1) svg += '<text x="60" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             
             const zeroY = padT + h - ((0 - minVal) / range) * h;
             
@@ -3549,22 +3574,34 @@
             
             svg += `<line x1="${padL}" y1="${zeroY}" x2="${width-padR}" y2="${zeroY}" stroke="#9CA3AF" stroke-width="1"/>`;
             
+            let path = '', drawing = false;
+            series.forEach((s, i) => {
+                if (s.value == null || !Number.isFinite(Number(s.value))) {
+                    drawing = false;
+                    return;
+                }
+                const value = unit === 'RUB' ? s.value / 1000000 : Number(s.value);
+                const x = padL + i * step + step / 2;
+                const y = padT + h - ((value - minVal) / range) * h;
+                path += `${drawing ? ' L' : ' M'} ${x} ${y}`;
+                drawing = true;
+            });
+            svg += `<path d="${path}" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>`;
+            const labelStep = Math.max(1, Math.ceil(series.length / Math.max(2, Math.floor(w / 95))));
             series.forEach((s, i) => {
                 const cx = padL + i * step + step / 2;
                 let v = s.value;
                 if (v !== null && unit === 'RUB') v = v / 1000000;
                 
-                if(v !== null) {
+                if(v != null && Number.isFinite(Number(v))) {
                     const y = padT + h - ((v - minVal) / range) * h;
-                    const barH = Math.abs(zeroY - y);
-                    const yStart = v >= 0 ? y : zeroY;
                     const fill = v >= 0 ? '#3B82F6' : '#EF4444';
-                    svg += `<rect class="metric-chart-point" data-index="${i}" x="${cx - barW/2}" y="${yStart}" width="${barW}" height="${Math.max(1, barH)}" fill="${fill}" rx="4" tabindex="0"/>`;
+                    svg += `<circle class="metric-chart-point" data-index="${i}" cx="${cx}" cy="${y}" r="4" fill="${fill}" tabindex="0" aria-label="${esc(s.label)}: ${esc(v)}"/>`;
                     
                     const fmtVal = new Intl.NumberFormat('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 1}).format(v);
-                    svg += `<text x="${cx}" y="${v >= 0 ? y - 6 : y + barH + 12}" font-size="10" fill="#4B5563" text-anchor="middle" font-weight="bold">${esc(fmtVal)}</text>`;
+                    if (series.length <= 12) svg += `<text x="${cx}" y="${y - 8}" font-size="10" fill="#4B5563" text-anchor="middle" font-weight="bold">${esc(fmtVal)}</text>`;
                 }
-                svg += `<text x="${cx}" y="${height - 5}" font-size="10" fill="#6B7280" text-anchor="middle">${esc(s.label)}</text>`;
+                if (i % labelStep === 0 || i === series.length - 1) svg += `<text x="${cx}" y="${height - 5}" font-size="10" fill="#6B7280" text-anchor="middle">${esc(s.label)}</text>`;
             });
             
             svg += '</svg>';

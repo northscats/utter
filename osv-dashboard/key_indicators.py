@@ -674,14 +674,14 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     start, end = _range(period, endpoint)
     label = next(x['label'] for x in options if x['value'] == endpoint.isoformat())
     range_start_endpoint = endpoint
-    if period == 'month' and date_from is not None:
+    if period in ('day', 'month', 'quarter') and date_from is not None:
         range_start_endpoint = _iso(date_from)
         option_values = {x['value'] for x in options}
         if range_start_endpoint is None or date_from not in option_values:
-            raise ValueError('date_from is not an available month')
+            raise ValueError('date_from is not an available option')
         if range_start_endpoint > endpoint:
             raise ValueError('date_from must not be after date')
-        start, _ = _range('month', range_start_endpoint)
+        start, _ = _range(period, range_start_endpoint)
         start_label = next(
             x['label'] for x in options if x['value'] == date_from)
         label = (
@@ -1101,12 +1101,24 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['cogs']['status'] = 'warning'
         card_map['cogs']['status_label'] = 'Выше выручки'
 
-    # Authentic monthly dynamics.  Missing monthly facts remain null; report
-    # coverage alone is not proof of an explicit zero.
-    month_options = _options(dates, 'month')
+    # Every chart uses the same selected window. Calendar gaps remain null,
+    # never interpolated or treated as zero. Balances require exact dates.
+    series_kind = 'day' if period in ('day', 'month') else 'month'
+    series_dates = []
+    cursor = start
+    while cursor <= end:
+        if series_kind == 'day':
+            series_dates.append(cursor)
+            cursor += timedelta(days=1)
+        else:
+            last = cursor.replace(
+                day=calendar.monthrange(cursor.year, cursor.month)[1])
+            series_dates.append(min(last, end))
+            cursor = last + timedelta(days=1)
+    month_options = _options(series_dates, series_kind)
     for option in month_options:
         month_end = _iso(option['value'])
-        month_start, _ = _range('month', month_end)
+        month_start, _ = _range(series_kind, month_end)
         month_pl = _pl_facts(source, month_start, month_end)
         month_selling = _sub_turnover(
             source, '90', '90.07', month_start, month_end, 'obd')
@@ -1195,8 +1207,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
 
     # Compare only an immediately preceding equivalent selection with a
     # declared complete report span and identical calculation basis.
-    ranged_month = period == 'month' and range_start_endpoint != endpoint
-    selected_idx = (-1 if ranged_month else next(
+    ranged_period = range_start_endpoint != endpoint
+    selected_idx = (-1 if ranged_period else next(
         (i for i, item in enumerate(options)
          if item['value'] == endpoint.isoformat()), -1))
     if selected_idx > 0:
@@ -1475,6 +1487,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     return {
         'period': {'kind': period, 'date': endpoint.isoformat(),
                    'date_from': range_start_endpoint.isoformat(),
+                   'series_kind': series_kind,
                    'label': label,
                    'start': start.isoformat(), 'end': end.isoformat(),
                    'options': options, 'available_kinds': available,

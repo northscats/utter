@@ -2418,8 +2418,10 @@ def key_indicators_data(company_id):
             datetime.strptime(value, '%Y-%m-%d')
         except ValueError:
             return jsonify(error='Дата должна иметь формат ГГГГ-ММ-ДД'), 400
-    if date_from is not None and period != 'month':
-        return jsonify(error='Начальная дата доступна только для периода «Месяц»'), 400
+    if date_from is not None and period not in ('day', 'month', 'quarter'):
+        return jsonify(
+            error='Начальная дата доступна для дня, месяца и квартала'
+        ), 400
     try:
         source, updated_at = load_company_source(company_id, UPLOADS)
         mappings = [{

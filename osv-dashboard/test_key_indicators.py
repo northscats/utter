@@ -57,6 +57,54 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertEqual(result['period']['date_from'], '2026-08-31')
         self.assertIsNone(revenue['delta'])
 
+    def test_day_range_sums_selected_dates_inclusively(self):
+        rows = [
+            day('2026-10-01', '90.01', obk=10),
+            day('2026-10-02', '90.01', obk=20),
+            day('2026-10-03', '90.01', obk=30),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+            period='day', date='2026-10-03', date_from='2026-10-01')
+        revenue = {card['id']: card for card in result['cards']}['revenue']
+        self.assertEqual(revenue['value'], 60)
+        self.assertEqual(result['period']['start'], '2026-10-01')
+        self.assertEqual(result['period']['end'], '2026-10-03')
+        self.assertEqual(result['period']['date_from'], '2026-10-01')
+        self.assertIsNone(revenue['delta'])
+        self.assertEqual([p['value'] for p in revenue['series']], [10, 20, 30])
+
+    def test_quarter_range_charts_only_selected_months(self):
+        rows = [day('2026-03-31', obd=100),
+                day('2026-04-30', obd=10), day('2026-05-31', obd=20),
+                day('2026-06-30', obd=30), day('2026-08-31', obd=40),
+                day('2026-09-30', obd=50), day('2026-12-31', obd=900)]
+        source = build_indicator_source({'08': account('08', rows)})
+        result = build_key_indicators(source, period='quarter',
+                                      date_from='2026-06-30', date='2026-09-30')
+        card = next(c for c in result['cards'] if c['id'] == 'capex')
+        self.assertEqual(card['value'], 150)
+        self.assertEqual(result['period']['start'], '2026-04-01')
+        self.assertEqual(result['period']['end'], '2026-09-30')
+        self.assertEqual(result['period']['series_kind'], 'month')
+        self.assertEqual([p['value'] for p in card['series']], [10, 20, 30, None, 40, 50])
+        self.assertIsNone(card['delta'])
+        with self.assertRaises(ValueError):
+            build_key_indicators(source, period='quarter',
+                                 date_from='2026-09-30', date='2026-06-30')
+
+    def test_daily_chart_preserves_gaps_and_exact_balances(self):
+        rows = [day('2026-10-01', obd=10, skd=10, skk=0),
+                day('2026-10-03', obd=30, skd=40, skk=0),
+                day('2026-10-05', obd=500, skd=540, skk=0)]
+        result = build_key_indicators(
+            build_indicator_source({'08': account('08', rows)}),
+            period='day', date_from='2026-10-01', date='2026-10-03')
+        card = next(c for c in result['cards'] if c['id'] == 'capex')
+        self.assertEqual([p['value'] for p in card['series']], [10, None, 30])
+        self.assertEqual([p['value'] for p in card['balance_series']], [10, None, 40])
+        self.assertEqual(card['closing_balance'], 40)
+
     def test_balance_only_at_original_report_boundary(self):
         top = dict(snd=1, snk=0, obd=0, obk=0, skd=25, skk=0)
         src = build_indicator_source({
@@ -348,7 +396,8 @@ class KeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(card['value'])
         self.assertEqual(card['details'][0]['value'], 90)
         self.assertEqual(card['turnover_ratio'], 90)
-        self.assertEqual(card['turnover_series'][0]['value'], 90)
+        self.assertEqual(card['turnover_series'][-1]['value'], 90)
+        self.assertIsNone(card['turnover_series'][0]['value'])
         self.assertIn('не собираемость', card['details'][0]['label'])
 
     def test_collection_analytics_do_not_double_count_parent_rows(self):
