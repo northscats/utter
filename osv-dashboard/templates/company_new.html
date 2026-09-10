@@ -93,6 +93,7 @@ input[type=text]:focus{border-color:var(--water);box-shadow:0 0 0 3px #1f7a9c18}
       <label class="field-label" for="org_name">Название организации</label>
       <input type="text" id="org_name" name="org_name" placeholder="МУП «Каширское городское хозяйство»"
              value="{{ org_name or '' }}" required autofocus>
+      <div class="field-hint" style="margin:6px 0 0">Если предприятие с таким названием уже есть в архиве, оно будет восстановлено вместе с сохранёнными названием и данными.</div>
       {% else %}
       <input type="hidden" name="org_name" value="{{ org_name or '' }}">
       {% endif %}

@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import threading
 
 import bcrypt
-from flask import (Flask, Response, abort, g, has_request_context, jsonify,
+from flask import (Flask, Response, abort, flash, g, has_request_context, jsonify,
                    redirect, render_template, request, send_file, send_from_directory,
                    url_for)
 from flask_login import (LoginManager, current_user, login_required,
@@ -43,6 +43,7 @@ from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
                                 duplicate_companies,
                                 save_snapshot)
+from company_creation import resolve_existing_company, serialized_company_creation
 from module_registry import (module_key_for_path, registered_modules,
                              valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
@@ -1560,6 +1561,7 @@ def home():
 # ---------------------------------------------------------------------------
 @app.route('/company/new', methods=['GET', 'POST'])
 @login_required
+@serialized_company_creation
 def company_new():
     if request.method == 'GET':
         return render_template('company_new.html')
@@ -1615,6 +1617,20 @@ def company_new():
                                error='Не удалось определить название организации из файла. '
                                      'Введите его вручную.')
 
+    # Do not run the new-company worker against a restored company's data.
+    try:
+        existing = resolve_existing_company(org_name)
+    except ValueError as exc:
+        db.session.rollback()
+        return render_template('company_new.html', error=str(exc),
+                               ask_name=True, tmp_key=tmp_key)
+    if existing:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        flash('Загруженные файлы не импортированы. При необходимости добавьте '
+              'их через загрузку ОСВ в восстановленном предприятии.',
+              'company_restored')
+        return redirect(url_for('directory_company_profile', company_id=existing.id))
+
     # Создаём компанию в БД
     company = Company(name=org_name, created_by=current_user.id)
     db.session.add(company)
@@ -1626,7 +1642,6 @@ def company_new():
     # Перемещаем файлы в постоянное хранилище
     final_dir = os.path.join(UPLOADS, str(company.id), ts)
     os.makedirs(os.path.dirname(final_dir), exist_ok=True)
-    import shutil
     shutil.move(tmp_dir, final_dir)
     final_paths = [os.path.join(final_dir, os.path.basename(p)) for p in tmp_paths]
 
@@ -3426,6 +3441,7 @@ def directory_companies():
 
 @app.route('/directories/companies/new', methods=['GET', 'POST'])
 @admin_required
+@serialized_company_creation
 def directory_company_new():
     preview = None
     error = None
@@ -3454,12 +3470,22 @@ def directory_company_new():
             is_rso = form.get('is_rso') == '1'
             if not name:
                 error = 'Укажите внутреннее отображаемое имя предприятия.'
+            elif any(
+                    form.get(field, '').strip() and not value
+                    for field, value in (('inn', inn), ('ogrn', ogrn), ('kpp', kpp))):
+                error = ('Проверьте реквизиты: ИНН должен содержать 10 или 12 цифр, '
+                         'ОГРН — 13 или 15, КПП — 9. Некорректные реквизиты '
+                         'нельзя использовать для проверки дублей.')
             else:
-                duplicates = duplicate_companies(inn, ogrn, kpp)
-                if duplicates:
-                    error = 'Найдена конфликтующая запись: ' + ', '.join(
-                        f'#{item.id} {item.name}' for item in duplicates)
-                else:
+                try:
+                    existing = resolve_existing_company(name, inn, ogrn, kpp)
+                    if existing:
+                        return redirect(url_for(
+                            'directory_company_profile', company_id=existing.id))
+                except ValueError as exc:
+                    db.session.rollback()
+                    error = str(exc)
+                if not error:
                     if form.get('confirm_dadata') == '1' and (
                             Setting.get('dadata_enabled', '0') != '1'):
                         error = 'Интеграция DaData выключена в системных настройках.'
@@ -3479,22 +3505,18 @@ def directory_company_new():
                         identity_key=company_identity_key(inn, ogrn, kpp),
                         status='active', created_by=current_user.id,
                     )
-                    db.session.add(company)
-                    db.session.flush()
-                    # ID предприятия — уникальный идентификатор внутри системы.
-                    # Его можно переопределить явным кодом, но пустое поле
-                    # всегда получает системный ID после выдачи первичного ключа.
-                    if not (company.internal_code or '').strip():
-                        company.internal_code = str(company.id)
                     if form.get('confirm_dadata') == '1' and (inn or ogrn):
                         try:
                             party, normalized = _find_dadata_party(
                                 inn=inn, ogrn=ogrn)
-                            dup = duplicate_companies(
-                                normalized.get('inn', ''), normalized.get('ogrn', ''),
-                                normalized.get('kpp', ''), exclude_id=company.id)
-                            if dup:
-                                raise ValueError('DaData вернула реквизиты существующего предприятия')
+                            existing = resolve_existing_company(
+                                name, normalized.get('inn', ''),
+                                normalized.get('ogrn', ''), normalized.get('kpp', ''))
+                            if existing:
+                                return redirect(url_for(
+                                    'directory_company_profile', company_id=existing.id))
+                            db.session.add(company)
+                            db.session.flush()
                             snapshot = save_snapshot(
                                 company, party, normalized, query_inn=inn,
                                 query_ogrn=ogrn, requested_by=current_user.id)
@@ -3508,6 +3530,13 @@ def directory_company_new():
                                 'directory_company_new.html', preview=preview,
                                 error=error, form=form,
                                 dadata_enabled=Setting.get('dadata_enabled', '0') == '1')
+                    else:
+                        db.session.add(company)
+                    db.session.flush()
+                    # ID предприятия сохраняется при восстановлении; новое
+                    # предприятие получает код только после выдачи своего ID.
+                    if not (company.internal_code or '').strip():
+                        company.internal_code = str(company.id)
                     db.session.commit()
                     log_event('directory_company_created', {
                         'company_id': company.id, 'inn': company.inn,
@@ -3675,7 +3704,7 @@ def directory_company_edit(company_id):
 @app.route('/directories/companies/<int:company_id>/archive', methods=['POST'])
 @admin_required
 def directory_company_archive(company_id):
-    company = db.session.get(Company, company_id) or abort(404)
+    company = Company.query.filter_by(id=company_id).with_for_update().first() or abort(404)
     company.status = 'archived' if request.form.get('archive') == '1' else 'active'
     db.session.commit()
     log_event('company_archived' if company.is_archived else 'company_restored',
@@ -3698,6 +3727,7 @@ def _delete_company_records(company):
         EmailRule,
         AiSummary,
         DailyRow,
+        RevenueAnalyticMapping,
         Upload,
         CompanyMembership,
         CompanyContact,
@@ -3766,7 +3796,7 @@ def _retry_pending_company_storage_cleanup(limit=10):
 @app.route('/directories/companies/<int:company_id>/delete', methods=['POST'])
 @admin_required
 def directory_company_delete(company_id):
-    company = db.session.get(Company, company_id) or abort(404)
+    company = Company.query.filter_by(id=company_id).with_for_update().first() or abort(404)
     if not company.is_archived:
         abort(409, description='Перед полным удалением предприятие необходимо архивировать.')
     confirmation_name = request.form.get('confirmation_name', '').strip()
