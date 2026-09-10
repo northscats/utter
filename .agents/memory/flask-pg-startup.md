@@ -11,3 +11,11 @@ Keep retry handling around synchronous schema/migration work, but never include 
 **Why:** PostgreSQL can lag behind Flask, so retry handling is still required. Separately, additive App Storage restore plus a startup snapshot can take about two minutes even when PostgreSQL is healthy. Running that work in Gunicorn's blocking post-fork hook opens the port but prevents every HTTP response, so Replit marks a healthy application failed.
 
 **How to apply:** A normal startup should log database readiness and answer HTTP within the standard readiness window. Durable recovery may finish later; verify its completion separately before relying on IMAP. Keep CLI/deployment maintenance entrypoints capable of running the full synchronous sequence when readiness is not involved.
+
+## Repeated artifact failure notices
+
+Inspect all managed workflow states before repeating a restart of an already responsive dashboard.
+
+**Why:** Repeated artifact-failure messages have arrived while the same dashboard process continued serving HTTP 200, with other workspace services still marked failed. This does not establish why the notices were generated, but a new dashboard crash must not be inferred from the message alone.
+
+**How to apply:** Check the dashboard PID, recent logs, proxied HTTP and all workflow states. Restore failed services individually; do not change application logic or restart healthy workers without evidence.
