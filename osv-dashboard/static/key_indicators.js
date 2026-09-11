@@ -255,6 +255,12 @@
         onDateChange(val) {
             if (state.date === val) return;
             state.date = val;
+            if (state.period === 'quarter') {
+                // Changing the year starts a fresh quarter selection instead
+                // of retaining an endpoint from the previously displayed year.
+                state.dateFrom = val;
+                state.quarterAnchor = null;
+            }
             if ((state.period === 'month' || state.period === 'day')
                     && state.dateFrom && state.dateFrom > val) {
                 state.dateFrom = val;
@@ -372,6 +378,7 @@
             const sel = document.getElementById('ki-date-select');
             const fromSel = document.getElementById('ki-date-from-select');
             const quarterButtons = document.getElementById('ki-quarter-buttons');
+            sel.setAttribute('aria-label', p === 'quarter' ? 'Год' : 'Конечная дата');
             if (dataP && dataP.options && dataP.options.length > 0) {
                 sel.innerHTML = dataP.options.map(opt =>
                     `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${p === 'month' || p === 'day' ? 'по ' : ''}${esc(opt.label)}</option>`
@@ -384,6 +391,21 @@
                 if (p === 'quarter') {
                     const activeDate = new Date(`${dataP.date}T00:00:00`);
                     const activeYear = activeDate.getFullYear();
+                    const activeQuarter = Math.floor(activeDate.getMonth() / 3) + 1;
+                    const optionsByYear = new Map();
+                    dataP.options.forEach(option => {
+                        const year = option.value.slice(0, 4);
+                        if (!optionsByYear.has(year)) optionsByYear.set(year, []);
+                        optionsByYear.get(year).push(option);
+                    });
+                    sel.innerHTML = Array.from(optionsByYear.keys()).sort().map(year => {
+                        const options = optionsByYear.get(year).slice()
+                            .sort((a, b) => a.value.localeCompare(b.value));
+                        const matchingQuarter = options.find(option =>
+                            Math.floor((Number(option.value.slice(5, 7)) - 1) / 3) + 1 === activeQuarter);
+                        const option = matchingQuarter || options[options.length - 1];
+                        return `<option value="${esc(option.value)}" ${Number(year) === activeYear ? 'selected' : ''}>${esc(year)}</option>`;
+                    }).join('');
                     const byQuarter = new Map(
                         dataP.options
                             .filter(opt => new Date(`${opt.value}T00:00:00`).getFullYear() === activeYear)
@@ -402,7 +424,7 @@
                     quarterButtons.title = state.quarterAnchor
                         ? 'Нажмите конечный квартал диапазона'
                         : 'Нажмите начальный, затем конечный квартал диапазона';
-                    sel.style.display = 'none';
+                    sel.style.display = 'inline-block';
                     fromSel.style.display = 'none';
                 } else if (p === 'month' || p === 'day') {
                     quarterButtons.style.display = 'none';

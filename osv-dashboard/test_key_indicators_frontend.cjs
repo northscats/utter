@@ -103,6 +103,49 @@ async function checkBootstrap(configuration) {
   assert.equal(modal.classList.contains('visible'), false);
   assert.equal(modal.style.visibility, 'hidden');
   assert.equal(modal.getAttribute('aria-hidden'), 'true');
+
+  app.state.period = 'quarter';
+  app.state.data = {period: {
+    kind: 'quarter', date: '2026-06-30', date_from: '2026-06-30',
+    options: [
+      {value: '2024-03-31', label: '1 квартал 2024'},
+      {value: '2025-03-31', label: '1 квартал 2025'},
+      {value: '2025-06-30', label: '2 квартал 2025'},
+      {value: '2026-03-31', label: '1 квартал 2026'},
+      {value: '2026-06-30', label: '2 квартал 2026'},
+    ],
+  }};
+  app.renderPeriodSelector();
+  const yearSelect = nodes.get('ki-date-select');
+  assert.equal(yearSelect.style.display, 'inline-block');
+  assert.equal(yearSelect.getAttribute('aria-label'), 'Год');
+  assert.match(yearSelect.innerHTML, /value="2025-06-30"[^>]*>2025</);
+  assert.match(yearSelect.innerHTML, /value="2024-03-31"[^>]*>2024</);
+  assert.match(yearSelect.innerHTML, /value="2026-06-30" selected>2026</);
+  assert.match(nodes.get('ki-quarter-buttons').innerHTML, /aria-label="2 квартал 2026"/);
+  let fetched = 0;
+  app.fetchData = () => { fetched++; };
+  app.state.date = '2026-06-30';
+  app.state.dateFrom = '2026-03-31';
+  app.state.quarterAnchor = '2026-03-31';
+  app.onDateChange('2025-06-30');
+  assert.equal(app.state.date, '2025-06-30');
+  assert.equal(app.state.dateFrom, '2025-06-30');
+  assert.equal(app.state.quarterAnchor, null);
+  assert.equal(fetched, 1);
+  app.state.data.period.date = '2025-06-30';
+  app.state.data.period.date_from = '2025-06-30';
+  app.renderPeriodSelector();
+  assert.match(nodes.get('ki-quarter-buttons').innerHTML, /aria-label="1 квартал 2025"/);
+  assert.doesNotMatch(nodes.get('ki-quarter-buttons').innerHTML, /квартал 2026/);
+  app.onQuarterChange('2025-03-31');
+  app.onQuarterChange('2025-06-30');
+  assert.equal(app.state.dateFrom, '2025-03-31');
+  assert.equal(app.state.date, '2025-06-30');
+  app.state.period = 'month';
+  app.renderPeriodSelector();
+  assert.equal(yearSelect.getAttribute('aria-label'), 'Конечная дата');
+  assert.equal(nodes.get('ki-quarter-buttons').style.display, 'none');
 }
 
 (async () => {
