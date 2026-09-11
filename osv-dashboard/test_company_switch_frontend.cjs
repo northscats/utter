@@ -126,6 +126,146 @@ async function testOperationalSwitchIgnoresStaleResponse() {
     assert.equal(app._opened, 'revenue');
     assert.equal(listeners.has('message'), true);
 
+    // OSV retries a retained period once without date/date_from.
+    app.state.mode = 'operational';
+    app.state.period = 'quarter';
+    app.state.date = '2024-03-31';
+    app.state.dateFrom = '2024-01-01';
+    app.state.quarterAnchor = '2024';
+    nodes.get('ki-modal').classList.add('visible');
+    assert.equal(app.switchCompany(companyConfig(14, 'period fallback')), true);
+    const periodRequest = pending.at(-1);
+    assert.match(periodRequest.url, /period=quarter&date=2024-03-31&date_from=2024-01-01$/);
+    periodRequest.resolve({
+        ok: false, status: 400,
+        text: async () => JSON.stringify({
+            error: 'date is not an available option for selected period'
+        })
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const periodRetry = pending.at(-1);
+    assert.match(periodRetry.url, /\/data\?period=quarter$/);
+    periodRetry.resolve({
+        ok: true, status: 200,
+        text: async () => JSON.stringify({
+            cards: [{id: 'revenue'}],
+            period: {
+                kind: 'quarter', date: '2023-12-31',
+                date_from: '2023-10-01', label: '01.10.2023 — 31.12.2023'
+            }
+        })
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.state.date, '2023-12-31');
+    assert.equal(app.state.dateFrom, '2023-10-01');
+    assert.equal(app.state.quarterAnchor, null);
+    assert.match(nodes.get('ki-modal-subtitle').textContent,
+        /period fallback.*доступный период/i);
+    assert.equal(app._opened, 'revenue');
+
+    const fallbackPeriod = async (periodCase) => {
+        app.state.mode = 'operational';
+        app.state.period = periodCase.period;
+        app.state.date = periodCase.date;
+        app.state.dateFrom = periodCase.dateFrom || null;
+        app.state.modalCardId = 'revenue';
+        nodes.get('ki-modal').classList.add('visible');
+        assert.equal(app.switchCompany(companyConfig(periodCase.id, periodCase.name)), true);
+        const request = pending.at(-1);
+        assert.match(request.url, new RegExp(
+            `period=${periodCase.period}.*date=${periodCase.date}`));
+        request.resolve({
+            ok: false, status: 400,
+            text: async () => JSON.stringify({error: periodCase.error})
+        });
+        await new Promise(resolve => setImmediate(resolve));
+        const retry = pending.at(-1);
+        assert.doesNotMatch(retry.url, /[?&]date(?:_from)?=/);
+        retry.resolve({
+            ok: true, status: 200,
+            text: async () => JSON.stringify({
+                cards: [{id: 'revenue'}],
+                period: {
+                    kind: periodCase.period, date: periodCase.actualDate,
+                    date_from: periodCase.actualDateFrom,
+                    label: periodCase.actualLabel
+                }
+            })
+        });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(app.state.date, periodCase.actualDate);
+        assert.equal(app._opened, 'revenue');
+    };
+    await fallbackPeriod({
+        id: 15, name: 'month fallback', period: 'month',
+        date: '2024-12-31', dateFrom: '2024-11-30',
+        error: 'date_from is not an available option',
+        actualDate: '2023-12-31', actualDateFrom: '2023-11-30',
+        actualLabel: '01.11.2023 — 31.12.2023'
+    });
+    await fallbackPeriod({
+        id: 16, name: 'day fallback', period: 'day',
+        date: '2024-12-15', dateFrom: '2024-12-20',
+        error: 'date_from must not be after date',
+        actualDate: '2023-12-15', actualDateFrom: '2023-12-01',
+        actualLabel: '01.12.2023 — 15.12.2023'
+    });
+    await fallbackPeriod({
+        id: 17, name: 'year fallback', period: 'year',
+        date: '2024-12-31',
+        error: 'date is not an available option for selected period',
+        actualDate: '2023-12-31', actualDateFrom: '2023-12-31',
+        actualLabel: '01.01.2023 — 31.12.2023'
+    });
+
+    // A retry made stale by another company switch must not reopen the old modal.
+    app.state.period = 'quarter';
+    app.state.date = '2024-03-31';
+    app.state.dateFrom = '2024-01-01';
+    app.state.modalCardId = 'revenue';
+    nodes.get('ki-modal').classList.add('visible');
+    assert.equal(app.switchCompany(companyConfig(18, 'stale period')), true);
+    const staleInitial = pending.at(-1);
+    staleInitial.resolve({
+        ok: false, status: 400,
+        text: async () => JSON.stringify({
+            error: 'date is not an available option for selected period'
+        })
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const staleRetry = pending.at(-1);
+    assert.equal(app.switchCompany(companyConfig(19, 'fresh period')), true);
+    pending.at(-1).resolve({
+        ok: true, status: 200,
+        text: async () => JSON.stringify({
+            cards: [{id: 'revenue'}],
+            period: {kind: 'quarter', date: '2022-12-31',
+                date_from: '2022-10-01', label: '01.10.2022 — 31.12.2022'}
+        })
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(context.window.KI_CONFIG.companyId, 19);
+    assert.equal(app._opened, 'revenue');
+    assert.notEqual(pending.at(-1), staleRetry);
+
+    // Empty-company/source errors are reported directly, without a fallback retry.
+    app.state.mode = 'operational';
+    app.state.period = 'year';
+    app.state.date = '2024-12-31';
+    app.state.dateFrom = null;
+    app.state.modalCardId = 'revenue';
+    nodes.get('ki-modal').classList.add('visible');
+    assert.equal(app.switchCompany(companyConfig(20, 'empty company')), true);
+    const emptyCompanyRequest = pending.at(-1);
+    emptyCompanyRequest.resolve({
+        ok: false, status: 422,
+        text: async () => JSON.stringify({error: 'Нет исходного файла ОСВ'})
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.at(-1), emptyCompanyRequest);
+    assert.match(nodes.get('ki-modal-switch-status').textContent,
+        /empty company[\s\S]*Нет исходного файла ОСВ/i);
+
     // A missing metric keeps its identity so switching back can recover it.
     assert.equal(app.switchCompany(companyConfig(5, 'missing')), true);
     pending.at(-1).resolve({

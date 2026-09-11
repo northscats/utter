@@ -14,6 +14,7 @@
         pendingModalCardId: null,
         companySwitchToken: 0,
         companySwitching: false,
+        companySwitchPeriodFallback: null,
         reqId: 0,
         chartJobs: {}
     };
@@ -229,6 +230,8 @@
             const annualYearFallback = state.mode === 'annual' && window.KI_AnnualApp &&
                 typeof window.KI_AnnualApp.consumeCompanySwitchYearFallback === 'function' ?
                 window.KI_AnnualApp.consumeCompanySwitchYearFallback() : null;
+            const periodFallback = state.companySwitchPeriodFallback;
+            state.companySwitchPeriodFallback = null;
             if (cards.some(card => card.id === cardId)) {
                 state.pendingModalCardId = null;
                 if (state.mode === 'annual' && window.KI_AnnualApp) {
@@ -239,13 +242,18 @@
                 if (annualYearFallback) {
                     document.getElementById('ki-modal-subtitle').textContent =
                         `Предприятие «${config.companyName}»: год ${annualYearFallback.requestedYear} отсутствует, показан ${annualYearFallback.actualYear}.`;
+                } else if (periodFallback) {
+                    document.getElementById('ki-modal-subtitle').textContent =
+                        `Предприятие «${config.companyName}»: запрошенный период недоступен, показан доступный период ${this.displayedPeriodLabel()}.`;
                 }
             } else {
                 state.modalCardId = cardId;
                 const unavailableYear = annualYearFallback ?
                     `Год ${annualYearFallback.requestedYear} отсутствует, показан ${annualYearFallback.actualYear}.\n` : '';
+                const unavailablePeriod = periodFallback ?
+                    `Запрошенный период недоступен, показан доступный период ${this.displayedPeriodLabel()}.\n` : '';
                 this.showModalSwitchStatus(
-                    `${unavailableYear}Показатель «${cardId}» недоступен для предприятия «${config.companyName}».`,
+                    `${unavailableYear}${unavailablePeriod}Показатель «${cardId}» недоступен для предприятия «${config.companyName}».`,
                     true
                 );
                 document.getElementById('ki-modal-title').textContent =
@@ -305,6 +313,7 @@
             state.pendingModalCardId = modalCardId || null;
             state.data = null;
             state.modalCardId = null;
+            state.companySwitchPeriodFallback = null;
             this.clearChartJobs();
             Object.assign(config, normalized, {
                 layoutBaseUrl: normalized.layoutBaseURL,
@@ -322,7 +331,7 @@
                 typeof window.KI_AnnualApp.switchCompany === 'function') {
                 window.KI_AnnualApp.switchCompany(normalized, token);
             } else {
-                this.fetchData();
+                this.fetchData(token);
             }
             return true;
         },
@@ -559,23 +568,33 @@
             this.hideLoading();
         },
         
-        async fetchData() {
+        async fetchData(companySwitchToken = null, skipPeriodSelection = false,
+                        fallbackSelection = null) {
             this.showLoading();
             document.getElementById('ki-error').style.display = 'none';
             
             if (abortController) abortController.abort();
             abortController = new AbortController();
             const reqId = ++state.reqId;
-            const companySwitchToken = state.companySwitchToken;
             
             try {
                 if (!config || !config.dataUrl) throw new Error('Не настроен адрес источника показателей.');
                 let url = `${config.dataUrl}?period=${encodeURIComponent(state.period)}`;
-                if (state.date) url += `&date=${encodeURIComponent(state.date)}`;
-                if (['month', 'day', 'quarter'].includes(state.period)
-                        && state.dateFrom) {
-                    url += `&date_from=${encodeURIComponent(state.dateFrom)}`;
+                const requestedPeriod = state.period;
+                const requestedDate = state.date;
+                const requestedDateFrom = state.dateFrom;
+                if (requestedDate && !skipPeriodSelection) {
+                    url += `&date=${encodeURIComponent(requestedDate)}`;
                 }
+                if (['month', 'day', 'quarter'].includes(requestedPeriod)
+                        && requestedDateFrom && !skipPeriodSelection) {
+                    url += `&date_from=${encodeURIComponent(requestedDateFrom)}`;
+                }
+                const unavailablePeriodErrors = new Set([
+                    'date is not an available option for selected period',
+                    'date_from is not an available option',
+                    'date_from must not be after date'
+                ]);
                 const response = await fetch(url, { 
                     signal: abortController.signal, 
                     headers: { 'Accept': 'application/json' }
@@ -594,26 +613,55 @@
                 } catch (e) {
                     throw new Error("Срок сессии истек или получен некорректный формат ответа");
                 }
+
+                const responseError = data && (data.error || data.message);
+                const unavailablePeriod = data &&
+                    (unavailablePeriodErrors.has(data.error) ||
+                     unavailablePeriodErrors.has(data.message));
+                if (response.status === 400 && companySwitchToken !== null &&
+                    !skipPeriodSelection && unavailablePeriod) {
+                    if (reqId !== state.reqId ||
+                        companySwitchToken !== state.companySwitchToken) return;
+                    return this.fetchData(companySwitchToken, true, {
+                        period: requestedPeriod,
+                        date: requestedDate,
+                        dateFrom: requestedDateFrom
+                    });
+                }
                 
                 if (!response.ok) {
-                    throw new Error(data.error || data.message || `Ошибка сервера: ${response.status}`);
+                    throw new Error(responseError || `Ошибка сервера: ${response.status}`);
                 }
                 
                 if (reqId !== state.reqId ||
-                    companySwitchToken !== state.companySwitchToken) return;
+                    (companySwitchToken !== null &&
+                     companySwitchToken !== state.companySwitchToken)) return;
                 
                 state.data = data;
+                if (companySwitchToken !== null) state.quarterAnchor = null;
                 if (data.period) {
-                    state.period = data.period.kind;
-                    state.date = data.period.date;
-                    state.dateFrom = data.period.date_from || data.period.date;
+                    state.period = data.period.kind || state.period;
+                    state.date = data.period.date || null;
+                    state.dateFrom = data.period.date_from || data.period.date || null;
+                }
+                if (fallbackSelection && companySwitchToken !== null &&
+                    state.companySwitching) {
+                    state.companySwitchPeriodFallback = {
+                        requested: fallbackSelection,
+                        actual: {
+                            period: state.period,
+                            date: state.date,
+                            dateFrom: state.dateFrom
+                        }
+                    };
                 }
                 
                 this.render();
                 this.finishCompanySwitch(companySwitchToken);
             } catch (e) {
                 if (reqId !== state.reqId ||
-                    companySwitchToken !== state.companySwitchToken ||
+                    (companySwitchToken !== null &&
+                     companySwitchToken !== state.companySwitchToken) ||
                     e.name === 'AbortError') return;
                 if (state.companySwitching) {
                     this.showCompanySwitchError(companySwitchToken, e.message);
@@ -623,7 +671,8 @@
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {
                 if (reqId === state.reqId &&
-                    companySwitchToken === state.companySwitchToken) this.hideLoading();
+                    (companySwitchToken === null ||
+                     companySwitchToken === state.companySwitchToken)) this.hideLoading();
             }
         },
         
@@ -4226,6 +4275,7 @@
             overlay.setAttribute('aria-hidden', 'true');
             state.modalCardId = null;
             state.pendingModalCardId = null;
+            state.companySwitchPeriodFallback = null;
             if (window.KI_AnnualApp && window.KI_AnnualApp.state) {
                 window.KI_AnnualApp.state.modalCardId = null;
             }
