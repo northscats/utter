@@ -2063,8 +2063,15 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'metric_id': 'cogs',
         })
     loaded = sorted(source['accounts'])
-    required = ['08', '50/51/52/55', '60.01', '62.01', '66/67', '70',
-                '90.01', '90.02', '90.03']
+    metric_accounts = {
+        'cash': ('50', '51', '52', '55'),
+        'collection': ('62',),
+        'ar': ('62.01',),
+        'ap': ('60.01',),
+        'credits': ('66', '67'),
+        'salary': ('70',),
+        'capex': ('08',),
+    }
     missing = []
     if not rev_rows:
         missing.append('90.01')
@@ -2074,7 +2081,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         missing.append('90.03')
     for c in cards:
         if c['value'] is None and c['id'] not in ('revenue', 'cogs', 'profit'):
-            missing.append(c['id'])
+            missing.extend(metric_accounts.get(c['id'], ()))
     quality = {
         'accounts': loaded,
         'missing_accounts': list(dict.fromkeys(missing)),

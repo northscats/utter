@@ -19,6 +19,19 @@ def day(dt, p3='', p1='', obd=0, obk=0, **balance):
                 obd=obd, obk=obk, **balance)
 
 class CashSalaryKeyIndicatorTests(unittest.TestCase):
+    def test_quality_missing_accounts_use_account_numbers_not_metric_ids(self):
+        result = build_key_indicators(build_indicator_source({
+            '90': account('90', [day('2026-01-31', '90.01', obk=100)]),
+        }))
+        missing = result['quality']['missing_accounts']
+        self.assertIn('62', missing)
+        self.assertIn('08', missing)
+        self.assertNotIn('collection', missing)
+        self.assertNotIn('capex', missing)
+        self.assertEqual(len(missing), len(set(missing)))
+        for number in missing:
+            self.assertRegex(number, r'^\d{2}(?:\.\d+)?$')
+
     def test_absent_is_null_but_explicit_zero_is_zero(self):
         data = {'90': account('90', [day('2026-01-31', '90.01', obk=0),
                                      day('2026-01-31', '90.03', obd=0),
