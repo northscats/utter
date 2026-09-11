@@ -12,6 +12,7 @@
             dataUrl: {{ data_url | tojson }},
             mappingsUrl: {{ mappings_url | tojson }},
             costMappingsUrl: {{ cost_mappings_url | tojson }},
+            debtorMappingsUrl: {{ debtor_mappings_url | tojson }},
             canEditRevenueMappings: {{ current_user.is_admin | tojson }},
             csrfToken: {{ csrf_token() | tojson }},
             annualDataUrl: {{ url_for('annual_key_indicators_data', company_id=company.id) | default('/company/'~company.id~'/key-indicators/annual-data') | tojson }},

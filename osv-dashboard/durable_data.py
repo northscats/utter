@@ -24,6 +24,7 @@ COUNT_TABLES = (
     "companies", "uploads", "daily_rows", "historical_imports",
     "historical_year_versions", "historical_metric_values",
     "historical_raw_values", "historical_mappings",
+    "debtor_analytic_mappings",
 )
 _BACKUP_LOCK = threading.Lock()
 

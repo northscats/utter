@@ -13,7 +13,8 @@ os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
 from database import (Company, CompanyMembership, CostAnalyticMapping, DailyRow,
-                      RevenueAnalyticMapping, Upload, User, UserModuleAccess, db)
+                      DebtorAnalyticMapping, RevenueAnalyticMapping, Upload,
+                      User, UserModuleAccess, db)
 import key_indicators_service as service
 from key_indicators import build_indicator_source, revenue_analytic_key
 
@@ -507,6 +508,66 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             dict(common, category='other', valid_from='2026-06-01'),
         ]})
         self.assertEqual(response.status_code, 400)
+
+    def test_only_admin_saves_periodic_debtor_mapping(self):
+        url = f'/company/{self.company}/key-indicators/debtor-mappings'
+        payload = {'mappings': [{
+            'account': '76.05',
+            'analytic_key': revenue_analytic_key(['Субсидия']),
+            'analytic_label': '«Субсидия»',
+            'category': 'subsidy',
+            'effective_from': '2026-01-01',
+            'effective_to': '2026-01-31',
+        }]}
+        self.assertEqual(
+            self.client('kpi_allowed').post(url, json=payload).status_code, 403)
+        self.assertEqual(
+            self.client('kpi_admin').post(url, json=payload).status_code, 200)
+        with self.app.app_context():
+            row = DebtorAnalyticMapping.query.filter_by(
+                company_id=self.company,
+                analytic_key=revenue_analytic_key(['Субсидия'])).one()
+            self.assertEqual(row.account, '76.05')
+            self.assertEqual(row.effective_from.isoformat(), '2026-01-01')
+
+    def test_day_edit_and_revoke_preserve_persisted_month_interval(self):
+        url = f'/company/{self.company}/key-indicators/debtor-mappings'
+        key = revenue_analytic_key(['Интервальный должник'])
+        client = self.client('kpi_admin')
+        original = {
+            'account': '76.09', 'analytic_key': key,
+            'analytic_label': '«Интервальный должник»',
+            'category': 'budget',
+            'effective_from': '2026-02-01',
+            'effective_to': '2026-02-28',
+        }
+        self.assertEqual(client.post(
+            url, json={'mappings': [original]}).status_code, 200)
+        with self.app.app_context():
+            row = DebtorAnalyticMapping.query.filter_by(
+                company_id=self.company, account='76.09',
+                analytic_key=key).one()
+            mapping_id = row.id
+        accidental = dict(original, category='legal',
+                          effective_from='2026-02-14',
+                          effective_to='2026-02-14')
+        conflict = client.post(url, json={'mappings': [accidental]})
+        self.assertEqual(conflict.status_code, 409)
+        edited = dict(original, id=mapping_id, category='legal',
+                      effective_from='2026-02-14',
+                      effective_to='2026-02-14')
+        self.assertEqual(client.post(
+            url, json={'mappings': [edited]}).status_code, 200)
+        with self.app.app_context():
+            row = db.session.get(DebtorAnalyticMapping, mapping_id)
+            self.assertEqual(row.category, 'legal')
+            self.assertEqual(row.effective_from.isoformat(), '2026-02-01')
+            self.assertEqual(row.effective_to.isoformat(), '2026-02-28')
+        revoked = dict(edited, category='')
+        self.assertEqual(client.post(
+            url, json={'mappings': [revoked]}).status_code, 200)
+        with self.app.app_context():
+            self.assertIsNone(db.session.get(DebtorAnalyticMapping, mapping_id))
 
 
 if __name__ == '__main__':

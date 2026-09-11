@@ -1523,7 +1523,7 @@
                 required: current === null || current === undefined
                     ? 'ОСВ счёта 62 с конечным дебетовым и кредитовым сальдо субсчёта 62.01 на выбранную дату.'
                     : required.fullDebt,
-                deviation: 'Фактическое подтверждённое сальдо 62.01',
+                deviation: 'Фактическое подтверждённое сальдо 62.01 и разрешённых аналитик 76',
                 deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
             });
             const changeTip = this.arTooltip({
@@ -1561,13 +1561,16 @@
             });
 
             const analytics = card.analytics || [];
+            const debtor = card.debtor_segments || {};
             const rows = analytics.length ? analytics.map(row => {
                 const share = current ? row.value / current * 100 : null;
                 const analyticTip = this.arTooltip({
                     title: `ДЗ по аналитике — ${row.label}`,
-                    description: 'Дебетовое сальдо 62.01 по фактическому пути аналитики из ОСВ.',
-                    formula: 'max(СКд − СКк, 0) по аналитике 62.01',
-                    detail: 'Строка не называется сегментом потребителей до загрузки справочника категорий.',
+                    description: `Дебетовое сальдо ${row.account || '62.01'} по фактическому полному пути аналитики из ОСВ.`,
+                    formula: `max(СКд − СКк, 0) по аналитике ${row.account || '62.01'}`,
+                    detail: String(row.account || '').startsWith('76.') && !row.included_in_total
+                        ? 'Аналитика 76 не включена в подтверждённую ДЗ без явного сопоставления.'
+                        : 'Категория применяется только в указанном периоде действия.',
                     required: required.segments, fact: rub(row.value),
                     deviation: 'Фактическое сальдо ОСВ', deviationClass: 'neutral',
                     source: 'аналитическое сальдо ОСВ 62.01'
@@ -1597,7 +1600,7 @@
                     source: 'требуются сроки задолженности и утверждённые пороги'
                 });
                 return `<tr>
-                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, analyticTip)}
+                    ${this.collectionCell(`<strong>${esc(row.account || '62.01')} · ${esc(row.label)}</strong>`, analyticTip)}
                     ${this.collectionCell(esc(rub(row.value)), analyticTip)}
                     ${this.collectionCell(esc(pct(share)), shareTip)}
                     ${this.collectionCell('Нужны данные', overdueTip, 'cash-value-missing')}
@@ -1605,6 +1608,37 @@
                     ${this.collectionCell('Недостаточно данных', statusTip, 'cash-value-missing')}
                 </tr>`;
             }).join('') : `<tr><td colspan="6" class="chart-empty">В ОСВ 62.01 нет аналитических сальдо на выбранную дату. ${esc(required.segments)}</td></tr>`;
+
+            const categoryRows = (debtor.categories || []).map(item =>
+                `<tr><td>${esc(item.label)}</td><td>${esc(rub(item.value))}</td></tr>`
+            ).join('');
+            const issueRows = [
+                ...(debtor.new || []).map(item => ({
+                    label: `${item.account} · ${item.label}`,
+                    status: String(item.account || '').startsWith('76.')
+                        ? 'Новая аналитика — не включена в итог'
+                        : 'Новая аналитика — не распределена по категории'
+                })),
+                ...(debtor.unmapped || []).map(item => ({
+                    label: `${item.account} · ${item.label}`,
+                    status: String(item.account || '').startsWith('76.')
+                        ? 'Нет действующего сопоставления — не включено в итог'
+                        : 'Нет действующего сопоставления на отчётную дату'
+                })),
+                ...(debtor.conflicts || []).map(item => ({
+                    label: `${item.account} · ${item.label}`,
+                    status: `Конфликт: ${(item.categories || []).join(', ')}`
+                }))
+            ];
+            const issueHtml = issueRows.length
+                ? `<div class="revenue-classification-note"><strong>Новые, несопоставленные и конфликтующие аналитики:</strong><ul>${
+                    issueRows.map(item => `<li>${esc(item.label)} — ${esc(item.status)}</li>`).join('')
+                }</ul></div>` : '';
+            const reconciliation = debtor.confirmed_total === null || debtor.confirmed_total === undefined
+                ? 'Сверка недоступна'
+                : `Категории: ${rub(debtor.classified_total)} · Подтверждённая ДЗ: ${rub(debtor.confirmed_total)} · Разница: ${rub(debtor.reconciliation_difference)} · ${debtor.reconciled ? 'сверено' : 'не сверено'}`;
+            const mappingEditor = config.canEditRevenueMappings
+                ? this.renderDebtorMappingEditor(analytics, debtor) : '';
 
             const overdueTip = this.arTooltip({
                 title: 'Просроченная ДЗ свыше 180 дней',
@@ -1632,19 +1666,24 @@
                 <div class="cash-info-banner"><strong>В расчёт включена только подтверждённая ДЗ покупателей 62.01.</strong>
                     Дебетовое сальдо счёта 76 добавляется только после утверждённого сопоставления аналитик.</div>
                 <div class="collection-summary ar-summary">
-                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), 'сальдо 62.01', totalTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), '62.01 + разрешённые аналитики 76', totalTip, current === null || current === undefined)}
                     ${this.cashMetricCard('Изменение ДЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
                     ${this.cashMetricCard('Оценочный DSO', dso === null ? 'Нужны данные' : `${dso.toFixed(0)} дней`, 'бухгалтерская оценка', dsoTip, dso === null)}
                     ${this.cashMetricCard('ДЗ / Выручка', pct(ratio), period.label || 'выбранный период', ratioTip, ratio === null)}
                 </div>
                 <div class="modal-section-title">Динамика подтверждённой ДЗ 62.01</div>
                 <div class="modal-chart-wrap ar-line-chart" id="ki-ar-line-chart"></div>
-                <div class="modal-section-title">Детализация по фактическим аналитикам 62.01</div>
-                <div class="revenue-classification-note">Аналитики не относятся к населению, УК/ТСЖ, бюджету или другим сегментам автоматически. Для этого нужен справочник категорий должников из 1С.</div>
+                <div class="modal-section-title">Категории и фактические аналитики 62.01 / 76</div>
+                <div class="revenue-classification-note">${esc(reconciliation)}</div>
+                <div class="collection-table-wrap"><table class="cash-table debtor-category-table">
+                    <thead><tr><th>Категория должников</th><th>Сумма</th></tr></thead>
+                    <tbody>${categoryRows}</tbody></table></div>
+                ${issueHtml}
                 <div class="collection-table-wrap"><table class="collection-detail-table ar-detail-table">
                     <thead><tr><th>Аналитика 1С</th><th>ДЗ</th><th>Доля</th><th>Просрочка</th><th>Возраст долга</th><th>Статус</th></tr></thead>
                     <tbody>${rows}</tbody>
                 </table></div>
+                ${mappingEditor}
                 <div class="modal-section-title">Недоступные показатели макета</div>
                 <div class="revenue-missing-grid ar-missing-grid">
                     ${this.cashMetricCard('Просрочка >180 дней', 'Нужны данные', 'документы и сроки оплаты', overdueTip, true)}
@@ -1654,6 +1693,83 @@
                 </div>`;
             this.scheduleChart('ki-ar-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-ar-line-chart', card), 50);
+        },
+
+        renderDebtorMappingEditor(analytics, debtor) {
+            if (!analytics.length) return '';
+            const definitions = [
+                ['population', 'Население'], ['uk', 'УК/ТСЖ'],
+                ['budget', 'Бюджет'], ['legal', 'Прочие юридические лица'],
+                ['subsidy', 'Субсидии']
+            ];
+            const records = debtor.mapping_records || [];
+            const editorRows = [];
+            analytics.forEach(item => {
+                const matched = records.filter(record =>
+                    record.account === item.account &&
+                    record.analytic_key === item.analytic_key);
+                (matched.length ? matched : [{
+                    id: '', category: '', effective_from: debtor.effective_from,
+                    effective_to: debtor.effective_to
+                }]).forEach(record => editorRows.push({item, record}));
+            });
+            const rows = editorRows.map(({item, record}) => {
+                const options = definitions.map(definition =>
+                    `<option value="${definition[0]}" ${record.category === definition[0] ? 'selected' : ''}>${definition[1]}</option>`).join('');
+                return `<tr>
+                <td>${esc(item.account)}<br><small>${esc(record.effective_from)} — ${esc(record.effective_to)}</small></td>
+                <td>${esc(item.label)}</td>
+                <td><select class="debtor-mapping-select"
+                    data-id="${esc(record.id || '')}"
+                    data-account="${esc(item.account)}" data-key="${esc(item.analytic_key)}"
+                    data-label="${esc(item.label)}"
+                    data-from="${esc(record.effective_from)}"
+                    data-to="${esc(record.effective_to)}">
+                    <option value="">Не сопоставлено / отозвать</option>${options}</select></td>
+                </tr>`;
+            }).join('');
+            return `<div class="modal-section-title">Сопоставление категорий должников</div>
+                <div class="revenue-mapping-help">Настройка действует только с ${esc(debtor.effective_from)} по ${esc(debtor.effective_to)}. Аналитика 76 включается в итог только при явном выборе категории.</div>
+                <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table">
+                <thead><tr><th>Счёт</th><th>Полный путь аналитики</th><th>Категория</th></tr></thead>
+                <tbody>${rows}</tbody></table></div>
+                <button type="button" class="revenue-mapping-save" onclick="window.KI_App.saveDebtorMappings()">Сохранить категории ДЗ</button>
+                <span id="debtor-mapping-status" class="revenue-mapping-status"></span>`;
+        },
+
+        async saveDebtorMappings() {
+            const status = document.getElementById('debtor-mapping-status');
+            const period = state.data.period || {};
+            const mappings = Array.from(document.querySelectorAll('.debtor-mapping-select'))
+                .map(select => ({
+                    id: select.dataset.id ? Number(select.dataset.id) : undefined,
+                    account: select.dataset.account,
+                    analytic_key: select.dataset.key,
+                    analytic_label: select.dataset.label,
+                    category: select.value,
+                    effective_from: select.dataset.from || period.start,
+                    effective_to: select.dataset.to || period.end
+                }));
+            status.textContent = 'Сохранение...';
+            try {
+                const response = await fetch(config.debtorMappingsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': config.csrfToken
+                    },
+                    body: JSON.stringify({mappings})
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
+                status.textContent = 'Сохранено';
+                this.closeModal();
+                await this.fetchData();
+                this.openModal('ar');
+            } catch (error) {
+                status.textContent = error.message;
+            }
         },
 
         apRequirements() {

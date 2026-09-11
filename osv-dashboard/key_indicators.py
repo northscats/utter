@@ -21,7 +21,7 @@ _TITLES = {
     'cash': 'Денежные средства',
     'revenue': 'Выручка',
     'collection': 'Уровень собираемости',
-    'ar': 'Дебиторская задолженность (62.01)',
+    'ar': 'Подтверждённая дебиторская задолженность',
     'ap': 'Кредиторская задолженность (60.01)',
     'cogs': 'Себестоимость продаж',
     'profit': 'Прибыль от продаж (до отдельных расходов)',
@@ -159,20 +159,34 @@ def build_indicator_source(parsed_data):
                 seen.add(marker)
                 daily.append(row)
                 all_dates.add(dt)
-        rows = []
-        for item in raw.get('rows') or []:
-            if not isinstance(item, dict):
-                continue
-            rows.append({
-                'lvl': int(item.get('lvl') or 0),
-                'label': str(item.get('label') or ''),
-                'p0': str(item.get('p0') or ''),
-                'p1': str(item.get('p1') or ''),
-                'p2': str(item.get('p2') or ''),
-                'p3': str(item.get('p3') or ''),
-                **{k: _number(item.get(k)) for k in
-                   ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
-            })
+        def hierarchy_rows(items):
+            result = []
+            stack = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                level = int(item.get('lvl') or 0)
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+                label = str(item.get('label') or '')
+                hierarchy = [value for _, value in stack if value]
+                if label:
+                    hierarchy.append(label)
+                result.append({
+                    'lvl': level,
+                    'label': label,
+                    'hierarchy_path': hierarchy,
+                    'p0': str(item.get('p0') or ''),
+                    'p1': str(item.get('p1') or ''),
+                    'p2': str(item.get('p2') or ''),
+                    'p3': str(item.get('p3') or ''),
+                    **{k: _number(item.get(k)) for k in
+                       ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
+                })
+                stack.append((level, label))
+            return result
+
+        rows = hierarchy_rows(raw.get('rows') or [])
         top_raw = raw.get('top')
         top = None
         if isinstance(top_raw, dict):
@@ -187,16 +201,7 @@ def build_indicator_source(parsed_data):
             report_top = report.get('top')
             if report_end is None or not isinstance(report_top, dict):
                 continue
-            report_rows = []
-            for item in report.get('rows') or []:
-                if not isinstance(item, dict):
-                    continue
-                report_rows.append({
-                    'lvl': int(item.get('lvl') or 0),
-                    'label': str(item.get('label') or ''),
-                    **{k: _number(item.get(k)) for k in
-                       ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
-                })
+            report_rows = hierarchy_rows(report.get('rows') or [])
             balance_reports.append({
                 'period': str(report.get('period') or ''),
                 'source_file': str(report.get('source_file') or ''),
@@ -325,20 +330,25 @@ def _leaf_rows(rows, predicate):
     matched = [r for r in rows if predicate(r)]
     grouped = defaultdict(list)
     for row in matched:
-        paths = [row.get(k, '') for k in ('path1', 'path2', 'path3')]
+        paths = [row.get(k, '') for k in
+                 ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')]
         analytics = tuple(x for x in paths
-                          if x and not re.match(r'^\d{2}(?:\.\d+)+$', x))
+                          if x and not re.match(r'^\d{2}(?:\.\d+)*$', x))
         grouped[(row['date'], analytics)].append(row)
     result = []
     for candidates in grouped.values():
         depth = max(max((x.count('.') for x in
-                         (r.get('path1', ''), r.get('path2', ''), r.get('path3', ''))
-                         if re.match(r'^\d{2}(?:\.\d+)+$', x)), default=-1)
+                         (r.get('p0', ''), r.get('p1', ''), r.get('p2', ''),
+                          r.get('p3', ''), r.get('path1', ''),
+                          r.get('path2', ''), r.get('path3', ''))
+                         if re.match(r'^\d{2}(?:\.\d+)*$', x)), default=-1)
                     for r in candidates)
         result.extend(r for r in candidates
                       if max((x.count('.') for x in
-                              (r.get('path1', ''), r.get('path2', ''), r.get('path3', ''))
-                              if re.match(r'^\d{2}(?:\.\d+)+$', x)), default=-1) == depth)
+                              (r.get('p0', ''), r.get('p1', ''), r.get('p2', ''),
+                               r.get('p3', ''), r.get('path1', ''),
+                               r.get('path2', ''), r.get('path3', ''))
+                              if re.match(r'^\d{2}(?:\.\d+)*$', x)), default=-1) == depth)
     return result
 
 
@@ -350,15 +360,17 @@ def _has_prefix(row, prefix):
 def _analytic_label(row):
     values = [str(row.get(k) or '') for k in ('path1', 'path2', 'path3')]
     analytics = [x for x in values
-                 if x and not re.match(r'^\d{2}(?:\.\d+)+$', x)]
+                 if x and not re.match(r'^\d{2}(?:\.\d+)*$', x)]
     return analytics[0] if analytics else 'Без аналитики'
 
 
 def _analytic_parts(row):
-    values = [str(row.get(k) or '').strip()
-              for k in ('path1', 'path2', 'path3')]
+    keys = ('p0', 'p1', 'p2', 'p3') if any(
+        row.get(k) for k in ('p0', 'p1', 'p2', 'p3')) else (
+        'path1', 'path2', 'path3')
+    values = [str(row.get(k) or '').strip() for k in keys]
     return [value for value in values
-            if value and not re.match(r'^\d{2}(?:\.\d+)+$', value)]
+            if value and not re.match(r'^\d{2}(?:\.\d+)*$', value)]
 
 
 def revenue_analytic_key(parts):
@@ -438,6 +450,7 @@ def _sub_balance(source, account, sub, end, credit=False):
     specific = [r for r in explicit if sub in
                 (r.get('path1'), r.get('path2'), r.get('path3'))]
     if specific:
+        specific = _leaf_rows(specific, lambda row: True)
         return round(sum(max(0.0, (r.get('skk', 0) - r.get('skd', 0))
                                  if credit else
                                  (r.get('skd', 0) - r.get('skk', 0)))
@@ -475,37 +488,102 @@ def _sub_opening_balance(source, account, sub, start, credit=False):
         row.get('snd', 0) - row.get('snk', 0)
     return round(max(0.0, value), 2)
 
-
+def _row_subaccount(row, root):
+    codes = [str(row.get(key) or '') for key in
+             ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')]
+    matched = [code for code in codes
+               if re.fullmatch(re.escape(root) + r'(?:\.\d+)+', code)]
+    return max(matched, key=lambda value: value.count('.')) if matched else None
 def _sub_balance_analytics(source, account, sub, end, credit=False):
     """Return non-duplicated analytic balances at an exact report end."""
     acc = source['accounts'].get(account)
     if not acc:
         return []
     observations = (acc.get('balance_observations') or []) + acc.get('daily', [])
+    debtor_scope = sub == '62.01' or sub == '76'
+    if not debtor_scope:
+        explicit = [
+            row for row in observations
+            if row.get('date') == end.isoformat()
+            and _has_prefix(row, sub)
+            and _analytic_parts(row)
+            and any(key in row for key in ('skd', 'skk'))
+        ]
+        basis = _leaf_rows(explicit, lambda row: True)
+        grouped = defaultdict(list)
+        labels = {}
+        for row in basis:
+            key, label = _analytic_identity(row)
+            grouped[key].append(row)
+            labels[key] = label
+        result = []
+        for key, rows in sorted(grouped.items(), key=lambda item: labels[item[0]]):
+            value = round(sum(max(
+                0.0,
+                row.get('skk', 0) - row.get('skd', 0) if credit else
+                row.get('skd', 0) - row.get('skk', 0))
+                              for row in rows), 2)
+            result.append({
+                'analytic_key': key,
+                'label': labels[key],
+                'value': value,
+            })
+        return result
+    report = next((item for item in reversed(acc.get('balance_reports') or [])
+                   if item.get('report_end') == end.isoformat()), None)
+    report_rows = None
+    if report is not None:
+        report_rows = report.get('rows') or []
+    elif acc.get('report_end') == end.isoformat():
+        report_rows = acc.get('rows') or []
+    report_analytics = _debtor_report_analytics(report_rows, sub) \
+        if report_rows is not None else []
+    if report_analytics:
+        return report_analytics
     explicit = [
         row for row in observations
         if row.get('date') == end.isoformat()
-        and _has_prefix(row, sub)
+        and (_has_prefix(row, sub) or any(
+            str(row.get(key) or '').startswith(sub)
+            for key in ('p0', 'p1', 'p2', 'p3')))
         and _analytic_parts(row)
         and any(key in row for key in ('skd', 'skk'))
     ]
-    basis = _leaf_rows(explicit, lambda row: True)
+    prepared = []
+    for row in explicit:
+        row_account = ('62.01' if sub == '62.01'
+                       else _row_subaccount(row, '76'))
+        if row_account:
+            prepared.append((row, row_account, tuple(_analytic_parts(row))))
+    basis = [
+        (row, row_account, parts)
+        for row, row_account, parts in prepared
+        if not any(
+            row_account == other_account
+            and len(other_parts) > len(parts)
+            and other_parts[:len(parts)] == parts
+            for _, other_account, other_parts in prepared)
+    ]
     grouped = defaultdict(list)
     labels = {}
-    for row in basis:
+    seen_balances = set()
+    for row, subaccount, _ in basis:
         key, label = _analytic_identity(row)
-        grouped[key].append(row)
-        labels[key] = label
+        marker = (subaccount, key, row.get('skd'), row.get('skk'))
+        if marker in seen_balances:
+            continue
+        seen_balances.add(marker)
+        grouped[(subaccount, key)].append(row)
+        labels[(subaccount, key)] = label
     result = []
-    for key, rows in sorted(grouped.items(), key=lambda item: labels[item[0]]):
-        value = round(sum(max(
-            0.0,
-            row.get('skk', 0) - row.get('skd', 0) if credit else
-            row.get('skd', 0) - row.get('skk', 0))
+    for (subaccount, key), rows in sorted(
+            grouped.items(), key=lambda item: (item[0][0], labels[item[0]])):
+        value = round(sum(max(0.0, row.get('skd', 0) - row.get('skk', 0))
                           for row in rows), 2)
         result.append({
+            'account': subaccount,
             'analytic_key': key,
-            'label': labels[key],
+            'label': labels[(subaccount, key)],
             'value': value,
         })
     return result
@@ -750,7 +828,8 @@ def _card(cid, value, unit, formula, source_label, reason=None, **extra):
 
 
 def build_key_indicators(source, period='month', date=None, date_from=None,
-                         revenue_mappings=None, cost_mappings=None):
+                         revenue_mappings=None, cost_mappings=None,
+                         debtor_mappings=None):
     """Calculate the strict JSON response contract from a source snapshot."""
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
@@ -1104,9 +1183,121 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'debit': debit, 'credit': credit, 'turnover_ratio': ratio,
             })
 
-    ar, ar_reason = _sub_balance(source, '62', '62.01', end)
+    ar_62, ar_reason = _sub_balance(source, '62', '62.01', end)
     ar_opening = _sub_opening_balance(source, '62', '62.01', start)
-    ar_analytics = _sub_balance_analytics(source, '62', '62.01', end)
+    ar_62_analytics = _sub_balance_analytics(source, '62', '62.01', end)
+    ar_76_analytics = _sub_balance_analytics(source, '76', '76', end)
+    active_debtor_mappings = defaultdict(set)
+    known_debtor_mapping_keys = set()
+    for item in debtor_mappings or []:
+        if not isinstance(item, dict):
+            continue
+        account = str(item.get('account') or '')
+        analytic_key = str(item.get('analytic_key') or '')
+        category = str(item.get('category') or '')
+        effective_from = _iso(item.get('effective_from'))
+        effective_to = _iso(item.get('effective_to'))
+        if ((account == '62.01' or re.fullmatch(r'76(?:\.\d+)+', account))
+                and analytic_key
+                and category in {key for key, _ in REVENUE_CATEGORIES}
+                and effective_from and effective_to):
+            mapping_key = (account, analytic_key)
+            known_debtor_mapping_keys.add(mapping_key)
+            # AR is a balance at the reporting endpoint, so the category must
+            # be effective on that exact date. Mere overlap with the selected
+            # turnover period is not enough.
+            if effective_from <= end <= effective_to:
+                active_debtor_mappings[mapping_key].add(category)
+    ar_analytics = []
+    debtor_conflicts = []
+    debtor_new = []
+    debtor_unmapped = []
+    debtor_categories = defaultdict(float)
+    allowed_76 = 0.0
+    active_mapping_records = []
+    for item in debtor_mappings or []:
+        effective_from = _iso(item.get('effective_from'))
+        effective_to = _iso(item.get('effective_to'))
+        if effective_from and effective_to and \
+                effective_from <= end and effective_to >= start:
+            active_mapping_records.append({
+                'id': item.get('id'),
+                'account': str(item.get('account') or ''),
+                'analytic_key': str(item.get('analytic_key') or ''),
+                'analytic_label': str(item.get('analytic_label') or ''),
+                'category': str(item.get('category') or ''),
+                'effective_from': effective_from.isoformat(),
+                'effective_to': effective_to.isoformat(),
+            })
+    for account_root, analytics in (
+            ('62.01', ar_62_analytics), ('76', ar_76_analytics)):
+        for item in analytics:
+            account = item.get('account') or account_root
+            categories = active_debtor_mappings.get(
+                (account, item['analytic_key']), set())
+            category = next(iter(categories)) if len(categories) == 1 else None
+            classified = {
+                **item, 'account': account, 'category': category,
+                'included_in_total': account == '62.01' or category is not None,
+            }
+            ar_analytics.append(classified)
+            if len(categories) > 1:
+                conflict = {
+                    **classified, 'categories': sorted(categories),
+                    'message': 'Для аналитики одновременно действуют разные категории',
+                }
+                debtor_conflicts.append(conflict)
+            elif category is None:
+                if (account, item['analytic_key']) in known_debtor_mapping_keys:
+                    debtor_unmapped.append(classified)
+                else:
+                    debtor_new.append(classified)
+            else:
+                debtor_categories[category] += item['value']
+                if account.startswith('76.'):
+                    allowed_76 += item['value']
+    if ar_62 is not None:
+        detailed_62 = round(sum(
+            item['value'] for item in ar_62_analytics), 2)
+        residual_62 = round(ar_62 - detailed_62, 2)
+        if abs(residual_62) > 0.01:
+            debtor_unmapped.append({
+                'account': '62.01',
+                'analytic_key': None,
+                'label': 'Остаток 62.01 без доступной аналитической детализации',
+                'value': residual_62,
+                'category': None,
+                'included_in_total': True,
+                'synthetic_residual': True,
+            })
+    ar = (round(ar_62 + allowed_76, 2)
+          if ar_62 is not None else None)
+    classified_ar = round(sum(debtor_categories.values()), 2)
+    debtor_category_rows = [{
+        'id': key, 'label': title,
+        'value': round(debtor_categories[key], 2)
+        if key in debtor_categories else None,
+    } for key, title in REVENUE_CATEGORIES]
+    debtor_difference = (
+        round(ar - classified_ar, 2) if ar is not None else None)
+    debtor_segments = {
+        'categories': debtor_category_rows,
+        'analytics': ar_analytics,
+        'mapping_records': active_mapping_records,
+        'new': debtor_new,
+        'unmapped': debtor_unmapped,
+        'conflicts': debtor_conflicts,
+        'base_62_01': ar_62,
+        'included_76': round(allowed_76, 2),
+        'classified_total': classified_ar,
+        'confirmed_total': ar,
+        'reconciliation_difference': debtor_difference,
+        'reconciled': (debtor_difference is not None
+                       and abs(debtor_difference) <= 0.01
+                       and not debtor_conflicts),
+        'effective_from': start.isoformat(),
+        'effective_to': end.isoformat(),
+    }
     ap, ap_reason = _sub_balance(source, '60', '60.01', end, credit=True)
     ap_opening = _sub_opening_balance(
         source, '60', '60.01', start, credit=True)
@@ -1233,11 +1424,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                            {'reason': 'Нет ненулевой базы дебетового оборота счёта 62'})},
                        {'label': 'График/возраст долга', 'value': None, 'unit': 'RUB',
                         'reason': 'ОСВ не содержит сроков возникновения и погашения долга'}]),
-        _card('ar', ar, 'RUB', 'max(СКд − СКк, 0) по 62.01',
-              'Сальдо субсчёта 62.01', ar_reason,
-               opening_value=ar_opening,
+        _card('ar', ar, 'RUB',
+              'max(СКд − СКк, 0) по 62.01 + явно сопоставленный дебет 76',
+              'Сальдо 62.01 и разрешённые аналитики 76', ar_reason,
+               opening_value=ar_opening if not allowed_76 else None,
                analytics=ar_analytics,
-               notes=['Прочие расчёты счёта 76 не включены: надёжное соответствие ДЗ не задано.']),
+               debtor_segments=debtor_segments,
+               notes=['Счёт 76 включён только по явно сопоставленным аналитикам выбранного периода.']),
         _card('ap', ap, 'RUB', 'max(СКк − СКд, 0) по 60.01',
               'Сальдо субсчёта 60.01', ap_reason,
               opening_value=ap_opening,
@@ -1554,7 +1747,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             }
         previous_ar = _sub_balance(source, '62', '62.01', prev_end)[0]
         previous_ap = _sub_balance(source, '60', '60.01', prev_end, credit=True)[0]
-        if ar is not None and previous_ar is not None:
+        if ar is not None and previous_ar is not None and not allowed_76:
             card_map['ar']['delta'] = {
                 'value': round(ar - previous_ar, 2), 'unit': 'RUB',
                 'label': 'к предыдущей сопоставимой дате'}
@@ -1791,3 +1984,59 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'recommendations': recommendations,
         'quality': quality, 'methodology': methodology,
     }
+
+def _debtor_report_analytics(rows, sub):
+    """Extract terminal debtor coordinates without cross-branch depth rules."""
+    result = []
+    seen = set()
+    for index, row in enumerate(rows):
+        level = int(row.get('lvl') or 0)
+        # Ordered ОСВ hierarchy: an immediately following deeper row proves
+        # that this row is a subtotal/parent, not a terminal balance.
+        if index + 1 < len(rows) and int(rows[index + 1].get('lvl') or 0) > level:
+            continue
+        hierarchy = [str(value).strip()
+                     for value in (row.get('hierarchy_path') or [])
+                     if str(value).strip()]
+        account_candidates = hierarchy + [
+            str(row.get(key) or '').strip()
+            for key in ('p0', 'p1', 'p2', 'p3')]
+        if sub == '62.01':
+            if '62.01' not in account_candidates:
+                continue
+            account = '62.01'
+        else:
+            candidates = [
+                value for value in account_candidates
+                if re.fullmatch(r'76(?:\.\d+)+', value)]
+            if not candidates:
+                continue
+            account = max(candidates, key=lambda value: value.count('.'))
+        parts = [value for value in hierarchy
+                 if not re.fullmatch(r'\d{2}(?:\.\d+)*', value)]
+        # Some parser-shaped snapshots begin at an analytic leaf and carry
+        # its account ancestry only in p0..p3.
+        if not parts:
+            parts = [
+                str(row.get(key) or '').strip()
+                for key in ('p0', 'p1', 'p2', 'p3')
+                if str(row.get(key) or '').strip()
+                and not re.fullmatch(
+                    r'\d{2}(?:\.\d+)*',
+                    str(row.get(key) or '').strip())
+            ]
+        if not parts:
+            continue
+        analytic_key = revenue_analytic_key(parts)
+        marker = (account, analytic_key, row.get('skd'), row.get('skk'))
+        if marker in seen:
+            continue
+        seen.add(marker)
+        result.append({
+            'account': account,
+            'analytic_key': analytic_key,
+            'label': ' / '.join(f'«{part}»' for part in parts),
+            'value': round(max(
+                0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
+        })
+    return result

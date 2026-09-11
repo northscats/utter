@@ -38,6 +38,7 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
                        CostAnalyticMapping,
+                       DebtorAnalyticMapping,
                        MetricLayout,
                        Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
@@ -91,7 +92,7 @@ ANALYTICAL_ACCOUNT_NAMES = {
 _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
-    RevenueAnalyticMapping, CostAnalyticMapping,
+    RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
 )
 
 
@@ -2415,6 +2416,8 @@ def key_indicators_page(company_id):
                              company_id=company_id),
         cost_mappings_url=url_for('key_indicator_cost_mappings',
                                   company_id=company_id),
+        debtor_mappings_url=url_for('key_indicator_debtor_mappings',
+                                    company_id=company_id),
         legacy_url=(url_for('dashboard', company_id=company_id,
                             name='dashboard_current.html')
                     if os.path.isfile(legacy_file) else None),
@@ -2465,9 +2468,20 @@ def key_indicators_data(company_id):
             'valid_to': row.valid_to.isoformat(),
         } for row in CostAnalyticMapping.query.filter_by(
             company_id=company_id).all()]
+        debtor_mappings = [{
+            'id': row.id,
+            'account': row.account,
+            'analytic_key': row.analytic_key,
+            'analytic_label': row.analytic_label,
+            'category': row.category,
+            'effective_from': row.effective_from.isoformat(),
+            'effective_to': row.effective_to.isoformat(),
+        } for row in DebtorAnalyticMapping.query.filter_by(
+            company_id=company_id).all()]
         payload = build_key_indicators(
             source, period=period, date=date, date_from=date_from,
-            revenue_mappings=mappings, cost_mappings=cost_mappings)
+            revenue_mappings=mappings, cost_mappings=cost_mappings,
+            debtor_mappings=debtor_mappings)
         payload['company'] = {'id': company.id, 'name': company.name}
         payload['updated_at'] = updated_at
     except SourceBusyError as exc:
@@ -2655,6 +2669,95 @@ def key_indicator_revenue_mappings(company_id):
         company_id=company_id).count()
     return jsonify(saved=saved)
 
+@app.route('/company/<int:company_id>/key-indicators/debtor-mappings',
+           methods=['POST'])
+@admin_required
+def key_indicator_debtor_mappings(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if company.is_archived:
+        abort(409, description='Архивное предприятие доступно только для чтения')
+    body = request.get_json(silent=True) or {}
+    items = body.get('mappings')
+    if not isinstance(items, list):
+        return jsonify(error='Поле mappings должно быть списком'), 400
+    allowed_categories = {'population', 'uk', 'budget', 'legal', 'subsidy'}
+    normalized = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return jsonify(error='Некорректная запись сопоставления'), 400
+        account = str(item.get('account') or '').strip()
+        analytic_key = str(item.get('analytic_key') or '').strip()
+        label = str(item.get('analytic_label') or '').strip()
+        category = str(item.get('category') or '').strip()
+        try:
+            effective_from = datetime.strptime(
+                str(item.get('effective_from') or ''), '%Y-%m-%d').date()
+            effective_to = datetime.strptime(
+                str(item.get('effective_to') or ''), '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify(error='Период действия должен иметь формат ГГГГ-ММ-ДД'), 400
+        if (account != '62.01' and not re.fullmatch(r'76(?:\.\d+)+', account)
+                or not re.fullmatch(r'[0-9a-f]{64}', analytic_key)
+                or not label or len(label) > 1000
+                or effective_from > effective_to):
+            return jsonify(error='Некорректная аналитика или период ДЗ'), 400
+        mapping_id = item.get('id')
+        if mapping_id is not None and (
+                isinstance(mapping_id, bool)
+                or not isinstance(mapping_id, int) or mapping_id < 1):
+            return jsonify(error='Некорректный идентификатор сопоставления'), 400
+        if category and category not in allowed_categories:
+            return jsonify(error='Неизвестная категория должников'), 400
+        key = (account, analytic_key, effective_from, effective_to)
+        if key in normalized and normalized[key][1] != (category or None):
+            return jsonify(error='Конфликт категорий для одной аналитики и периода'), 400
+        normalized[key] = (label, category or None, mapping_id)
+    existing = {
+        (row.account, row.analytic_key, row.effective_from, row.effective_to): row
+        for row in DebtorAnalyticMapping.query.filter_by(
+            company_id=company_id).all()
+    }
+    for key, (label, category, mapping_id) in normalized.items():
+        row = (db.session.get(DebtorAnalyticMapping, mapping_id)
+               if mapping_id is not None else existing.get(key))
+        if mapping_id is not None and row is None:
+            db.session.rollback()
+            return jsonify(error='Сопоставление не найдено'), 404
+        if row is not None and (row.company_id != company_id
+                                or row.account != key[0]
+                                or row.analytic_key != key[1]):
+            return jsonify(error='Сопоставление не принадлежит аналитике предприятия'), 409
+        if category is None:
+            if row is not None:
+                db.session.delete(row)
+            continue
+        if row is None:
+            overlap = DebtorAnalyticMapping.query.filter(
+                DebtorAnalyticMapping.company_id == company_id,
+                DebtorAnalyticMapping.account == key[0],
+                DebtorAnalyticMapping.analytic_key == key[1],
+                DebtorAnalyticMapping.effective_from <= key[3],
+                DebtorAnalyticMapping.effective_to >= key[2],
+            ).first()
+            if overlap is not None:
+                db.session.rollback()
+                return jsonify(
+                    error='Для аналитики уже действует сопоставление; измените существующую запись'), 409
+            db.session.add(DebtorAnalyticMapping(
+                company_id=company_id, account=key[0], analytic_key=key[1],
+                effective_from=key[2], effective_to=key[3],
+                analytic_label=label, category=category,
+                updated_by=current_user.id))
+        else:
+            row.analytic_label = label
+            row.category = category
+            row.updated_by = current_user.id
+    db.session.commit()
+    _durable_backup(
+        'сопоставление аналитик дебиторской задолженности',
+        allowed_removed_tables={'debtor_analytic_mappings'})
+    saved = DebtorAnalyticMapping.query.filter_by(company_id=company_id).count()
+    return jsonify(saved=saved)
 @app.route('/company/<int:company_id>/key-indicators/cost-mappings',
            methods=['POST'])
 @admin_required
