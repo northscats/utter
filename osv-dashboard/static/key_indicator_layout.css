@@ -1,5 +1,72 @@
 /* key_indicator_layout.css */
 
+#ki-modal .ki-modal-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+#ki-modal .ki-modal-header-controls .ki-layout-header {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    align-items: center;
+}
+
+#ki-modal .ki-modal-header-controls .ki-layout-header-actions {
+    width: auto;
+}
+
+#ki-modal .ki-modal-header-controls .ki-layout-tab,
+#ki-modal .ki-modal-header-controls .ki-layout-btn-gear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 8px;
+    background: rgba(255,255,255,.08);
+    color: #fff;
+}
+
+#ki-modal .ki-modal-header-controls button.active,
+#ki-modal .ki-modal-header-controls button:hover:not(:disabled) {
+    background: rgba(255,255,255,.24);
+    border-color: rgba(255,255,255,.6);
+}
+
+#ki-modal .ki-modal-header-controls button:focus-visible {
+    outline: 2px solid #F59E0B;
+    outline-offset: 2px;
+}
+
+#ki-modal .modal-header {
+    gap: 12px;
+}
+
+#ki-modal .modal-title-wrap,
+#ki-modal .modal-title-wrap > div:last-child {
+    min-width: 0;
+}
+
+@media (max-width: 600px) {
+    #ki-modal .modal-header {
+        flex-wrap: wrap;
+        padding: 14px 16px;
+    }
+
+    #ki-modal .ki-modal-header-controls {
+        margin-left: auto;
+    }
+}
+
 .ki-layout-wrapper [hidden] {
     display: none !important;
 }

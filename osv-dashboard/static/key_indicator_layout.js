@@ -179,6 +179,10 @@
         },
 
         restoreOriginalDom: function() {
+            if (this.state.toolbar && this.state.toolbar.parentNode) {
+                this.state.toolbar.parentNode.removeChild(this.state.toolbar);
+            }
+            this.state.toolbar = null;
             const container = this.state.activeContainer;
             const holding = this.state.holding;
             if (!container || !holding) return;
@@ -440,13 +444,12 @@
             wrapper.innerHTML = `
                 <div class="ki-layout-header">
                     <div class="ki-layout-tabs" role="tablist" aria-label="Разделы показателя">
-                        <button type="button" class="ki-layout-tab active" role="tab" aria-selected="true" data-tab="main">Основной</button>
-                        <button type="button" class="ki-layout-tab" role="tab" aria-selected="false" data-tab="detail">Детальный</button>
+                        <button type="button" class="ki-layout-tab active" role="tab" aria-selected="true" data-tab="main" aria-label="Основной" title="Основной"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+                        <button type="button" class="ki-layout-tab" role="tab" aria-selected="false" data-tab="detail" aria-label="Детальный" title="Детальный"><svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 9v12"/></svg></button>
                     </div>
                     <div class="ki-layout-header-actions">
-                        <span class="ki-layout-help">Скрытие меняет вид окна, но не финансовые данные.</span>
-                        <button type="button" class="ki-layout-btn-gear" aria-label="Настроить вид" disabled>
-                            ${this.gearIcon} Конструктор
+                        <button type="button" class="ki-layout-btn-gear" aria-label="Настроить вид" title="Конструктор" disabled>
+                            ${this.gearIcon}
                         </button>
                     </div>
                 </div>
@@ -533,6 +536,11 @@
             ].forEach(([selector, placement]) => wrapper.querySelector(selector).addEventListener(
                 'click', () => this.moveSelected(placement)));
             container.appendChild(wrapper);
+            const host = document.querySelector('.ki-modal-header-controls');
+            if (host) {
+                this.state.toolbar = wrapper.querySelector('.ki-layout-header');
+                host.insertBefore(this.state.toolbar, host.querySelector('.modal-close'));
+            }
         },
 
         showLoadingState: function() {
@@ -593,8 +601,12 @@
                 this.state.activeContainer.querySelector('.ki-layout-wrapper');
         },
 
+        getToolbar: function() {
+            return this.state.toolbar || this.getWrapper();
+        },
+
         setGearEnabled: function(enabled) {
-            const wrapper = this.getWrapper();
+            const wrapper = this.getToolbar();
             const button = wrapper && wrapper.querySelector('.ki-layout-btn-gear');
             if (button) button.disabled = !enabled;
         },
@@ -609,7 +621,11 @@
             }
             if (!wrapper) return;
             wrapper.classList.toggle('is-busy', !!busy);
-            wrapper.querySelectorAll('button, input').forEach(control => {
+            const controls = Array.from(wrapper.querySelectorAll('button, input'));
+            if (this.state.toolbar) {
+                controls.push(...this.state.toolbar.querySelectorAll('button, input'));
+            }
+            controls.forEach(control => {
                 if (control.classList.contains('ki-btn-retry-layout')) {
                     control.disabled = !!this.state.loading || !!this.state.saving;
                     return;
@@ -629,7 +645,7 @@
         updateTabs: function() {
             const wrapper = this.getWrapper();
             if (!wrapper) return;
-            wrapper.querySelectorAll('.ki-layout-tab').forEach(button => {
+            this.getToolbar().querySelectorAll('.ki-layout-tab').forEach(button => {
                 const active = button.dataset.tab === this.state.activeTab;
                 button.classList.toggle('active', active);
                 button.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -648,7 +664,7 @@
             this.state.isConstructor = force === undefined ? !this.state.isConstructor : !!force;
             const wrapper = this.getWrapper();
             if (!wrapper) return;
-            const gear = wrapper.querySelector('.ki-layout-btn-gear');
+            const gear = this.getToolbar().querySelector('.ki-layout-btn-gear');
             const view = wrapper.querySelector('.ki-layout-view');
             const constructor = wrapper.querySelector('.ki-layout-constructor');
             if (this.state.isConstructor) {

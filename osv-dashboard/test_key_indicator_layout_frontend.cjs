@@ -256,7 +256,41 @@ function summaryFixture() {
     assert.match(css, /\.ki-layout-wrapper \[hidden\]\s*\{\s*display:\s*none !important;/);
 }
 
-    console.log('PASS: key-indicator layout defaults, extraction, restoration, annual fallback, stale GET, draft selection and rendered status/empty states');
+// Moving the toolbar outside the body must retain tab/gear updates and cleanup.
+{
+    const freshWindow = {};
+    vm.runInNewContext(
+        fs.readFileSync(`${__dirname}/static/key_indicator_layout.js`, 'utf8'),
+        {window: freshWindow, document, console});
+    const fresh = freshWindow.KI_Layout;
+    const host = new Element();
+    const toolbar = host.appendChild(new Element());
+    const wrapper = new Element();
+    const tabs = ['main', 'detail'].map(tab => {
+        const button = toolbar.appendChild(new Element('button', 'ki-layout-tab'));
+        button.dataset.tab = tab;
+        const panel = wrapper.appendChild(new Element('div', 'ki-layout-content'));
+        panel.dataset.tabContent = tab;
+        return button;
+    });
+    const gear = toolbar.appendChild(new Element('button', 'ki-layout-btn-gear'));
+    fresh.state.toolbar = toolbar;
+    fresh.state.activeTab = 'detail';
+    fresh.getWrapper = () => wrapper;
+    fresh.rerenderCharts = () => {};
+    fresh.setGearEnabled(true);
+    assert.equal(gear.disabled, false);
+    fresh.updateTabs();
+    assert.equal(tabs[0].classList.contains('active'), false);
+    assert.equal(tabs[1].classList.contains('active'), true);
+    assert.equal(wrapper.children[0].hidden, true);
+    assert.equal(wrapper.children[1].hidden, false);
+    fresh.restoreOriginalDom();
+    assert.equal(host.children.length, 0);
+    assert.equal(fresh.state.toolbar, null);
+}
+
+    console.log('PASS: key-indicator layouts, rendered states and relocated header toolbar');
 })().catch(error => {
     console.error(error);
     process.exitCode = 1;
