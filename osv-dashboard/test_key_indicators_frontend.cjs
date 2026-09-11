@@ -40,7 +40,7 @@ async function checkBootstrap(configuration) {
       return {
         ok: true, status: 200,
         text: async () => JSON.stringify({
-          cards: [], period: { kind: 'month', date: '2026-06-30' },
+          cards: [], period: { kind: 'year', date: '2026-06-30' },
         }),
       };
     },
@@ -56,7 +56,7 @@ async function checkBootstrap(configuration) {
   await app.fetchData();
   assert.equal(loading, false, 'loading must clear even on configuration errors');
   if (configuration) {
-    assert.equal(requests[0], '/company/11/key-indicators/data?period=month');
+    assert.equal(requests[0], '/company/11/key-indicators/data?period=year');
     assert.equal(renders, 1, 'valid configuration must reach rendering');
   } else {
     assert.equal(requests.length, 0);

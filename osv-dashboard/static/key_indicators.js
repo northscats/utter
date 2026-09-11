@@ -4,7 +4,7 @@
     const config = window.KI_CONFIG || (typeof KI_CONFIG !== 'undefined' ? KI_CONFIG : null);
     
     const state = {
-        period: 'month',
+        period: 'year',
         date: null,
         dateFrom: null,
         quarterAnchor: null,
