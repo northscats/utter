@@ -10,6 +10,7 @@ from key_indicators import _CARD_ORDER
 
 LAYOUT_VERSION = 1
 LAYOUT_MODES = frozenset(('osv', 'annual'))
+RESERVED_DASHBOARD_IDS = frozenset(('__dashboard__', 'dashboard'))
 
 # These lists intentionally come from the two calculation modules rather than
 # from request data.  A layout cannot be used as a way to address an
@@ -35,6 +36,8 @@ def validate_mode_metric(mode, metric_id):
     """Validate the endpoint's mode and metric against server-owned IDs."""
     if mode not in LAYOUT_MODES:
         raise LayoutValidationError('Неизвестный режим показателей')
+    if metric_id in RESERVED_DASHBOARD_IDS:
+        return
     if metric_id not in METRIC_IDS_BY_MODE[mode]:
         raise LayoutValidationError('Неизвестный показатель')
 
@@ -47,7 +50,7 @@ def _strict_int(value, field):
     return value
 
 
-def validate_layout_payload(payload):
+def validate_layout_payload(payload, mode=None, metric_id=None):
     """Return a canonical copy of a valid PUT body.
 
     The endpoint deliberately accepts no extension fields.  This keeps the
@@ -82,6 +85,10 @@ def validate_layout_payload(payload):
         raise LayoutValidationError(
             f'layout.items не может содержать более {MAX_ITEMS} элементов')
 
+    is_dashboard = metric_id in RESERVED_DASHBOARD_IDS
+    if is_dashboard and mode not in LAYOUT_MODES:
+        raise LayoutValidationError('Неизвестный режим показателей')
+
     normalized_items = {}
     for key, placement in items.items():
         if (not isinstance(key, str)
@@ -89,6 +96,8 @@ def validate_layout_payload(payload):
                 or not ITEM_KEY_RE.fullmatch(key)):
             raise LayoutValidationError(
                 'Ключ элемента имеет недопустимый формат или длину')
+        if is_dashboard and key not in METRIC_IDS_BY_MODE[mode]:
+            raise LayoutValidationError('Неизвестная карточка показателей')
         if not isinstance(placement, str) or placement not in PLACEMENTS:
             raise LayoutValidationError(
                 'Размещение элемента должно быть main, detail или hidden')
@@ -119,6 +128,7 @@ def validate_layout_payload(payload):
 __all__ = [
     'ITEM_KEY_RE', 'LAYOUT_MODES', 'LAYOUT_VERSION',
     'MAX_ITEM_KEY_LENGTH', 'MAX_ITEMS', 'METRIC_IDS_BY_MODE',
-    'PLACEMENTS', 'LayoutValidationError', 'validate_layout_payload',
+    'PLACEMENTS', 'RESERVED_DASHBOARD_IDS', 'LayoutValidationError',
+    'validate_layout_payload',
     'validate_mode_metric',
 ]

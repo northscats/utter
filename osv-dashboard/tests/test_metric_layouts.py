@@ -154,6 +154,47 @@ class MetricLayoutApiTests(unittest.TestCase):
             client.get(self._url(metric='collection', mode='annual')).status_code,
             400)
 
+    def test_dashboard_layout_is_reserved_and_persists_visibility_and_order(self):
+        client = self._client(self.user_id)
+        url = self._url(metric='__dashboard__')
+        self.assertEqual(client.get(url).get_json(), {
+            'layout': {'version': 1, 'items': {}}, 'revision': 0})
+        layout = {
+            'version': 1,
+            'items': {'cash': 'hidden', 'revenue': 'main', 'profit': 'main'},
+            'order': ['profit', 'cash', 'revenue'],
+        }
+        saved = client.put(
+            url, json={'layout': layout, 'revision': 0},
+            headers=self._csrf_headers(client))
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.get_json()['layout'], layout)
+        self.assertEqual(client.get(url).get_json()['layout'], layout)
+        invalid = client.put(
+            url,
+            json={'layout': {'version': 1, 'items': {'not-a-card': 'main'}},
+                  'revision': 1},
+            headers=self._csrf_headers(client))
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(client.get(url).get_json()['layout'], layout)
+
+    def test_dashboard_reserved_id_does_not_open_arbitrary_metric_records(self):
+        client = self._client(self.user_id)
+        self.assertEqual(
+            client.get(self._url(metric='not-a-dashboard')).status_code, 400)
+        self.assertEqual(
+            client.get(self._url(metric='dashboard')).status_code, 200)
+        alias_url = self._url(metric='dashboard', mode='annual')
+        saved = client.put(
+            alias_url,
+            json={'layout': {'version': 1, 'items': {'cash': 'hidden'}},
+                  'revision': 0},
+            headers=self._csrf_headers(client))
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(client.get(self._url(
+            metric='__dashboard__', mode='annual')).get_json(),
+                         saved.get_json())
+
     def test_order_round_trip_and_validation(self):
         client = self._client(self.user_id)
         url = self._url(metric='capex')
@@ -184,7 +225,8 @@ class MetricLayoutApiTests(unittest.TestCase):
     def test_database_row_has_owner_and_tenant_keys(self):
         with self.app.app_context():
             rows = MetricLayout.query.filter_by(
-                user_id=self.user_id, company_id=self.company_id).all()
+                user_id=self.user_id, company_id=self.company_id,
+                mode='osv').all()
             self.assertGreaterEqual(len(rows), 0)
             if rows:
                 self.assertEqual(rows[0].mode, 'osv')

@@ -1,0 +1,234 @@
+/* Dashboard card order/visibility constructor. */
+.ki-dashboard-layout-gear {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid #D1D5DB;
+  border-radius: 7px;
+  background: #fff;
+  color: #4B5563;
+  cursor: pointer;
+}
+
+.ki-dashboard-layout-gear:hover,
+.ki-dashboard-layout-gear:focus-visible {
+  color: #1D4ED8;
+  border-color: #93C5FD;
+  background: #EFF6FF;
+}
+
+.ki-dashboard-layout-gear:focus-visible,
+.ki-dashboard-layout-dialog button:focus-visible,
+.ki-dashboard-layout-dialog input:focus-visible {
+  outline: 2px solid #2563EB;
+  outline-offset: 2px;
+}
+
+.ki-dashboard-layout-gear:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.ki-dashboard-layout-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .45);
+}
+
+.ki-dashboard-layout-dialog[hidden] {
+  display: none;
+}
+
+.ki-dashboard-layout-panel {
+  width: min(620px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, .25);
+}
+
+.ki-dashboard-layout-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.ki-dashboard-layout-title {
+  margin: 0;
+  color: #111827;
+  font-size: 17px;
+}
+
+.ki-dashboard-layout-description {
+  margin: 4px 0 0;
+  color: #6B7280;
+  font-size: 12px;
+}
+
+.ki-dashboard-layout-close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  background: #fff;
+  color: #4B5563;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.ki-dashboard-layout-status {
+  min-height: 0;
+  padding: 0 20px;
+  color: #4B5563;
+  font-size: 12px;
+}
+
+.ki-dashboard-layout-status:not(:empty) {
+  padding-top: 10px;
+}
+
+.ki-dashboard-layout-status.error {
+  color: #991B1B;
+}
+
+.ki-dashboard-layout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 12px 20px;
+  padding: 0 3px 2px 0;
+  overflow: auto;
+}
+
+.ki-dashboard-layout-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 7px 8px 7px 11px;
+  border: 1px solid #E5E7EB;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.ki-dashboard-layout-row.is-hidden {
+  background: #F9FAFB;
+  color: #6B7280;
+}
+
+.ki-dashboard-layout-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ki-dashboard-layout-label span {
+  overflow-wrap: anywhere;
+}
+
+.ki-dashboard-layout-row-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ki-dashboard-layout-row-actions button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid #D1D5DB;
+  border-radius: 5px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.ki-dashboard-layout-row-actions button:hover:not(:disabled) {
+  background: #EFF6FF;
+  border-color: #93C5FD;
+}
+
+.ki-dashboard-layout-row-actions button:disabled {
+  cursor: default;
+  opacity: .4;
+}
+
+.ki-dashboard-layout-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 18px;
+  border-top: 1px solid #E5E7EB;
+}
+
+.ki-dashboard-layout-footer button {
+  min-height: 34px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid #D1D5DB;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.ki-dashboard-layout-footer .primary {
+  border-color: #2563EB;
+  background: #2563EB;
+  color: #fff;
+}
+
+.ki-dashboard-layout-footer .danger {
+  margin-right: auto;
+}
+
+.ki-dashboard-layout-footer button:hover:not(:disabled) {
+  background: #F3F4F6;
+}
+
+.ki-dashboard-layout-footer .primary:hover:not(:disabled) {
+  background: #1D4ED8;
+}
+
+.ki-dashboard-layout-footer button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+@media (max-width: 600px) {
+  .ki-dashboard-layout-dialog {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ki-dashboard-layout-panel {
+    max-height: 90vh;
+    border-radius: 10px 10px 0 0;
+  }
+
+  .ki-dashboard-layout-row-actions button {
+    width: 34px;
+    height: 34px;
+  }
+}

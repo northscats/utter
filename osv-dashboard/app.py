@@ -56,7 +56,8 @@ from dashboard_compat import (json_for_script,
                                upgrade_legacy_salary_daily_labels,
                                upgrade_saved_dashboard_template)
 from metric_layouts import (
-    LayoutValidationError, validate_layout_payload, validate_mode_metric,
+    RESERVED_DASHBOARD_IDS, LayoutValidationError, validate_layout_payload,
+    validate_mode_metric,
 )
 
 # ---------------------------------------------------------------------------
@@ -2515,18 +2516,22 @@ def _metric_layout_response(payload, status=200):
     methods=['GET', 'PUT'])
 @login_required
 def metric_layout(company_id, mode, metric_id):
-    """Read or update one user's layout for one key-indicator modal."""
+    """Read or update one user's key-indicator layout preference."""
     _require_company_access(company_id)
     try:
         validate_mode_metric(mode, metric_id)
     except LayoutValidationError as exc:
         return _metric_layout_response({'error': str(exc)}, 400)
 
+    # Both public spellings identify one reserved preference record; aliases
+    # must not create two independent dashboard layouts.
+    stored_metric_id = ('__dashboard__' if metric_id in RESERVED_DASHBOARD_IDS
+                        else metric_id)
     query = MetricLayout.query.filter_by(
         user_id=current_user.id,
         company_id=company_id,
         mode=mode,
-        metric_id=metric_id,
+        metric_id=stored_metric_id,
     )
     if request.method == 'GET':
         row = query.one_or_none()
@@ -2552,7 +2557,8 @@ def metric_layout(company_id, mode, metric_id):
             {'error': 'Тело запроса должно быть JSON-объектом'}, 400)
     payload = request.get_json(silent=True)
     try:
-        normalized = validate_layout_payload(payload)
+        normalized = validate_layout_payload(
+            payload, mode=mode, metric_id=metric_id)
     except LayoutValidationError as exc:
         return _metric_layout_response({'error': str(exc)}, 400)
 
@@ -2569,7 +2575,7 @@ def metric_layout(company_id, mode, metric_id):
             user_id=current_user.id,
             company_id=company_id,
             mode=mode,
-            metric_id=metric_id,
+            metric_id=stored_metric_id,
             layout_json=json.dumps(
                 normalized['layout'], ensure_ascii=False, separators=(',', ':')),
             revision=1,

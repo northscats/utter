@@ -365,6 +365,7 @@ body.splitter-dragging iframe{pointer-events:none}
                 'costMappingsUrl': url_for('key_indicator_cost_mappings', company_id=c.id),
                 'debtorMappingsUrl': url_for('key_indicator_debtor_mappings', company_id=c.id),
                 'layoutBaseURL': url_for('metric_layout', company_id=c.id, mode='__MODE__', metric_id='__METRIC__'),
+                 'dashboardLayoutURL': url_for('metric_layout', company_id=c.id, mode='__MODE__', metric_id='__dashboard__'),
                 'historicalImportUrl': url_for('company_detail', company_id=c.id, _anchor='historical-analytics')
               } | tojson | forceescape }}"
              data-has-dash="{{ '1' if c.has_dashboard else '0' }}"
@@ -733,7 +734,22 @@ function trySwitchOpenIndicatorsCompany(el) {
   if (currentNavView !== 'cards') return null;
   var iframe = document.getElementById('sl-iframe');
   if (!iframe || !iframe.contentWindow) return null;
-  var child = iframe.contentWindow.KI_App;
+  var dashboardLayout;
+  var child;
+  try {
+    dashboardLayout = iframe.contentWindow.KI_DashboardLayout;
+    child = iframe.contentWindow.KI_App;
+  } catch (e) {
+    return null;
+  }
+  var dashboardDialog = dashboardLayout && dashboardLayout.state &&
+    dashboardLayout.state.dialog;
+  if (dashboardDialog && !dashboardDialog.hidden &&
+      typeof dashboardLayout.prepareCompanySwitch === 'function') {
+    // The dashboard constructor is independent from metric modals, but a
+    // company navigation still must not silently discard its draft.
+    if (dashboardLayout.prepareCompanySwitch() === false) return false;
+  }
   if (!child || typeof child.isModalOpen !== 'function' ||
       !child.isModalOpen() || typeof child.switchCompany !== 'function') {
     return null;

@@ -386,6 +386,9 @@
             
             // Expected cards: revenue, cogs, net_profit, profitability, cash, ar, ap, equity, assets, current_liquidity
             const order = ['revenue', 'cogs', 'net_profit', 'profitability', 'cash', 'ar', 'ap', 'equity', 'assets', 'current_liquidity'];
+            (state.data.cards || []).forEach(card => {
+                if (card && card.id && !order.includes(card.id)) order.push(card.id);
+            });
             
             order.forEach(id => {
                 const card = state.data.cards.find(c => c.id === id);

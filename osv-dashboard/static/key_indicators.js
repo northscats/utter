@@ -174,6 +174,19 @@
                 }
                 urls[name] = parsed.href;
             });
+            if (source.dashboardLayoutURL) {
+                let dashboardURL;
+                try {
+                    dashboardURL = new URL(source.dashboardLayoutURL, window.location.origin);
+                } catch (error) {
+                    throw new Error('Сервер передал некорректный адрес раскладки карточек.');
+                }
+                if (dashboardURL.origin !== window.location.origin ||
+                    !dashboardURL.pathname.includes(`/company/${companyId}/`)) {
+                    throw new Error('Адрес раскладки карточек не относится к выбранному предприятию.');
+                }
+                urls.dashboardLayoutURL = dashboardURL.href;
+            }
             return Object.assign({}, source, urls, {companyId});
         },
 
@@ -282,6 +295,11 @@
                 normalized = this.normalizeCompanyConfig(next);
             } catch (error) {
                 this.showModalSwitchStatus(error.message, true);
+                return false;
+            }
+            if (window.KI_DashboardLayout &&
+                typeof window.KI_DashboardLayout.prepareCompanySwitch === 'function' &&
+                window.KI_DashboardLayout.prepareCompanySwitch() === false) {
                 return false;
             }
             if (!this.isModalOpen()) return false;
@@ -399,6 +417,11 @@
         
         switchMode(mode) {
             if (state.mode === mode) return;
+            if (window.KI_DashboardLayout &&
+                typeof window.KI_DashboardLayout.prepareModeSwitch === 'function' &&
+                window.KI_DashboardLayout.prepareModeSwitch(mode) === false) {
+                return;
+            }
             state.mode = mode;
 
             document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -821,6 +844,9 @@
             
             let html = '';
             const orderedIds = ['cash', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            (state.data.cards || []).forEach(card => {
+                if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
+            });
             
             orderedIds.forEach(id => {
                 const card = state.data.cards.find(c => c.id === id);
