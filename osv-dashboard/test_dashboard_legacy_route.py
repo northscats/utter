@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """SQLite route regression for response-only legacy dashboard upgrades."""
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,8 @@ os.environ['ENCRYPTION_KEY'] = (
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app as app_module
-from dashboard_compat import upgrade_legacy_salary_daily_labels
+from dashboard_compat import (json_for_script,
+                               upgrade_legacy_salary_daily_labels)
 from database import Company, User, db
 
 
@@ -216,6 +218,54 @@ class DashboardLegacyRouteTests(unittest.TestCase):
 
         self.assertEqual(path_before, self.dashboard_path.read_bytes())
         self.assertEqual(upgrade_legacy_salary_daily_labels(body), body)
+
+    def test_authenticated_route_rebinds_known_saved_template_without_rebuilding_data(self):
+        current_template = Path(
+            app_module.BASE, 'templates', 'dashboard_template.html'
+        ).read_text(encoding='utf-8')
+        saved = current_template.replace(
+            '/*__DATA__*/',
+            json.dumps({
+                'company_name': 'Saved snapshot',
+                'embedded_marker': 'saved-only-marker',
+                'daily_charts': {
+                    'dates': ['2026-05-01', '2026-05-02'],
+                    'accounts': {
+                        '51': {'obd': [100, 0], 'obk': [20, None]},
+                        '70': {'obd': [30, 40], 'obk': [50, 60]},
+                    },
+                },
+                'months': [], 'month_names': [], 'month_short': [],
+                'closing_label': [], 'ghost': [],
+            }, ensure_ascii=False),
+            1,
+        )
+        original = self.dashboard_path.read_text(encoding='utf-8')
+        self.dashboard_path.write_text(saved, encoding='utf-8')
+        try:
+            response = self._client().get(
+                f'/dashboard/{self.company_id}/dashboard_current.html')
+            self.assertEqual(response.status_code, 200)
+            body = response.get_data(as_text=True)
+            self.assertIn('const DAILY = D.daily_charts', body)
+            self.assertIn('"embedded_marker": "saved-only-marker"', body)
+            self.assertIn('"legacy_unknown": true', body)
+            self.assertIn('"2026-05-01"', body)
+            self.assertIn('Суточные данные недоступны', body)
+        finally:
+            self.dashboard_path.write_text(original, encoding='utf-8')
+
+    def test_inline_dataset_json_escapes_script_breakout_characters(self):
+        value = {'marker': '</script><script>alert(1)</script>&\u2028\u2029'}
+        encoded = json_for_script(value)
+        self.assertNotIn('</script>', encoded)
+        self.assertIn(r'\u003C/script\u003E', encoded)
+        self.assertIn(r'\u0026', encoded)
+        self.assertIn(r'\u2028\u2029', encoded)
+
+        rendered = app_module.render_dashboard(value)
+        self.assertNotIn('</script><script>', rendered)
+        self.assertIn(r'\u003C/script\u003E', rendered)
 
 
 if __name__ == '__main__':

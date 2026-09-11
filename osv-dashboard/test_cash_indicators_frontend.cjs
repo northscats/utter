@@ -78,8 +78,14 @@ const gap = compare(snapshot('2026-01-02', null, []), jan1, false, 'Нет то�
 const jan3 = compare(snapshot('2026-01-03', 200), gap, false, 'Нет точного остатка');
 svg = draw([jan1, gap, jan3]);
 assert.ok(!path(svg).includes(' L'));
+assert.match(path(svg, 1), / M.* L/);
+assert.match(svg, /cash-chart-line-gap/);
 assert.equal((svg.match(/data-kind="balance"/g) || []).length, 2);
 assert.ok(!svg.includes('data-kind="change"'));
+const gapXs = Array.from(svg.matchAll(/data-kind="balance"[^>]+cx="([^"]+)"/g))
+    .map(match => Number(match[1]));
+assert.equal(gapXs.length, 2);
+assert.ok(gapXs[1] > gapXs[0]);
 assert.match(draw([jan1]), /Одна точка данных/);
 assert.match(draw([snapshot('2026-01-01', null, [])]), /Нет сопоставимых данных/);
 assert.equal((draw([snapshot('2026-01-01', 0, ['50', '51', '52', '55'])]).match(/data-kind="balance"/g) || []).length, 1);
@@ -91,6 +97,15 @@ wrongDate.comparison.previous_date = '2025-12-31';
 assert.ok(!draw([jan1, wrongDate]).includes('data-kind="change"'));
 const changedButMarkedComparable = compare(snapshot('2026-01-02', 150, ['51', '55']), jan1, true);
 assert.ok(!draw([jan1, changedButMarkedComparable]).includes('data-kind="change"'));
+const monthlyOnly = snapshot('2026-02-28', 200, ['51']);
+monthlyOnly.comparison = {
+    comparable: true, previous_date: '2026-01-31',
+    date: '2026-02-28', accounts: ['51'], value: 100, reason: null,
+};
+assert.ok(!draw([
+    snapshot('2026-02-27', 100, ['51']),
+    monthlyOnly,
+]).includes('data-kind="change"'));
 
 // Quarter range uses the same exact-date comparison, including monthly gaps.
 const months = ['01-31', '02-28', '03-31', '04-30', '05-31', '06-30']
@@ -100,7 +115,8 @@ months.forEach((point, i) => {
 });
 svg = draw(months);
 assert.equal((svg.match(/data-kind="change"/g) || []).length, 3);
-assert.equal((path(svg).match(/ M/g) || []).length, 2);
+assert.equal((path(svg).match(/ M/g) || []).length, 5);
+assert.match(svg, /cash-chart-line-gap/);
 assert.ok(tips.some(tip => tip.detail.includes('2026-05-31 → 2026-06-30')));
 
 const card = {

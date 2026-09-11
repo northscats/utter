@@ -212,7 +212,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertIn('key_indicators.js', response.get_data(as_text=True))
         self.assertIn('window.KI_CONFIG =', response.get_data(as_text=True))
 
-    def test_quarter_range_api_returns_monthly_points(self):
+    def test_quarter_range_api_returns_daily_points(self):
         source = build_indicator_source({'51': report(
             'за 1 полугодие 2026 г.', 20,
             ['2026-03-31', '2026-04-30', '2026-06-30'])})
@@ -224,8 +224,8 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             payload = response.get_json()
             self.assertEqual(payload['period']['start'], '2026-01-01')
-            self.assertEqual(payload['period']['series_kind'], 'month')
-            self.assertTrue(all(len(c['series']) == 6 for c in payload['cards']))
+            self.assertEqual(payload['period']['series_kind'], 'day')
+            self.assertTrue(all(len(c['series']) == 181 for c in payload['cards']))
             bad = self.client('kpi_allowed').get(
                 self.url(data=True),
                 query_string={'period': 'quarter', 'date_from': '2026-06-30',

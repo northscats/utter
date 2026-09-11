@@ -52,7 +52,9 @@ from module_registry import (module_key_for_path, registered_modules,
                              valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
-from dashboard_compat import upgrade_legacy_salary_daily_labels
+from dashboard_compat import (json_for_script,
+                               upgrade_legacy_salary_daily_labels,
+                               upgrade_saved_dashboard_template)
 from metric_layouts import (
     LayoutValidationError, validate_layout_payload, validate_mode_metric,
 )
@@ -408,7 +410,7 @@ def render_dashboard(dataset, back_url='/'):
     tpl_path = os.path.join(BASE, 'templates', 'dashboard_template.html')
     with open(tpl_path, encoding='utf-8') as f:
         tpl = f.read()
-    tpl = tpl.replace('/*__DATA__*/', json.dumps(dataset, ensure_ascii=False), 1)
+    tpl = tpl.replace('/*__DATA__*/', json_for_script(dataset), 1)
     tpl = tpl.replace('/*__BACK_URL__*/', back_url, 1)
     return tpl
 
@@ -2876,7 +2878,13 @@ def dashboard(company_id, name):
     if not os.path.isfile(fpath):
         abort(404)
     with open(fpath, encoding='utf-8') as f:
-        html = upgrade_legacy_salary_daily_labels(f.read())
+        saved_html = f.read()
+    with open(os.path.join(BASE, 'templates', 'dashboard_template.html'),
+              encoding='utf-8') as template_file:
+        current_template = template_file.read()
+    upgraded = upgrade_saved_dashboard_template(saved_html, current_template)
+    html = (upgraded if upgraded is not None else saved_html)
+    html = upgrade_legacy_salary_daily_labels(html)
     # Гарантируем наличие кнопки "Все предприятия" независимо от даты генерации файла
     back_href = f'/home?company={company_id}'
     if 'hd-back' not in html:
@@ -2887,8 +2895,14 @@ def dashboard(company_id, name):
             1,
         )
     else:
-        # Обновляем ссылку "Все предприятия" если она уже вставлена с href="/"
-        html = html.replace('href="/">☰ Все предприятия', f'href="{back_href}">☰ Все предприятия', 1)
+        # Обновляем ссылку "Все предприятия" независимо от даты генерации
+        # сохранённого файла, но оставляем саму ссылку в response-only HTML.
+        html = re.sub(
+            r'(<a\s+class="hd-back"\s+href=")[^"]*(">\s*☰ Все предприятия)',
+            lambda match: match.group(1) + back_href + match.group(2),
+            html,
+            count=1,
+        )
     # Вставляем CSRF-токен, company_id и флаг AI прямо в уже собранный HTML
     ai_ok = AiProvider.query.filter_by(is_active=True).first() is not None
     html = html.replace("'__CSRF__'",   f"'{generate_csrf()}'",    1)

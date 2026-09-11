@@ -11,6 +11,7 @@
 """
 import re
 from collections import defaultdict
+from datetime import date as _date, timedelta as _timedelta
 
 MONTH_NAMES = {
     '01': 'Январь', '02': 'Февраль', '03': 'Март', '04': 'Апрель',
@@ -116,7 +117,28 @@ def build_daily_charts(data):
             if d.get('date'):
                 all_dates.add(d['date'])
 
-    dates = sorted(all_dates)
+    # Daily reports are sparse: a missing file/day must remain a gap, not a
+    # zero.  Expand only *between* the first and last observed calendar day so
+    # the frontend can space the x axis by calendar time.  In particular, do
+    # not extrapolate before the first or after the last uploaded observation.
+    parsed_dates = []
+    for value in all_dates:
+        try:
+            parsed_dates.append(_date.fromisoformat(value))
+        except (TypeError, ValueError):
+            # The parser emits ISO dates, but old/imported datasets may contain
+            # an unexpected value.  Do not fail the whole dashboard; it cannot
+            # participate in a calendar range safely.
+            continue
+    if parsed_dates:
+        first, last = min(parsed_dates), max(parsed_dates)
+        dates = []
+        current = first
+        while current <= last:
+            dates.append(current.isoformat())
+            current += _timedelta(days=1)
+    else:
+        dates = sorted(all_dates)
     if not dates:
         return {'dates': [], 'accounts': {}}
 
@@ -136,28 +158,63 @@ def build_daily_charts(data):
         if not daily_entries:
             continue
 
-        obd  = [0.0]  * n
-        obk  = [0.0]  * n
+        # None means that this account had no observation for the date.
+        # Explicit zeroes from an OSV remain numeric zeroes.
+        obd  = [None] * n
+        obk  = [None] * n
         skd  = [None] * n
         skk  = [None] * n
+        obd_unknown: set = set()
+        obk_unknown: set = set()
+        skd_unknown: set = set()
+        skk_unknown: set = set()
 
         for d in daily_entries:
             i = date_idx.get(d.get('date', ''))
             if i is None:
                 continue
-            obd[i] = round(d.get('obd', 0), 2)
-            obk[i] = round(d.get('obk', 0), 2)
-            if d.get('skd') is not None:
-                skd[i] = round(d['skd'], 2)
-            if d.get('skk') is not None:
-                skk[i] = round(d['skk'], 2)
+            if 'obd' in d and d['obd'] is not None:
+                obd[i] = round((obd[i] or 0) + d['obd'], 2)
+            else:
+                obd_unknown.add(i)
+            if 'obk' in d and d['obk'] is not None:
+                obk[i] = round((obk[i] or 0) + d['obk'], 2)
+            else:
+                obk_unknown.add(i)
+            if 'skd' in d and d['skd'] is not None:
+                skd[i] = round((skd[i] or 0) + d['skd'], 2)
+            else:
+                skd_unknown.add(i)
+            if 'skk' in d and d['skk'] is not None:
+                skk[i] = round((skk[i] or 0) + d['skk'], 2)
+            else:
+                skk_unknown.add(i)
 
-        has_balance = any(v is not None for v in skd) or any(v is not None for v in skk)
+        for i in obd_unknown:
+            obd[i] = None
+        for i in obk_unknown:
+            obk[i] = None
+        for i in skd_unknown:
+            skd[i] = None
+        for i in skk_unknown:
+            skk[i] = None
+
+        # A balance is known only when both debit and credit sides are known.
+        # Treating an unknown side as zero creates a fictitious balance.
+        has_balance = any(
+            debit is not None and credit is not None
+            for debit, credit in zip(skd, skk)
+        )
         balance = None
         if has_balance:
-            balance = [round((d or 0) - (k or 0), 2) for d, k in zip(skd, skk)]
+            balance = [
+                round(debit - credit, 2)
+                if debit is not None and credit is not None else None
+                for debit, credit in zip(skd, skk)
+            ]
 
-        if not any(obd) and not any(obk) and not has_balance:
+        has_turnover = any(value is not None for value in obd + obk)
+        if not has_turnover and not has_balance:
             continue
 
         accounts[acc] = {
@@ -168,6 +225,169 @@ def build_daily_charts(data):
         }
 
     return {'dates': dates, 'accounts': accounts}
+
+
+def _daily_component(data, acc, dates, key, flt=None):
+    """Return a sparse daily component without inventing absent observations.
+
+    A date covered by an account is a known zero for a filtered component when
+    the account has an OSV observation on that date but no matching analytic
+    row.  A date not covered by the account remains ``None``.  This distinction
+    is important for charts: absent data is a gap while an explicit OSV zero is
+    a real zero.
+    """
+    entries = data.get(acc, {}).get('daily', [])
+    covered = set()
+    totals = defaultdict(float)
+    matched = set()
+    unknown = set()
+    for row in entries:
+        day = row.get('date')
+        if not day:
+            continue
+        covered.add(day)
+        if flt is not None and not flt(row):
+            continue
+        matched.add(day)
+        value = row.get(key)
+        if value is None:
+            unknown.add(day)
+        else:
+            totals[day] += value
+    return [
+        (None if day in unknown else round(totals[day], 2))
+        if day in covered and day in matched else None
+        for day in dates
+    ]
+
+
+def _daily_difference(left, right):
+    """Subtract two sparse series, retaining unknown dates as unknown."""
+    return [
+        round(a - b, 2) if a is not None and b is not None else None
+        for a, b in zip(left, right)
+    ]
+
+
+def build_daily_temporal(data, daily_charts, has_path3=False):
+    """Build daily inputs for the legacy temporal charts.
+
+    Monthly totals remain the source of all existing financial calculations.
+    These series are only a presentation layer: they contain observed daily
+    values and ``None`` gaps, never monthly totals spread over calendar days.
+    """
+    dates = daily_charts.get('dates', [])
+    d90 = data.get('90', {}).get('daily', [])
+    d91 = data.get('91', {}).get('daily', [])
+
+    if has_path3:
+        rev = _daily_component(
+            data, '90', dates, 'obk',
+            lambda row: row.get('path3') == '90.01.1'
+            or str(row.get('path3', '')).startswith('90.01'),
+        )
+        nds = _daily_component(
+            data, '90', dates, 'obd',
+            lambda row: row.get('path3') == '90.03',
+        )
+        cost = _daily_component(
+            data, '90', dates, 'obd',
+            lambda row: row.get('path3') == '90.02.1'
+            or str(row.get('path3', '')).startswith('90.02'),
+        )
+        rev_dir = {}
+        for row in d90:
+            path = row.get('path1', '')
+            path3 = str(row.get('path3', ''))
+            if path and path3.startswith('90.01'):
+                rev_dir.setdefault(path, _daily_component(
+                    data, '90', dates, 'obk',
+                    lambda candidate, path=path: (
+                        candidate.get('path1') == path
+                        and str(candidate.get('path3', '')).startswith('90.01')
+                    ),
+                ))
+    else:
+        rev = _daily_component(data, '90', dates, 'obk')
+        # Account-level turnover does not establish VAT: unknown tax detail
+        # must not become an observed zero or a fabricated net result.
+        nds = [None] * len(dates)
+        cost = _daily_component(data, '90', dates, 'obd')
+        rev_dir = {}
+
+    adm = _daily_component(data, '26', dates, 'obk')
+    if has_path3:
+        oinc = _daily_component(
+            data, '91', dates, 'obk',
+            lambda row: str(row.get('path3', '')).startswith('91.01'),
+        )
+        oexp_d = _daily_component(
+            data, '91', dates, 'obd',
+            lambda row: str(row.get('path3', '')).startswith('91.02'),
+        )
+        oexp_k = _daily_component(
+            data, '91', dates, 'obk',
+            lambda row: str(row.get('path3', '')).startswith('91.02'),
+        )
+    else:
+        oinc = _daily_component(data, '91', dates, 'obk')
+        oexp_d = _daily_component(data, '91', dates, 'obd')
+        oexp_k = _daily_component(data, '91', dates, 'obk')
+    oexp = _daily_difference(oexp_d, oexp_k)
+    sales = [
+        round(revenue - spending, 2)
+        if revenue is not None and spending is not None
+        else None
+        for revenue, spending in zip(
+            [a - b if a is not None and b is not None else None
+             for a, b in zip(rev, nds)],
+            [a + b if a is not None and b is not None else None
+             for a, b in zip(cost, adm)],
+        )
+    ]
+    net = [
+        round(result + income - expense, 2)
+        if result is not None and income is not None and expense is not None
+        else None
+        for result, income, expense in zip(sales, oinc, oexp)
+    ]
+
+    account_series = daily_charts.get('accounts', {})
+    cash = account_series.get('51', {})
+    salary = account_series.get('70', {})
+    temporal = {
+        'dates': dates,
+        'available': {
+            'pl': bool(d90),
+            'rev_dir': bool(rev_dir),
+            'cash': bool(cash),
+            'salary': bool(salary),
+        },
+        'pl': {
+            'rev': rev,
+            'net_rev': _daily_difference(rev, nds),
+            'nds': nds,
+            'cost': cost,
+            'adm': adm,
+            'oinc': oinc,
+            'oexp': oexp,
+            'sales': sales,
+            'net': net,
+        },
+        'rev_dir': rev_dir,
+        'cash': {
+            'inn': cash.get('obd', []),
+            'out': cash.get('obk', []),
+            'flow': _daily_difference(
+                cash.get('obd', []), cash.get('obk', []),
+            ) if cash else [],
+        },
+        'salary': {
+            'n': salary.get('obk', []),
+            'v': salary.get('obd', []),
+        },
+    }
+    return temporal
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -494,6 +714,7 @@ def build_dataset(data, company_name=''):
 
     # ── суточные графики
     daily_charts = build_daily_charts(data)
+    daily_temporal = build_daily_temporal(data, daily_charts, has_path3)
 
     # ── флаги наличия разделов
     sections = dict(
@@ -536,6 +757,7 @@ def build_dataset(data, company_name=''):
         rezerv=dict(created=round(rez_created, 2), restored=round(rez_restored, 2)),
         pretenzii      =pretenzii,
         daily_charts   =daily_charts,
+        daily_temporal =daily_temporal,
         sections       =sections,
         accounts_loaded=sorted(data.keys()),
     )

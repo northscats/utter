@@ -320,9 +320,76 @@ def _options(dates, kind):
     return result
 
 
+def _group_daily_by_date(account):
+    """Build a date lookup without changing the source snapshot."""
+    grouped = defaultdict(list)
+    if not isinstance(account, dict):
+        return grouped
+    for row in account.get('daily') or []:
+        date_text = str(row.get('date') or '')
+        normalized = _iso(date_text)
+        if normalized:
+            grouped[normalized.isoformat()].append(row)
+    return grouped
+
+
+def _group_balance_by_date(account):
+    """Index exact balance observations for this calculation only."""
+    grouped = defaultdict(list)
+    if not isinstance(account, dict):
+        return grouped
+    observations = (account.get('balance_observations') or []) + \
+        (account.get('daily') or [])
+    for row in observations:
+        normalized = _iso(row.get('date'))
+        if normalized:
+            grouped[normalized.isoformat()].append(row)
+    return grouped
+
+
 def _daily(source, account, start, end):
-    return [r for r in source['accounts'].get(account, {}).get('daily', [])
-            if start <= _iso(r['date']) <= end]
+    # ``build_key_indicators`` installs a per-request date index.  A year
+    # chart has one slot per calendar day, so repeatedly walking every raw
+    # row for every slot quickly becomes needlessly expensive.  The cache is
+    # deliberately local to that build (the caller makes a shallow copy of
+    # the immutable source snapshot); a shared source is never mutated.
+    cache = source.get('_daily_cache')
+    key = (str(account), start.isoformat(), end.isoformat())
+    if cache is not None and key in cache:
+        return cache[key]
+    index = source.get('_daily_index')
+    if index is not None:
+        dated = index.get(str(account), {})
+        if start == end:
+            result = dated.get(start.isoformat(), [])
+        else:
+            result = [
+                row for dt, rows in dated.items()
+                if start.isoformat() <= dt <= end.isoformat()
+                for row in rows
+            ]
+    else:
+        result = [
+            r for r in source['accounts'].get(account, {}).get('daily', [])
+            if start <= _iso(r['date']) <= end
+        ]
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
+def _exact_balance_rows(source, account, end):
+    """Return balance observations for one exact date in O(1) with an index."""
+    indexed = source.get('_balance_index')
+    if indexed is not None:
+        return indexed.get(str(account), {}).get(end.isoformat(), ())
+    acc = source['accounts'].get(account, {})
+    observations = (acc.get('balance_observations') or []) + \
+        (acc.get('daily') or [])
+    return [
+        row for row in observations
+        if _iso(row.get('date')) == end
+    ]
 
 
 def _leaf_rows(rows, predicate):
@@ -444,9 +511,8 @@ def _sub_balance(source, account, sub, end, credit=False):
     if not acc:
         return None, f'Счёт {account} не загружен'
     # Explicit daily balances are valid only for that exact date.
-    observations = (acc.get('balance_observations') or []) + acc['daily']
-    explicit = [r for r in observations if r['date'] == end.isoformat()
-                and any(k in r for k in ('skd', 'skk'))]
+    explicit = [r for r in _exact_balance_rows(source, account, end)
+                if any(k in r for k in ('skd', 'skk'))]
     specific = [r for r in explicit if sub in
                 (r.get('path1'), r.get('path2'), r.get('path3'))]
     if specific:
@@ -499,13 +565,12 @@ def _sub_balance_analytics(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return []
-    observations = (acc.get('balance_observations') or []) + acc.get('daily', [])
+    observations = _exact_balance_rows(source, account, end)
     debtor_scope = sub == '62.01' or sub == '76'
     if not debtor_scope:
         explicit = [
             row for row in observations
-            if row.get('date') == end.isoformat()
-            and _has_prefix(row, sub)
+            if _has_prefix(row, sub)
             and _analytic_parts(row)
             and any(key in row for key in ('skd', 'skk'))
         ]
@@ -542,8 +607,7 @@ def _sub_balance_analytics(source, account, sub, end, credit=False):
         return report_analytics
     explicit = [
         row for row in observations
-        if row.get('date') == end.isoformat()
-        and (_has_prefix(row, sub) or any(
+        if (_has_prefix(row, sub) or any(
             str(row.get(key) or '').startswith(sub)
             for key in ('p0', 'p1', 'p2', 'p3')))
         and _analytic_parts(row)
@@ -600,12 +664,15 @@ def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
-    observations = (acc.get('balance_observations') or []) + acc['daily']
-    explicit = [r for r in observations if r['date'] == end.isoformat()
-                and not any((r.get('path1'), r.get('path2'), r.get('path3')))
-                and any(k in r for k in ('skd', 'skk'))]
-    if explicit:
-        row = explicit[-1]
+    top_index = source.get('_top_balance_index')
+    if top_index is not None:
+        row = top_index.get(str(account), {}).get(end.isoformat())
+    else:
+        explicit = [r for r in _exact_balance_rows(source, account, end)
+                    if not any((r.get('path1'), r.get('path2'), r.get('path3')))
+                    and any(k in r for k in ('skd', 'skk'))]
+        row = explicit[-1] if explicit else None
+    if row is not None:
         return round(max(0.0, row.get('skk', 0) - row.get('skd', 0)
                              if credit else row.get('skd', 0) - row.get('skk', 0)), 2), None
     report = next((r for r in reversed(acc.get('balance_reports') or [])
@@ -717,11 +784,10 @@ def _account_balance_analytics(source, account, end, credit=True):
     acc = source['accounts'].get(account)
     if not acc:
         return []
-    observations = (acc.get('balance_observations') or []) + acc['daily']
+    observations = _exact_balance_rows(source, account, end)
     explicit = [
         row for row in observations
-        if row.get('date') == end.isoformat()
-        and any((row.get('path1'), row.get('path2'), row.get('path3')))
+        if any((row.get('path1'), row.get('path2'), row.get('path3')))
         and any(key in row for key in ('skd', 'skk'))
     ]
     if explicit:
@@ -804,8 +870,7 @@ def _balance_provenance(source, account, end):
         parts = [report.get('period'), report.get('source_file')]
     elif acc.get('report_end') == end.isoformat():
         parts = [acc.get('period'), acc.get('source_file')]
-    elif any(r.get('date') == end.isoformat()
-             for r in acc.get('balance_observations') or []):
+    elif _exact_balance_rows(source, account, end):
         parts = [f'наблюдение на {end.isoformat()}', acc.get('source_file')]
     else:
         return None
@@ -834,6 +899,36 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
         raise ValueError('Unsupported indicator source')
+    # Keep the public snapshot reusable and JSON-safe while giving this
+    # calculation its own small lookup cache.  Temporal charts can contain
+    # 365 daily slots even for a yearly selection; without the index every
+    # slot rescans all rows in every account.
+    source = dict(source)
+    source['_daily_index'] = {
+        str(account): {
+            date_text: list(rows)
+            for date_text, rows in _group_daily_by_date(account_data).items()
+        }
+        for account, account_data in source['accounts'].items()
+    }
+    source['_balance_index'] = {}
+    source['_top_balance_index'] = {}
+    for account, account_data in source['accounts'].items():
+        balance_groups = _group_balance_by_date(account_data)
+        source['_balance_index'][str(account)] = {
+            date_text: list(rows)
+            for date_text, rows in balance_groups.items()
+        }
+        source['_top_balance_index'][str(account)] = {
+            date_text: next((
+                row for row in reversed(rows)
+                if not any((row.get('path1'), row.get('path2'),
+                            row.get('path3')))
+                and any(key in row for key in ('skd', 'skk'))
+            ), None)
+            for date_text, rows in balance_groups.items()
+        }
+    source['_daily_cache'] = {}
     if period not in ('day', 'month', 'quarter', 'year'):
         raise ValueError('period must be day, month, quarter or year')
     dates = sorted(dt for dt in (_iso(x) for x in source.get('dates', [])) if dt)
@@ -1557,9 +1652,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['cogs']['status'] = 'warning'
         card_map['cogs']['status_label'] = 'Выше выручки'
 
-    # Every chart uses the same selected window. Calendar gaps remain null,
-    # never interpolated or treated as zero. Balances require exact dates.
-    series_kind = 'day' if period in ('day', 'month') else 'month'
+    # Every ОСВ chart uses the same selected window at daily grain. Calendar
+    # gaps remain null, never interpolated or treated as zero. Balances still
+    # require an exact dated observation; a report interval must not be
+    # expanded into invented daily balances.
+    series_kind = 'day'
     series_dates = []
     cursor = start
     while cursor <= end:
@@ -1602,22 +1699,27 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'profit': (month_sales_profit if month_sales_profit is not None
                        else month_pl['profit']),
         }
+        point_date = option['value']
         card_map['profit']['gross_series'].append({
-            'label': option['label'], 'value': month_pl['profit']})
+            'date': point_date, 'label': option['label'],
+            'value': month_pl['profit']})
         card_map['profit']['sales_profit_series'].append({
-            'label': option['label'], 'value': month_sales_profit})
+            'date': point_date, 'label': option['label'],
+            'value': month_sales_profit})
         card_map['profit']['other_result_series'].append({
-            'label': option['label'], 'value': month_other_result})
+            'date': point_date, 'label': option['label'],
+            'value': month_other_result})
         card_map['profit']['pretax_series'].append({
-            'label': option['label'], 'value': month_pretax})
+            'date': point_date, 'label': option['label'],
+            'value': month_pretax})
         month_capex_turnovers = _account_turnovers(
             source, '08', month_start, month_end)
         month_values['capex'] = month_capex_turnovers['debit']
         card_map['capex']['credit_series'].append({
-            'label': option['label'],
+            'date': point_date, 'label': option['label'],
             'value': month_capex_turnovers['credit']})
         card_map['capex']['balance_series'].append({
-            'label': option['label'],
+            'date': point_date, 'label': option['label'],
             'value': _top_balance(source, '08', month_end)[0]})
         month_values['collection'] = None
         month62 = _turnover_basis(_daily(source, '62', month_start, month_end))
@@ -1627,7 +1729,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             round(month_credit / month_debit * 100, 2)
             if month_debit not in (None, 0) and month_credit is not None else None)
         card_map['collection']['turnover_series'].append({
-            'label': option['label'], 'value': month_turnover_ratio,
+            'date': point_date, 'label': option['label'],
+            'value': month_turnover_ratio,
             'debit': month_debit, 'credit': month_credit})
         cash_month = _cash_snapshot(source, month_end)
         month_values['cash'] = cash_month['value']
@@ -1656,16 +1759,17 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         month_insurance_turnovers = _account_turnovers(
             source, '69', month_start, month_end)
         card_map['salary']['accrual_series'].append({
-            'label': option['label'],
+            'date': point_date, 'label': option['label'],
             'value': month_salary_turnovers['credit']})
         card_map['salary']['insurance_series'].append({
-            'label': option['label'],
+            'date': point_date, 'label': option['label'],
             'value': month_insurance_turnovers['credit']})
         for cid in _CARD_ORDER:
             if cid == 'cash':
                 continue
             card_map[cid]['series'].append({
-                'label': option['label'], 'value': month_values[cid]})
+                'date': point_date, 'label': option['label'],
+                'value': month_values[cid]})
 
     for index, point in enumerate(card_map['cash']['series']):
         previous = (card_map['cash']['series'][index - 1]
@@ -1674,6 +1778,19 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             point, previous,
             reason=('Нет предыдущей точки'
                     if index == 0 else None))
+        # Keep the prior period-end difference as metadata for quarter/year
+        # cards, but never feed it to the daily change chart.  The primary
+        # series comparison above is always adjacent calendar-day data.
+        point_date = _iso(point['date'])
+        if period in ('quarter', 'year') and point_date and point_date.day == \
+                calendar.monthrange(point_date.year, point_date.month)[1]:
+            previous_date = point_date.replace(day=1) - timedelta(days=1)
+            if previous_date < start:
+                point['interval_comparison'] = _cash_comparison(
+                    point, reason='Нет предыдущей точки')
+            else:
+                point['interval_comparison'] = _cash_comparison(
+                    point, _cash_snapshot(source, previous_date))
 
     # Non-cash cards compare only an immediately preceding equivalent
     # selection with a declared complete report span and identical basis.

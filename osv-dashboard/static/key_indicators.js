@@ -36,6 +36,72 @@
         })[m]);
     };
 
+    const chartDate = item => {
+        const value = item && (item.date || item.label);
+        let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+        if (match) return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(value || ''));
+        return match ? Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1])) : null;
+    };
+
+    // Keep non-ОСВ/annual callers index-based.  Daily ОСВ series carry an
+    // exact date, so a missing calendar day occupies its real horizontal
+    // distance rather than being compressed next to its neighbours.
+    const chartTimeline = series => {
+        const dates = series.map(chartDate);
+        const calendar = dates.length > 0 && dates.every(value => value !== null);
+        if (!calendar) {
+            return {
+                calendar: false,
+                day: () => null,
+                x: (index, width) => series.length <= 1
+                    ? width / 2
+                    : index * width / (series.length - 1)
+            };
+        }
+        const first = Math.min(...dates);
+        const last = Math.max(...dates);
+        const span = Math.max(1, Math.round((last - first) / 86400000));
+        return {
+            calendar: true,
+            day: index => Math.round((dates[index] - first) / 86400000),
+            x: index => (Math.round((dates[index] - first) / 86400000) / span)
+        };
+    };
+
+    // Return separate solid and dashed paths.  A dashed portion only joins
+    // two known samples with unavailable slots between them; it never
+    // extrapolates before the first or after the last known sample.
+    const chartLinePaths = (points, x, y, valueOf, timeline, connection) => {
+        const known = [];
+        const solid = [];
+        const dashed = [];
+        points.forEach((point, index) => {
+            const value = valueOf(point);
+            if (value === null || !Number.isFinite(Number(value))) return;
+            known.push({index, value: Number(value), point});
+        });
+        known.forEach((current, knownIndex) => {
+            const previous = knownIndex ? known[knownIndex - 1] : null;
+            const consecutive = previous && (timeline.calendar
+                ? timeline.day(current.index) - timeline.day(previous.index) === 1
+                : current.index - previous.index === 1);
+            const kind = previous && connection
+                ? connection(previous, current, consecutive)
+                : (previous ? (consecutive ? 'solid' : 'gap') : 'start');
+            if (!previous || kind === 'start' || kind === 'none' || kind === 'gap') {
+                solid.push(` M ${x(current.index).toFixed(1)} ${y(current.value).toFixed(1)}`);
+            } else if (kind === 'solid') {
+                solid.push(` L ${x(current.index).toFixed(1)} ${y(current.value).toFixed(1)}`);
+            }
+            if (previous && kind === 'gap') {
+                dashed.push(` M ${x(previous.index).toFixed(1)} ${y(previous.value).toFixed(1)}` +
+                    ` L ${x(current.index).toFixed(1)} ${y(current.value).toFixed(1)}`);
+            }
+        });
+        return {solid: solid.join(''), dashed: dashed.join('')};
+    };
+
     let abortController = null;
 
     const App = {
@@ -1233,7 +1299,8 @@
             const container = document.getElementById('ki-revenue-line-chart');
             if (!container) return;
             const points = (card.series || []).map((item, index) => ({
-                index, label: item.label, value: item.value === null ? null : Number(item.value) / 1000000
+                ...item, index, label: item.label,
+                value: item.value === null ? null : Number(item.value) / 1000000
             }));
             const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
             if (!valid.length) {
@@ -1244,14 +1311,12 @@
             let min = Math.min(0, ...valid.map(item => item.value));
             let max = Math.max(0, ...valid.map(item => item.value));
             if (min === max) max = min + 1;
-            const x = index => left + (points.length === 1 ? 0 : index * (width - left - right) / (points.length - 1));
+            const timeline = chartTimeline(points);
+            const plotWidth = width - left - right;
+            const x = index => left + (timeline.calendar
+                ? timeline.x(index) * plotWidth
+                : timeline.x(index, plotWidth));
             const y = value => top + (max - value) * (height - top - bottom) / (max - min);
-            let path = '', drawing = false;
-            points.forEach(item => {
-                if (item.value === null || !Number.isFinite(item.value)) { drawing = false; return; }
-                path += `${drawing ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
-                drawing = true;
-            });
             let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика выручки">`;
             if (valid.length === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
@@ -1259,7 +1324,12 @@
                 svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
                     <text x="${left-6}" y="${py+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(value.toFixed(1))}</text>`;
             });
-            svg += `<path d="${path}" fill="none" stroke="#10B981" stroke-width="3"/>`;
+            const paths = chartLinePaths(points, x, y, item => item.value, timeline);
+            svg += `<path d="${paths.solid}" class="revenue-chart-line-solid" fill="none" stroke="#10B981" stroke-width="3"/>`;
+            if (paths.dashed) {
+                svg += `<path d="${paths.dashed}" class="revenue-chart-line-gap" fill="none" stroke="#10B981" stroke-width="3" stroke-dasharray="5 4"/>`;
+                svg += `<text class="chart-gap-help" x="${width-right}" y="14" font-size="10" fill="#6B7280" text-anchor="end">Пунктир — пропуск данных, не факт</text>`;
+            }
             points.forEach((item, index) => {
                 if (item.value !== null && Number.isFinite(item.value)) {
                     svg += `<circle class="revenue-chart-point" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#10B981" tabindex="0"/>`;
@@ -1356,10 +1426,10 @@
             });
             const arChangeTip = this.collectionTooltip({
                 title: 'Изменение дебиторской задолженности',
-                description: 'Изменение конечного дебетового сальдо 62.01 между двумя доступными месячными снимками.',
-                formula: 'Δ ДЗ = ДЗ на конец текущего месяца − ДЗ на конец предыдущего доступного месяца',
+                description: 'Изменение конечного дебетового сальдо 62.01 между двумя доступными точными снимками.',
+                formula: 'Δ ДЗ = ДЗ на текущую дату − ДЗ на предыдущую доступную дату',
                 detail: arChange === null ? 'Нет двух сопоставимых конечных сальдо 62.01.' : 'Рост ДЗ является косвенным сигналом ухудшения расчётов, но не заменяет собираемость.',
-                required: arChange === null ? 'ОСВ счёта 62 с конечным сальдо 62.01 на две сопоставимые месячные даты.' : null,
+                required: arChange === null ? 'ОСВ счёта 62 с конечным сальдо 62.01 на две сопоставимые даты.' : null,
                 norm: 'Индивидуальный норматив не задан',
                 fact: arChange === null ? 'Н/Д' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`,
                 deviation: arChange === null ? 'Недостаточно снимков' : (arChange > 0 ? 'Задолженность выросла' : 'Задолженность снизилась'),
@@ -1495,7 +1565,7 @@
                     id: 'collection',
                     title: 'Соотношение оборотов счёта 62',
                     formula: 'ОбК(62) / ОбД(62) × 100%',
-                    source: 'месячные обороты ОСВ счёта 62',
+                    source: 'дневные обороты ОСВ счёта 62',
                     reason: 'Показатель не является фактической собираемостью'
                 });
                 this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard);
@@ -2645,7 +2715,7 @@
                     ${this.collectionCell(esc(rub((otherSeries[index] || {}).value)), tip, (otherSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
                     ${this.collectionCell(esc(rub((pretaxSeries[index] || {}).value)), tip, (pretaxSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
                 </tr>`;
-            }).join('') : '<tr><td colspan="5" class="chart-empty">Нет месячной серии.</td></tr>';
+            }).join('') : '<tr><td colspan="5" class="chart-empty">Нет дневной серии.</td></tr>';
 
             const unavailable = [
                 ['EBIT', 'до процентов и налога', `${req.classification} ${req.interest}`],
@@ -2827,14 +2897,14 @@
                     const tip = debtTip(
                         `Общий долг — ${item.label}`, item.value,
                         'Сальдо 66 + 67 на точную отчётную дату',
-                        'Пропущенные месяцы не заменяются нулями. Нужны отдельные точные сальдо на конец каждого месяца.');
+                        'Пропущенные календарные дни не заменяются нулями. Нужны отдельные точные сальдо на каждую дату.');
                     return `<tr>
                         ${this.collectionCell(esc(item.label), tip)}
                         ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
                         ${this.collectionCell(item.value === null || item.value === undefined ? 'Нет точного сальдо' : 'Подтверждено', tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="3" class="chart-empty">Нет месячной серии сальдо.</td></tr>';
+                : '<tr><td colspan="3" class="chart-empty">Нет дневной серии сальдо.</td></tr>';
 
             const unavailable = [
                 ['Основной долг', 'без процентов и переоценки', `${req.balances} ${req.contract}`],
@@ -3250,7 +3320,7 @@
                         title: `Динамика счёта 08 — ${item.label}`,
                         description: 'Бухгалтерские обороты и точное сальдо счёта 08 за интервал динамики.',
                         formula: 'ОбД(08), ОбК(08), СКд(08)',
-                        detail: 'Пропущенные месяцы не заменяются нулями. Плановая линия не строится без утверждённого календарного плана.',
+                        detail: 'Пропущенные календарные дни не заменяются нулями. Плановая линия не строится без утверждённого календарного плана.',
                         required: `${req.balances} Для план-факта: ${req.program}`,
                         fact: rub(item.value),
                         deviation: item.value == null ? 'Нужны данные' : 'Подтверждённый оборот',
@@ -3271,7 +3341,7 @@
                         }), 'cash-value-missing')}
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="5" class="chart-empty">Нет точной месячной серии счёта 08.</td></tr>';
+                : '<tr><td colspan="5" class="chart-empty">Нет точной дневной серии счёта 08.</td></tr>';
 
             const unavailable = [
                 ['План инвестпрограммы', 'утверждённый план на отчётную дату', req.program],
@@ -3521,9 +3591,9 @@
                 </div>
                 <div class="modal-section-title">Динамика денежных средств</div>
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
-                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущей сопоставимой точке</span>
+                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение между соседними известными днями</span>
                     <span><i class="cash-chart-dot" style="background:#D97706"></i>Частичный охват счетов</span></div>
-                <div class="cash-summary-sub">При смене состава счетов или пропуске данных линия прерывается, изменение не рассчитывается. Частичные остатки сравниваются только при одинаковом охвате. Даты и счета — в подсказках точек.</div>
+                <div class="cash-summary-sub">Изменение рассчитывается только между соседними известными календарными днями. При смене состава счетов оно не рассчитывается; пунктир между известными точками — пропуск данных, не факт. Частичные остатки сравниваются только при одинаковом охвате. Даты и счета — в подсказках точек.</div>
                 <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
             this.renderCashLineChart(card.series || []);
             this.scheduleChart('ki-cash-line-chart',
@@ -3562,17 +3632,25 @@
             const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;
             let min = Math.min(0, ...values), max = Math.max(0, ...values);
             if (min === max) max = min + 1;
-            const x = index => left + (points.length === 1 ? 0 : index * (width - left - right) / (points.length - 1));
+            const timeline = chartTimeline(points);
+            const plotWidth = width - left - right;
+            const x = index => left + (timeline.calendar
+                ? timeline.x(index) * plotWidth
+                : timeline.x(index, plotWidth));
             const y = value => top + (max - value) * (height - top - bottom) / (max - min);
-            const pathFor = data => {
-                let path = '', drawing = false;
-                data.forEach(item => {
-                    if (item.value === null || !Number.isFinite(item.value)) { drawing = false; return; }
-                    path += `${drawing && item.comparable ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
-                    drawing = true;
-                });
-                return path;
+            const sameAccounts = (first, second) =>
+                first && second && first.accounts && first.accounts.length &&
+                second.accounts && second.accounts.length &&
+                [...first.accounts].sort().join(',') === [...second.accounts].sort().join(',');
+            const balanceConnection = (previous, current, consecutive) => {
+                if (!sameAccounts(previous.point, current.point)) return 'none';
+                if (consecutive) return current.point.comparable ? 'solid' : 'none';
+                return 'gap';
             };
+            const balancePaths = chartLinePaths(
+                points, x, y, item => item.value, timeline, balanceConnection);
+            const changePaths = chartLinePaths(
+                changes, x, y, item => item.value, timeline);
             let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика денежных средств">`;
             if (valid.length === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
@@ -3580,8 +3658,17 @@
                 svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
                     <text x="${left-6}" y="${py+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(value.toFixed(1))}</text>`;
             });
-            svg += `<path d="${pathFor(points)}" fill="none" stroke="#3B82F6" stroke-width="3"/>
-                <path d="${pathFor(changes)}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
+            svg += `<path d="${balancePaths.solid}" class="cash-chart-line-solid" fill="none" stroke="#3B82F6" stroke-width="3"/>`;
+            if (balancePaths.dashed) {
+                svg += `<path d="${balancePaths.dashed}" class="cash-chart-line-gap" fill="none" stroke="#3B82F6" stroke-width="3" stroke-dasharray="5 4"/>`;
+            }
+            svg += `<path d="${changePaths.solid}" class="cash-chart-change" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
+            if (changePaths.dashed) {
+                svg += `<path d="${changePaths.dashed}" class="cash-chart-change-gap" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="2 4" opacity="0.65"/>`;
+            }
+            if (balancePaths.dashed || changePaths.dashed) {
+                svg += `<text class="chart-gap-help" x="${width-right}" y="14" font-size="10" fill="#6B7280" text-anchor="end">Пунктир — пропуск данных, не факт</text>`;
+            }
             points.forEach((item, index) => {
                 if (item.value !== null && Number.isFinite(item.value)) {
                     svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="${item.coverage === 'complete' ? '#3B82F6' : '#D97706'}" tabindex="0" aria-label="${esc(`Остаток на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
@@ -3908,11 +3995,13 @@
             const container = document.getElementById(containerId);
             if (!container) return;
             
-            const valid = series.map(s => {
+            const points = series.map(s => {
                 let v = s.value;
                 if (v !== null && unit === 'RUB') v = v / 1000000;
                 return { ...s, scaledValue: v };
-            }).filter(s => s.scaledValue != null && Number.isFinite(Number(s.scaledValue)));
+            });
+            const valid = points.filter(s => s.scaledValue != null &&
+                Number.isFinite(Number(s.scaledValue)));
             
             if(valid.length === 0) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для графика<br>(недостаточно периодов)</div>';
@@ -3933,8 +4022,10 @@
                 else { maxVal += Math.abs(maxVal)*0.1; minVal -= Math.abs(minVal)*0.1; }
             }
             const range = maxVal - minVal;
-            
-            const step = w / series.length;
+            const timeline = chartTimeline(points);
+            const x = index => padL + (timeline.calendar
+                ? timeline.x(index) * w
+                : timeline.x(index, w));
             
             let svg = `<svg viewBox="0 0 ${width} ${height}" style="width:100%; height:100%; display:block;">`;
             if (valid.length === 1) svg += '<text x="60" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
@@ -3949,33 +4040,27 @@
             });
             
             svg += `<line x1="${padL}" y1="${zeroY}" x2="${width-padR}" y2="${zeroY}" stroke="#9CA3AF" stroke-width="1"/>`;
-            
-            let path = '', drawing = false;
-            series.forEach((s, i) => {
-                if (s.value == null || !Number.isFinite(Number(s.value))) {
-                    drawing = false;
-                    return;
-                }
-                const value = unit === 'RUB' ? s.value / 1000000 : Number(s.value);
-                const x = padL + i * step + step / 2;
-                const y = padT + h - ((value - minVal) / range) * h;
-                path += `${drawing ? ' L' : ' M'} ${x} ${y}`;
-                drawing = true;
-            });
-            svg += `<path d="${path}" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>`;
+            const y = value => padT + h - ((Number(value) - minVal) / range) * h;
+            const paths = chartLinePaths(
+                points, x, y, point => point.scaledValue, timeline);
+            svg += `<path d="${paths.solid}" class="metric-chart-line-solid" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>`;
+            if (paths.dashed) {
+                svg += `<path d="${paths.dashed}" class="metric-chart-line-gap" fill="none" stroke="#3B82F6" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round"/>`;
+                svg += `<text class="chart-gap-help" x="${width-padR}" y="14" font-size="10" fill="#6B7280" text-anchor="end">Пунктир — пропуск данных, не факт</text>`;
+            }
             const labelStep = Math.max(1, Math.ceil(series.length / Math.max(2, Math.floor(w / 95))));
-            series.forEach((s, i) => {
-                const cx = padL + i * step + step / 2;
+            points.forEach((s, i) => {
+                const cx = x(i);
                 let v = s.value;
                 if (v !== null && unit === 'RUB') v = v / 1000000;
                 
                 if(v != null && Number.isFinite(Number(v))) {
-                    const y = padT + h - ((v - minVal) / range) * h;
+                    const py = y(v);
                     const fill = v >= 0 ? '#3B82F6' : '#EF4444';
-                    svg += `<circle class="metric-chart-point" data-index="${i}" cx="${cx}" cy="${y}" r="4" fill="${fill}" tabindex="0" aria-label="${esc(s.label)}: ${esc(v)}"/>`;
+                    svg += `<circle class="metric-chart-point" data-index="${i}" cx="${cx}" cy="${py}" r="4" fill="${fill}" tabindex="0" aria-label="${esc(s.label)}: ${esc(v)}"/>`;
                     
                     const fmtVal = new Intl.NumberFormat('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 1}).format(v);
-                    if (series.length <= 12) svg += `<text x="${cx}" y="${y - 8}" font-size="10" fill="#4B5563" text-anchor="middle" font-weight="bold">${esc(fmtVal)}</text>`;
+                    if (series.length <= 12) svg += `<text x="${cx}" y="${py - 8}" font-size="10" fill="#4B5563" text-anchor="middle" font-weight="bold">${esc(fmtVal)}</text>`;
                 }
                 if (i % labelStep === 0 || i === series.length - 1) svg += `<text x="${cx}" y="${height - 5}" font-size="10" fill="#6B7280" text-anchor="middle">${esc(s.label)}</text>`;
             });

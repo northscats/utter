@@ -7,6 +7,7 @@ const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
         style: {}, innerHTML: '', classList: {add() {}, remove() {}},
         clientWidth: 800, clientHeight: 260, querySelectorAll: () => [],
+        setAttribute() {},
     });
     return nodes.get(id);
 };
@@ -37,12 +38,30 @@ app.onQuarterChange('2026-06-30');
 assert.equal(app.state.dateFrom, '2026-06-30');
 assert.equal(app.state.date, '2026-09-30');
 app.renderBarChart(
-    [1, 2, null, 4, 5].map((value, i) => ({label: `day ${i}`, value})),
+    [
+        {date: '2026-01-01', label: '01.01.2026', value: 1},
+        {date: '2026-01-02', label: '02.01.2026', value: 2},
+        {date: '2026-01-04', label: '04.01.2026', value: null},
+        {date: '2026-01-06', label: '06.01.2026', value: 5},
+    ],
     '%', 'test-chart', {title: 'test'});
 const svg = element('test-chart').innerHTML;
-assert.equal((svg.match(/<circle/g) || []).length, 4);
-assert.match(svg, /<path d=" M[^"]* L[^"]* M[^"]* L/);
+assert.equal((svg.match(/<circle/g) || []).length, 3);
+assert.match(svg, /<path d=" M[^"]* L[^"]* M[^"]*"/);
+assert.match(svg, /stroke-dasharray="5 4"/);
+assert.match(svg, /Пунктир — пропуск данных, не факт/);
+const chartPoints = Array.from(svg.matchAll(/<circle[^>]+cx="([^"]+)"/g))
+    .map(match => Number(match[1]));
+assert.equal(chartPoints[0], 40);
+assert.equal(chartPoints[1], 190);
+assert.equal(chartPoints[2], 790);
 assert.ok(!svg.includes('<rect'));
+app.renderBarChart([{date: '2026-01-01', label: '01.01.2026', value: 0}],
+    '%', 'test-one-point', {title: 'test'});
+assert.match(element('test-one-point').innerHTML, /Одна точка данных/);
+app.renderBarChart([{date: '2026-01-01', label: '01.01.2026', value: null}],
+    '%', 'test-all-missing', {title: 'test'});
+assert.match(element('test-all-missing').innerHTML, /Нет данных для графика/);
 app.onPeriodChange('month');
 assert.equal(app.state.quarterAnchor, null);
 assert.equal(app.state.dateFrom, null);

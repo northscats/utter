@@ -239,6 +239,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 </style>
 </head>
 <body data-mode="exec">
+<a class="hd-back" href="/">☰ Все предприятия</a>
 <!-- Скрытые элементы, на которые ссылается JS -->
 <div style="display:none">
   <div id="hd-badge"></div>
@@ -304,7 +305,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
   <div class="kpis" id="kpiRow"></div>
 
   <section class="card" id="sect-pl-exec">
-    <h2>Доходы и расходы по месяцам <span class="exp">— результат от основной деятельности</span></h2>
+    <h2>Доходы и расходы по дням <span class="exp">— результат от основной деятельности</span></h2>
     <div class="chartwrap" id="ch-main"></div>
     <div class="legend" id="lg-main"></div>
     <div class="note" id="note-main"></div>
@@ -349,7 +350,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
   <div class="tabs" id="tabs"></div>
 
   <section class="card tabpane" data-tab="Финрезультат">
-    <h2>Расчетный P&amp;L по месяцам, руб. <span class="exp">— по данным сч. 90, 91, 26</span></h2>
+    <h2>Расчетный P&amp;L, руб. <span class="exp">— график по дням, таблица по месяцам; сч. 90, 91, 26</span></h2>
     <div class="chartwrap" id="ch-pl"></div>
     <div class="legend" id="lg-pl"></div>
     <div class="tblwrap"><table id="tbl-pl"></table></div>
@@ -360,6 +361,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <h2>Выручка по направлениям, руб. с НДС <span class="exp">— Кт 90.01 по номенклатурным группам</span></h2>
     <div class="chartwrap" id="ch-revstack"></div>
     <div class="legend" id="lg-revstack"></div>
+    <div class="note" id="note-revstack"></div>
     <div class="tblwrap"><table id="tbl-rev"></table></div>
   </section>
 
@@ -396,7 +398,7 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
     <h2>Расчеты с бюджетом и фондами (сч. 68, 69), руб. <span class="exp" id="hd-nal-period">— за период</span></h2>
     <div class="tblwrap"><table id="tbl-nal"></table></div>
     <div class="note">Положительное сальдо на конец = задолженность перед бюджетом; отрицательное = переплата / наш актив.</div>
-    <h2 style="margin-top:26px">Оплата труда (сч. 70), руб. по месяцам</h2>
+    <h2 style="margin-top:26px">Оплата труда (сч. 70), руб. по дням</h2>
     <div class="chartwrap" id="ch-zp"></div>
     <div class="legend" id="lg-zp"></div>
     <div class="note" id="note-zp"></div>
@@ -429,6 +431,12 @@ const _CSRF  = '__CSRF__';
 const _CID   = __CID__;
 const _AI_OK = __AI_OK__;
 const MN = D.month_names, MSHORT = D.month_short, GHOST = D.ghost;
+/* Older snapshots may not contain the daily structures. Keep their monthly
+   dataset intact; never distribute monthly totals over invented dates. */
+const DAILY = D.daily_charts || {dates:[],accounts:{}};
+const DT = D.daily_temporal || {
+  dates:[],available:{},pl:{},rev_dir:{},cash:{},salary:{}
+};
 const MSTATUS = D.closing_label.map(s=>s==='закрыт'?'закрыт':(s==='НЕ ЗАКРЫТ'?'не закрыт':'част.'));
 let sel = D.months.map(()=>true);
 
@@ -444,6 +452,14 @@ function selSum(a){return a.reduce((x,y,i)=>x+(sel[i]?y:0),0)}
 function el(t,attrs,parent){const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
 function show(id,v){const e=document.getElementById(id);if(e)e.classList.toggle('sect-hide',!v)}
+function temporalUnavailable(id){
+  const box=document.getElementById(id);
+  if(box)box.innerHTML='<div class="muted-big">Суточные данные недоступны: месячные обороты не распределялись по дням.</div>';
+}
+function legacyDailySeries(values,unknown){
+  const source=Array.isArray(values)?values:[];
+  return unknown?source.map(value=>value===0?null:value):source;
+}
 
 /* ---------- цвета для направлений выручки (динамические) ---------- */
 const DIR_PALETTE=['#1f7a9c','#d95b1e','#3e7d6b','#8a7ba8','#c98a12','#5c748a','#7a4f91','#4d8f6f'];
@@ -457,6 +473,71 @@ function dirColor(name){
 /* ---------- SVG: сгруппированные столбцы + линия ---------- */
 function barsLine(id, series, line, opts={}){
   const box = document.getElementById(id); if(!box){return} box.innerHTML='';
+  if(opts.daily && opts.dates && opts.dates.length){
+    const dates=opts.dates, n=dates.length;
+    const W=Math.max(560,n*16), H=300, padL=64, padR=16, padT=14, padB=30;
+    const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto',role:'img'},box);
+    const all=series.flatMap(s=>(s.v||[]).filter(v=>v!=null))
+      .concat(line?(line.v||[]).filter(v=>v!=null):[]);
+    if(!all.length){box.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
+    let max=Math.max(...all,0),min=Math.min(...all,0);
+    max*=1.08;if(min<0)min*=1.15;if(max-min<1)max=min+1;
+    const y=v=>padT+(max-v)/(max-min)*(H-padT-padB);
+    for(let g=0;g<=4;g++){
+      const v=min+(max-min)*g/4,yy=y(v);
+      el('line',{x1:padL,x2:W-padR,y1:yy,y2:yy,stroke:'#e3e8eb','stroke-width':1},svg);
+      el('text',{x:padL-8,y:yy+4,'text-anchor':'end','font-size':11,fill:'#7c8a95'},svg)
+        .textContent=(v/1e6).toFixed(0);
+    }
+    el('text',{x:padL-8,y:padT-2,'text-anchor':'end','font-size':10,fill:'#9aa7b0'},svg)
+      .textContent='млн ₽';
+    if(min<0)el('line',{x1:padL,x2:W-padR,y1:y(0),y2:y(0),stroke:'#94a3ad','stroke-width':1.4},svg);
+    const parsed=dates.map(d=>Date.parse(`${d}T00:00:00Z`));
+    const validTimes=parsed.filter(v=>Number.isFinite(v));
+    const t0=validTimes.length?Math.min(...validTimes):0;
+    const t1=validTimes.length?Math.max(...validTimes):0;
+    const span=t1>t0?t1-t0:1;
+    const xAt=k=>t1>t0&&Number.isFinite(parsed[k])
+      ?padL+(parsed[k]-t0)/span*(W-padL-padR)
+      :padL+(W-padL-padR)*(k+.5)/n;
+    const dayW=Math.max(2,(W-padL-padR)/Math.max(n,1)*.62);
+    const step=Math.max(1,Math.ceil(n/20));
+    dates.forEach((d,k)=>{
+      if(k%step===0)el('text',{x:xAt(k),y:H-10,'text-anchor':'middle','font-size':9,fill:'#5b6a75'},svg)
+        .textContent=d.slice(5).replace('-','.');
+      const x0=xAt(k)-dayW/2;
+      series.forEach((s,si)=>{
+        const v=(s.v||[])[k];
+        if(v==null)return;
+        const yy=y(Math.max(v,0)),hh=Math.abs(y(v)-y(0));
+        const r=el('rect',{x:x0+dayW*si/series.length,y:v>=0?yy:y(0),
+          width:Math.max(1,dayW/series.length-2),height:Math.max(hh,1),fill:s.c,rx:2},svg);
+        el('title',{},r).textContent=`${s.n}, ${d}: ${fr(v)} ₽`;
+      });
+    });
+    if(line){
+      const values=line.v||[], known=[];
+      values.forEach((v,k)=>{if(v!=null)known.push(k);});
+      for(let q=1;q<known.length;q++){
+        const a=known[q-1],b=known[q];
+        const consecutive=b===a+1 || (
+          Number.isFinite(parsed[a]) && Number.isFinite(parsed[b]) &&
+          parsed[b]-parsed[a]===86400000
+        );
+        const path=el('path',{
+          d:`M${xAt(a)} ${y(values[a])} L${xAt(b)} ${y(values[b])}`,
+          fill:'none',stroke:line.c,'stroke-width':2.5,
+          ...(consecutive?{}:{'stroke-dasharray':'6 4'}),
+        },svg);
+        if(!consecutive)path.setAttribute('aria-label','пропуск суточных наблюдений');
+      }
+      known.forEach(k=>{
+        const c=el('circle',{cx:xAt(k),cy:y(values[k]),r:4.5,fill:line.c,stroke:'#fff','stroke-width':1.5},svg);
+        el('title',{},c).textContent=`${line.n}, ${dates[k]}: ${fr(values[k])} ₽`;
+      });
+    }
+    return;
+  }
   const mIdx = [...D.months.keys()].filter(i=>sel[i]);
   if(!mIdx.length){box.innerHTML='<div class="muted-big">Выберите хотя бы один месяц.</div>';return}
   const W=Math.max(560, mIdx.length*150), H=300, padL=64, padR=16, padT=14, padB=30;
@@ -501,8 +582,56 @@ function barsLine(id, series, line, opts={}){
   }
 }
 /* ---------- SVG: стек ---------- */
-function stack(id, keys, colors){
+function stack(id, keys, colors, opts={}){
   const box=document.getElementById(id); if(!box){return} box.innerHTML='';
+  if(opts.daily && opts.dates && opts.dates.length){
+    const dates=opts.dates,n=dates.length,source=opts.dailyValues||{};
+    const W=Math.max(560,n*16),H=300,padL=64,padR=16,padT=14,padB=30;
+    const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,width:'100%',height:'auto'},box);
+    const totals=dates.map((_,i)=>keys.reduce((sum,key)=>{
+      const value=(source[key]||[])[i];
+      return sum+(value==null?0:Math.max(0,value));
+    },0));
+    const max=Math.max(...totals,1)*1.08;
+    const y=v=>padT+(max-v)/max*(H-padT-padB);
+    for(let s=0;s<=4;s++){
+      const v=max*s/4,yy=y(v);
+      el('line',{x1:padL,x2:W-padR,y1:yy,y2:yy,stroke:'#e3e8eb'},svg);
+      el('text',{x:padL-8,y:yy+4,'text-anchor':'end','font-size':11,fill:'#7c8a95'},svg)
+        .textContent=(v/1e6).toFixed(0);
+    }
+    el('text',{x:padL-8,y:padT-2,'text-anchor':'end','font-size':10,fill:'#9aa7b0'},svg)
+      .textContent='млн ₽';
+    const parsed=dates.map(d=>Date.parse(`${d}T00:00:00Z`));
+    const validTimes=parsed.filter(v=>Number.isFinite(v));
+    const t0=validTimes.length?Math.min(...validTimes):0;
+    const t1=validTimes.length?Math.max(...validTimes):0;
+    const span=t1>t0?t1-t0:1;
+    const xAt=k=>t1>t0&&Number.isFinite(parsed[k])
+      ?padL+(parsed[k]-t0)/span*(W-padL-padR)
+      :padL+(W-padL-padR)*(k+.5)/n;
+    const bw=Math.max(2,(W-padL-padR)/Math.max(n,1)*.62);
+    const step=Math.max(1,Math.ceil(n/20));
+    dates.forEach((d,k)=>{
+      let acc=0,known=false;
+      keys.forEach((key,ki)=>{
+        const value=(source[key]||[])[k];
+        if(value==null||value<=0)return;
+        known=true;
+        const x=xAt(k)-bw/2,w=bw;
+        const r=el('rect',{x:x,y:y(acc+value),width:w,height:y(acc)-y(acc+value),
+          fill:colors[ki],rx:1.5},svg);
+        el('title',{},r).textContent=`${key}, ${d}: ${fr(value)} ₽`;
+        acc+=value;
+      });
+      if(k%step===0)el('text',{x:xAt(k),y:H-10,'text-anchor':'middle','font-size':9,fill:'#5b6a75'},svg)
+        .textContent=d.slice(5).replace('-','.');
+      if(!known) return;
+      el('text',{x:xAt(k),y:y(acc)-6,'text-anchor':'middle','font-size':11.5,'font-weight':700,fill:'#31424f'},svg)
+        .textContent=(acc/1e6).toFixed(0);
+    });
+    return;
+  }
   const mIdx=[...D.months.keys()].filter(i=>sel[i]);
   if(!mIdx.length){box.innerHTML='<div class="muted-big">Выберите хотя бы один месяц.</div>';return}
   const W=Math.max(560,mIdx.length*150),H=300,padL=64,padR=16,padT=14,padB=30;
@@ -596,24 +725,38 @@ function dailyLine(boxEl, dates, series, opts){
   }
   el('text',{x:padL-5,y:padT-2,'text-anchor':'end','font-size':8,fill:'#9aa7b0'},svg).textContent='млн';
   if(min<0)el('line',{x1:padL,x2:W-padR,y1:yFn(0),y2:yFn(0),stroke:'#94a3ad','stroke-width':1.2},svg);
-  const bw=(W-padL-padR)/n;
+  const parsed=dates.map(d=>Date.parse(`${d}T00:00:00Z`));
+  const validTimes=parsed.filter(v=>Number.isFinite(v));
+  const t0=validTimes.length?Math.min(...validTimes):0;
+  const t1=validTimes.length?Math.max(...validTimes):0;
+  const span=t1>t0?t1-t0:1;
+  const xAt=k=>t1>t0&&Number.isFinite(parsed[k])
+    ?padL+(parsed[k]-t0)/span*(W-padL-padR)
+    :padL+(W-padL-padR)*(k+.5)/n;
   const step=Math.max(1,Math.ceil(n/20));
   dates.forEach((date,k)=>{
-    if(k%step===0)el('text',{x:padL+bw*(k+.5),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
+    if(k%step===0)el('text',{x:xAt(k),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
       .textContent=date.slice(5).replace('-','.');
   });
   series.forEach(s=>{
-    let d='',prevK=-2;
-    (s.v||[]).forEach((v,k)=>{
-      if(v==null)return;
-      const x=padL+bw*(k+.5),yy=yFn(v);
-      d+=(k===prevK+1&&prevK>=0?'L':'M')+x+' '+yy;
-      prevK=k;
-    });
-    if(d)el('path',{d,fill:'none',stroke:s.c,'stroke-width':1.8},svg);
+    const values=s.v||[],known=[];
+    values.forEach((v,k)=>{if(v!=null)known.push(k);});
+    for(let q=1;q<known.length;q++){
+      const a=known[q-1],b=known[q];
+      const consecutive=b===a+1 || (
+        Number.isFinite(parsed[a]) && Number.isFinite(parsed[b]) &&
+        parsed[b]-parsed[a]===86400000
+      );
+      const path=el('path',{
+        d:`M${xAt(a)} ${yFn(values[a])} L${xAt(b)} ${yFn(values[b])}`,
+        fill:'none',stroke:s.c,'stroke-width':1.8,
+        ...(consecutive?{}:{'stroke-dasharray':'6 4'}),
+      },svg);
+      if(!consecutive)path.setAttribute('aria-label','пропуск суточных наблюдений');
+    }
     if(n<=45)(s.v||[]).forEach((v,k)=>{
       if(v==null)return;
-      const c=el('circle',{cx:padL+bw*(k+.5),cy:yFn(v),r:2.5,fill:s.c},svg);
+      const c=el('circle',{cx:xAt(k),cy:yFn(v),r:2.5,fill:s.c},svg);
       el('title',{},c).textContent=`${s.n}, ${dates[k]}: ${fr(v)} ₽`;
     });
   });
@@ -624,6 +767,7 @@ function dailyBarsPair(boxEl, dates, obd, obk, nIn, nOut, cIn, cOut, opts){
   opts=opts||{};
   if(!boxEl){return} boxEl.innerHTML='';
   if(!dates||!dates.length){boxEl.innerHTML='<div class="muted-big">Нет суточных данных.</div>';return}
+  obd=Array.isArray(obd)?obd:[]; obk=Array.isArray(obk)?obk:[];
   const n=dates.length;
   const allV=[...obd,...obk].filter(v=>v>0);
   if(!allV.length){boxEl.innerHTML='<div class="muted-big">Нет данных за этот период.</div>';return}
@@ -638,15 +782,23 @@ function dailyBarsPair(boxEl, dates, obd, obk, nIn, nOut, cIn, cOut, opts){
     el('text',{x:padL-5,y:yy+4,'text-anchor':'end','font-size':9,fill:'#7c8a95'},svg).textContent=(v/1e6).toFixed(1);
   }
   el('text',{x:padL-5,y:padT-2,'text-anchor':'end','font-size':8,fill:'#9aa7b0'},svg).textContent='млн';
-  const bw=(W-padL-padR)/n, hw=Math.max(bw*0.35,1.5);
+  const parsed=dates.map(d=>Date.parse(`${d}T00:00:00Z`));
+  const validTimes=parsed.filter(v=>Number.isFinite(v));
+  const t0=validTimes.length?Math.min(...validTimes):0;
+  const t1=validTimes.length?Math.max(...validTimes):0;
+  const span=t1>t0?t1-t0:1;
+  const xAt=k=>t1>t0&&Number.isFinite(parsed[k])
+    ?padL+(parsed[k]-t0)/span*(W-padL-padR)
+    :padL+(W-padL-padR)*(k+.5)/n;
+  const hw=Math.max((W-padL-padR)/Math.max(n,1)*.35,1.5);
   const step=Math.max(1,Math.ceil(n/20));
   dates.forEach((date,k)=>{
-    if(k%step===0)el('text',{x:padL+bw*(k+.5),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
+    if(k%step===0)el('text',{x:xAt(k),y:H-6,'text-anchor':'middle','font-size':8,fill:'#5b6a75'},svg)
       .textContent=date.slice(5).replace('-','.');
-    const cx=padL+bw*(k+.5);
-    const vo=obd[k]||0,vi=obk[k]||0;
-    if(vo>0){const h=Math.max(y0-yFn(vo),1),r=el('rect',{x:cx-hw-1,y:yFn(vo),width:hw,height:h,fill:cIn,rx:1},svg);el('title',{},r).textContent=`${nIn}, ${date}: ${fr(vo)} ₽`;}
-    if(vi>0){const h=Math.max(y0-yFn(vi),1),r=el('rect',{x:cx+1,y:yFn(vi),width:hw,height:h,fill:cOut,rx:1},svg);el('title',{},r).textContent=`${nOut}, ${date}: ${fr(vi)} ₽`;}
+    const cx=xAt(k);
+    const vo=obd[k],vi=obk[k];
+    if(vo!=null&&vo>0){const h=Math.max(y0-yFn(vo),1),r=el('rect',{x:cx-hw-1,y:yFn(vo),width:hw,height:h,fill:cIn,rx:1},svg);el('title',{},r).textContent=`${nIn}, ${date}: ${fr(vo)} ₽`;}
+    if(vi!=null&&vi>0){const h=Math.max(y0-yFn(vi),1),r=el('rect',{x:cx+1,y:yFn(vi),width:hw,height:h,fill:cOut,rx:1},svg);el('title',{},r).textContent=`${nOut}, ${date}: ${fr(vi)} ₽`;}
   });
 }
 
@@ -706,7 +858,7 @@ function plRows(){
 
 /* ---------- рендер суточных в обзоре ---------- */
 function renderDailyExec(){
-  const DC=D.daily_charts;
+  const DC=D.daily_charts||{dates:[],accounts:{}};
   const dates=DC.dates||[];
   const accs=DC.accounts||{};
   show('sect-daily-exec', dates.length>0);
@@ -739,7 +891,7 @@ function renderDailyExec(){
 
 /* ---------- рендер суточных в детальной вкладке ---------- */
 function renderDailyDetail(){
-  const DC=D.daily_charts;
+  const DC=D.daily_charts||{dates:[],accounts:{}};
   const dates=DC.dates||[];
   const accs=DC.accounts||{};
   const grid=document.getElementById('daily-tabs-grid');
@@ -789,6 +941,14 @@ function renderDailyDetail(){
 /* ---------- главный рендер ---------- */
 function renderAll(){
   const SEC=D.sections;
+  const T=D.daily_temporal||{dates:[],available:{},pl:{},rev_dir:{},cash:{},salary:{}};
+  const DC=D.daily_charts||{dates:[],accounts:{}};
+  const TAvail=T.available||{}, TDates=(T.dates&&T.dates.length)
+    ?T.dates:(DC.dates||[]);
+  const legacyUnknown=!!(DC.legacy_unknown||!D.daily_temporal);
+  const legacyAccs=DC.accounts||{};
+  const legacyCash=legacyAccs['51'];
+  const legacySalary=legacyAccs['70'];
   // метаданные заголовка
   const badge=D.company_name? D.company_name.replace(/^(МУП|ГУП|АО|ООО|ПАО|АНО|МУПП?)\s*/i,'').replace(/[«""]/g,'').trim().slice(0,4).toUpperCase():'—';
   document.getElementById('hd-badge').textContent=badge;
@@ -867,17 +1027,31 @@ function renderAll(){
 
   // главный P&L график
   if(SEC.has_pl){
-    barsLine('ch-main',
-      [{n:'Доходы'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:P.map(p=>p.revn)},
-       {n:'Расходы',c:'#c77d4f',v:P.map(p=>p.cost+p.adm)}],
-      {n:'Результат от основной деятельности',c:'#1b2733',v:P.map(p=>p.sales)},{ghost:true});
+    const pd=T.pl||{}, useDaily=!!(TAvail.pl&&TDates.length);
+    if(useDaily){
+      const revSeries=(SEC.has_subaccs ? pd.net_rev : pd.rev)||[];
+      const costSeries=(pd.cost||[]).map((value,i)=>{
+        const admin=(pd.adm||[])[i];
+        return value!=null&&admin!=null?value+admin:null;
+      });
+      barsLine('ch-main',
+         [{n:'Доходы'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:revSeries},
+          {n:'Расходы',c:'#c77d4f',v:costSeries}],
+         {n:'Результат от основной деятельности',c:'#1b2733',v:pd.sales||[]},
+         {daily:true,dates:TDates});
+    }else{
+      temporalUnavailable('ch-main');
+      document.getElementById('lg-main').innerHTML='';
+    }
     document.getElementById('lg-main').innerHTML=
       `<span><i style="background:#2e6e8e"></i>Доходы${SEC.has_subaccs?' без НДС':''}</span><span><i style="background:#c77d4f"></i>Расходы (производство + управление)</span><span><i style="background:#1b2733"></i>Результат, млн ₽</span>`;
     const notePl=document.getElementById('note-main');
     if(notePl){
-      notePl.textContent=SEC.has_subaccs
-        ?'Столбцы — выручка без НДС и расходы. Линия — результат от основной деятельности. Полупрозрачные месяцы — не закрыты в учёте.'
-        :'Данные суточные: субсчета не загружены, НДС не отделён. Показаны обороты счёта 90 в целом.';
+       notePl.textContent=useDaily
+         ?'Суточные наблюдения: известные дни показаны по календарю, пропуски не заполняются нулями. Пунктир соединяет только соседние известные точки.'
+         :'Суточные данные недоступны: месячные обороты не распределялись по дням.';
+       if(legacyUnknown&&useDaily)
+         notePl.textContent+=' Снимок создан старой версией: нулевые пропуски могли быть неотличимы от фактических нулей.';
     }
   }
 
@@ -926,28 +1100,52 @@ function renderAll(){
   // деньги (обзор)
   const flow=P.map((p,i)=>D.cf.inn[i]-D.cf.out[i]);
   if(SEC.has_cash){
-    barsLine('ch-cash',
-      [{n:'Пришло на счет',c:'#4d8f6f',v:D.cf.inn},{n:'Ушло со счета',c:'#a05a5a',v:D.cf.out}],
-      {n:'Разница за месяц',c:'#1b2733',v:flow});
-    document.getElementById('lg-cash').innerHTML=
-      `<span><i style="background:#4d8f6f"></i>Поступления</span><span><i style="background:#a05a5a"></i>Платежи</span><span><i style="background:#1b2733"></i>Чистый поток, млн ₽</span>`;
+    const cashD=T.cash||{},useDaily=!!(TAvail.cash&&TDates.length);
+    const useLegacy=!useDaily&&!!(TDates.length&&legacyCash);
+    const cashIn=useDaily?(cashD.inn||[]):(useLegacy?legacyDailySeries(legacyCash.obd,legacyUnknown):[]);
+    const cashOut=useDaily?(cashD.out||[]):(useLegacy?legacyDailySeries(legacyCash.obk,legacyUnknown):[]);
+    const cashFlow=useDaily?(cashD.flow||[]):(useLegacy
+      ?cashIn.map((value,i)=>value!=null&&cashOut[i]!=null?value-cashOut[i]:null):[]);
+    if(useDaily||useLegacy){
+      barsLine('ch-cash',
+         [{n:'Пришло на счет',c:'#4d8f6f',v:cashIn},{n:'Ушло со счета',c:'#a05a5a',v:cashOut}],
+         {n:'Разница за день',c:'#1b2733',v:cashFlow},
+         {daily:true,dates:TDates});
+      document.getElementById('lg-cash').innerHTML=
+         `<span><i style="background:#4d8f6f"></i>Поступления</span><span><i style="background:#a05a5a"></i>Платежи</span><span><i style="background:#1b2733"></i>Чистый поток, млн ₽</span>`;
+    }else{
+      temporalUnavailable('ch-cash');
+      document.getElementById('lg-cash').innerHTML='';
+    }
     const nc2=document.getElementById('note-cash');
     if(nc2){
       const b0=fm(D.cf.b51_start), b1=fm(D.cf.b51_end);
-      nc2.textContent=`Остаток на начало периода: ${b0} → на конец: ${b1}.`+
-        (cashDays?` При среднемесячных платежах ${fm(avgOut)} — ≈\u202f${cashDays} рабочих дней.`:'');
+      nc2.textContent=(useDaily||useLegacy
+        ?`Остаток на начало периода: ${b0} → на конец: ${b1}.`+
+          (cashDays?` При среднемесячных платежах ${fm(avgOut)} — ≈\u202f${cashDays} рабочих дней.`:'')+
+          (useLegacy
+            ?' Используется суточный ряд старого снимка; нулевые пропуски могли быть неотличимы от фактических нулей.'
+            :' Суточные поступления и платежи показаны только по наблюдаемым датам; пропуски не являются нулевыми.')
+        :'Суточные данные недоступны: месячные обороты не распределялись по дням.');
     }
   }
 
   // ===== детальный режим =====
   if(SEC.has_pl){
-    barsLine('ch-pl',
-      [{n:'Выручка'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:P.map(p=>p.revn)},
-       {n:'Себестоимость',c:'#c77d4f',v:P.map(p=>p.cost)},
-       {n:'Управленческие',c:'#9aa7b0',v:P.map(p=>p.adm)}],
-      {n:'Чистый результат (расч.)',c:'#1b2733',v:P.map(p=>p.net)},{ghost:true});
-    document.getElementById('lg-pl').innerHTML=
-      `<span><i style="background:#2e6e8e"></i>Выручка${SEC.has_subaccs?' без НДС':''}</span><span><i style="background:#c77d4f"></i>Себестоимость</span><span><i style="background:#9aa7b0"></i>Управленческие</span><span><i style="background:#1b2733"></i>Чистый результат</span>`;
+    const pd=T.pl||{},useDaily=!!(TAvail.pl&&TDates.length);
+    if(useDaily){
+      barsLine('ch-pl',
+         [{n:'Выручка'+(SEC.has_subaccs?' без НДС':''),c:'#2e6e8e',v:(SEC.has_subaccs ? pd.net_rev : pd.rev)||[]},
+          {n:'Себестоимость',c:'#c77d4f',v:pd.cost||[]},
+          {n:'Управленческие',c:'#9aa7b0',v:pd.adm||[]}],
+         {n:'Чистый результат (расч.)',c:'#1b2733',v:pd.net||[]},
+         {daily:true,dates:TDates});
+      document.getElementById('lg-pl').innerHTML=
+         `<span><i style="background:#2e6e8e"></i>Выручка${SEC.has_subaccs?' без НДС':''}</span><span><i style="background:#c77d4f"></i>Себестоимость</span><span><i style="background:#9aa7b0"></i>Управленческие</span><span><i style="background:#1b2733"></i>Чистый результат</span>`;
+    }else{
+      temporalUnavailable('ch-pl');
+      document.getElementById('lg-pl').innerHTML='';
+    }
     const colNDS=SEC.has_subaccs?[{h:'НДС',f:'n'}]:[];
     const selCols=[{h:'Месяц'},{h:'Выручка с НДС',f:'n'},...colNDS,{h:'Выручка'+(SEC.has_subaccs?' без НДС':''),f:'n'},{h:'Себестоимость',f:'n'},{h:'Управленческие',f:'n'},{h:'Прибыль от продаж',f:'pl'},{h:'Прочие доходы',f:'n'},{h:'Прочие расходы',f:'n'},{h:'Чистый результат',f:'pl'},{h:'Статус'}];
     const selRowsFn=SEC.has_subaccs
@@ -955,17 +1153,29 @@ function renderAll(){
       : p=>[MN[p.i],p.revg,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,D.closing_label[p.i]];
     table('tbl-pl',selCols,P.filter(p=>sel[p.i]).map(selRowsFn),{total:true});
     const np=document.getElementById('note-pl');
-    if(np) np.textContent=SEC.has_subaccs
-      ?'Прибыль от продаж = Выручка без НДС − Себестоимость − Управленческие. Чистый результат — расчетный, до налога на прибыль.'
-      :'Суточные данные без субсчётов: НДС не выделен, себестоимость не разделена. Загрузите периодическую ОСВ для полного P&L.';
+     if(np) np.textContent=useDaily
+       ?'Суточные наблюдения показаны по календарю; отсутствующие дни оставлены пропусками, без распределения месячных итогов. Чистый результат — расчетный, до налога на прибыль.'
+       :'Суточные данные недоступны: месячные обороты не распределялись по дням.';
   }
 
   // выручка stacked + таблица
   if(SEC.has_rev_dir){
     const dirKeys=Object.keys(D.rev_dir).sort((a,b)=>selSum(D.rev_dir[b])-selSum(D.rev_dir[a]));
     const dirCols=dirKeys.map(k=>dirColor(k));
-    stack('ch-revstack', dirKeys, dirCols);
-    document.getElementById('lg-revstack').innerHTML=dirKeys.map((k,i)=>`<span><i style="background:${dirCols[i]}"></i>${esc(k)}</span>`).join('');
+    const useDaily=!!(TAvail.rev_dir&&TDates.length);
+    const dailyDir=T.rev_dir||{};
+    if(useDaily){
+      stack('ch-revstack', dirKeys, dirCols,
+        {daily:true,dates:TDates,dailyValues:dailyDir});
+      document.getElementById('lg-revstack').innerHTML=dirKeys.map((k,i)=>`<span><i style="background:${dirCols[i]}"></i>${esc(k)}</span>`).join('');
+    }else{
+      temporalUnavailable('ch-revstack');
+      document.getElementById('lg-revstack').innerHTML='';
+    }
+    const noteRevStack=document.getElementById('note-revstack');
+    if(noteRevStack)noteRevStack.textContent=useDaily
+      ?'Суточная выручка по направлениям: пропуски не заполняются нулями.'
+      :'Суточные данные недоступны: месячная выручка не распределялась по дням.';
     table('tbl-rev',
       [{h:'Направление'},...MN.filter((_,i)=>sel[i]).map(m=>({h:m,f:'n'})),{h:'Итого',f:'n'}],
       dirKeys.map(k=>[k,...D.rev_dir[k].filter((_,i)=>sel[i]),selSum(D.rev_dir[k])]),
@@ -976,10 +1186,22 @@ function renderAll(){
 
   // деньги детально
   if(SEC.has_cash){
-    barsLine('ch-cf2',
-      [{n:'Поступления Дт 51',c:'#4d8f6f',v:D.cf.inn},{n:'Списания Кт 51',c:'#a05a5a',v:D.cf.out}],
-      {n:'Чистый поток',c:'#1b2733',v:flow});
-    document.getElementById('lg-cf2').innerHTML=document.getElementById('lg-cash').innerHTML;
+    const cashD=T.cash||{},useDaily=!!(TAvail.cash&&TDates.length);
+    const useLegacy=!useDaily&&!!(TDates.length&&legacyCash);
+    const detailIn=useDaily?(cashD.inn||[]):(useLegacy?legacyDailySeries(legacyCash.obd,legacyUnknown):[]);
+    const detailOut=useDaily?(cashD.out||[]):(useLegacy?legacyDailySeries(legacyCash.obk,legacyUnknown):[]);
+    const detailFlow=useDaily?(cashD.flow||[]):(useLegacy
+      ?detailIn.map((value,i)=>value!=null&&detailOut[i]!=null?value-detailOut[i]:null):[]);
+    if(useDaily||useLegacy){
+      barsLine('ch-cf2',
+         [{n:'Поступления Дт 51',c:'#4d8f6f',v:detailIn},{n:'Списания Кт 51',c:'#a05a5a',v:detailOut}],
+         {n:'Чистый поток за день',c:'#1b2733',v:detailFlow},
+         {daily:true,dates:TDates});
+      document.getElementById('lg-cf2').innerHTML=document.getElementById('lg-cash').innerHTML;
+    }else{
+      temporalUnavailable('ch-cf2');
+      document.getElementById('lg-cf2').innerHTML='';
+    }
     table('tbl-cf',
       [{h:'Месяц'},{h:'Поступления',f:'n'},{h:'Платежи',f:'n'},{h:'Чистый поток',f:'pl'}],
       P.filter(p=>sel[p.i]).map(p=>[MN[p.i],D.cf.inn[p.i],D.cf.out[p.i],flow[p.i]]),{total:true});
@@ -997,12 +1219,24 @@ function renderAll(){
         D.nal,{total:true});
     }
     if(SEC.has_zp){
-      barsLine('ch-zp',
-        [{n:'Начислено (Кт 70)',c:'#2e6e8e',v:D.zp.n},{n:'Выплачено и удержано (Дт 70)',c:'#7d97a8',v:D.zp.v}],null,{ghost:true});
-      document.getElementById('lg-zp').innerHTML=
-        `<span><i style="background:#2e6e8e"></i>Начислено</span><span><i style="background:#7d97a8"></i>Выплачено и удержано</span>`;
+      const salaryD=T.salary||{},useDaily=!!(TAvail.salary&&TDates.length);
+      const useLegacy=!useDaily&&!!(TDates.length&&legacySalary);
+      if(useDaily||useLegacy){
+        barsLine('ch-zp',
+           [{n:'Начислено (Кт 70)',c:'#2e6e8e',v:useDaily?(salaryD.n||[]):legacyDailySeries(legacySalary.obk,legacyUnknown)},
+            {n:'Выплачено и удержано (Дт 70)',c:'#7d97a8',v:useDaily?(salaryD.v||[]):legacyDailySeries(legacySalary.obd,legacyUnknown)}],
+           null,{daily:true,dates:TDates});
+        document.getElementById('lg-zp').innerHTML=
+          `<span><i style="background:#2e6e8e"></i>Начислено</span><span><i style="background:#7d97a8"></i>Выплачено и удержано</span>`;
+      }else{
+        temporalUnavailable('ch-zp');
+        document.getElementById('lg-zp').innerHTML='';
+      }
       const nz=document.getElementById('note-zp');
-      if(nz) nz.textContent='В незакрытых месяцах начисление зарплаты может быть ещё не проведено — тогда показаны только выплаты.';
+       if(nz) nz.textContent=(useDaily||useLegacy)
+         ?'Суточные ОбК70 и ОбД70 показаны только по наблюдаемым датам; пропуски не заполняются нулями. ОбД70 может включать выплаты, удержания и корректировки и не равен денежной выплате.'
+         :'Суточные данные недоступны: месячные обороты не распределялись по дням.';
+       if(nz&&useLegacy)nz.textContent+=' Это старый снимок: нулевые пропуски могли быть неотличимы от фактических нулей.';
     }
   }
 
@@ -1390,7 +1624,7 @@ function requestAiBrief(){
 /* ===== Модальное окно суточной динамики ===== */
 var _dmAcc=null,_dmDates=null;
 function openDailyModal(acc){
-  var DC=D.daily_charts,dates=DC.dates||[],accs=DC.accounts||{};
+  var DC=D.daily_charts||{dates:[],accounts:{}},dates=DC.dates||[],accs=DC.accounts||{};
   if(!dates.length||!accs[acc])return;
   _dmAcc=acc;_dmDates=dates;
   var titles={'51':'Расчётный счёт 51 — суточные обороты','70':'Оплата труда 70 — суточные обороты'};
@@ -1426,7 +1660,7 @@ function _dmFill(){
 function _dmRedraw(){
   var s0=+document.getElementById('dms0').value,s1=+document.getElementById('dms1').value;
   var dates=(_dmDates||[]).slice(s0,s1+1);
-  var accs=D.daily_charts.accounts||{};
+  var accs=(D.daily_charts||{dates:[],accounts:{}}).accounts||{};
   var box=document.getElementById('daily-modal-chart');
   if(_dmAcc==='51'&&accs['51'])
     dailyBarsPair(box,dates,accs['51'].obd.slice(s0,s1+1),accs['51'].obk.slice(s0,s1+1),

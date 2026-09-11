@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import unittest
+from datetime import date, timedelta
+import time
 
 from key_indicators import (build_indicator_source, build_key_indicators,
                             revenue_analytic_key)
@@ -73,7 +75,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(revenue['delta'])
         self.assertEqual([p['value'] for p in revenue['series']], [10, 20, 30])
 
-    def test_quarter_range_charts_only_selected_months(self):
+    def test_quarter_range_charts_use_daily_slots_without_changing_totals(self):
         rows = [day('2026-03-31', obd=100),
                 day('2026-04-30', obd=10), day('2026-05-31', obd=20),
                 day('2026-06-30', obd=30), day('2026-08-31', obd=40),
@@ -85,8 +87,15 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['value'], 150)
         self.assertEqual(result['period']['start'], '2026-04-01')
         self.assertEqual(result['period']['end'], '2026-09-30')
-        self.assertEqual(result['period']['series_kind'], 'month')
-        self.assertEqual([p['value'] for p in card['series']], [10, 20, 30, None, 40, 50])
+        self.assertEqual(result['period']['series_kind'], 'day')
+        self.assertEqual(len(card['series']), 183)
+        series = {point['date']: point['value'] for point in card['series']}
+        self.assertEqual(series['2026-04-30'], 10)
+        self.assertEqual(series['2026-05-31'], 20)
+        self.assertEqual(series['2026-06-30'], 30)
+        self.assertEqual(series['2026-08-31'], 40)
+        self.assertEqual(series['2026-09-30'], 50)
+        self.assertIsNone(series['2026-07-31'])
         self.assertIsNone(card['delta'])
         with self.assertRaises(ValueError):
             build_key_indicators(source, period='quarter',
@@ -782,6 +791,9 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
                   if item['date'] in ('2026-01-31', '2026-02-28')}
         self.assertFalse(points['2026-02-28']['comparison']['comparable'])
         self.assertEqual(points['2026-02-28']['comparison']['reason'],
+                         'Нет точного остатка')
+        self.assertFalse(points['2026-02-28']['interval_comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['interval_comparison']['reason'],
                          'Изменился состав счетов')
 
         same_partial = build_indicator_source({
@@ -794,8 +806,11 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
             same_partial, 'quarter', '2026-02-28')['cards']}['cash']
         points = {item['date']: item for item in cash['series']
                   if item['date'] in ('2026-01-31', '2026-02-28')}
-        self.assertTrue(points['2026-02-28']['comparison']['comparable'])
-        self.assertEqual(points['2026-02-28']['comparison']['value'], 10)
+        self.assertFalse(points['2026-02-28']['comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['comparison']['reason'],
+                         'Нет точного остатка')
+        self.assertTrue(points['2026-02-28']['interval_comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['interval_comparison']['value'], 10)
         self.assertEqual(points['2026-02-28']['coverage'], 'partial')
 
     def test_cash_month_series_uses_daily_slots_and_metadata(self):
@@ -816,7 +831,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cash['series'][1]['coverage'], 'missing')
         self.assertFalse(cash['series'][2]['comparison']['comparable'])
 
-    def test_cash_quarter_series_uses_month_end_points(self):
+    def test_cash_quarter_series_uses_daily_slots_without_spreading_balances(self):
         src = build_indicator_source({
             '51': account('51', [
                 day('2026-01-31', skd=10),
@@ -825,14 +840,15 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         })
         cash = {item['id']: item for item in build_key_indicators(
             src, 'quarter', '2026-03-31')['cards']}['cash']
-        self.assertEqual(
-            [point['date'] for point in cash['series']],
-            ['2026-01-31', '2026-02-28', '2026-03-31'])
-        self.assertEqual(
-            [point['value'] for point in cash['series']], [10, None, 30])
-        self.assertEqual(cash['series'][0]['coverage'], 'partial')
-        self.assertEqual(cash['series'][1]['coverage'], 'missing')
-        self.assertFalse(cash['series'][2]['comparison']['comparable'])
+        self.assertEqual(len(cash['series']), 90)
+        series = {point['date']: point for point in cash['series']}
+        self.assertEqual(series['2026-01-31']['value'], 10)
+        self.assertIsNone(series['2026-02-28']['value'])
+        self.assertEqual(series['2026-03-31']['value'], 30)
+        self.assertEqual(series['2026-01-30']['coverage'], 'missing')
+        self.assertEqual(series['2026-02-28']['coverage'], 'missing')
+        self.assertEqual(series['2026-03-30']['coverage'], 'missing')
+        self.assertFalse(series['2026-03-31']['comparison']['comparable'])
 
     def test_cash_multi_quarter_range_has_unavailable_card_comparison(self):
         src = build_indicator_source({
@@ -849,8 +865,8 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertFalse(cash['comparison']['comparable'])
         self.assertIsNone(cash['comparison']['previous_date'])
         self.assertIn('диапазона', cash['comparison']['reason'])
-        self.assertEqual(len(cash['series']), 9)
-        self.assertEqual(cash['series'][0]['date'], '2026-01-31')
+        self.assertEqual(len(cash['series']), 273)
+        self.assertEqual(cash['series'][0]['date'], '2026-01-01')
         self.assertEqual(cash['series'][-1]['date'], '2026-09-30')
 class CashSalaryKeyIndicatorTests(unittest.TestCase):
     def test_absent_is_null_but_explicit_zero_is_zero(self):
@@ -921,8 +937,15 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['value'], 150)
         self.assertEqual(result['period']['start'], '2026-04-01')
         self.assertEqual(result['period']['end'], '2026-09-30')
-        self.assertEqual(result['period']['series_kind'], 'month')
-        self.assertEqual([p['value'] for p in card['series']], [10, 20, 30, None, 40, 50])
+        self.assertEqual(result['period']['series_kind'], 'day')
+        self.assertEqual(len(card['series']), 183)
+        series = {point['date']: point['value'] for point in card['series']}
+        self.assertEqual(series['2026-04-30'], 10)
+        self.assertEqual(series['2026-05-31'], 20)
+        self.assertEqual(series['2026-06-30'], 30)
+        self.assertEqual(series['2026-08-31'], 40)
+        self.assertEqual(series['2026-09-30'], 50)
+        self.assertIsNone(series['2026-07-31'])
         self.assertIsNone(card['delta'])
         with self.assertRaises(ValueError):
             build_key_indicators(source, period='quarter',
@@ -1618,6 +1641,9 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
                   if item['date'] in ('2026-01-31', '2026-02-28')}
         self.assertFalse(points['2026-02-28']['comparison']['comparable'])
         self.assertEqual(points['2026-02-28']['comparison']['reason'],
+                         'Нет точного остатка')
+        self.assertFalse(points['2026-02-28']['interval_comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['interval_comparison']['reason'],
                          'Изменился состав счетов')
 
         same_partial = build_indicator_source({
@@ -1630,8 +1656,11 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
             same_partial, 'quarter', '2026-02-28')['cards']}['cash']
         points = {item['date']: item for item in cash['series']
                   if item['date'] in ('2026-01-31', '2026-02-28')}
-        self.assertTrue(points['2026-02-28']['comparison']['comparable'])
-        self.assertEqual(points['2026-02-28']['comparison']['value'], 10)
+        self.assertFalse(points['2026-02-28']['comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['comparison']['reason'],
+                         'Нет точного остатка')
+        self.assertTrue(points['2026-02-28']['interval_comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['interval_comparison']['value'], 10)
         self.assertEqual(points['2026-02-28']['coverage'], 'partial')
 
     def test_cash_month_series_uses_daily_slots_and_metadata(self):
@@ -1652,7 +1681,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cash['series'][1]['coverage'], 'missing')
         self.assertFalse(cash['series'][2]['comparison']['comparable'])
 
-    def test_cash_quarter_series_uses_month_end_points(self):
+    def test_cash_quarter_series_uses_daily_slots_without_spreading_balances(self):
         src = build_indicator_source({
             '51': account('51', [
                 day('2026-01-31', skd=10),
@@ -1661,14 +1690,15 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         })
         cash = {item['id']: item for item in build_key_indicators(
             src, 'quarter', '2026-03-31')['cards']}['cash']
-        self.assertEqual(
-            [point['date'] for point in cash['series']],
-            ['2026-01-31', '2026-02-28', '2026-03-31'])
-        self.assertEqual(
-            [point['value'] for point in cash['series']], [10, None, 30])
-        self.assertEqual(cash['series'][0]['coverage'], 'partial')
-        self.assertEqual(cash['series'][1]['coverage'], 'missing')
-        self.assertFalse(cash['series'][2]['comparison']['comparable'])
+        self.assertEqual(len(cash['series']), 90)
+        series = {point['date']: point for point in cash['series']}
+        self.assertEqual(series['2026-01-31']['value'], 10)
+        self.assertIsNone(series['2026-02-28']['value'])
+        self.assertEqual(series['2026-03-31']['value'], 30)
+        self.assertEqual(series['2026-01-30']['coverage'], 'missing')
+        self.assertEqual(series['2026-02-28']['coverage'], 'missing')
+        self.assertEqual(series['2026-03-30']['coverage'], 'missing')
+        self.assertFalse(series['2026-03-31']['comparison']['comparable'])
 
     def test_cash_multi_quarter_range_has_unavailable_card_comparison(self):
         src = build_indicator_source({
@@ -1685,8 +1715,8 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertFalse(cash['comparison']['comparable'])
         self.assertIsNone(cash['comparison']['previous_date'])
         self.assertIn('диапазона', cash['comparison']['reason'])
-        self.assertEqual(len(cash['series']), 9)
-        self.assertEqual(cash['series'][0]['date'], '2026-01-31')
+        self.assertEqual(len(cash['series']), 273)
+        self.assertEqual(cash['series'][0]['date'], '2026-01-01')
         self.assertEqual(cash['series'][-1]['date'], '2026-09-30')
 
 
@@ -2169,3 +2199,51 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         )['cards']}['ar']
         self.assertEqual(len(card['debtor_segments']['new']), 1)
         self.assertEqual(card['debtor_segments']['unmapped'], [])
+
+
+class DailyIndexPerformanceTests(unittest.TestCase):
+    def test_exact_balance_observation_is_used_for_known_date(self):
+        source = build_indicator_source({
+            '08': account('08', [
+                day('2026-01-01', skd=10, skk=0),
+                day('2026-12-31', skd=80, skk=0),
+            ], period='за 2026 год'),
+        })
+        result = build_key_indicators(source, 'year', '2026-12-31')
+        capex = {item['id']: item for item in result['cards']}['capex']
+        self.assertEqual(capex['closing_balance'], 80)
+        self.assertNotIn('_daily_index', source)
+        self.assertNotIn('_balance_index', source)
+        self.assertNotIn('_top_balance_index', source)
+
+    def test_synthetic_year_with_94900_rows_stays_bounded(self):
+        first = date(2026, 1, 1)
+        dates = [(first + timedelta(days=index)).isoformat()
+                 for index in range(365)]
+        rows = [
+            {
+                'date': dates[index % len(dates)],
+                'month': dates[index % len(dates)][:7],
+                'path1': '', 'path2': '', 'path3': '',
+                'obd': 1, 'obk': 2, 'skd': 100, 'skk': 0,
+            }
+            for index in range(94900)
+        ]
+        source = {
+            'version': 1,
+            'dates': dates,
+            'accounts': {
+                '51': {
+                    'acc': '51', 'daily': rows, 'rows': [], 'top': None,
+                    'period': 'за 2026 год', 'warnings': [], 'check_ok': True,
+                    'report_start': '2026-01-01',
+                    'report_end': '2026-12-31',
+                },
+            },
+        }
+        started = time.perf_counter()
+        result = build_key_indicators(source, 'year', '2026-12-31')
+        elapsed = time.perf_counter() - started
+        cash = {item['id']: item for item in result['cards']}['cash']
+        self.assertEqual(len(cash['series']), 365)
+        self.assertLess(elapsed, 4.0)

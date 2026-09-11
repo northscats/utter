@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
 """Response-only compatibility upgrades for saved dashboard HTML.
 
-Saved dashboards are intentionally immutable artifacts.  This module only
-rewrites the known salary/daily presentation snippets while a dashboard is
-being served; it never parses or changes the embedded dataset.
+Saved dashboards are intentionally immutable artifacts.  This module renders
+known generated snapshots through the current presentation template while a
+dashboard is being served, with a narrow label fallback for partial legacy
+HTML.  It never reads current financial sources or writes the saved artifact.
 """
+import json
 import re
+
+
+def json_for_script(value):
+    """Serialize JSON for an inline script without HTML/script breakouts."""
+    return (json.dumps(value, ensure_ascii=False)
+            .replace('&', r'\u0026')
+            .replace('<', r'\u003C')
+            .replace('>', r'\u003E')
+            .replace('\u2028', r'\u2028')
+            .replace('\u2029', r'\u2029'))
 
 
 _DAILY_70_MARKUP_RE = re.compile(
@@ -145,3 +157,77 @@ def upgrade_legacy_salary_daily_labels(html):
     html = _DAILY_70_MODAL_CALL_RE.sub(
         r"\g<prefix>'ОбД70','ОбК70'\g<suffix>", html, count=1)
     return html
+
+
+_DATA_MARKER_RE = re.compile(r'\bconst\s+D\s*=\s*')
+_BACK_LINK_RE = re.compile(
+    r'<a\s+class="hd-back"[^>]*>.*?</a>', re.DOTALL)
+
+
+def _extract_saved_dataset(html):
+    """Decode the embedded generated dataset without executing saved JS."""
+    match = _DATA_MARKER_RE.search(html)
+    if not match:
+        return None
+    payload = html[match.end():].lstrip()
+    try:
+        value, _ = json.JSONDecoder().raw_decode(payload)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def upgrade_saved_dashboard_template(html, template):
+    """Render a known saved dashboard with the current legacy template.
+
+    The saved ``D`` object is the only source of data.  This is deliberately a
+    response-time transformation: the saved HTML is never rewritten and no
+    current database/source files are read.  Unknown/partial HTML falls back
+    to the narrow salary-label compatibility pass used by older snapshots.
+    """
+    if not isinstance(html, str) or not isinstance(template, str):
+        raise TypeError('dashboard HTML and template must be text')
+    # Scope the replacement to the generated dashboard format.  Arbitrary
+    # saved HTML (including small compatibility fixtures) must not be replaced
+    # by a full application document.
+    required = (
+        'function renderAll(', 'function barsLine(', 'id="ch-main"',
+        'id="daily-modal-ov"',
+    )
+    if not all(marker in html for marker in required):
+        return None
+    dataset = _extract_saved_dataset(html)
+    if dataset is None:
+        return None
+
+    # Current JS treats these as empty sources.  Existing financial arrays are
+    # untouched, and no monthly value is made into a daily observation.
+    dataset = dict(dataset)
+    had_daily_temporal = 'daily_temporal' in dataset
+    daily_charts = dataset.get('daily_charts')
+    if isinstance(daily_charts, dict):
+        daily_charts = dict(daily_charts)
+        if not had_daily_temporal:
+            daily_charts['legacy_unknown'] = True
+        dataset['daily_charts'] = daily_charts
+    dataset.setdefault('daily_charts', {'dates': [], 'accounts': {}})
+    dataset.setdefault('daily_temporal', {
+        'dates': [],
+        'available': {},
+        'pl': {},
+        'rev_dir': {},
+        'cash': {},
+        'salary': {},
+    })
+    rendered = template.replace('/*__DATA__*/', json_for_script(dataset), 1)
+    # The current template intentionally has no dependency on a particular
+    # shell header.  Carry forward a generated snapshot's known back link so
+    # iframe navigation remains available after the response-only rebind.
+    back_link = _BACK_LINK_RE.search(html)
+    if back_link and 'class="hd-back"' not in rendered:
+        rendered = rendered.replace(
+            '<body data-mode="exec">',
+            '<body data-mode="exec">\n' + back_link.group(0),
+            1,
+        )
+    return rendered

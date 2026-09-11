@@ -112,6 +112,9 @@ const context = vm.createContext({
 
 vm.runInContext([
     extractFunction('barsLine'),
+    extractFunction('temporalUnavailable'),
+    extractFunction('legacyDailySeries'),
+    extractFunction('dailyLine'),
     extractFunction('dailyBarsPair'),
     extractFunction('renderDailyExec'),
     extractFunction('openDailyModal'),
@@ -148,6 +151,19 @@ assert.equal(overviewRects[0].attributes.fill, '#2e6e8e');
 assert.equal(overviewRects[1].attributes.fill, '#7d97a8');
 assert.equal(overviewRects[2].attributes.fill, '#7d97a8');
 assert.equal(shown.get('daily-70-wrap'), true);
+
+// Sparse balance lines use calendar spacing and a dashed endpoint-to-endpoint
+// bridge.  The missing day must not get a marker or hover title.
+const lineBox = getNode('daily-gap-line');
+context.dailyLine(lineBox, dates, [
+    { n: 'Остаток', c: '#1f7a9c', v: [100, null, 300] },
+]);
+const linePaths = descendants(lineBox, 'path');
+assert.equal(linePaths.length, 1, 'one bridge joins known endpoints');
+assert.equal(linePaths[0].attributes['stroke-dasharray'], '6 4');
+assert.equal(descendants(lineBox, 'circle').length, 2);
+assert.equal(descendants(lineBox, 'title').length, 2,
+    'missing dates do not receive fake hover values');
 
 // Modal visualization: labels and source directions must survive the date slice.
 context.openDailyModal('70');
@@ -188,7 +204,7 @@ Object.assign(context.D, {
         has_cost_items: false,
         has_dz: false,
         has_kz: false,
-        has_cash: false,
+        has_cash: true,
         has_taxes: false,
         has_zp: true,
         has_91: false,
@@ -214,7 +230,14 @@ Object.assign(context.D, {
     rezerv: { created: 0, restored: 0 },
     pretenzii: 0,
     kassa: [],
-    daily_charts: { dates: [], accounts: {} },
+    daily_charts: {
+        dates: ['2026-05-01', '2026-05-02'],
+        accounts: {
+            '51': { obd: [0, 50], obk: [20, 0] },
+            '70': { obd: [333, 444], obk: [111, 222] },
+        },
+        legacy_unknown: true,
+    },
     // Keep these asymmetric so a swapped series cannot pass accidentally.
     zp: { n: [111, 222], v: [333, 444] },
     accounts_loaded: ['70'],
@@ -236,19 +259,29 @@ context.renderItems = () => {};
 context.renderDeps = () => {};
 context.renderDz = () => {};
 context.renderKz = () => {};
+context.table = () => {};
 
 context.renderAll();
 const zpTitles = descendants(getNode('ch-zp'), 'rect').map(rect =>
     rect.children.find(child => child.tagName === 'title').textContent,
 );
 assert.deepEqual(zpTitles, [
-    'Начислено (Кт 70), Май: 111 ₽',
-    'Выплачено и удержано (Дт 70), Май: 333 ₽',
-    'Начислено (Кт 70), Июнь: 222 ₽',
-    'Выплачено и удержано (Дт 70), Июнь: 444 ₽',
+    'Начислено (Кт 70), 2026-05-01: 111 ₽',
+    'Выплачено и удержано (Дт 70), 2026-05-01: 333 ₽',
+    'Начислено (Кт 70), 2026-05-02: 222 ₽',
+    'Выплачено и удержано (Дт 70), 2026-05-02: 444 ₽',
 ]);
 assert.match(getNode('lg-zp').innerHTML, /Начислено/);
 assert.match(getNode('lg-zp').innerHTML, /Выплачено и удержано/);
+assert.match(getNode('note-zp').textContent, /старый снимок/);
+assert.deepEqual(
+    descendants(getNode('ch-cash'), 'rect')
+        .map(rect => rect.children.find(child => child.tagName === 'title').textContent),
+    [
+        'Ушло со счета, 2026-05-01: 20 ₽',
+        'Пришло на счет, 2026-05-02: 50 ₽',
+    ],
+);
 
 console.log('PASS: daily 70 overview and modal preserve ОбД70/ОбК70 directions, gaps, and inference note');
 console.log('PASS: main legacy render preserves distinct zp.n accrual and zp.v payment series');
