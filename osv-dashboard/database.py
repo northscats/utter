@@ -88,6 +88,9 @@ class User(UserMixin, db.Model):
     company_memberships = db.relationship(
         'CompanyMembership', backref='user', lazy=True,
         cascade='all, delete-orphan')
+    metric_layouts = db.relationship(
+        'MetricLayout', backref='user', lazy=True,
+        cascade='all, delete-orphan')
 
     def has_module_access(self, module_key):
         """Администратор видит весь живой реестр; пользователь — назначения."""
@@ -197,6 +200,9 @@ class Company(db.Model):
         cascade='all, delete-orphan', passive_deletes=True)
     cost_analytic_mappings = db.relationship(
         'CostAnalyticMapping', backref='company', lazy=True,
+        cascade='all, delete-orphan', passive_deletes=True)
+    metric_layouts = db.relationship(
+        'MetricLayout', backref='company', lazy=True,
         cascade='all, delete-orphan', passive_deletes=True)
 
     @property
@@ -453,6 +459,43 @@ class RatingProfile(db.Model):
             return json.loads(self.config_json)
         except (TypeError, ValueError):
             return {}
+
+
+class MetricLayout(db.Model):
+    """Пользовательское размещение частей модального показателя.
+
+    This is deliberately separate from calculated data and from company-wide
+    settings: a layout belongs to one authenticated user, one company, one
+    screen mode, and one metric. ``revision`` is the optimistic-lock counter
+    used by the layout API.
+    """
+    __tablename__ = 'metric_layouts'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'user_id', 'company_id', 'mode', 'metric_id',
+            name='uq_metric_layout_user_company_mode_metric'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    mode = db.Column(db.String(16), nullable=False, index=True)
+    metric_id = db.Column(db.String(128), nullable=False, index=True)
+    layout_json = db.Column(db.Text, nullable=False, default='{}')
+    revision = db.Column(db.Integer, nullable=False, default=1)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
+
+
+# Descriptive alias for callers that refer to the record as a preference.
+# Both names identify the same mapped table; no second schema object exists.
+MetricLayoutPreference = MetricLayout
 
 
 # ---------------------------------------------------------------------------

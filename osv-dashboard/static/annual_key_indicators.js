@@ -9,7 +9,8 @@
         rangeStart: null,
         rangeEnd: null,
         data: null,
-        reqId: 0
+        reqId: 0,
+        chartJob: null
     };
 
     let abortController = null;
@@ -62,6 +63,7 @@
         deactivate() {
             state.active = false;
             state.reqId++;
+            state.chartJob = null;
             if (abortController) abortController.abort();
         },
 
@@ -87,7 +89,7 @@
                 state.selectionStart = null;
                 state.year = state.rangeEnd;
             }
-            
+
             const url = new URL(window.location);
             url.searchParams.set('year', year);
             if (state.rangeStart !== null && state.rangeEnd !== null) {
@@ -438,6 +440,7 @@
             
             const chCont = document.getElementById('ki-modal-chart-container');
             const chTitle = document.getElementById('ki-modal-chart-title');
+            state.chartJob = null;
             const selectedYears = this.selectedTimelineYears();
             if (card.series && card.series.length > 0 && selectedYears.length > 0) {
                 chTitle.style.display = 'block';
@@ -451,6 +454,11 @@
             document.getElementById('ki-modal-details-title').style.display = 'none';
             document.getElementById('ki-modal-details-container').style.display = 'none';
             
+            if (window.KI_Layout) {
+                const activeContainer = document.getElementById('ki-generic-modal-content');
+                window.KI_Layout.onModalOpen(cardId, activeContainer, 'annual');
+            }
+
             const modal = document.getElementById('ki-modal');
             modal.style.visibility = 'visible';
             modal.classList.add('visible');
@@ -464,6 +472,13 @@
 
         renderModalChart(series, timeline_years, unit, containerId) {
             const container = document.getElementById(containerId);
+            if (!container) return;
+            state.chartJob = {
+                series: series.slice(),
+                timelineYears: timeline_years.slice(),
+                unit,
+                containerId
+            };
             
             const dataMap = new Map();
             series.forEach(s => dataMap.set(s.year, s));
@@ -551,6 +566,27 @@
             
             svg += '</svg>';
             container.innerHTML = svg;
+        },
+
+        rerenderVisibleCharts() {
+            const job = state.chartJob;
+            if (!job) return;
+            const container = document.getElementById(job.containerId);
+            if (!container || !this.isVisibleElement(container)) return;
+            this.renderModalChart(job.series, job.timelineYears, job.unit, job.containerId);
+        },
+
+        clearChartJobs() {
+            state.chartJob = null;
+        },
+
+        isVisibleElement(element) {
+            let current = element;
+            while (current) {
+                if (current.hidden || (current.style && current.style.display === 'none')) return false;
+                current = current.parentElement;
+            }
+            return true;
         }
     };
 

@@ -23,6 +23,7 @@ from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import and_, func, or_
+from sqlalchemy.exc import IntegrityError
 
 from jobs import create_job, get_job, finish_job, fail_job
 
@@ -37,6 +38,7 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
                        CostAnalyticMapping,
+                       MetricLayout,
                        Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, db, utcnow)
@@ -50,6 +52,9 @@ from module_registry import (module_key_for_path, registered_modules,
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
 from dashboard_compat import upgrade_legacy_salary_daily_labels
+from metric_layouts import (
+    LayoutValidationError, validate_layout_payload, validate_mode_metric,
+)
 
 # ---------------------------------------------------------------------------
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -2401,7 +2406,7 @@ def company_upload_all(company_id):
 @app.route('/company/<int:company_id>/key-indicators')
 @login_required
 def key_indicators_page(company_id):
-    company = db.session.get(Company, company_id) or abort(404)
+    company = _require_company_access(company_id)
     legacy_file = os.path.join(OUTPUT, str(company_id), 'dashboard_current.html')
     return render_template(
         'key_indicators.html', company=company,
@@ -2424,7 +2429,7 @@ def key_indicators_data(company_id):
     from key_indicators_service import (
         SourceBusyError, SourceReadError, load_company_source,
     )
-    company = db.session.get(Company, company_id) or abort(404)
+    company = _require_company_access(company_id)
     period = request.args.get('period', 'month')
     date = request.args.get('date') or None
     date_from = request.args.get('date_from') or None
@@ -2480,6 +2485,118 @@ def key_indicators_data(company_id):
     response = jsonify(payload)
     response.headers['Cache-Control'] = 'private, no-store'
     return response
+
+
+def _metric_layout_response(payload, status=200):
+    """JSON response for a layout request, never reusable by a cache."""
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'no-store'
+    return response, status
+
+
+@app.route(
+    '/company/<int:company_id>/key-indicators/layout/<mode>/<metric_id>',
+    methods=['GET', 'PUT'])
+@login_required
+def metric_layout(company_id, mode, metric_id):
+    """Read or update one user's layout for one key-indicator modal."""
+    _require_company_access(company_id)
+    try:
+        validate_mode_metric(mode, metric_id)
+    except LayoutValidationError as exc:
+        return _metric_layout_response({'error': str(exc)}, 400)
+
+    query = MetricLayout.query.filter_by(
+        user_id=current_user.id,
+        company_id=company_id,
+        mode=mode,
+        metric_id=metric_id,
+    )
+    if request.method == 'GET':
+        row = query.one_or_none()
+        if row is None:
+            return _metric_layout_response({
+                'layout': {'version': 1, 'items': {}},
+                'revision': 0,
+            })
+        try:
+            layout = json.loads(row.layout_json)
+        except (TypeError, ValueError):
+            # Do not silently turn a corrupt persisted preference into a
+            # different preference.
+            return _metric_layout_response(
+                {'error': 'Сохранённая раскладка повреждена'}, 500)
+        return _metric_layout_response({
+            'layout': layout,
+            'revision': row.revision,
+        })
+
+    if not request.is_json:
+        return _metric_layout_response(
+            {'error': 'Тело запроса должно быть JSON-объектом'}, 400)
+    payload = request.get_json(silent=True)
+    try:
+        normalized = validate_layout_payload(payload)
+    except LayoutValidationError as exc:
+        return _metric_layout_response({'error': str(exc)}, 400)
+
+    # PostgreSQL honours FOR UPDATE. The conditional UPDATE below also makes
+    # the revision check atomic on SQLite, where FOR UPDATE is ignored.
+    row = query.with_for_update().one_or_none()
+    expected_revision = normalized['revision']
+    new_revision = 1
+    if row is None:
+        if expected_revision != 0:
+            return _metric_layout_response(
+                {'error': 'Конфликт revision: раскладка уже изменена'}, 409)
+        row = MetricLayout(
+            user_id=current_user.id,
+            company_id=company_id,
+            mode=mode,
+            metric_id=metric_id,
+            layout_json=json.dumps(
+                normalized['layout'], ensure_ascii=False, separators=(',', ':')),
+            revision=1,
+        )
+        db.session.add(row)
+    else:
+        if row.revision != expected_revision:
+            return _metric_layout_response(
+                {'error': 'Конфликт revision: раскладка уже изменена'}, 409)
+        new_revision = expected_revision + 1
+        changed = db.session.execute(
+            MetricLayout.__table__.update().where(
+                MetricLayout.id == row.id,
+                MetricLayout.revision == expected_revision,
+            ).values(
+                layout_json=json.dumps(
+                    normalized['layout'], ensure_ascii=False,
+                    separators=(',', ':')),
+                revision=new_revision,
+                updated_at=utcnow(),
+            )
+        ).rowcount
+        if changed != 1:
+            db.session.rollback()
+            return _metric_layout_response(
+                {'error': 'Конфликт revision: раскладка уже изменена'}, 409)
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # A concurrent first insert can win the unique key between the
+        # lookup and commit. Never report success or overwrite that row.
+        db.session.rollback()
+        current = query.one_or_none()
+        if current is not None:
+            return _metric_layout_response(
+                {'error': 'Конфликт revision: раскладка уже изменена'}, 409)
+        raise
+
+    return _metric_layout_response({
+        'layout': normalized['layout'],
+        'revision': new_revision,
+    })
 
 
 @app.route('/company/<int:company_id>/key-indicators/revenue-mappings',
@@ -3839,6 +3956,7 @@ def _delete_company_records(company):
         CompanyOkved,
         CompanyLicense,
         CompanyFinance,
+        MetricLayout,
     )
     for model in dependent_models:
         deleted_counts[model.__tablename__] = model.query.filter_by(

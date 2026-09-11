@@ -10,7 +10,8 @@
         quarterAnchor: null,
         data: null,
         lastFocused: null,
-        reqId: 0
+        reqId: 0,
+        chartJobs: {}
     };
     
     const svgIcon = (path) => `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="${path}"/></svg>`;
@@ -39,6 +40,39 @@
 
     const App = {
         state: state,
+        scheduleChart(containerId, renderer, delay = 50) {
+            state.chartJobs[containerId] = renderer;
+            if (typeof setTimeout !== 'function') {
+                renderer();
+                return;
+            }
+            setTimeout(() => {
+                if (state.chartJobs[containerId] === renderer) renderer();
+            }, delay);
+        },
+
+        rerenderVisibleCharts() {
+            Object.keys(state.chartJobs).forEach(containerId => {
+                const container = document.getElementById(containerId);
+                if (container && this.isVisibleElement(container)) {
+                    state.chartJobs[containerId]();
+                }
+            });
+        },
+
+        clearChartJobs() {
+            state.chartJobs = {};
+        },
+
+        isVisibleElement(element) {
+            let current = element;
+            while (current) {
+                if (current.hidden || (current.style && current.style.display === 'none')) return false;
+                current = current.parentElement;
+            }
+            return true;
+        },
+
         init() {
             const urlParams = new URLSearchParams(window.location.search);
             const initialMode = urlParams.get('mode') || 'operational';
@@ -96,7 +130,7 @@
                 document.getElementById('ki-operational-container').style.display = 'none';
                 document.getElementById('ki-annual-container').style.display = 'block';
                 document.getElementById('ki-error').style.display = 'none';
-                this.closeModal();
+                this.closeModal(true);
                 this.hideLoading();
                 if (window.KI_AnnualApp) window.KI_AnnualApp.activate();
             } else {
@@ -110,7 +144,7 @@
                 document.getElementById('ki-operational-container').style.display = 'block';
                 document.getElementById('ki-annual-container').style.display = 'none';
                 document.getElementById('ki-error').style.display = 'none';
-                this.closeModal();
+                this.closeModal(true);
                 this.fetchData();
             }
         },
@@ -146,7 +180,9 @@
                     e.stopPropagation();
                     App.closeModal();
                 } else if (e.key === 'Tab') {
-                    const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+                    const focusable = Array.from(modal.querySelectorAll(
+                        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                    )).filter(element => App.isVisibleElement(element) && !element.disabled);
                     if(focusable.length === 0) return;
                     const first = focusable[0];
                     const last = focusable[focusable.length - 1];
@@ -378,7 +414,7 @@
             if (state.data.quality && state.data.quality.warnings) {
                 state.data.quality.warnings.forEach(w => warnings.add(w));
             }
-            
+
             if (warnings.size === 0) {
                 c.style.display = 'none';
                 return;
@@ -1094,6 +1130,8 @@
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#10B981"></i>Выручка общая</span></div>
                 <div class="cash-line-chart revenue-line-chart" id="ki-revenue-line-chart"></div>`;
             this.renderRevenueLineChart(card);
+            this.scheduleChart('ki-revenue-line-chart',
+                () => this.renderRevenueLineChart(card), 0);
         },
 
         renderRevenueMappingEditor(analytics, definitions) {
@@ -1415,7 +1453,7 @@
                     ${this.cashMetricCard('Субсидии и компенсации', 'Нужны данные', 'отдельный регистр поступлений', this.collectionTooltip({title:'Собираемость субсидий и компенсаций', required: required.subsidy}), true)}
                 </div>`;
 
-            setTimeout(() => {
+            this.scheduleChart('ki-collection-turnover-chart', () => {
                 this.renderBarChart(card.turnover_series || [], '%', 'ki-collection-turnover-chart', {
                     id: 'collection',
                     title: 'Соотношение оборотов счёта 62',
@@ -1424,7 +1462,9 @@
                     reason: 'Показатель не является фактической собираемостью'
                 });
                 this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard);
-            }, 50);
+            });
+            this.scheduleChart('ki-collection-ar-chart', () =>
+                this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard), 0);
         },
 
         arRequirements() {
@@ -1612,7 +1652,7 @@
                     ${this.cashMetricCard('ДЗ по сегментам', 'Нужны данные', 'категории должников', this.arTooltip({title:'ДЗ по сегментам потребителей', required: required.segments}), true)}
                     ${this.cashMetricCard('ДЗ по субсидиям', 'Нужны данные', 'отдельный регистр компенсаций', subsidyTip, true)}
                 </div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-ar-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-ar-line-chart', card), 50);
         },
 
@@ -1914,7 +1954,7 @@
                     <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Срочность</th><th>Риск неоплаты</th><th>Приоритет</th></tr></thead>
                     <tbody>${priorityRows}</tbody>
                 </table></div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-ap-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-ap-line-chart', card), 50);
         },
 
@@ -2280,7 +2320,7 @@
                 </table></div>
                 <div class="modal-section-title">Дополнительные тарифные показатели</div>
                 <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-cogs-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-cogs-line-chart', card), 50);
         },
 
@@ -2506,7 +2546,7 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid profit-missing-grid">${unavailable}</div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-profit-line-chart', () => this.renderBarChart(
                 card.gross_series || [], 'RUB', 'ki-profit-line-chart',
                 Object.assign({}, card, {title: 'Валовая прибыль'})), 50);
         },
@@ -2694,7 +2734,7 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие договорных данных 1С</div>
                 <div class="revenue-missing-grid credits-missing-grid">${unavailable}</div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-credits-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-credits-line-chart', card), 50);
         },
 
@@ -2911,7 +2951,7 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid salary-missing-grid">${unavailable}</div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-salary-line-chart', () => this.renderBarChart(
                 card.accrual_series || [], 'RUB', 'ki-salary-line-chart',
                 {
                     id: 'salary-credit-turnover',
@@ -3132,7 +3172,7 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
-            setTimeout(() => this.renderBarChart(
+            this.scheduleChart('ki-capex-line-chart', () => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-capex-line-chart',
                 Object.assign({}, card, {title: 'Формирование капитальных вложений'})), 50);
         },
@@ -3334,6 +3374,8 @@
                 <div class="cash-summary-sub">При смене состава счетов или пропуске данных линия прерывается, изменение не рассчитывается. Частичные остатки сравниваются только при одинаковом охвате. Даты и счета — в подсказках точек.</div>
                 <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
             this.renderCashLineChart(card.series || []);
+            this.scheduleChart('ki-cash-line-chart',
+                () => this.renderCashLineChart(card.series || []), 0);
         },
 
         renderCashLineChart(series) {
@@ -3660,13 +3702,25 @@
             if (card.series && card.series.length > 0) {
                 chTitle.style.display = 'block';
                 chCont.style.display = 'block';
-                setTimeout(() => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container', card), 50);
+                this.scheduleChart('ki-modal-chart-container',
+                    () => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container', card), 50);
             } else {
                 chTitle.style.display = 'none';
                 chCont.style.display = 'none';
             }
             }
             
+            if (window.KI_Layout) {
+                const activeContainer = [
+                    cashContent, revenueContent, collectionContent, arContent,
+                    apContent, cogsContent, profitContent, creditsContent,
+                    salaryContent, capexContent, genericContent
+                ].find(el => el.style.display === 'block');
+                if (activeContainer) {
+                    window.KI_Layout.onModalOpen(cardId, activeContainer, 'osv');
+                }
+            }
+
             const overlay = document.getElementById('ki-modal');
             overlay.style.visibility = 'visible';
             overlay.setAttribute('aria-hidden', 'false');
@@ -3678,7 +3732,19 @@
             });
         },
         
-        closeModal() {
+        closeModal(force = false) {
+            if (window.KI_Layout) {
+                if (typeof window.KI_Layout.canClose === 'function' &&
+                    !window.KI_Layout.canClose() && !force) {
+                    return;
+                }
+                if (!force && window.KI_Layout.isDirty()) {
+                    if (!confirm('Есть несохраненные изменения раскладки. Закрыть и потерять изменения?')) {
+                        return;
+                    }
+                }
+                window.KI_Layout.onModalClose(force);
+            }
             const overlay = document.getElementById('ki-modal');
             overlay.classList.remove('visible');
             overlay.style.visibility = 'hidden';
