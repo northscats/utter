@@ -10,6 +10,10 @@
         quarterAnchor: null,
         data: null,
         lastFocused: null,
+        modalCardId: null,
+        pendingModalCardId: null,
+        companySwitchToken: 0,
+        companySwitching: false,
         reqId: 0,
         chartJobs: {}
     };
@@ -119,8 +123,208 @@
         },
 
         updateModalSubtitle() {
+            const label = state.mode === 'annual' && window.KI_AnnualApp &&
+                typeof window.KI_AnnualApp.displayedPeriodLabel === 'function' ?
+                window.KI_AnnualApp.displayedPeriodLabel() : this.displayedPeriodLabel();
+            const source = state.mode === 'annual' ? 'Отчета' : 'ОСВ';
             document.getElementById('ki-modal-subtitle').textContent =
-                `Детализация по данным ОСВ · ${this.displayedPeriodLabel()}`;
+                `Детализация по данным ${source} · ${label}`;
+        },
+
+        isModalOpen() {
+            const modal = document.getElementById('ki-modal');
+            return !!(modal && modal.classList.contains('visible'));
+        },
+
+        normalizeCompanyConfig(next) {
+            if (!next || typeof next !== 'object') {
+                throw new Error('Сервер не передал данные предприятия.');
+            }
+            const companyId = Number(next.companyId);
+            if (!Number.isInteger(companyId) || companyId <= 0 ||
+                !String(next.companyName || '').trim()) {
+                throw new Error('Сервер передал некорректные данные предприятия.');
+            }
+            const required = [
+                'pageUrl', 'dataUrl', 'annualDataUrl', 'mappingsUrl',
+                'costMappingsUrl', 'debtorMappingsUrl'
+            ];
+            const source = Object.assign({}, next, {
+                layoutBaseURL: next.layoutBaseURL || next.layoutBaseUrl
+            });
+            if (!source.layoutBaseURL) {
+                throw new Error('Сервер не передал полный набор адресов показателей.');
+            }
+            required.push('layoutBaseURL');
+            const urls = {};
+            required.forEach(name => {
+                if (typeof source[name] !== 'string' || !source[name]) {
+                    throw new Error('Сервер не передал полный набор адресов показателей.');
+                }
+                let parsed;
+                try {
+                    parsed = new URL(source[name], window.location.origin);
+                } catch (error) {
+                    throw new Error('Сервер передал некорректный адрес показателей.');
+                }
+                if (parsed.origin !== window.location.origin ||
+                    !parsed.pathname.includes(`/company/${companyId}/`)) {
+                    throw new Error('Адрес показателей не относится к выбранному предприятию.');
+                }
+                urls[name] = parsed.href;
+            });
+            return Object.assign({}, source, urls, {companyId});
+        },
+
+        updateFrameUrl(next) {
+            if (!next.pageUrl || !window.history || !window.location) return;
+            try {
+                const current = new URL(window.location.href);
+                const page = new URL(next.pageUrl, window.location.origin);
+                current.searchParams.forEach((value, key) => page.searchParams.set(key, value));
+                if (config.embedded) page.searchParams.set('embedded', '1');
+                window.history.replaceState({}, '', page.pathname + page.search);
+            } catch (error) {
+                // The server-generated page URL is still used for API requests.
+                // A test or an older embedded host may not expose history.
+            }
+        },
+
+        showModalSwitchStatus(message, isError = false) {
+            const status = document.getElementById('ki-modal-switch-status');
+            [
+                'ki-cash-modal-content', 'ki-revenue-modal-content',
+                'ki-collection-modal-content', 'ki-ar-modal-content',
+                'ki-ap-modal-content', 'ki-cogs-modal-content',
+                'ki-profit-modal-content', 'ki-credits-modal-content',
+                'ki-salary-modal-content', 'ki-capex-modal-content',
+                'ki-generic-modal-content'
+            ].forEach(id => {
+                const node = document.getElementById(id);
+                if (node) node.style.display = 'none';
+            });
+            if (!status) return;
+            status.textContent = message;
+            status.classList.toggle('is-error', !!isError);
+            status.style.display = 'flex';
+        },
+
+        hideModalSwitchStatus() {
+            const status = document.getElementById('ki-modal-switch-status');
+            if (!status) return;
+            status.style.display = 'none';
+            status.classList.remove('is-error');
+            status.textContent = '';
+        },
+
+        finishCompanySwitch(token) {
+            if (!state.companySwitching || token !== state.companySwitchToken) return;
+            state.companySwitching = false;
+            this.hideLoading();
+            const cardId = state.pendingModalCardId;
+            if (!cardId) return;
+            const sourceData = state.mode === 'annual' && window.KI_AnnualApp &&
+                window.KI_AnnualApp.state ? window.KI_AnnualApp.state.data : state.data;
+            const cards = sourceData && Array.isArray(sourceData.cards) ? sourceData.cards : [];
+            const annualYearFallback = state.mode === 'annual' && window.KI_AnnualApp &&
+                typeof window.KI_AnnualApp.consumeCompanySwitchYearFallback === 'function' ?
+                window.KI_AnnualApp.consumeCompanySwitchYearFallback() : null;
+            if (cards.some(card => card.id === cardId)) {
+                state.pendingModalCardId = null;
+                if (state.mode === 'annual' && window.KI_AnnualApp) {
+                    window.KI_AnnualApp.openModal(cardId);
+                } else {
+                    this.openModal(cardId);
+                }
+                if (annualYearFallback) {
+                    document.getElementById('ki-modal-subtitle').textContent =
+                        `Предприятие «${config.companyName}»: год ${annualYearFallback.requestedYear} отсутствует, показан ${annualYearFallback.actualYear}.`;
+                }
+            } else {
+                state.modalCardId = cardId;
+                const unavailableYear = annualYearFallback ?
+                    `Год ${annualYearFallback.requestedYear} отсутствует, показан ${annualYearFallback.actualYear}.\n` : '';
+                this.showModalSwitchStatus(
+                    `${unavailableYear}Показатель «${cardId}» недоступен для предприятия «${config.companyName}».`,
+                    true
+                );
+                document.getElementById('ki-modal-title').textContent =
+                    'Показатель недоступен';
+                this.updateModalSubtitle();
+            }
+        },
+
+        showCompanySwitchError(token, message) {
+            if (!state.companySwitching || token !== state.companySwitchToken) return;
+            state.companySwitching = false;
+            if (!state.modalCardId && state.pendingModalCardId) {
+                state.modalCardId = state.pendingModalCardId;
+            }
+            this.showModalSwitchStatus(
+                `Не удалось загрузить данные предприятия «${config.companyName}».\n${message}`,
+                true
+            );
+            document.getElementById('ki-modal-title').textContent = 'Ошибка загрузки';
+            this.updateModalSubtitle();
+        },
+
+        switchCompany(next) {
+            let normalized;
+            try {
+                normalized = this.normalizeCompanyConfig(next);
+            } catch (error) {
+                this.showModalSwitchStatus(error.message, true);
+                return false;
+            }
+            if (!this.isModalOpen()) return false;
+            if (window.KI_Layout && typeof window.KI_Layout.prepareCompanySwitch === 'function') {
+                if (window.KI_Layout.prepareCompanySwitch() === false) return false;
+            } else if (window.KI_Layout &&
+                typeof window.KI_Layout.isDirty === 'function' &&
+                window.KI_Layout.isDirty()) {
+                if (typeof confirm !== 'function' ||
+                    !confirm('Есть несохраненные изменения раскладки. Переключить предприятие и потерять изменения?')) {
+                    return false;
+                }
+            }
+
+            const modalCardId = state.modalCardId || state.pendingModalCardId ||
+                (window.KI_AnnualApp && window.KI_AnnualApp.state &&
+                    window.KI_AnnualApp.state.modalCardId);
+            if (window.KI_Layout &&
+                typeof window.KI_Layout.prepareCompanySwitch !== 'function' &&
+                typeof window.KI_Layout.onModalClose === 'function') {
+                // Force-reset before replacing config.  This invalidates layout
+                // GET/PUT tokens and prevents an old draft from being written
+                // with the new tenant's URL.
+                window.KI_Layout.onModalClose(true);
+            }
+            state.companySwitchToken += 1;
+            const token = state.companySwitchToken;
+            state.companySwitching = true;
+            state.pendingModalCardId = modalCardId || null;
+            state.data = null;
+            state.modalCardId = null;
+            this.clearChartJobs();
+            Object.assign(config, normalized, {
+                layoutBaseUrl: normalized.layoutBaseURL,
+                layoutUrlTemplate: normalized.layoutBaseURL
+            });
+            this.updateFrameUrl(normalized);
+            if (abortController) abortController.abort();
+            state.reqId += 1;
+            document.getElementById('ki-modal-title').textContent = 'Загрузка данных';
+            document.getElementById('ki-modal-subtitle').textContent =
+                `${config.companyName} · данные загружаются`;
+            this.showModalSwitchStatus(`Загрузка данных предприятия «${config.companyName}»…`);
+
+            if (state.mode === 'annual' && window.KI_AnnualApp &&
+                typeof window.KI_AnnualApp.switchCompany === 'function') {
+                window.KI_AnnualApp.switchCompany(normalized, token);
+            } else {
+                this.fetchData();
+            }
+            return true;
         },
         scheduleChart(containerId, renderer, delay = 50) {
             state.chartJobs[containerId] = renderer;
@@ -362,6 +566,7 @@
             if (abortController) abortController.abort();
             abortController = new AbortController();
             const reqId = ++state.reqId;
+            const companySwitchToken = state.companySwitchToken;
             
             try {
                 if (!config || !config.dataUrl) throw new Error('Не настроен адрес источника показателей.');
@@ -394,7 +599,8 @@
                     throw new Error(data.error || data.message || `Ошибка сервера: ${response.status}`);
                 }
                 
-                if (reqId !== state.reqId) return;
+                if (reqId !== state.reqId ||
+                    companySwitchToken !== state.companySwitchToken) return;
                 
                 state.data = data;
                 if (data.period) {
@@ -404,12 +610,20 @@
                 }
                 
                 this.render();
+                this.finishCompanySwitch(companySwitchToken);
             } catch (e) {
-                if (reqId !== state.reqId || e.name === 'AbortError') return;
+                if (reqId !== state.reqId ||
+                    companySwitchToken !== state.companySwitchToken ||
+                    e.name === 'AbortError') return;
+                if (state.companySwitching) {
+                    this.showCompanySwitchError(companySwitchToken, e.message);
+                    return;
+                }
                 document.getElementById('ki-error-text').textContent = e.message;
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {
-                if (reqId === state.reqId) this.hideLoading();
+                if (reqId === state.reqId &&
+                    companySwitchToken === state.companySwitchToken) this.hideLoading();
             }
         },
         
@@ -1265,6 +1479,8 @@
         },
 
         async saveRevenueMappings() {
+            const companySwitchToken = state.companySwitchToken;
+            const mappingsUrl = config.mappingsUrl;
             const status = document.getElementById('revenue-mapping-status');
             const mappings = Array.from(document.querySelectorAll('.revenue-mapping-select'))
                 .map(select => ({
@@ -1275,7 +1491,7 @@
                 }));
             status.textContent = 'Сохранение...';
             try {
-                const response = await fetch(config.mappingsUrl, {
+                const response = await fetch(mappingsUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
@@ -1285,12 +1501,15 @@
                     body: JSON.stringify({mappings})
                 });
                 const payload = await response.json();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
                 status.textContent = 'Сохранено';
                 this.closeModal();
                 await this.fetchData();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 this.openModal('revenue');
             } catch (error) {
+                if (companySwitchToken !== state.companySwitchToken) return;
                 status.textContent = error.message;
             }
         },
@@ -1845,6 +2064,8 @@
         },
 
         async saveDebtorMappings() {
+            const companySwitchToken = state.companySwitchToken;
+            const mappingsUrl = config.debtorMappingsUrl;
             const status = document.getElementById('debtor-mapping-status');
             const period = state.data.period || {};
             const mappings = Array.from(document.querySelectorAll('.debtor-mapping-select'))
@@ -1859,7 +2080,7 @@
                 }));
             status.textContent = 'Сохранение...';
             try {
-                const response = await fetch(config.debtorMappingsUrl, {
+                const response = await fetch(mappingsUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
@@ -1869,12 +2090,15 @@
                     body: JSON.stringify({mappings})
                 });
                 const payload = await response.json();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
                 status.textContent = 'Сохранено';
                 this.closeModal();
                 await this.fetchData();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 this.openModal('ar');
             } catch (error) {
+                if (companySwitchToken !== state.companySwitchToken) return;
                 status.textContent = error.message;
             }
         },
@@ -2262,6 +2486,8 @@
         },
 
         async saveCostMappings() {
+            const companySwitchToken = state.companySwitchToken;
+            const mappingsUrl = config.costMappingsUrl;
             const status = document.getElementById('cost-mapping-status');
             const mappings = Array.from(document.querySelectorAll('.cost-mapping-category'))
                 .map(select => {
@@ -2278,7 +2504,7 @@
                 });
             status.textContent = 'Сохранение...';
             try {
-                const response = await fetch(config.costMappingsUrl, {
+                const response = await fetch(mappingsUrl, {
                     method: 'POST',
                     headers: {
                         'Accept': 'application/json',
@@ -2288,12 +2514,15 @@
                     body: JSON.stringify({mappings})
                 });
                 const payload = await response.json();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
                 status.textContent = 'Сохранено';
                 this.closeModal();
                 await this.fetchData();
+                if (companySwitchToken !== state.companySwitchToken) return;
                 this.openModal('cogs');
             } catch (error) {
+                if (companySwitchToken !== state.companySwitchToken) return;
                 status.textContent = error.message;
             }
         },
@@ -3723,8 +3952,12 @@
         },
 
         openModal(cardId) {
-            const card = state.data.cards.find(c => c.id === cardId);
+            const card = state.data && Array.isArray(state.data.cards) ?
+                state.data.cards.find(c => c.id === cardId) : null;
             if (!card) return;
+
+            state.modalCardId = cardId;
+            this.hideModalSwitchStatus();
             
             state.lastFocused = document.activeElement;
             
@@ -3984,10 +4217,19 @@
                 }
                 window.KI_Layout.onModalClose(force);
             }
+            // A close during an in-place switch stops modal reopening, but
+            // deliberately leaves the current-company data request running.
+            state.companySwitching = false;
             const overlay = document.getElementById('ki-modal');
             overlay.classList.remove('visible');
             overlay.style.visibility = 'hidden';
             overlay.setAttribute('aria-hidden', 'true');
+            state.modalCardId = null;
+            state.pendingModalCardId = null;
+            if (window.KI_AnnualApp && window.KI_AnnualApp.state) {
+                window.KI_AnnualApp.state.modalCardId = null;
+            }
+            this.hideModalSwitchStatus();
             if (state.lastFocused) state.lastFocused.focus();
         },
         
@@ -4102,5 +4344,13 @@
     };
 
     window.KI_App = App;
+    if (typeof window.addEventListener === 'function') {
+        window.addEventListener('message', event => {
+            if (!event || event.origin !== window.location.origin ||
+                event.source !== window.parent || !event.data ||
+                event.data.type !== 'ki-company-switch') return;
+            App.switchCompany(event.data.company);
+        });
+    }
     document.addEventListener('DOMContentLoaded', () => App.init());
 })();

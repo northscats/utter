@@ -355,6 +355,18 @@ body.splitter-dragging iframe{pointer-events:none}
              data-inn="{{ c.inn|lower }}"
              data-dash="{{ dash_url }}"
              data-indicators="{{ url_for('key_indicators_page', company_id=c.id) }}"
+             data-ki-config="{{ {
+                'companyId': c.id,
+                'companyName': c.name,
+                'pageUrl': url_for('key_indicators_page', company_id=c.id),
+                'dataUrl': url_for('key_indicators_data', company_id=c.id),
+                'annualDataUrl': url_for('annual_key_indicators_data', company_id=c.id),
+                'mappingsUrl': url_for('key_indicator_revenue_mappings', company_id=c.id),
+                'costMappingsUrl': url_for('key_indicator_cost_mappings', company_id=c.id),
+                'debtorMappingsUrl': url_for('key_indicator_debtor_mappings', company_id=c.id),
+                'layoutBaseURL': url_for('metric_layout', company_id=c.id, mode='__MODE__', metric_id='__METRIC__'),
+                'historicalImportUrl': url_for('company_detail', company_id=c.id, _anchor='historical-analytics')
+              } | tojson | forceescape }}"
              data-has-dash="{{ '1' if c.has_dashboard else '0' }}"
              data-detail="{{ url_for('company_detail', company_id=c.id) }}"
              {% if historical_expert_enabled %}
@@ -704,6 +716,50 @@ function filterAll() {
   });
 }
 
+function keyIndicatorsConfigFor(el) {
+  if (!el) return null;
+  var raw = el.getAttribute ? el.getAttribute('data-ki-config') :
+    (el.dataset && el.dataset.kiConfig);
+  if (!raw) return null;
+  try {
+    var config = JSON.parse(raw);
+    return config && typeof config === 'object' ? config : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function trySwitchOpenIndicatorsCompany(el) {
+  if (currentNavView !== 'cards') return null;
+  var iframe = document.getElementById('sl-iframe');
+  if (!iframe || !iframe.contentWindow) return null;
+  var child = iframe.contentWindow.KI_App;
+  if (!child || typeof child.isModalOpen !== 'function' ||
+      !child.isModalOpen() || typeof child.switchCompany !== 'function') {
+    return null;
+  }
+  // A direct method call is only made on the same-origin indicators frame.
+  // Cross-origin frames are left to the existing reload path.
+  try {
+    if (iframe.contentWindow.location &&
+        iframe.contentWindow.location.origin &&
+        iframe.contentWindow.location.origin !== location.origin) return null;
+    var frameUrl = new URL(iframe.contentWindow.location.href);
+    keyIndicatorsMode = frameUrl.searchParams.get('mode') === 'annual' ? 'annual' : 'osv';
+  } catch (e) {
+    return null;
+  }
+  var config = keyIndicatorsConfigFor(el);
+  if (!config) return null;
+  try {
+    return child.switchCompany(config) === false ? false : true;
+  } catch (e) {
+    // Do not fall back to a reload after an in-place switch has started:
+    // keeping the old selection is safer than silently destroying its dialog.
+    return false;
+  }
+}
+
 /* ══════════════════════════════
    COMPANY SELECTION
 ══════════════════════════════ */
@@ -712,6 +768,13 @@ function selectCompany(el) {
     toggleComparisonCompany(el);
     return;
   }
+
+  // Основные показатели are kept in-place while a metric dialog is open.
+  // The child validates the server-generated URL bundle and returns false
+  // when an unsaved layout draft must be kept.
+  var indicatorSwitch = trySwitchOpenIndicatorsCompany(el);
+  if (indicatorSwitch === false) return;
+
   currentCompanyId = el.dataset.id;
   document.querySelectorAll('.sl-item.active').forEach(function(x){ x.classList.remove('active'); });
   el.classList.add('active');
@@ -727,9 +790,15 @@ function selectCompany(el) {
   var inn = el.dataset.innDisplay;
   document.getElementById('sl-topbar-inn').textContent = inn ? 'ИНН ' + inn : '';
   document.getElementById('sl-detail-btn').href = el.dataset.detail;
+  if (indicatorSwitch === true) {
+    var openIndicators = el.dataset.indicators +
+      (keyIndicatorsMode === 'annual' ? '?mode=annual' : '');
+    var openButton = document.getElementById('sl-open-btn');
+    if (openButton) openButton.href = openIndicators;
+  }
 
   // Re-render current nav view
-  renderNavView(currentNavView);
+  if (indicatorSwitch !== true) renderNavView(currentNavView);
 
 }
 

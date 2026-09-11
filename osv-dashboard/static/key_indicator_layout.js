@@ -142,6 +142,19 @@
             return !!this.state.activeContainer && !this.state.loading && !this.state.saving;
         },
 
+        prepareCompanySwitch: function() {
+            if (!this.state.activeContainer) return true;
+            if (this.isDirty() &&
+                (typeof confirm !== 'function' ||
+                 !confirm('Есть несохраненные изменения раскладки. Переключить предприятие и потерять изменения?'))) {
+                return false;
+            }
+            // A company switch replaces the tenant context without closing
+            // the visible metric dialog.  Force-reset the old registry first
+            // so no pending layout request can use the new tenant URL.
+            return this.onModalClose(true);
+        },
+
         isCurrent: function(token) {
             return token === this.state.reqId && !!this.state.activeContainer;
         },

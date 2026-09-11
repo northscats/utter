@@ -1,6 +1,7 @@
 /* annual_key_indicators.js */
 (function() {
     const config = window.KI_CONFIG || (typeof KI_CONFIG !== 'undefined' ? KI_CONFIG : null);
+    const missingYearMessage = 'Запрошенный год отсутствует среди принятых данных';
     
     const state = {
         active: false,
@@ -9,6 +10,8 @@
         rangeStart: null,
         rangeEnd: null,
         data: null,
+        modalCardId: null,
+        companySwitchYearFallback: null,
         reqId: 0,
         chartJob: null
     };
@@ -64,6 +67,21 @@
             state.active = false;
             state.reqId++;
             state.chartJob = null;
+            if (abortController) abortController.abort();
+        },
+
+        switchCompany(next, companySwitchToken) {
+            if (!state.active) return;
+            state.reqId += 1;
+            if (abortController) abortController.abort();
+            state.data = null;
+            state.chartJob = null;
+            state.companySwitchYearFallback = null;
+            this.fetchData(companySwitchToken);
+        },
+
+        cancelCompanySwitch() {
+            state.reqId += 1;
             if (abortController) abortController.abort();
         },
 
@@ -130,7 +148,14 @@
             this.fetchData();
         },
 
-        async fetchData() {
+        consumeCompanySwitchYearFallback() {
+            const fallback = state.companySwitchYearFallback;
+            state.companySwitchYearFallback = null;
+            return fallback;
+        },
+
+        async fetchData(companySwitchToken = null, skipRequestedYear = false,
+                        fallbackRequestedYear = null) {
             if (!state.active) return;
             
             if (window.KI_App) window.KI_App.showLoading();
@@ -143,7 +168,11 @@
             try {
                 if (!config || !config.annualDataUrl) throw new Error('Не настроен адрес источника годовых показателей.');
                 let url = config.annualDataUrl;
-                if (state.year) url += `?year=${encodeURIComponent(state.year)}`;
+                const requestedYear = state.year;
+                const requestedYearNumber = Number(requestedYear);
+                if (requestedYear && !skipRequestedYear) {
+                    url += `?year=${encodeURIComponent(requestedYear)}`;
+                }
                 
                 const response = await fetch(url, { 
                     signal: abortController.signal, 
@@ -163,23 +192,70 @@
                 } catch (e) {
                     throw new Error("Срок сессии истек или получен некорректный формат ответа");
                 }
-                
-                if (!response.ok) {
-                    throw new Error(data.error || data.message || `Ошибка сервера: ${response.status}`);
+
+                const responseError = data && (data.error || data.message);
+                const isMissingRequestedYear = data &&
+                    (data.error === missingYearMessage || data.message === missingYearMessage);
+                if (!response.ok && companySwitchToken !== null &&
+                    !skipRequestedYear && Number.isInteger(requestedYearNumber) &&
+                    isMissingRequestedYear) {
+                    if (reqId !== state.reqId ||
+                        (window.KI_App &&
+                         companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
+                    return this.fetchData(companySwitchToken, true, requestedYearNumber);
                 }
                 
-                if (reqId !== state.reqId) return;
+                if (!response.ok) {
+                    throw new Error(responseError || `Ошибка сервера: ${response.status}`);
+                }
+                
+                if (reqId !== state.reqId ||
+                    (companySwitchToken !== null && window.KI_App &&
+                     companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
                 
                 state.data = data;
                 state.year = data.year;
+                if (fallbackRequestedYear !== null &&
+                    Number.isInteger(Number(data.year)) &&
+                    Number(data.year) !== fallbackRequestedYear &&
+                    window.KI_App && window.KI_App.state.companySwitching) {
+                    const actualYear = Number(data.year);
+                    state.rangeStart = null;
+                    state.rangeEnd = null;
+                    state.selectionStart = actualYear;
+                    state.year = actualYear;
+                    state.companySwitchYearFallback = {
+                        requestedYear: fallbackRequestedYear,
+                        actualYear
+                    };
+                    const locationUrl = new URL(window.location.href);
+                    locationUrl.searchParams.set('year', actualYear);
+                    locationUrl.searchParams.delete('year_from');
+                    locationUrl.searchParams.delete('year_to');
+                    window.history.replaceState({}, '', locationUrl);
+                }
                 
                 this.render();
+                if (companySwitchToken !== null && window.KI_App) {
+                    window.KI_App.finishCompanySwitch(companySwitchToken);
+                }
             } catch (e) {
-                if (reqId !== state.reqId || e.name === 'AbortError') return;
+                if (reqId !== state.reqId || e.name === 'AbortError' ||
+                    (companySwitchToken !== null && window.KI_App &&
+                     companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
+                if (companySwitchToken !== null && window.KI_App &&
+                    window.KI_App.state.companySwitching) {
+                    window.KI_App.showCompanySwitchError(companySwitchToken, e.message);
+                    return;
+                }
                 document.getElementById('ki-error-text').textContent = e.message;
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {
-                if (reqId === state.reqId && window.KI_App) window.KI_App.hideLoading();
+                if (reqId === state.reqId && window.KI_App &&
+                    (companySwitchToken === null ||
+                     companySwitchToken === window.KI_App.state.companySwitchToken)) {
+                    window.KI_App.hideLoading();
+                }
             }
         },
 
@@ -413,8 +489,14 @@
         },
 
         openModal(cardId) {
-            const card = state.data.cards.find(c => c.id === cardId);
+            const card = state.data && Array.isArray(state.data.cards) ?
+                state.data.cards.find(c => c.id === cardId) : null;
             if (!card) return;
+
+            state.modalCardId = cardId;
+            if (window.KI_App && typeof window.KI_App.hideModalSwitchStatus === 'function') {
+                window.KI_App.hideModalSwitchStatus();
+            }
             
             if (window.KI_App) {
                 window.KI_App.state.lastFocused = document.activeElement;

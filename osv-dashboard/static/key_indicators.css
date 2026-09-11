@@ -339,6 +339,15 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .modal-close:focus-visible { box-shadow: 0 0 0 2px #F59E0B; }
 .modal-close:hover { background: #EF4444; border-color: #EF4444; }
 .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+.ki-modal-switch-status {
+  min-height: 160px; display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 28px; border: 1px solid #E5E7EB;
+  border-radius: 8px; background: #F8FAFC; color: #475569;
+  font-size: 13px; line-height: 1.6; white-space: pre-line;
+}
+.ki-modal-switch-status.is-error {
+  background: #FEF2F2; border-color: #FECACA; color: #991B1B;
+}
 
 .modal-info-banner {
   background: #FEF2F2; border-left: 4px solid #EF4444; border-radius: 6px;

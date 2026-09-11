@@ -15,7 +15,9 @@
             debtorMappingsUrl: {{ debtor_mappings_url | tojson }},
             canEditRevenueMappings: {{ current_user.is_admin | tojson }},
             csrfToken: {{ csrf_token() | tojson }},
+            pageUrl: {{ url_for('key_indicators_page', company_id=company.id) | tojson }},
             annualDataUrl: {{ url_for('annual_key_indicators_data', company_id=company.id) | default('/company/'~company.id~'/key-indicators/annual-data') | tojson }},
+            layoutBaseURL: {{ url_for('metric_layout', company_id=company.id, mode='__MODE__', metric_id='__METRIC__') | tojson }},
             layoutBaseUrl: {{ url_for('metric_layout', company_id=company.id, mode='__MODE__', metric_id='__METRIC__') | tojson }},
             companyId: {{ company.id | tojson }},
             companyName: {{ company.name | tojson }},
@@ -165,6 +167,7 @@
           </div>
         </div>
         <div class="modal-body">
+          <div id="ki-modal-switch-status" class="ki-modal-switch-status" role="status" aria-live="polite" style="display:none;"></div>
           <div id="ki-cash-modal-content" style="display:none;"></div>
           <div id="ki-revenue-modal-content" style="display:none;"></div>
           <div id="ki-collection-modal-content" style="display:none;"></div>
