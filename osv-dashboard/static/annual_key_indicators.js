@@ -203,14 +203,20 @@
             };
         },
 
+        displayedPeriodLabel() {
+            if (state.rangeStart !== null && state.rangeEnd !== null) {
+                return state.rangeStart === state.rangeEnd
+                    ? String(state.rangeStart)
+                    : `${state.rangeStart}–${state.rangeEnd}`;
+            }
+            return state.year == null ? 'Период не указан' : String(state.year);
+        },
+
         render() {
             if (!state.data || !state.active) return;
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
-            const selectedPeriod = state.rangeStart !== null && state.rangeEnd !== null
-                ? `${state.rangeStart}–${state.rangeEnd}`
-                : state.year;
-            subtitle.textContent = `${config.companyName} · ${selectedPeriod}`;
+            subtitle.textContent = `${config.companyName} · ${this.displayedPeriodLabel()}`;
             
             this.renderYearSelector();
             
@@ -415,7 +421,8 @@
             }
             
             document.getElementById('ki-modal-title').textContent = card.title;
-            document.getElementById('ki-modal-subtitle').textContent = `${card.period_label} ${state.data.year} · Источник: годовая аналитика 1С`;
+            document.getElementById('ki-modal-subtitle').textContent =
+                `Детализация по данным Отчета · ${this.displayedPeriodLabel()}`;
             
             const defIcon = '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>';
             document.getElementById('ki-modal-icon').innerHTML = defIcon;

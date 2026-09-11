@@ -109,6 +109,11 @@ async function testAnnual() {
 
     const KI_App = context.window.KI_App;
     const KI_AnnualApp = context.window.KI_AnnualApp;
+    KI_AnnualApp.state.rangeStart = 2023;
+    KI_AnnualApp.state.rangeEnd = 2025;
+    assert.equal(KI_AnnualApp.displayedPeriodLabel(), '2023–2025');
+    KI_AnnualApp.state.rangeStart = null;
+    KI_AnnualApp.state.rangeEnd = null;
     
     // stub loading since they are called cross-app
     KI_App.showLoading = () => {};

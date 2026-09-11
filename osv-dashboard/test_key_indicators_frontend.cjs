@@ -67,6 +67,15 @@ async function checkBootstrap(configuration) {
   assert.equal(million.u, 'млн ₽');
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
+  const previousData = app.state.data;
+  app.state.data = {period: {start: '2026-01-01', end: '2026-06-30', label: '2026'}};
+  assert.equal(app.displayedPeriodLabel(), '01.01.2026 — 30.06.2026');
+  app.updateModalSubtitle();
+  assert.equal(nodes.get('ki-modal-subtitle').textContent,
+    'Детализация по данным ОСВ · 01.01.2026 — 30.06.2026');
+  app.state.data.period.start = '2026-06-30';
+  assert.equal(app.displayedPeriodLabel(), '30.06.2026');
+  app.state.data = previousData;
 
   if (configuration) {
     context.fetch = async () => ({

@@ -40,6 +40,22 @@
 
     const App = {
         state: state,
+        displayedPeriodLabel() {
+            const period = (state.data && state.data.period) || {};
+            const formatDate = value => {
+                const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+                return match ? `${match[3]}.${match[2]}.${match[1]}` : null;
+            };
+            const start = formatDate(period.start);
+            const end = formatDate(period.end);
+            if (start && end) return start === end ? start : `${start} — ${end}`;
+            return period.label || 'Период не указан';
+        },
+
+        updateModalSubtitle() {
+            document.getElementById('ki-modal-subtitle').textContent =
+                `Детализация по данным ОСВ · ${this.displayedPeriodLabel()}`;
+        },
         scheduleChart(containerId, renderer, delay = 50) {
             state.chartJobs[containerId] = renderer;
             if (typeof setTimeout !== 'function') {
@@ -329,7 +345,7 @@
             if (!state.data) return;
             
             const subtitle = document.getElementById('ki-topbar-subtitle');
-            subtitle.textContent = `${config.companyName} · ${state.data.period.label}`;
+            subtitle.textContent = `${config.companyName} · ${this.displayedPeriodLabel()}`;
             
             this.renderPeriodSelector();
             this.renderWarnings();
@@ -1080,8 +1096,7 @@
             });
 
             document.getElementById('ki-modal-title').textContent = 'Выручка по сегментам (сч. 90.01)';
-            document.getElementById('ki-modal-subtitle').textContent =
-                `Детализация фактической выручки · ${state.data.period && state.data.period.label ? state.data.period.label : 'выбранный период'}`;
+            this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Фактическая выручка предприятия.</strong>
                     Выручка без НДС рассчитывается как ОбК(90.01*) − ОбД(90.03*). Если 90.03 отсутствует, факт показывается как брутто.</div>
@@ -3449,8 +3464,7 @@
 
             document.getElementById('ki-modal-title').textContent =
                 'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
-            document.getElementById('ki-modal-subtitle').textContent =
-                `Детализация по данным ОСВ · ${state.data.period && state.data.period.label ? state.data.period.label : 'выбранный период'}`;
+            this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Денежные средства по данным бухгалтерского учёта.</strong>
                     Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
@@ -3606,7 +3620,7 @@
             state.lastFocused = document.activeElement;
             
             document.getElementById('ki-modal-title').textContent = card.title;
-            document.getElementById('ki-modal-subtitle').textContent = `ID: ${card.id} · Статус: ${card.status_label || card.status}`;
+            this.updateModalSubtitle();
             
             const def = cardDefinitions.find(d => d.id === cardId);
             document.getElementById('ki-modal-icon').innerHTML = def ? def.icon : '<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>';
