@@ -48,6 +48,7 @@ from module_registry import (module_key_for_path, registered_modules,
                              valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
 from builder import build_dataset
+from dashboard_compat import upgrade_legacy_salary_daily_labels
 
 # ---------------------------------------------------------------------------
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -2561,7 +2562,7 @@ def dashboard(company_id, name):
     if not os.path.isfile(fpath):
         abort(404)
     with open(fpath, encoding='utf-8') as f:
-        html = f.read()
+        html = upgrade_legacy_salary_daily_labels(f.read())
     # Гарантируем наличие кнопки "Все предприятия" независимо от даты генерации файла
     back_href = f'/home?company={company_id}'
     if 'hd-back' not in html:

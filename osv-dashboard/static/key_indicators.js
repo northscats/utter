@@ -809,7 +809,7 @@
             }
             return Object.assign({
                 title: card.title,
-                description: definition.description || 'Фактическое значение показателя по данным бухгалтерского учёта.',
+                description: card.description || definition.description || 'Фактическое значение показателя по данным бухгалтерского учёта.',
                 formula: card.formula || 'Формула не определена',
                 detail: [definition.detail, ...(card.notes || [])].filter(Boolean).join(' '),
                 required: card.value == null ? (definition.required || card.reason) : null,
@@ -2621,6 +2621,8 @@
             if (!container) return;
             const req = this.salaryRequirements();
             const ins = card.insurance || {};
+            const seriesKind = state.data?.period?.series_kind;
+            const granularity = seriesKind === 'day' ? 'Дневная' : seriesKind === 'month' ? 'Месячная' : 'По периодам источника';
             const rub = value => value === null || value === undefined
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
@@ -2665,8 +2667,13 @@
                         : 'Может включать начисления, корректировки, пени и штрафы; не называется начисленными взносами без классификации.'),
                 account === '70'
                     ? `${req.balances} ${side === 'debit' ? `${req.payments} ${req.withholdings}` : req.payroll}`
-                    : `${req.balances} ${req.insurance} ${req.insurancePayments}`);
+                    : `${req.balances} ${req.insurance} ${req.insurancePayments}`, `ОСВ счёта ${account}: обороты`);
 
+            const balanceTip = (account, side, value, label = '') => tip(
+                `${side === 'debit' ? 'Дебетовое' : 'Кредитовое'} сальдо ${account}${label ? ` — ${label}` : ''}`,
+                side === 'debit' ? `max(СКд(${account}) − СКк(${account}), 0)` : `max(СКк(${account}) − СКд(${account}), 0)`,
+                value, 'Конечное бухгалтерское сальдо на дату; не подтверждает платёжный статус.', req.balances,
+                `ОСВ счёта ${account}${label ? `, аналитика: ${label}` : ''}`);
             const accountRows = [
                 ['70', 'Расчёты с персоналом', card.debit_balance, card.value,
                     card.debit_turnover, card.credit_turnover],
@@ -2680,9 +2687,9 @@
                     account === '70' ? `${req.balances} ${req.payroll} ${req.payments}` :
                         `${req.balances} ${req.insurance} ${req.insurancePayments}`);
                 return `<tr>
-                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">сч. ${account}</span>`, rowTip)}
-                    ${this.collectionCell(esc(rub(debitBalance)), rowTip, debitBalance == null ? 'cash-value-missing' : '')}
-                    ${this.collectionCell(esc(rub(creditBalance)), rowTip, creditBalance == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">сч. ${account}</span>`, Object.assign({}, rowTip, {fact: label}))}
+                    ${this.collectionCell(esc(rub(debitBalance)), balanceTip(account, 'debit', debitBalance), debitBalance == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(rub(creditBalance)), balanceTip(account, 'credit', creditBalance), creditBalance == null ? 'cash-value-missing' : '')}
                     ${this.collectionCell(esc(rub(debitTurnover)), movementTip(account, 'debit', debitTurnover), debitTurnover == null ? 'cash-value-missing' : '')}
                     ${this.collectionCell(esc(rub(creditTurnover)), movementTip(account, 'credit', creditTurnover), creditTurnover == null ? 'cash-value-missing' : '')}
                 </tr>`;
@@ -2700,11 +2707,11 @@
                         account === '70' ? `${req.balances} ${req.payroll} ${req.categories}` :
                             `${req.balances} ${req.insurance} ${req.insurancePayments}`);
                     return `<tr>
-                        ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, rowTip)}
-                        ${this.collectionCell(esc(rub(row.debit_balance)), rowTip)}
-                        ${this.collectionCell(esc(rub(row.credit_balance)), rowTip)}
-                        ${this.collectionCell(esc(rub(row.debit_turnover)), rowTip)}
-                        ${this.collectionCell(esc(rub(row.credit_turnover)), rowTip)}
+                        ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, Object.assign({}, rowTip, {fact: row.label}))}
+                        ${this.collectionCell(esc(rub(row.debit_balance)), balanceTip(account, 'debit', row.debit_balance, row.label))}
+                        ${this.collectionCell(esc(rub(row.credit_balance)), balanceTip(account, 'credit', row.credit_balance, row.label))}
+                        ${this.collectionCell(esc(rub(row.debit_turnover)), Object.assign(movementTip(account, 'debit', row.debit_turnover), {source: `ОСВ ${account}, аналитика: ${row.label}`}))}
+                        ${this.collectionCell(esc(rub(row.credit_turnover)), Object.assign(movementTip(account, 'credit', row.credit_turnover), {source: `ОСВ ${account}, аналитика: ${row.label}`}))}
                     </tr>`;
                 }).join('')
                 : `<tr><td colspan="5" class="chart-empty">Аналитики счёта ${account} не представлены. ${esc(req.balances)}</td></tr>`;
@@ -2714,21 +2721,16 @@
             const balanceSeries = card.series || [];
             const dynamics = accrualSeries.length
                 ? accrualSeries.map((item, index) => {
-                    const dynTip = this.salaryTooltip({
-                        title: `Динамика расчётов — ${item.label}`,
-                        description: 'Точные месячные бухгалтерские показатели 70 и 69.',
-                        formula: 'ОбК(70), конечное кредитовое сальдо 70 и ОбК(69)',
-                        detail: 'Пропущенные месяцы не заменяются нулями. Средняя зарплата не рассчитывается без кадровой численности.',
-                        required: `${req.balances} Для средней зарплаты: ${req.payroll} ${req.staff}`,
-                        fact: rub(item.value),
-                        deviation: item.value == null ? 'Нужны данные' : 'Подтверждённый оборот',
-                        deviationClass: item.value == null ? 'missing' : 'neutral'
+                    const dynTip = (data) => Object.assign({}, data, {
+                        title: `${data.title} — ${item.label}`,
+                        description: `${granularity} динамика бухгалтерских показателей.`,
+                        detail: `${data.detail} Пропущенные периоды не заменяются нулями.`
                     });
                     return `<tr>
-                        ${this.collectionCell(esc(item.label), dynTip)}
-                        ${this.collectionCell(esc(rub(item.value)), dynTip, item.value == null ? 'cash-value-missing' : '')}
-                        ${this.collectionCell(esc(rub((balanceSeries[index] || {}).value)), dynTip, (balanceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
-                        ${this.collectionCell(esc(rub((insuranceSeries[index] || {}).value)), dynTip, (insuranceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        <td>${esc(item.label)}</td>
+                        ${this.collectionCell(esc(rub(item.value)), dynTip(movementTip('70', 'credit', item.value)), item.value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((balanceSeries[index] || {}).value)), dynTip(balanceTip('70', 'credit', (balanceSeries[index] || {}).value)), (balanceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((insuranceSeries[index] || {}).value)), dynTip(movementTip('69', 'credit', (insuranceSeries[index] || {}).value)), (insuranceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
                         ${this.collectionCell('Нужны данные', this.salaryTooltip({
                             title: `Средняя зарплата — ${item.label}`,
                             description: 'Среднее начисление на одного работника или FTE.',
@@ -2739,7 +2741,7 @@
                         }), 'cash-value-missing')}
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="5" class="chart-empty">Нет точной месячной серии оборотов счёта 70.</td></tr>';
+                : '<tr><td colspan="5" class="chart-empty">Нет точной серии оборотов счёта 70 за выбранный период.</td></tr>';
 
             const unavailable = [
                 ['Подтверждённый ФОТ', 'начисления, включаемые в ФОТ', req.payroll],
@@ -2779,6 +2781,7 @@
                     <tbody>${accountRows}</tbody>
                 </table></div>
                 <div class="modal-section-title">Динамика начислений и расчётных остатков</div>
+                <p class="ki-muted">${granularity} динамика. Единственная мера графика — ОбК70 (кредитовый оборот), млн ₽. Остатки и ОбК69 приведены только в таблице. Оборот не равен денежным выплатам или подтверждённому ФОТ.</p>
                 <div class="modal-chart-wrap salary-line-chart" id="ki-salary-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table salary-dynamics-table">
                     <thead><tr><th>Дата / период</th><th>ОбК 70</th><th>Кредитовое сальдо 70</th><th>ОбК 69</th><th>Средняя зарплата</th></tr></thead>
@@ -2798,7 +2801,16 @@
                 <div class="revenue-missing-grid salary-missing-grid">${unavailable}</div>`;
             setTimeout(() => this.renderBarChart(
                 card.accrual_series || [], 'RUB', 'ki-salary-line-chart',
-                Object.assign({}, card, {title: 'Начисления работникам по кредиту 70'})), 50);
+                {
+                    id: 'salary-credit-turnover',
+                    title: 'ОбК70 — кредитовый оборот',
+                    unit: 'RUB',
+                    value: card.credit_turnover,
+                    formula: 'ОбК(70) за период точки',
+                    source: 'ОСВ счёта 70: кредитовый оборот за период точки',
+                    description: `${granularity} динамика кредитового оборота счёта 70; единственная мера графика.`,
+                    notes: ['Бухгалтерские начисления не равны подтверждённому ФОТ или денежным выплатам. Пропуски не заменяются нулями.']
+                }), 50);
         },
 
         capexRequirements() {
