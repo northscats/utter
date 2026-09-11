@@ -134,3 +134,17 @@ mtime_ms = 1789061178844
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/cbda9b05-1a25-4fcb-9a7b-bfb33760e4fe/8c5ba6f6-d0d7-45ce-8b05-cfa5cfc50c13"
 storage_version_token = "1789061189747943"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "eBIYK53XflixQgdSicaXd"
+uri = "file://reports/sales_profit_metrics_audit.xlsx"
+type = "table"
+title = "Прибыль от продаж — критический аудит"
+description = "Excel на 11 листах: 33 паспорта показателей, все 19 столбцов четырёх таблиц, график и подсказки, формулы и источники, оценка достоверности и полноты, рекомендации и 8 контрольных примеров."
+logical_id = "a9c7f2da-f925-4bbc-abc3-bb4f18fb14c0"
+content_hash = "sha256:19a8c612fb012170f2d9e0398bd97c4ae98249b1a2a73ee385b4206a5693fed0"
+size = 85666
+mtime_ms = 1789109637102
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/a9c7f2da-f925-4bbc-abc3-bb4f18fb14c0/83c7175e-034f-4823-b8e4-532a0632f6de"
+storage_version_token = "1789109652869368"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

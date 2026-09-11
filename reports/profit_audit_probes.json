@@ -1,0 +1,558 @@
+{
+  "report_id": "profit-audit-probes",
+  "purpose_ru": "Изолированные synthetic probes текущей методики прибыли: уровни результата 90/91, неизвестные обороты, отрицательные значения, decomposition, timeline и delta basis.",
+  "scope_ru": "Только build_indicator_source (normalize) и build_key_indicators из pure key_indicators; статически извлечённое выражение renderProfitModal исполняется отдельно в Node VM.",
+  "status_semantics_ru": "implementation_status=PASS означает, что фактический текущий результат совпал с expected_actual и assert прошёл. audit_assessment=FINDING означает наблюдаемое расхождение с audit-safe ожиданием, а не падение runner.",
+  "execution": {
+    "runner": "reports/profit_audit_probes.py",
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 reports/profit_audit_probes.py",
+    "python": "3.11.14",
+    "node": "v24.13.0",
+    "imports": [
+      "key_indicators"
+    ],
+    "forbidden_imports_not_used": [
+      "Flask",
+      "app",
+      "key_indicators_service",
+      "database",
+      "os.environ"
+    ],
+    "network_calls": false,
+    "database_connections": false,
+    "application_writes": false,
+    "services_started": false,
+    "node_vm_only": true
+  },
+  "source_files": {
+    "osv-dashboard/key_indicators.py": {
+      "sha256": "1d6ed5fb97146e942ab6bca0786fe87ff04c314ea4e077997b156f93ef673671",
+      "role": "pure Python normalize/build calculation module"
+    },
+    "osv-dashboard/static/key_indicators.js": {
+      "sha256": "2102fa2b84d6fafb23b7743167ad5de51eb5f18880782dd6e146e8f823f69ce3",
+      "role": "frontend decomposition expression source inspected/executed"
+    },
+    "reports/profit_audit_probes.py": {
+      "sha256": "0f828ac348be8ad646e07f8a1cf733cbd71b04d295cc323c21ccaa34824647b5",
+      "role": "this bounded profit probe runner"
+    }
+  },
+  "js_extractions": {
+    "decomposition_shown": {
+      "lines": "2271-2272",
+      "fragment": "                const shown = value === null || value === undefined\n                    ? 'Нужны данные' : `${sign < 0 ? '− ' : value > 0 ? '+ ' : ''}${rub(Math.abs(value))}`;"
+    }
+  },
+  "case_count": 8,
+  "assertions_verified": 8,
+  "finding_count": 4,
+  "observations_ru": [
+    "Полная цепочка pure расчёта даёт gross=20, sales=12, other=6, pretax=18.",
+    "Пропуск 90.07/90.08 оставляет карточку на gross fallback; явные нули дают sales basis.",
+    "91.09 исключён, но gross revenue без 90.03 всё ещё получает подпись «Нетто-выручка» в decomposition.",
+    "Односторонние/unknown аналитики 91 не превращаются в нули; gap timeline остаётся null, отрицательные значения сохраняются.",
+    "JS decomposition теряет знак отрицательного результата при sign=1; delta при смене gross/sales basis может отличаться от видимой разницы карточек."
+  ],
+  "limitations_ru": [
+    "Все входы synthetic source snapshots в памяти; реальные XLS, предприятия, БД и service layer не читались.",
+    "Проверены только текущие pure helpers key_indicators и один извлечённый JS expression; Flask, DOM, browser и UI не запускались.",
+    "Отсутствующий оборот фиксируется через *_known=false и null результата, а не интерпретируется как подтверждённый ноль.",
+    "91.09 probe проверяет текущий exact-prefix contract; он не доказывает корректность закрывающих проводок в реальном учёте.",
+    "Delta finding synthetic: он показывает смену отображаемой базы при пропуске 90.07/90.08, но не оценивает полноту загрузки."
+  ],
+  "cases": [
+    {
+      "test_id": "PROFIT-01-full-level-decomposition",
+      "title_ru": "Полная цепочка: валовая, от продаж, прочий результат и до налога",
+      "input_ru": "90.01 Кт=100, 90.03 Дт=20, 90.02 Дт=60, 90.07 Дт=5, 90.08 Дт=3; 91.01 Кт=10 и 91.02 Дт=4.",
+      "actual": {
+        "gross_profit": 20.0,
+        "profit_from_sales": 12.0,
+        "other_result": 6.0,
+        "profit_before_tax": 18.0,
+        "value": 12.0
+      },
+      "expected_actual": {
+        "gross_profit": 20.0,
+        "profit_from_sales": 12.0,
+        "other_result": 6.0,
+        "profit_before_tax": 18.0,
+        "value": 12.0
+      },
+      "assessment_ru": "ПРОЙДЕНО: чистые pure helpers разделяют gross=20, sales=12, other=6 и pretax=18; основной value карточки равен прибыли от продаж.",
+      "scope_ru": "Один synthetic период; налог, проценты и чистая прибыль намеренно не восстанавливаются.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:708-776",
+          "osv-dashboard/key_indicators.py:995-1012"
+        ],
+        "observation": "20−5−3=12; 10−4=6; 12+6=18."
+      },
+      "assertion_ru": "Пять уровней фактического результата равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-02-missing-expenses-vs-explicit-zero-card-fallback",
+      "title_ru": "Отсутствующие 90.07/90.08 не равны явному нулю",
+      "input_ru": "Две изолированные ОСВ с одинаковыми 90.01=100, 90.03=20 и 90.02=60: в первой нет 90.07/90.08, во второй оба оборота равны 0.",
+      "actual": {
+        "missing": {
+          "gross_profit": 20.0,
+          "selling_expense": null,
+          "admin_expense": null,
+          "profit_from_sales": null,
+          "value": 20.0,
+          "title": "Валовая прибыль (отдельные расходы недоступны)"
+        },
+        "explicit_zero": {
+          "gross_profit": 20.0,
+          "selling_expense": 0.0,
+          "admin_expense": 0.0,
+          "profit_from_sales": 20.0,
+          "value": 20.0,
+          "title": "Прибыль от продаж (до отдельных расходов)"
+        }
+      },
+      "expected_actual": {
+        "missing": {
+          "gross_profit": 20.0,
+          "selling_expense": null,
+          "admin_expense": null,
+          "profit_from_sales": null,
+          "value": 20.0,
+          "title": "Валовая прибыль (отдельные расходы недоступны)"
+        },
+        "explicit_zero": {
+          "gross_profit": 20.0,
+          "selling_expense": 0.0,
+          "admin_expense": 0.0,
+          "profit_from_sales": 20.0,
+          "value": 20.0,
+          "title": "Прибыль от продаж (до отдельных расходов)"
+        }
+      },
+      "assessment_ru": "FINDING: при пропущенных 90.07/90.08 карточка fallback показывает gross_profit=20 и маркируется валовой прибылью; только явные нули разрешают profit_from_sales=20. Значение совпадает, база различна.",
+      "scope_ru": "Synthetic наличие/отсутствие строк; не вывод о том, что отсутствие в реальной ОСВ означает ноль.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:747-776",
+          "osv-dashboard/key_indicators.py:1017-1024"
+        ],
+        "observation": "missing -> None/валовая; explicit zero -> 0/от продаж."
+      },
+      "assertion_ru": "Обе ветви карточки и их русские заголовки равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-03-9109-is-not-other-result",
+      "title_ru": "Закрывающий 91.09 не попадает в прочий результат",
+      "input_ru": "К 91.01=10 и 91.02=4 добавлена отдельная строка 91.09 Дт=999; аналитика у всех строк отсутствует.",
+      "actual": {
+        "other_income": 10.0,
+        "other_expense": 4.0,
+        "other_result": 6.0,
+        "profit_before_tax": 18.0,
+        "other_analytics": [
+          {
+            "analytic_key": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "label": "Без аналитики",
+            "income": 10.0,
+            "expense": 4.0
+          }
+        ]
+      },
+      "expected_actual": {
+        "other_income": 10.0,
+        "other_expense": 4.0,
+        "other_result": 6.0,
+        "profit_before_tax": 18.0,
+        "other_analytics": [
+          {
+            "analytic_key": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+            "label": "Без аналитики",
+            "income": 10.0,
+            "expense": 4.0
+          }
+        ]
+      },
+      "assessment_ru": "ПРОЙДЕНО: расчёт использует только точные 91.01 и 91.02; 91.09 не увеличивает расход и не меняет результат 6.",
+      "scope_ru": "Проверка точного префикса 91.01/91.02 на synthetic счёте 91.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:765-796",
+          "osv-dashboard/key_indicators.py:1131-1142"
+        ],
+        "observation": "999 по 91.09 отсутствует в other_expense и pretax."
+      },
+      "assertion_ru": "Прочие суммы, pretax и аналитика равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-04-negative-loss-storno-js-decomposition",
+      "title_ru": "Убыток и сторно: backend знак есть, JS decomposition берёт abs",
+      "input_ru": "90.01 Кт=30, 90.03 Дт=5, 90.02 Дт=40 и явные нулевые 90.07/90.08 дают отрицательную прибыль; Node исполняет текущий shown-expression для убытка −15 и отрицательного сторно −10 со stub rub.",
+      "actual": {
+        "backend": {
+          "gross_profit": -15.0,
+          "profit_from_sales": -15.0,
+          "value": -15.0,
+          "status": "bad",
+          "status_label": "Убыток от продаж"
+        },
+        "expression_lines": "2271-2272",
+        "shown_with_stub_rub": [
+          "stub-rub(15)",
+          "− stub-rub(10)",
+          "+ stub-rub(12)",
+          "Нужны данные"
+        ]
+      },
+      "expected_actual": {
+        "backend": {
+          "gross_profit": -15.0,
+          "profit_from_sales": -15.0,
+          "value": -15.0,
+          "status": "bad",
+          "status_label": "Убыток от продаж"
+        },
+        "expression_lines": "2271-2272",
+        "shown_with_stub_rub": [
+          "stub-rub(15)",
+          "− stub-rub(10)",
+          "+ stub-rub(12)",
+          "Нужны данные"
+        ]
+      },
+      "assessment_ru": "FINDING: backend честно возвращает −15 и bad/«Убыток от продаж», но extracted JS expression форматирует value=-15 с sign=1 как положительный stub-rub(15): знак убытка теряется. Для строки расхода sign=-1 всегда даёт визуальный минус перед abs.",
+      "scope_ru": "Node VM и pure backend only; stub rub заменяет форматирование млн ₽ и не является browser render test.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1092-1099"
+        ],
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "expression": "shown",
+          "lines": "2271-2272",
+          "fragment": "                const shown = value === null || value === undefined\n                    ? 'Нужны данные' : `${sign < 0 ? '− ' : value > 0 ? '+ ' : ''}${rub(Math.abs(value))}`;"
+        },
+        "execution": "Node vm with local rub(value) => stub-rub(value)."
+      },
+      "assertion_ru": "Backend loss and four actual Node strings equal expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-05-gross-revenue-mislabeled-decomposition",
+      "title_ru": "Брутто-выручка получает подпись нетто в decomposition",
+      "input_ru": "Есть 90.01 Кт=100, 90.02 Дт=60 и явные нули 90.07/90.08; 90.03 отсутствует. Дополнительно проверен исходник renderProfitModal.",
+      "actual": {
+        "revenue_value": 100.0,
+        "revenue_title": "Выручка брутто (НДС недоступен)",
+        "revenue_formula": "ОбК(90.01*), брутто",
+        "decomposition_first_label": "Нетто-выручка",
+        "decomposition_first_formula": "ОбК(90.01) − ОбД(90.03)",
+        "decomposition_uses_revenue_value": true,
+        "decomposition_has_gross_guard": false
+      },
+      "expected_actual": {
+        "revenue_value": 100.0,
+        "revenue_title": "Выручка брутто (НДС недоступен)",
+        "revenue_formula": "ОбК(90.01*), брутто",
+        "decomposition_first_label": "Нетто-выручка",
+        "decomposition_first_formula": "ОбК(90.01) − ОбД(90.03)",
+        "decomposition_uses_revenue_value": true,
+        "decomposition_has_gross_guard": false
+      },
+      "assessment_ru": "FINDING: backend правильно маркирует revenue как брутто при отсутствии 90.03, но source decomposition всегда подписывает revenue.value как «Нетто-выручка» и не содержит gross guard.",
+      "scope_ru": "Source inspection функции renderProfitModal; DOM не запускался. Проверяется label/formula contract, не внешний текст браузера.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:955-962, 1082-1083"
+        ],
+        "frontend": {
+          "source": "osv-dashboard/static/key_indicators.js",
+          "function": "renderProfitModal(card)",
+          "fragment": "const decomposition = [\n                ['Нетто-выручка', 'ОбК(90.01) − ОбД(90.03)', revenue.value, 1, req.sales, 'Выручка после выделения НДС.'],\n                ['Себестоимость продаж', 'ОбД(90.02)', cogs.value, -1, req.sales, 'Признанная себестоимость продаж.'],\n                ['Валовая прибыль', 'Нетто-выручка − 90.02', card.gross_profit, 1, req.sales, 'Результат до отдельных расходов.'],\n                ['Коммерческие расходы', 'ОбД(90.07)', card.selling_expense, -1, req.sales, 'Признанные расходы на продажу.'],\n                ['Управленческие расходы', 'ОбД(90.08)', card.admin_expense, -1, req.sales, 'Признанные управленческие расходы.'],\n                ['Прибыль от продаж', 'Валовая прибыль − 90.07 − 90.08', card.profit_from_sales, 1, req.sales, 'Результат основной деятельности.'],\n                ['Прочие доходы', 'ОбК(91.01)', card.other_income, 1, req.other, 'Доходы счёта 91 без 91.09.'],\n                ['Прочие расходы', 'ОбД(91.02)', card.other_expense, -1, req.other, 'Расходы счёта 91 без 91.09.'],\n                ['Результат до налога', 'Прибыль от продаж + 91.01 − 91.02', card.profit_before_tax, 1, `${req.sales} ${req.other}`, 'Не является чистой прибылью.'],\n                ['Налог на прибыль', 'Текущий + отложенный налог', null, -1, req.tax, 'Не выводится из общего сальдо счёта 68.'],\n                ['Чистая прибыль', 'Результат до налога − налог', null, 1, req.tax, 'Нужны точные данные 99 и 68.04.']\n            "
+        }
+      },
+      "assertion_ru": "Backend gross fields and static decomposition flags equal expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-06-other-analytics-one-sided-unknown",
+      "title_ru": "Аналитики 91 сохраняют односторонность и неизвестную сумму",
+      "input_ru": "Для «Субсидия» 91.01=10, а 91.02 неизвестен; для «Курсовая разница» 91.01 неизвестен, а 91.02=4. None — неизвестный оборот, не подтверждённый ноль.",
+      "actual": {
+        "other_income": null,
+        "other_expense": null,
+        "other_result": null,
+        "profit_before_tax": null,
+        "analytics": [
+          {
+            "label": "«Курсовая разница»",
+            "income": null,
+            "expense": 4.0
+          },
+          {
+            "label": "«Субсидия»",
+            "income": 10.0,
+            "expense": null
+          }
+        ],
+        "normalized_unknown_flags": [
+          {
+            "code": "91.01",
+            "analytic": "Курсовая разница",
+            "known": false
+          },
+          {
+            "code": "91.02",
+            "analytic": "Курсовая разница",
+            "known": true
+          },
+          {
+            "code": "91.01",
+            "analytic": "Субсидия",
+            "known": true
+          },
+          {
+            "code": "91.02",
+            "analytic": "Субсидия",
+            "known": false
+          }
+        ]
+      },
+      "expected_actual": {
+        "other_income": null,
+        "other_expense": null,
+        "other_result": null,
+        "profit_before_tax": null,
+        "analytics": [
+          {
+            "label": "«Курсовая разница»",
+            "income": null,
+            "expense": 4.0
+          },
+          {
+            "label": "«Субсидия»",
+            "income": 10.0,
+            "expense": null
+          }
+        ],
+        "normalized_unknown_flags": [
+          {
+            "code": "91.01",
+            "analytic": "Курсовая разница",
+            "known": false
+          },
+          {
+            "code": "91.02",
+            "analytic": "Курсовая разница",
+            "known": true
+          },
+          {
+            "code": "91.01",
+            "analytic": "Субсидия",
+            "known": true
+          },
+          {
+            "code": "91.02",
+            "analytic": "Субсидия",
+            "known": false
+          }
+        ]
+      },
+      "assessment_ru": "ПРОЙДЕНО как текущий контракт: grouping сохраняет две аналитики с одной известной стороной, а _known_sum не превращает unknown в ноль; общий other_result и pretax остаются null.",
+      "scope_ru": "Pure normalize/build synthetic account 91; не классификация статей и не утверждение экономического смысла аналитик.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:133-138 (known flags)",
+          "osv-dashboard/key_indicators.py:778-797 (91 grouping)"
+        ],
+        "observation": "Обе строки analytics имеют одну None сторону."
+      },
+      "assertion_ru": "Общие суммы, аналитики и normalized known flags равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-07-timeline-gross-sales-gap-loss",
+      "title_ru": "Timeline разделяет валовую и продажную прибыль, gap остаётся null",
+      "input_ru": "В квартале январь: gross=20/sales=12; февральских строк нет; март: gross=sales=−15 при явных нулевых 90.07/90.08.",
+      "actual": {
+        "value": -3.0,
+        "status": "bad",
+        "gross_series": [
+          {
+            "label": "Янв 2026",
+            "value": 20.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "sales_profit_series": [
+          {
+            "label": "Янв 2026",
+            "value": 12.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "display_series": [
+          {
+            "label": "Янв 2026",
+            "value": 12.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "period_warnings": []
+      },
+      "expected_actual": {
+        "value": -3.0,
+        "status": "bad",
+        "gross_series": [
+          {
+            "label": "Янв 2026",
+            "value": 20.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "sales_profit_series": [
+          {
+            "label": "Янв 2026",
+            "value": 12.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "display_series": [
+          {
+            "label": "Янв 2026",
+            "value": 12.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": -15.0
+          }
+        ],
+        "period_warnings": []
+      },
+      "assessment_ru": "ПРОЙДЕНО: gross_series и sales_profit_series не смешиваются, февральский gap не интерполируется в 0, отрицательный март сохраняет знак, а карточка квартала показывает −3.",
+      "scope_ru": "Synthetic quarterly source with declared full coverage; проверяется только расчёт series, не календарь фактических загрузок.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1104-1156",
+          "osv-dashboard/key_indicators.py:1143-1148"
+        ],
+        "observation": "20/12 и −15/−15; отсутствующий февраль — null."
+      },
+      "assertion_ru": "Карточка, три серии и warnings равны expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "PROFIT-08-delta-expense-basis-mismatch",
+      "title_ru": "Delta не помечает смену базы gross ↔ sales",
+      "input_ru": "Январь имеет 90.07=5 и 90.08=3: карточка sales=12; февраль не имеет этих строк: карточка fallback gross=40. Оба периода имеют полный net VAT basis.",
+      "actual": {
+        "current": {
+          "gross_profit": 40.0,
+          "profit_from_sales": null,
+          "value": 40.0,
+          "delta": {
+            "value": 20.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "title": "Валовая прибыль (отдельные расходы недоступны)"
+        },
+        "previous_display_value": 12.0,
+        "display_value_difference": 28.0
+      },
+      "expected_actual": {
+        "current": {
+          "gross_profit": 40.0,
+          "profit_from_sales": null,
+          "value": 40.0,
+          "delta": {
+            "value": 20.0,
+            "unit": "RUB",
+            "label": "к предыдущему сопоставимому периоду"
+          },
+          "title": "Валовая прибыль (отдельные расходы недоступны)"
+        },
+        "previous_display_value": 12.0,
+        "display_value_difference": 28.0
+      },
+      "assessment_ru": "FINDING: delta=20 сравнивает текущий gross=40 с предыдущим gross_profit=20, хотя предыдущая карточка показывала sales=12; визуальная разница карточек равна 28. Guard проверяет VAT basis, но не смену доступности 90.07/90.08.",
+      "scope_ru": "Synthetic consecutive months; это потенциальное несоответствие basis delta, а не утверждение о фактической полноте ОСВ.",
+      "evidence": {
+        "python": [
+          "osv-dashboard/key_indicators.py:1208-1238 (delta)",
+          "osv-dashboard/key_indicators.py:760-776 (display basis)"
+        ],
+        "observation": "delta 20 != current display 40 − previous display 12 = 28."
+      },
+      "assertion_ru": "Current card, delta, previous display and arithmetic difference equal expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "FINDING",
+      "status": "FINDING",
+      "assertion_verified": true
+    }
+  ]
+}
