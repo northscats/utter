@@ -1,0 +1,904 @@
+{
+  "report_id": "credits-audit-probes",
+  "purpose_ru": "8–10 isolated probes фактического контракта карточки кредитов по счетам 66/67 на source snapshots.",
+  "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+  "status_semantics_ru": "implementation_status=PASS означает, что текущий pure backend результат и assert воспроизведены. audit_assessment=FINDING означает отличие от audit-safe ожидания, а не падение runner. Частичный охват никогда не маркируется как полный.",
+  "execution": {
+    "runner": "reports/credits_audit_probes.py",
+    "command": "python3 -B reports/credits_audit_probes.py",
+    "python": "3.11.14",
+    "imports": [
+      "key_indicators"
+    ],
+    "forbidden_imports_not_used": [
+      "Flask",
+      "app",
+      "key_indicators_service",
+      "database",
+      "os.environ"
+    ],
+    "network_calls": false,
+    "database_connections": false,
+    "services_started": false,
+    "node_used": false,
+    "js_extraction": null,
+    "js_note": "В credits modal нет отдельной вычислительной JS-формулы, которую нужно было бы исполнять; проверены только статические строки и ветки источника."
+  },
+  "source_files": {
+    "R1_backend": {
+      "path": "osv-dashboard/key_indicators.py",
+      "sha256": "1d6ed5fb97146e942ab6bca0786fe87ff04c314ea4e077997b156f93ef673671",
+      "role": "pure Python key_indicators calculation and source builder"
+    },
+    "R2_JS": {
+      "path": "osv-dashboard/static/key_indicators.js",
+      "sha256": "2102fa2b84d6fafb23b7743167ad5de51eb5f18880782dd6e146e8f823f69ce3",
+      "role": "static credits modal contract inspection; no arithmetic expression executed"
+    },
+    "R3_service": {
+      "path": "osv-dashboard/key_indicators_service.py",
+      "sha256": "ad88b657d7ab528137a7d7381cf551ee6316c6c5f46f38be0c894aa95cd5a7f1",
+      "role": "source reference for assembled reports and observations; not imported"
+    },
+    "R4_parser": {
+      "path": "osv-dashboard/osvparser.py",
+      "sha256": "51beeb0a3da1a095ff7e3d7f1aa1b444811cde327e2d53a224bf96db198e5d5b",
+      "role": "source reference for daily turnover versus report balances; not imported"
+    },
+    "runner": {
+      "path": "reports/credits_audit_probes.py",
+      "sha256": "bb41b9cfaf3e52c9573c5820eb1dc6aeb8d58f28fd0e30529fc3eac48a6de3f7",
+      "role": "bounded isolated probe runner"
+    }
+  },
+  "case_count": 10,
+  "assertions_verified": 10,
+  "finding_count": 0,
+  "cases": [
+    {
+      "test_id": "CR-01-complete-66-67",
+      "title_ru": "Полный охват 66 и 67",
+      "input_ru": "На точную дату 31.01.2026 оба счёта имеют кредитовое сальдо: 66 = 120−20 = 100, 67 = 230−30 = 200.",
+      "actual": {
+        "card": {
+          "value": 300.0,
+          "reason": null,
+          "coverage": {
+            "loaded": [
+              "66",
+              "67"
+            ],
+            "missing": [],
+            "complete": true
+          },
+          "accounts": [
+            {
+              "account": "66",
+              "value": 100.0,
+              "reason": null,
+              "share": 33.33
+            },
+            {
+              "account": "67",
+              "value": 200.0,
+              "reason": null,
+              "share": 66.67
+            }
+          ]
+        },
+        "source_dates": [
+          "2026-01-31"
+        ],
+        "series": {
+          "count": 31,
+          "known": [
+            {
+              "label": "31.01.2026",
+              "value": 300.0
+            }
+          ],
+          "null_count": 30
+        }
+      },
+      "expected_actual": {
+        "card": {
+          "value": 300.0,
+          "reason": null,
+          "coverage": {
+            "loaded": [
+              "66",
+              "67"
+            ],
+            "missing": [],
+            "complete": true
+          },
+          "accounts": [
+            {
+              "account": "66",
+              "value": 100.0,
+              "reason": null,
+              "share": 33.33
+            },
+            {
+              "account": "67",
+              "value": 200.0,
+              "reason": null,
+              "share": 66.67
+            }
+          ]
+        },
+        "source_dates": [
+          "2026-01-31"
+        ],
+        "series": {
+          "count": 31,
+          "known": [
+            {
+              "label": "31.01.2026",
+              "value": 300.0
+            }
+          ],
+          "null_count": 30
+        }
+      },
+      "expected_audit_ru": "При полном точном сальдо обоих счетов допустима сумма 300 как подтверждённый бухгалтерский долг 66+67.",
+      "assessment_ru": "ПРОЙДЕНО: оба счёта загружены, coverage.complete=true, сумма 300 и доли 33.33%/66.67% рассчитаны от кредитового сальдо.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:884-919"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2452-2464"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:121-140"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:300-313"
+        ]
+      },
+      "assertion_ru": "Ровно оба account values, coverage и сумма серии совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-02-partial-66-only",
+      "title_ru": "Частичный охват: только 66",
+      "input_ru": "На 31.01.2026 загружен только счёт 66 с кредитовым сальдо 90; источника счёта 67 нет.",
+      "actual": {
+        "value": 90.0,
+        "reason": null,
+        "coverage": {
+          "loaded": [
+            "66"
+          ],
+          "missing": [
+            "67"
+          ],
+          "complete": false
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": 90.0,
+            "reason": null,
+            "share": 100.0
+          },
+          {
+            "account": "67",
+            "value": null,
+            "reason": "Счёт 67 не загружен",
+            "share": null
+          }
+        ]
+      },
+      "expected_actual": {
+        "value": 90.0,
+        "reason": null,
+        "coverage": {
+          "loaded": [
+            "66"
+          ],
+          "missing": [
+            "67"
+          ],
+          "complete": false
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": 90.0,
+            "reason": null,
+            "share": 100.0
+          },
+          {
+            "account": "67",
+            "value": null,
+            "reason": "Счёт 67 не загружен",
+            "share": null
+          }
+        ]
+      },
+      "expected_audit_ru": "90 нельзя называть полным долгом 66+67: это доступный долг 66 при coverage.complete=false; отсутствующий 67 не равен нулю.",
+      "assessment_ru": "ПРОЙДЕНО: реализация оставляет value=90, но явно возвращает missing=['67'], complete=false и строку 67 без значения. Частичный результат не выдан за полный.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:899-919",
+          "osv-dashboard/key_indicators.py:1025-1043"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2452-2456",
+          "osv-dashboard/static/key_indicators.js:2560-2563"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:147-160"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:251-266"
+        ]
+      },
+      "assertion_ru": "Значение 66 сохранено, а отсутствие 67 отражено в coverage и account row.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-03-missing-66-67",
+      "title_ru": "Оба счёта отсутствуют",
+      "input_ru": "В source snapshot нет ни 66, ни 67.",
+      "actual": {
+        "value": null,
+        "reason": "Счета 66/67 не загружены",
+        "coverage": {
+          "loaded": [],
+          "missing": [
+            "66",
+            "67"
+          ],
+          "complete": false
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": null,
+            "reason": "Счёт 66 не загружен",
+            "share": null
+          },
+          {
+            "account": "67",
+            "value": null,
+            "reason": "Счёт 67 не загружен",
+            "share": null
+          }
+        ]
+      },
+      "expected_actual": {
+        "value": null,
+        "reason": "Счета 66/67 не загружены",
+        "coverage": {
+          "loaded": [],
+          "missing": [
+            "66",
+            "67"
+          ],
+          "complete": false
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": null,
+            "reason": "Счёт 66 не загружен",
+            "share": null
+          },
+          {
+            "account": "67",
+            "value": null,
+            "reason": "Счёт 67 не загружен",
+            "share": null
+          }
+        ]
+      },
+      "expected_audit_ru": "Долг недоступен; отсутствие файлов/счётов не следует трактовать как подтверждённый ноль.",
+      "assessment_ru": "ПРОЙДЕНО: карточка возвращает null с причиной и обе missing строки, а не нулевой долг.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:884-919",
+          "osv-dashboard/key_indicators.py:1025-1043"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2436-2440",
+          "osv-dashboard/static/key_indicators.js:2560-2563"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:161-172"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:251-266"
+        ]
+      },
+      "assertion_ru": "Значение, причины, loaded/missing и complete совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-04-confirmed-zero-66-67",
+      "title_ru": "Подтверждённый нулевой долг",
+      "input_ru": "Оба присутствующих счёта имеют точные СКд=0 и СКк=0 на 31.01.2026.",
+      "actual": {
+        "value": 0.0,
+        "reason": null,
+        "coverage": {
+          "loaded": [
+            "66",
+            "67"
+          ],
+          "missing": [],
+          "complete": true
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": 0.0,
+            "reason": null,
+            "share": null
+          },
+          {
+            "account": "67",
+            "value": 0.0,
+            "reason": null,
+            "share": null
+          }
+        ]
+      },
+      "expected_actual": {
+        "value": 0.0,
+        "reason": null,
+        "coverage": {
+          "loaded": [
+            "66",
+            "67"
+          ],
+          "missing": [],
+          "complete": true
+        },
+        "accounts": [
+          {
+            "account": "66",
+            "value": 0.0,
+            "reason": null,
+            "share": null
+          },
+          {
+            "account": "67",
+            "value": 0.0,
+            "reason": null,
+            "share": null
+          }
+        ]
+      },
+      "expected_audit_ru": "Ноль можно считать подтверждённым только потому, что оба счёта присутствуют и имеют точное нулевое сальдо.",
+      "assessment_ru": "ПРОЙДЕНО: 0.0 сохранён как известное значение, coverage полный, а доли не превращены в NaN/100% при нулевом знаменателе.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:510-531",
+          "osv-dashboard/key_indicators.py:914-919"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2440-2443",
+          "osv-dashboard/static/key_indicators.js:2560-2564"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:151-160"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:300-313"
+        ]
+      },
+      "assertion_ru": "Нулевые values, null shares и полный coverage совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-05-exact-date-mismatch",
+      "title_ru": "Баланс только на другой границе периода",
+      "input_ru": "Для обоих счетов есть оборот 31.01, но единственное top-сальдо относится к границе 31.03 квартала; выбран 31.01.",
+      "actual": {
+        "value": null,
+        "reason": "66: Сальдо доступно только на исходную границу отчёта; 67: Сальдо доступно только на исходную границу отчёта",
+        "account_reasons": {
+          "66": "Сальдо доступно только на исходную границу отчёта",
+          "67": "Сальдо доступно только на исходную границу отчёта"
+        },
+        "available_dates": [
+          "2026-01-31",
+          "2026-03-31"
+        ],
+        "series": {
+          "count": 31,
+          "known": [],
+          "null_count": 31
+        }
+      },
+      "expected_actual": {
+        "value": null,
+        "reason": "66: Сальдо доступно только на исходную границу отчёта; 67: Сальдо доступно только на исходную границу отчёта",
+        "account_reasons": {
+          "66": "Сальдо доступно только на исходную границу отчёта",
+          "67": "Сальдо доступно только на исходную границу отчёта"
+        },
+        "available_dates": [
+          "2026-01-31",
+          "2026-03-31"
+        ],
+        "series": {
+          "count": 31,
+          "known": [],
+          "null_count": 31
+        }
+      },
+      "expected_audit_ru": "Мартовское сальдо нельзя перенести на январскую дату; январское кредитовое сальдо должно оставаться недоступным.",
+      "assessment_ru": "ПРОЙДЕНО: exact-date contract не подставляет top квартала и не превращает январский оборот в январское сальдо.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:419-443",
+          "osv-dashboard/key_indicators.py:510-531"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2520-2532"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:127-140"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:300-313"
+        ]
+      },
+      "assertion_ru": "Оба account balance отсутствуют, причина exact-date и январская series точны.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-06-credit-sign-and-debit-balance",
+      "title_ru": "Знак сальдо: кредитовая и дебетовая стороны",
+      "input_ru": "66: СКд=120, СКк=200; 67: СКд=300, СКк=250. Для каждого добавлена аналитика банка с теми же сторонами.",
+      "actual": {
+        "card_value": 80.0,
+        "account_credit_values": {
+          "66": 80.0,
+          "67": 0.0
+        },
+        "direct_balances": {
+          "66": {
+            "credit": 80.0,
+            "debit": 0.0
+          },
+          "67": {
+            "credit": 0.0,
+            "debit": 50.0
+          }
+        },
+        "analytics": [
+          {
+            "label": "«Банк А»",
+            "value": 80.0,
+            "credit_balance": 80.0,
+            "debit_balance": 0.0
+          },
+          {
+            "label": "«Банк Б»",
+            "value": 0.0,
+            "credit_balance": 0.0,
+            "debit_balance": 50.0
+          }
+        ]
+      },
+      "expected_actual": {
+        "card_value": 80.0,
+        "account_credit_values": {
+          "66": 80.0,
+          "67": 0.0
+        },
+        "direct_balances": {
+          "66": {
+            "credit": 80.0,
+            "debit": 0.0
+          },
+          "67": {
+            "credit": 0.0,
+            "debit": 50.0
+          }
+        },
+        "analytics": [
+          {
+            "label": "«Банк А»",
+            "value": 80.0,
+            "credit_balance": 80.0,
+            "debit_balance": 0.0
+          },
+          {
+            "label": "«Банк Б»",
+            "value": 0.0,
+            "credit_balance": 0.0,
+            "debit_balance": 50.0
+          }
+        ]
+      },
+      "expected_audit_ru": "Кредитовый долг считается как max(СКк−СКд,0); дебетовая разница не становится отрицательным кредитом и должна быть видна только отдельным debit_balance.",
+      "assessment_ru": "ПРОЙДЕНО: 66 даёт 80 кредитового долга, 67 — 0 при дебетовом сальдо 50; analytic contract отдельно сохраняет обе стороны.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки. Аналитики в этом тесте synthetic и сверены с родителем.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:419-443",
+          "osv-dashboard/key_indicators.py:534-582"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2457-2464",
+          "osv-dashboard/static/key_indicators.js:2493-2518"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:151-160"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:280-298"
+        ]
+      },
+      "assertion_ru": "Card, direct debit/credit helpers и две analytic rows совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-07-delta-same-account-set",
+      "title_ru": "Delta только при одинаковом наборе счетов",
+      "input_ru": "Сравнены февраль с январём: в полном варианте 66=100→110 и 67=50→55; во втором варианте январское точное сальдо 67 отсутствует, хотя февральское есть.",
+      "actual": {
+        "same_set": {
+          "value": 165.0,
+          "delta": {
+            "value": 15.0,
+            "unit": "RUB",
+            "label": "к предыдущей сопоставимой дате"
+          },
+          "coverage_complete": true
+        },
+        "changed_set": {
+          "value": 165.0,
+          "delta": null,
+          "coverage_complete": true,
+          "current_accounts": [
+            "66",
+            "67"
+          ],
+          "previous_67_balance": null
+        }
+      },
+      "expected_actual": {
+        "same_set": {
+          "value": 165.0,
+          "delta": {
+            "value": 15.0,
+            "unit": "RUB",
+            "label": "к предыдущей сопоставимой дате"
+          },
+          "coverage_complete": true
+        },
+        "changed_set": {
+          "value": 165.0,
+          "delta": null,
+          "coverage_complete": true,
+          "current_accounts": [
+            "66",
+            "67"
+          ],
+          "previous_67_balance": null
+        }
+      },
+      "expected_audit_ru": "Delta 15 допустима только для одинакового набора подтверждённых счетов. При появлении 67 без предыдущего точного сальдо delta должна быть недоступна, а не сравнивать 165 с неполной базой.",
+      "assessment_ru": "ПРОЙДЕНО: same-set даёт +15; changed-set оставляет delta=null, несмотря на текущий complete=true для выбранного месяца. Предыдущий баланс 67 фактически отсутствует.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки. Даты и наборы счетов synthetic; это не банковский cash-flow.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:1208-1280"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2465-2474",
+          "osv-dashboard/static/key_indicators.js:2560-2564"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:121-140"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:300-313"
+        ]
+      },
+      "assertion_ru": "Обе ветви value/coverage и наличие либо отсутствие delta совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-08-timeline-coverage-changes",
+      "title_ru": "Изменение охвата по временной шкале",
+      "input_ru": "66 имеет точные отчёты января и марта, 67 — только января; квартальная серия строится на январь, февраль и март.",
+      "actual": {
+        "coverage_intervals": {
+          "66": [
+            {
+              "start": "2026-01-01",
+              "end": "2026-01-31"
+            },
+            {
+              "start": "2026-03-01",
+              "end": "2026-03-31"
+            }
+          ],
+          "67": [
+            {
+              "start": "2026-01-01",
+              "end": "2026-01-31"
+            }
+          ]
+        },
+        "value_at_march": 120.0,
+        "coverage": {
+          "loaded": [
+            "66"
+          ],
+          "missing": [
+            "67"
+          ],
+          "complete": false
+        },
+        "series": [
+          {
+            "label": "Янв 2026",
+            "value": 150.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": 120.0
+          }
+        ],
+        "partial_warning": true
+      },
+      "expected_actual": {
+        "coverage_intervals": {
+          "66": [
+            {
+              "start": "2026-01-01",
+              "end": "2026-01-31"
+            },
+            {
+              "start": "2026-03-01",
+              "end": "2026-03-31"
+            }
+          ],
+          "67": [
+            {
+              "start": "2026-01-01",
+              "end": "2026-01-31"
+            }
+          ]
+        },
+        "value_at_march": 120.0,
+        "coverage": {
+          "loaded": [
+            "66"
+          ],
+          "missing": [
+            "67"
+          ],
+          "complete": false
+        },
+        "series": [
+          {
+            "label": "Янв 2026",
+            "value": 150.0
+          },
+          {
+            "label": "Фев 2026",
+            "value": null
+          },
+          {
+            "label": "Мар 2026",
+            "value": 120.0
+          }
+        ],
+        "partial_warning": true
+      },
+      "expected_audit_ru": "Февральский пробел должен быть null, мартовское значение 120 — частичный охват 66, а не полный долг 66+67; warning о неполном квартале обязателен.",
+      "assessment_ru": "ПРОЙДЕНО: calendar gap не интерполируется в ноль, мартовский card.value не объявлен полным, missing=['67'] и partial warning сохранены.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки. Timeline построен по synthetic balance_reports/coverage_reports.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:198-263",
+          "osv-dashboard/key_indicators.py:1104-1122",
+          "osv-dashboard/key_indicators.py:1186-1191"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2520-2532"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:121-140"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:300-313"
+        ]
+      },
+      "assertion_ru": "Интервалы, series null-gap, card coverage и warning совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-09-turnover-not-paid",
+      "title_ru": "Обороты 66/67 не равны оплате или привлечению",
+      "input_ru": "Для 66 переданы СКк=100, ОбД=30, ОбК=120; для 67 СКк=50, ОбД=10, ОбК=40. Статический текст renderCreditsModal сверяет подпись оборотов.",
+      "actual": {
+        "value": 150.0,
+        "accounts": [
+          {
+            "account": "66",
+            "value": 100.0,
+            "debit_turnover": 30.0,
+            "credit_turnover": 120.0
+          },
+          {
+            "account": "67",
+            "value": 50.0,
+            "debit_turnover": 10.0,
+            "credit_turnover": 40.0
+          }
+        ],
+        "static_turnover_caveat": true,
+        "static_credit_turnover_column": true
+      },
+      "expected_actual": {
+        "value": 150.0,
+        "accounts": [
+          {
+            "account": "66",
+            "value": 100.0,
+            "debit_turnover": 30.0,
+            "credit_turnover": 120.0
+          },
+          {
+            "account": "67",
+            "value": 50.0,
+            "debit_turnover": 10.0,
+            "credit_turnover": 40.0
+          }
+        ],
+        "static_turnover_caveat": true,
+        "static_credit_turnover_column": true
+      },
+      "expected_audit_ru": "Оборот можно показать как бухгалтерское движение, но нельзя называть его полученным кредитом или погашением без корреспонденции и регистра платежей.",
+      "assessment_ru": "ПРОЙДЕНО: backend возвращает обороты отдельно от сальдо, а frontend прямо оговаривает, что они не называются погашением или привлечением. Это не доказательство фактических платежей.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки. Платёжный регистр в probe отсутствует намеренно.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:885-910"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2477-2490"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:151-160"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:280-289"
+        ]
+      },
+      "assertion_ru": "Обороты account rows и два статических caveat-флага совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    },
+    {
+      "test_id": "CR-10-parser-analytic-balance-availability",
+      "title_ru": "Аналитическое сальдо: фактическая форма parser и backend fallback",
+      "input_ru": "В parser-shaped source daily row 66.01 содержит только ОбД/ОбК; rows содержат 66 и дочернюю аналитику «Банк А» с СКд=10, СКк=100. Проверены также статические ветки renderCreditsModal.",
+      "actual": {
+        "card_value": 90.0,
+        "source_daily_balance_keys": [],
+        "source_report_row_count": 2,
+        "analytic_rows": [
+          {
+            "account": "66",
+            "label": "Банк А",
+            "value": 90.0,
+            "debit_turnover": 30.0,
+            "credit_turnover": 120.0
+          }
+        ],
+        "direct_analytic_rows": [
+          {
+            "label": "Банк А",
+            "value": 90.0
+          }
+        ],
+        "parser_daily_turnover_only": true,
+        "parser_report_rows_keep_balances": true,
+        "js_reads_credit_analytics": true,
+        "js_has_empty_analytics_message": true
+      },
+      "expected_actual": {
+        "card_value": 90.0,
+        "source_daily_balance_keys": [],
+        "source_report_row_count": 2,
+        "analytic_rows": [
+          {
+            "account": "66",
+            "label": "Банк А",
+            "value": 90.0,
+            "debit_turnover": 30.0,
+            "credit_turnover": 120.0
+          }
+        ],
+        "direct_analytic_rows": [
+          {
+            "label": "Банк А",
+            "value": 90.0
+          }
+        ],
+        "parser_daily_turnover_only": true,
+        "parser_report_rows_keep_balances": true,
+        "js_reads_credit_analytics": true,
+        "js_has_empty_analytics_message": true
+      },
+      "expected_audit_ru": "Отсутствие skd/skk в daily не должно само по себе уничтожать аналитику, если report rows с уровнями и балансами доступны; при отсутствии обоих источников аналитика должна быть Н/Д.",
+      "assessment_ru": "ПРОЙДЕНО для текущего parser-shaped snapshot: backend _account_balance_analytics использует report rows и возвращает «Банк А»=90, несмотря на пустые daily balance keys; JS читает card.analytics и имеет явное empty-state. Это не доказательство наличия такой аналитики в каждом реальном файле.",
+      "scope_ru": "Счета 66 и 67: подтверждённое кредитовое сальдо ОСВ, охват и осторожная динамика. Это не реестр кредитных договоров, платежей, погашения, процентов или просрочки. Проверена форма текущего parser source, но не прочитан реальный XLS.",
+      "source_refs": {
+        "R1_backend": [
+          "osv-dashboard/key_indicators.py:534-582",
+          "osv-dashboard/key_indicators.py:912-913"
+        ],
+        "R2_JS": [
+          "osv-dashboard/static/key_indicators.js:2493-2518"
+        ],
+        "R3_service": [
+          "osv-dashboard/key_indicators_service.py:127-160"
+        ],
+        "R4_parser": [
+          "osv-dashboard/osvparser.py:282-298"
+        ]
+      },
+      "assertion_ru": "Actual parser flags, source shape, backend card/analytic fallback and static JS flags совпадают с expected_actual.",
+      "implementation_status": "PASS",
+      "audit_assessment": "PASS",
+      "status": "PASS",
+      "assertion_verified": true
+    }
+  ],
+  "limitations_ru": [
+    "Все входы synthetic source snapshots в памяти; реальные XLS, предприятия, БД, service layer и сеть не читались.",
+    "Кредитовое сальдо 66/67 — бухгалтерская величина; отчёт не подтверждает тело договора, ставку, проценты, график, платёж, погашение или просрочку.",
+    "Partial cases показывают доступные счета только с coverage.complete=false; отсутствующий счёт не заменён нулём и не включён в вывод как полный долг.",
+    "Timeline gap проверен на balance_reports/coverage_reports: null означает отсутствие точного сальдо, а не подтверждённый нулевой месяц.",
+    "Parser analytic probe подтверждает только текущую форму daily/report rows и fallback pure helper; отсутствие аналитики в другом XLS этим не исключается.",
+    "R2 JS проверен статически без DOM/browser; Node expression не запускался, так как отдельного вычислительного credits expression в проверенных ветках нет."
+  ]
+}

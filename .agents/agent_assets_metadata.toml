@@ -148,3 +148,17 @@ mtime_ms = 1789109637102
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/a9c7f2da-f925-4bbc-abc3-bb4f18fb14c0/83c7175e-034f-4823-b8e4-532a0632f6de"
 storage_version_token = "1789109652869368"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "hsa_5sFAsu3IXZTdkYz3y"
+uri = "file://reports/credits_loans_metrics_audit.xlsx"
+type = "table"
+title = "Кредиты и займы — критический аудит"
+description = "11 листов: 35 паспортов показателей и состояний, все 16 столбцов трёх таблиц, график, формулы и источники, оценка достоверности и полноты, рекомендации по отображению и 10 контрольных примеров."
+logical_id = "40b766d1-9827-486e-afc4-f14831ec7876"
+content_hash = "sha256:c19f30314572ecf9d02b6315d47b65fe832a38bef8cd8ebe1ddf0235cae44068"
+size = 92872
+mtime_ms = 1789110364749
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/40b766d1-9827-486e-afc4-f14831ec7876/05efdcc3-9b36-4c63-a867-1229c790c6e0"
+storage_version_token = "1789110373230374"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
