@@ -234,7 +234,14 @@ def _snapshot_rows(models):
         for model in models
     }
 
-
+def _manifest_counts(manifest, models):
+    """Use the rows actually stored in a manifest for protected model counts."""
+    counts = dict(manifest.get("counts", {}))
+    tables = manifest.get("tables", {})
+    for model in models:
+        if model.__tablename__ in COUNT_TABLES and model.__name__ in tables:
+            counts[model.__tablename__] = len(tables[model.__name__])
+    return counts
 def _counts(db):
     inspector = __import__("sqlalchemy").inspect(db.engine)
     existing = set(inspector.get_table_names())
@@ -335,7 +342,11 @@ def backup(db, uploads_root, output_root, models, reason,
         store = _store()
         snapshot_id = _snapshot_id()
         snapshot_prefix = f"{SNAPSHOTS_PREFIX}/{snapshot_id}"
+        tables = _snapshot_rows(models)
         counts = _counts(db)
+        for model in models:
+            if model.__tablename__ in COUNT_TABLES:
+                counts[model.__tablename__] = len(tables.get(model.__name__, []))
         files = _backup_files(store, uploads_root, output_root)
         manifest = {
             "format": 2,
@@ -348,7 +359,7 @@ def backup(db, uploads_root, output_root, models, reason,
             "files": files,
             # JSON is retained even for PostgreSQL. It is the non-destructive
             # repair path when a live database has only partially lost rows.
-            "tables": _snapshot_rows(models),
+            "tables": tables,
         }
         if db.engine.dialect.name == "postgresql":
             fd, dump_path = tempfile.mkstemp(prefix="osv_", suffix=".dump")
@@ -384,7 +395,7 @@ def backup(db, uploads_root, output_root, models, reason,
                 name for name in COUNT_TABLES
                 if previous
                 and counts.get(name, 0)
-                < previous.get("counts", {}).get(name, 0)
+                < _manifest_counts(previous, models).get(name, 0)
             }
             shrunk.update(_removed_snapshot_tables(
                 previous, manifest, models))

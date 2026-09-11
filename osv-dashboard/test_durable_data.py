@@ -90,6 +90,18 @@ with app.app_context():
               (backup_root / first_pointer["manifest"]).read_text(
                   encoding="utf-8"))["tables"])
 
+    first_manifest_path = backup_root / first_pointer["manifest"]
+    inconsistent_manifest = json.loads(
+        first_manifest_path.read_text(encoding="utf-8"))
+    inconsistent_manifest["counts"]["companies"] += 1
+    first_manifest_path.write_text(
+        json.dumps(inconsistent_manifest, ensure_ascii=False), encoding="utf-8")
+    consistent_followup = backup(
+        db, UPLOADS, OUTPUT, _DURABLE_MODELS, "consistent_rows_win")
+    check("stale aggregate count cannot block an unchanged protected table",
+          consistent_followup["promoted"]
+          and not consistent_followup["shrink_rejected"])
+
     RevenueAnalyticMapping.query.delete()
     db.session.commit()
     authorized = backup(
@@ -115,7 +127,7 @@ with app.app_context():
           not rejected["promoted"]
           and rejected["shrink_rejected"] == ["daily_rows"]
            and unchanged_pointer == protected_pointer
-           and len(manifests) == 3)
+           and len(manifests) == 4)
 
     # Completely erase every table owned by the local JSON backend, including
     # User and Company, and both numeric file trees.
