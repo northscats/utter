@@ -430,10 +430,10 @@ body.splitter-dragging iframe{pointer-events:none}
         <div class="sb-section-hdr sl-nav-group-hdr">
           <span>Аналитика предприятия</span>
         </div>
-        <div class="sl-nav-item" data-nav="cards" onclick="setNavView('cards',this)">
+        <div class="sl-nav-item active" data-nav="cards" onclick="setNavView('cards',this)">
           <span class="ico">📊</span><span>Основные показатели</span>
         </div>
-        <div class="sl-nav-item active" data-nav="kpi" onclick="setNavView('kpi',this)">
+        <div class="sl-nav-item" data-nav="kpi" onclick="setNavView('kpi',this)">
           <span class="ico">🖥️</span><span>Анализ ОСВ</span>
         </div>
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
@@ -577,7 +577,7 @@ const SIG = {
    State
 ══════════════════════════════ */
 var currentCompanyId = null;
-var currentNavView   = 'kpi';
+var currentNavView   = 'cards';
 var ratingProfiles = {{ rating_profiles | tojson }};
 var ratingCatalog = null;
 var ratingData = null;
@@ -1149,10 +1149,8 @@ function closeRegModal() { var m=document.getElementById('reg-modal'); if(m) m.c
     }
   } catch(e){}
 
-  // Restore nav view
-  var nav = 'kpi';
-  try { nav = localStorage.getItem('sl_nav') || 'kpi'; } catch(e){}
-  if (!document.querySelector('.sl-nav-item[data-nav="' + nav + '"]')) nav = 'kpi';
+  // Every module entry starts with Основные показатели, not the last visited tab.
+  var nav = 'cards';
   currentNavView = nav;
   document.querySelectorAll('.sl-nav-item').forEach(function(el){
     el.classList.toggle('active', el.dataset.nav === nav);
@@ -1162,12 +1160,9 @@ function closeRegModal() { var m=document.getElementById('reg-modal'); if(m) m.c
   var params = new URLSearchParams(location.search);
   var cid = params.get('company');
   if (!cid) { try { cid = localStorage.getItem('sl_company'); } catch(e){} }
-  if (cid && nav !== 'comparison') {
-    var el = document.getElementById('si-' + cid);
-    if (el) { selectCompany(el); el.scrollIntoView({ block: 'nearest' }); }
-  } else if (nav === 'comparison') {
-    renderNavView('comparison');
-  }
+  var el = (cid && document.getElementById('si-' + cid)) ||
+    document.querySelector('.sl-item');
+  if (el) { selectCompany(el); el.scrollIntoView({ block: 'nearest' }); }
 })();
 </script>
 </body>
