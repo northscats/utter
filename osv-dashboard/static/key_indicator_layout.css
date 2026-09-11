@@ -353,12 +353,51 @@
     border-radius: 6px;
     padding: 10px;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    display: flex;
-    flex-direction: row;
+    display: grid;
+    grid-template-columns: 22px 16px minmax(0, 1fr);
     gap: 8px;
     align-items: flex-start;
     cursor: pointer;
     user-select: none;
+}
+
+.ki-constructor-item.ki-dragging {
+    opacity: .55;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, .18);
+}
+
+.ki-constructor-item.ki-drop-target-before {
+    border-top: 3px solid #2563EB;
+}
+
+.ki-constructor-item.ki-drop-target-after {
+    border-bottom: 3px solid #2563EB;
+}
+
+.ki-constructor-drag-handle {
+    flex: 0 0 22px;
+    width: 22px;
+    min-height: 28px;
+    padding: 2px 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #9CA3AF;
+    cursor: grab;
+    touch-action: none;
+    font-size: 16px;
+    line-height: 1;
+    letter-spacing: -3px;
+}
+
+.ki-constructor-drag-handle:hover,
+.ki-constructor-drag-handle:focus-visible {
+    background: #EFF6FF;
+    color: #2563EB;
+}
+
+.ki-constructor-drag-handle:active {
+    cursor: grabbing;
 }
 
 .ki-constructor-item.selected {
@@ -379,6 +418,7 @@
 }
 
 .ki-constructor-item-title {
+    overflow-wrap: anywhere;
     font-size: 13px;
     font-weight: 500;
     color: #111827;
@@ -391,6 +431,8 @@
 }
 
 .ki-constructor-item-actions {
+    grid-column: 1 / -1;
+    min-width: 0;
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
@@ -417,6 +459,12 @@
     white-space: nowrap;
 }
 
+.ki-constructor-list.ki-drop-target-list {
+    outline: 2px dashed #2563EB;
+    outline-offset: -3px;
+    background: #EFF6FF;
+}
+
 .ki-layout-sections {
     display: flex;
     flex-direction: column;
@@ -428,6 +476,25 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
     margin-bottom: 16px;
+}
+
+.ki-layout-unified-grid {
+    align-items: start;
+}
+
+.ki-layout-unified-grid > .ki-layout-item-section,
+.ki-layout-unified-grid > .modal-section-title,
+.ki-layout-unified-grid > .banner,
+.ki-layout-unified-grid > .cash-info-banner,
+.ki-layout-unified-grid > .modal-info-banner {
+    grid-column: 1 / -1;
+    width: 100%;
+}
+
+.ki-layout-unified-grid > .ki-layout-item-section {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 
 @media (max-width: 768px) {

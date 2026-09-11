@@ -67,9 +67,9 @@ def validate_layout_payload(payload):
     layout = payload['layout']
     if not isinstance(layout, dict):
         raise LayoutValidationError('Поле layout должно быть JSON-объектом')
-    if set(layout) != {'version', 'items'}:
+    if set(layout) not in ({'version', 'items'}, {'version', 'items', 'order'}):
         raise LayoutValidationError(
-            'layout должен содержать только version и items')
+            'layout должен содержать version, items и необязательный order')
 
     version = _strict_int(layout['version'], 'layout.version')
     if version != LAYOUT_VERSION:
@@ -94,8 +94,24 @@ def validate_layout_payload(payload):
                 'Размещение элемента должно быть main, detail или hidden')
         normalized_items[key] = placement
 
+    normalized_layout = {'version': LAYOUT_VERSION, 'items': normalized_items}
+    if 'order' in layout:
+        order = layout['order']
+        if not isinstance(order, list) or len(order) > MAX_ITEMS:
+            raise LayoutValidationError(
+                f'layout.order должен быть массивом до {MAX_ITEMS} ключей')
+        seen = set()
+        for key in order:
+            if not isinstance(key, str) or key not in normalized_items:
+                raise LayoutValidationError(
+                    'Каждый ключ layout.order должен присутствовать в items')
+            if key in seen:
+                raise LayoutValidationError('Ключи layout.order не должны повторяться')
+            seen.add(key)
+        normalized_layout['order'] = list(order)
+
     return {
-        'layout': {'version': LAYOUT_VERSION, 'items': normalized_items},
+        'layout': normalized_layout,
         'revision': revision,
     }
 

@@ -53,7 +53,12 @@
             loadError: null,
             saveError: null,
             selected: new Set(),
-            lastFocused: null
+            lastFocused: null,
+            drag: null,
+            dragDocumentBound: false,
+            dragMoveHandler: null,
+            dragEndHandler: null,
+            dragCancelHandler: null
         },
 
         gearIcon: '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51 2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.6 15 1.65 1.65 0 003 14a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.6 1.65 1.65 0 0010 3a2 2 0 014 0v.09A1.65 1.65 0 0015 4.6a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9c.27.62.88 1 1.51 1H21a2 2 0 010 4h-.09c-.63 0-1.24.38-1.51 1z"/></svg>',
@@ -86,6 +91,7 @@
             this.state.saveError = null;
             this.state.isConstructor = false;
             this.state.selected = new Set();
+            this.state.drag = null;
 
             this.captureOriginalDom(container, token);
             this.state.items = this.extractItems(container, cardId);
@@ -125,6 +131,7 @@
                 window.KI_AnnualApp.clearChartJobs();
             }
             this.state.isConstructor = false;
+            this.teardownDragEvents();
             this.detachRenderedItems();
             this.restoreOriginalDom();
             this.resetState();
@@ -159,6 +166,11 @@
             this.state.loadError = null;
             this.state.saveError = null;
             this.state.selected = new Set();
+            this.state.drag = null;
+            this.state.dragDocumentBound = false;
+            this.state.dragMoveHandler = null;
+            this.state.dragEndHandler = null;
+            this.state.dragCancelHandler = null;
         },
 
         captureOriginalDom: function(container, token) {
@@ -398,12 +410,13 @@
         },
 
         generateDefaultLayout: function() {
-            const config = {version: 1, items: {}};
+            const config = {version: 1, items: {}, order: []};
             let hasPrimaryCard = false;
             this.state.items.forEach(item => {
                 let placement = item.defaultPlacement;
                 if (!PLACEMENTS.includes(placement)) placement = 'detail';
                 config.items[item.id] = placement;
+                config.order.push(item.id);
                 if (item.type === 'card' && placement === 'main') hasPrimaryCard = true;
             });
             // Annual generic modals have no summary cards.  Keep the first
@@ -419,9 +432,44 @@
             return config;
         },
 
+        normalizeOrder: function(order, fallback) {
+            const registryIds = this.state.items.map(item => item.id);
+            const fallbackIds = Array.isArray(fallback) ? fallback :
+                Object.keys((this.state.layoutDraft && this.state.layoutDraft.items) || {});
+            const known = new Set(registryIds.length ? registryIds : fallbackIds);
+            const result = [];
+            const seen = new Set();
+            const append = value => {
+                if (typeof value !== 'string' || !known.has(value) || seen.has(value)) return;
+                seen.add(value);
+                result.push(value);
+            };
+            if (Array.isArray(order)) order.forEach(append);
+            (registryIds.length ? registryIds : fallbackIds)
+                .forEach(append);
+            if (registryIds.length) registryIds.forEach(itemId => append(itemId));
+            return result.slice(0, 250);
+        },
+
+        getLayoutOrder: function(layout) {
+            if (!layout) return this.state.items.map(item => item.id);
+            const fallback = this.state.items.length ? this.state.items.map(item => item.id) :
+                Object.keys(layout.items || {});
+            return this.normalizeOrder(layout.order, fallback);
+        },
+
+        orderedItems: function(layout) {
+            const byId = new Map(this.state.items.map(item => [item.id, item]));
+            return this.getLayoutOrder(layout).map(id => byId.get(id)).filter(Boolean);
+        },
+
         mergeLayout: function(saved) {
             const defaults = this.generateDefaultLayout();
-            const result = {version: 1, items: Object.assign({}, defaults.items)};
+            const result = {
+                version: 1,
+                items: Object.assign({}, defaults.items),
+                order: []
+            };
             const savedItems = saved && saved.items && typeof saved.items === 'object' ?
                 saved.items : {};
             this.state.items.forEach(item => {
@@ -430,6 +478,13 @@
                     result.items[item.id] = savedItems[item.id];
                 }
             });
+            // Version-1 preferences did not have an order field.  A partial
+            // order is deliberately accepted here: newly registered items
+            // are appended in their registry order.
+            result.order = this.normalizeOrder(
+                saved && Array.isArray(saved.order) ? saved.order : null,
+                defaults.order
+            );
             return result;
         },
 
@@ -456,13 +511,13 @@
                 <div class="ki-layout-load-status" role="status" aria-live="polite"></div>
                 <div class="ki-layout-view">
                     <div class="ki-layout-content" role="tabpanel" data-tab-content="main" aria-label="Основной">
-                        <div class="ki-layout-grid-container"></div>
-                        <div class="ki-layout-sections"></div>
+                        <div class="ki-layout-grid-container ki-layout-unified-grid" role="list"></div>
+                        <div class="ki-layout-sections" hidden aria-hidden="true"></div>
                         <div class="ki-layout-empty" data-empty-tab="main">Нет блоков на основной вкладке.</div>
                     </div>
                     <div class="ki-layout-content" role="tabpanel" data-tab-content="detail" hidden aria-hidden="true" aria-label="Детальный">
-                        <div class="ki-layout-grid-container"></div>
-                        <div class="ki-layout-sections"></div>
+                        <div class="ki-layout-grid-container ki-layout-unified-grid" role="list"></div>
+                        <div class="ki-layout-sections" hidden aria-hidden="true"></div>
                         <div class="ki-layout-empty" data-empty-tab="detail">Нет блоков на детальной вкладке.</div>
                     </div>
                 </div>
@@ -488,15 +543,15 @@
                     <div class="ki-constructor-workspace">
                         <div class="ki-constructor-col">
                             <div class="ki-constructor-col-header">Основной <span></span></div>
-                            <div class="ki-constructor-list" data-placement="main"></div>
+                            <div class="ki-constructor-list" data-placement="main" role="list" aria-label="Основной"></div>
                         </div>
                         <div class="ki-constructor-col">
                             <div class="ki-constructor-col-header">Детальный <span></span></div>
-                            <div class="ki-constructor-list" data-placement="detail"></div>
+                            <div class="ki-constructor-list" data-placement="detail" role="list" aria-label="Детальный"></div>
                         </div>
                         <div class="ki-constructor-col constructor-hidden">
                             <div class="ki-constructor-col-header">Скрытые <span></span></div>
-                            <div class="ki-constructor-list" data-placement="hidden"></div>
+                            <div class="ki-constructor-list" data-placement="hidden" role="list" aria-label="Скрытые"></div>
                         </div>
                     </div>
                 </div>
@@ -536,6 +591,7 @@
             ].forEach(([selector, placement]) => wrapper.querySelector(selector).addEventListener(
                 'click', () => this.moveSelected(placement)));
             container.appendChild(wrapper);
+            this.setupDragEvents();
             const host = document.querySelector('.ki-modal-header-controls');
             if (host) {
                 this.state.toolbar = wrapper.querySelector('.ki-layout-header');
@@ -659,6 +715,147 @@
             this.rerenderCharts();
         },
 
+        setupDragEvents: function() {
+            if (this.state.dragDocumentBound || typeof document === 'undefined' ||
+                typeof document.addEventListener !== 'function') return;
+            this.state.dragMoveHandler = event => this.handlePointerMove(event);
+            this.state.dragEndHandler = event => this.finishPointerDrag(event);
+            this.state.dragCancelHandler = event => this.finishPointerDrag(event, true);
+            document.addEventListener('pointermove', this.state.dragMoveHandler);
+            document.addEventListener('pointerup', this.state.dragEndHandler);
+            document.addEventListener('pointercancel', this.state.dragCancelHandler);
+            this.state.dragDocumentBound = true;
+        },
+
+        teardownDragEvents: function() {
+            if (this.state.dragDocumentBound && typeof document !== 'undefined' &&
+                typeof document.removeEventListener === 'function') {
+                document.removeEventListener('pointermove', this.state.dragMoveHandler);
+                document.removeEventListener('pointerup', this.state.dragEndHandler);
+                document.removeEventListener('pointercancel', this.state.dragCancelHandler);
+            }
+            this.state.dragDocumentBound = false;
+            this.state.dragMoveHandler = null;
+            this.state.dragEndHandler = null;
+            this.state.dragCancelHandler = null;
+            this.state.drag = null;
+        },
+
+        closestWithClass: function(node, className) {
+            let current = node;
+            while (current) {
+                if (this.hasClass(current, className)) return current;
+                current = current.parentNode;
+            }
+            return null;
+        },
+
+        findDropTarget: function(event) {
+            const point = typeof document.elementFromPoint === 'function' &&
+                Number.isFinite(event.clientX) && Number.isFinite(event.clientY) ?
+                document.elementFromPoint(event.clientX, event.clientY) : null;
+            const source = point || event.target || null;
+            let row = this.closestWithClass(source, 'ki-constructor-item');
+            let list = this.closestWithClass(source, 'ki-constructor-list');
+            if (!list) {
+                const column = this.closestWithClass(source, 'ki-constructor-col');
+                if (column && column.querySelector) {
+                    list = column.querySelector('.ki-constructor-list');
+                }
+            }
+            if (!row && !list) return null;
+            if (row) {
+                list = row.parentNode && this.hasClass(row.parentNode, 'ki-constructor-list') ?
+                    row.parentNode : list;
+            }
+            const placement = list && list.dataset ? list.dataset.placement : null;
+            if (!PLACEMENTS.includes(placement)) return null;
+            if (!row) {
+                return {placement, itemId: null, position: 'end', list};
+            }
+            const rect = typeof row.getBoundingClientRect === 'function' ?
+                row.getBoundingClientRect() : null;
+            const midpoint = rect && Number.isFinite(rect.top) && Number.isFinite(rect.height) ?
+                rect.top + rect.height / 2 : null;
+            const position = midpoint === null || !Number.isFinite(event.clientY) ||
+                event.clientY < midpoint ? 'before' : 'after';
+            return {
+                placement,
+                itemId: row.dataset ? row.dataset.itemId : null,
+                position,
+                row,
+                list
+            };
+        },
+
+        updateDropIndicator: function(drop) {
+            const wrapper = this.getWrapper();
+            if (!wrapper) return;
+            wrapper.querySelectorAll('.ki-constructor-item').forEach(row => {
+                row.classList.remove('ki-drop-target-before', 'ki-drop-target-after');
+            });
+            wrapper.querySelectorAll('.ki-constructor-list').forEach(list => {
+                list.classList.remove('ki-drop-target-list');
+            });
+            if (!drop) return;
+            if (drop.row) {
+                drop.row.classList.add(`ki-drop-target-${drop.position}`);
+            } else if (drop.list) {
+                drop.list.classList.add('ki-drop-target-list');
+            }
+        },
+
+        startPointerDrag: function(event, handle) {
+            if (this.state.saving || !this.state.layoutDraft) return;
+            if (event.button !== undefined && event.button !== 0) return;
+            const row = this.closestWithClass(handle, 'ki-constructor-item');
+            if (!row || !row.dataset || !row.dataset.itemId) return;
+            this.state.drag = {
+                itemId: row.dataset.itemId,
+                pointerId: event.pointerId,
+                row,
+                drop: null,
+                moved: false
+            };
+            row.classList.add('ki-dragging');
+            row.setAttribute('aria-grabbed', 'true');
+            if (typeof handle.setPointerCapture === 'function' &&
+                event.pointerId !== undefined) {
+                try { handle.setPointerCapture(event.pointerId); } catch (error) { /* no-op */ }
+            }
+            if (typeof event.preventDefault === 'function') event.preventDefault();
+            if (typeof event.stopPropagation === 'function') event.stopPropagation();
+        },
+
+        handlePointerMove: function(event) {
+            const drag = this.state.drag;
+            if (!drag || (drag.pointerId !== undefined &&
+                event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+            drag.moved = true;
+            drag.drop = this.findDropTarget(event);
+            this.updateDropIndicator(drag.drop);
+            if (typeof event.preventDefault === 'function') event.preventDefault();
+        },
+
+        finishPointerDrag: function(event, cancelled) {
+            const drag = this.state.drag;
+            if (!drag || (drag.pointerId !== undefined &&
+                event.pointerId !== undefined && drag.pointerId !== event.pointerId)) return;
+            const drop = drag.drop;
+            if (drag.row) {
+                drag.row.classList.remove('ki-dragging');
+                drag.row.setAttribute('aria-grabbed', 'false');
+            }
+            this.updateDropIndicator(null);
+            this.state.drag = null;
+            if (!cancelled && drag.moved && drop &&
+                drop.itemId !== drag.itemId) {
+                this.reorderDraftItem(
+                    drag.itemId, drop.placement, drop.itemId, drop.position
+                );
+            }
+        },
+
         toggleConstructor: function(force) {
             if (!this.state.activeContainer || !this.state.ready || this.state.loading || this.state.saving) return;
             this.state.isConstructor = force === undefined ? !this.state.isConstructor : !!force;
@@ -710,10 +907,10 @@
                     empty: panel.querySelector('.ki-layout-empty')
                 };
                 content[tab].grid.innerHTML = '';
-                content[tab].sections.innerHTML = '';
+                if (content[tab].sections) content[tab].sections.innerHTML = '';
             });
             const config = this.state.layoutConfig.items || {};
-            this.state.items.forEach(item => {
+            this.orderedItems(this.state.layoutConfig).forEach(item => {
                 const placement = PLACEMENTS.includes(config[item.id]) ? config[item.id] : 'hidden';
                 if (placement === 'hidden') return;
                 const target = content[placement];
@@ -721,17 +918,20 @@
                     item.elements.forEach(node => target.grid.appendChild(node));
                 } else if (item.type === 'section') {
                     const group = document.createElement('div');
-                    group.className = 'ki-layout-section-group';
+                    group.className = 'ki-layout-section-group ki-layout-item-section';
+                    group.dataset.layoutItemId = item.id;
                     item.elements.forEach(node => group.appendChild(node));
-                    target.sections.appendChild(group);
+                    target.grid.appendChild(group);
                 } else {
-                    item.elements.forEach(node => target.sections.appendChild(node));
+                    item.elements.forEach(node => target.grid.appendChild(node));
                 }
             });
             ['main', 'detail'].forEach(tab => {
                 const target = content[tab];
                 target.grid.style.display = target.grid.children.length ? 'grid' : 'none';
-                target.empty.hidden = target.grid.children.length + target.sections.children.length > 0;
+                const hasItems = target.grid.children.length > 0 ||
+                    (target.sections && target.sections.children.length > 0);
+                target.empty.hidden = hasItems;
             });
             this.updateTabs();
             this.rerenderCharts();
@@ -747,7 +947,14 @@
             };
             Object.values(lists).forEach(list => { list.innerHTML = ''; });
             const counts = {main: 0, detail: 0, hidden: 0};
-            this.state.items.forEach(item => {
+            const ordered = this.orderedItems(this.state.layoutDraft);
+            const placementItems = {main: [], detail: [], hidden: []};
+            ordered.forEach(item => {
+                const placement = PLACEMENTS.includes(this.state.layoutDraft.items[item.id]) ?
+                    this.state.layoutDraft.items[item.id] : 'hidden';
+                placementItems[placement].push(item);
+            });
+            ordered.forEach(item => {
                 const placement = PLACEMENTS.includes(this.state.layoutDraft.items[item.id]) ?
                     this.state.layoutDraft.items[item.id] : 'hidden';
                 counts[placement]++;
@@ -756,15 +963,23 @@
                 row.dataset.itemId = item.id;
                 row.tabIndex = 0;
                 row.setAttribute('role', 'listitem');
+                row.setAttribute('aria-grabbed', 'false');
                 if (this.state.selected.has(item.id)) row.classList.add('selected');
                 const kind = {card: 'Показатель', banner: 'Информация', section: 'Секция'}[item.type] || item.type;
+                const position = placementItems[placement].findIndex(candidate => candidate.id === item.id);
+                const previous = position > 0 ? placementItems[placement][position - 1] : null;
+                const next = position >= 0 && position < placementItems[placement].length - 1 ?
+                    placementItems[placement][position + 1] : null;
                 row.innerHTML = `
+                    <button type="button" class="ki-constructor-drag-handle" aria-label="Перетащить ${this.escapeHtml(item.title)}" title="Перетащить" data-drag-handle>⋮⋮</button>
                     <label class="ki-constructor-select"><input type="checkbox" class="ki-item-checkbox" aria-label="Выбрать ${this.escapeHtml(item.title)}"></label>
                     <div class="ki-constructor-item-body">
                         <div class="ki-constructor-item-type">${this.escapeHtml(kind)}</div>
                         <div class="ki-constructor-item-title">${this.escapeHtml(item.title)}</div>
                     </div>
                     <div class="ki-constructor-item-actions">
+                        <button type="button" data-reorder="up" aria-label="Переместить выше"${previous ? '' : ' disabled'}>↑</button>
+                        <button type="button" data-reorder="down" aria-label="Переместить ниже"${next ? '' : ' disabled'}>↓</button>
                         ${placement !== 'main' ? '<button type="button" data-action="main">В основной</button>' : ''}
                         ${placement !== 'detail' ? '<button type="button" data-action="detail">В детальный</button>' : ''}
                         ${placement !== 'hidden' ? '<button type="button" data-action="hidden">Скрыть</button>' : ''}
@@ -785,6 +1000,24 @@
                         event.preventDefault();
                         this.setSelected(item.id, !this.state.selected.has(item.id));
                     }
+                    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+                        !event.target.closest('button, input')) {
+                        event.preventDefault();
+                        this.moveDraftItemOrder(item.id, event.key === 'ArrowUp' ? 'up' : 'down');
+                    }
+                });
+                const handle = row.querySelector('[data-drag-handle]');
+                if (handle) {
+                    handle.addEventListener('pointerdown', event => {
+                        this.startPointerDrag(event, handle);
+                    });
+                }
+                row.querySelectorAll('button[data-reorder]').forEach(button => {
+                    button.addEventListener('click', event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.moveDraftItemOrder(item.id, button.dataset.reorder);
+                    });
                 });
                 row.querySelectorAll('button[data-action]').forEach(button => {
                     button.addEventListener('click', event => {
@@ -826,14 +1059,76 @@
 
         moveSelected: function(placement) {
             if (!this.state.layoutDraft || this.state.saving || !PLACEMENTS.includes(placement)) return;
-            this.state.selected.forEach(id => { this.state.layoutDraft.items[id] = placement; });
+            const known = new Set(this.state.items.map(item => item.id));
+            this.state.selected.forEach(id => {
+                if (known.has(id)) {
+                    this.reorderDraftItem(id, placement, null, 'end', false);
+                } else {
+                    // Keep this tolerant of a renderer that has not populated
+                    // its registry yet; the normal path always uses known IDs.
+                    this.state.layoutDraft.items[id] = placement;
+                }
+            });
             this.renderConstructor();
         },
 
         moveDraftItem: function(itemId, targetPlacement) {
             if (!this.state.layoutDraft || this.state.saving || !PLACEMENTS.includes(targetPlacement)) return;
-            this.state.layoutDraft.items[itemId] = targetPlacement;
+            if (this.state.items.some(item => item.id === itemId)) {
+                this.reorderDraftItem(itemId, targetPlacement, null, 'end', false);
+            } else {
+                this.state.layoutDraft.items[itemId] = targetPlacement;
+            }
             this.renderConstructor();
+        },
+
+        reorderDraftItem: function(itemId, targetPlacement, targetItemId, position, render) {
+            if (!this.state.layoutDraft || this.state.saving ||
+                !PLACEMENTS.includes(targetPlacement)) return false;
+            const known = new Set(this.state.items.map(item => item.id));
+            if (!known.has(itemId)) return false;
+            const layout = this.state.layoutDraft;
+            const order = this.getLayoutOrder(layout).filter(id => id !== itemId);
+            layout.items[itemId] = targetPlacement;
+            const targetIndex = targetItemId && targetItemId !== itemId ?
+                order.indexOf(targetItemId) : -1;
+            let insertAt = targetIndex;
+            if (targetIndex >= 0) {
+                if (position === 'after') insertAt += 1;
+            } else {
+                // Moving to an empty column, or using an existing move button,
+                // appends after the last item currently in that column.
+                const lastInColumn = order.reduce((last, id, index) => {
+                    const itemPlacement = PLACEMENTS.includes(layout.items[id]) ?
+                        layout.items[id] : 'hidden';
+                    return itemPlacement === targetPlacement ? index : last;
+                }, -1);
+                insertAt = lastInColumn >= 0 ? lastInColumn + 1 : order.length;
+            }
+            insertAt = Math.max(0, Math.min(insertAt, order.length));
+            order.splice(insertAt, 0, itemId);
+            layout.order = this.normalizeOrder(order, []);
+            if (render !== false) this.renderConstructor();
+            return true;
+        },
+
+        moveDraftItemOrder: function(itemId, direction) {
+            if (!this.state.layoutDraft || this.state.saving) return false;
+            const layout = this.state.layoutDraft;
+            const placement = PLACEMENTS.includes(layout.items[itemId]) ?
+                layout.items[itemId] : 'hidden';
+            const siblings = this.orderedItems(layout).filter(item => {
+                const value = PLACEMENTS.includes(layout.items[item.id]) ?
+                    layout.items[item.id] : 'hidden';
+                return value === placement;
+            });
+            const index = siblings.findIndex(item => item.id === itemId);
+            if (index < 0) return false;
+            const target = direction === 'up' ? siblings[index - 1] : siblings[index + 1];
+            if (!target) return false;
+            return this.reorderDraftItem(
+                itemId, placement, target.id, direction === 'up' ? 'before' : 'after'
+            );
         },
 
         escapeHtml: function(value) {
@@ -882,6 +1177,7 @@
             const token = this.state.reqId;
             const url = this.state.apiUrl;
             const draft = clone(this.state.layoutDraft);
+            draft.order = this.getLayoutOrder(draft);
             const revision = this.state.revision;
             this.state.saving = true;
             this.state.saveError = null;
@@ -906,7 +1202,12 @@
                 }
                 if (!response.ok) throw new Error(data.error || `API returned ${response.status}`);
                 if (!this.isCurrent(token) || this.state.apiUrl !== url) return;
-                this.state.layoutConfig = this.mergeLayout(data.layout);
+                // A legacy endpoint may echo the accepted placement map
+                // without the optional order field.  Do not lose an order
+                // that was just saved in that case.
+                const savedLayout = data.layout && Array.isArray(data.layout.order) ?
+                    data.layout : Object.assign({}, data.layout, {order: draft.order});
+                this.state.layoutConfig = this.mergeLayout(savedLayout);
                 this.state.revision = Number.isInteger(data.revision) ? data.revision : revision + 1;
                 this.state.saving = false;
                 this.state.saveError = null;

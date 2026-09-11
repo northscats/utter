@@ -154,6 +154,33 @@ class MetricLayoutApiTests(unittest.TestCase):
             client.get(self._url(metric='collection', mode='annual')).status_code,
             400)
 
+    def test_order_round_trip_and_validation(self):
+        client = self._client(self.user_id)
+        url = self._url(metric='capex')
+        headers = self._csrf_headers(client)
+        layout = {
+            'version': 1,
+            'items': {'first': 'main', 'second': 'detail', 'third': 'hidden'},
+            'order': ['third', 'second', 'first'],
+        }
+        saved = client.put(
+            url, json={'layout': layout, 'revision': 0}, headers=headers)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(client.get(url).get_json()['layout'], layout)
+        for order in ('first', ['first', 'first'], ['unknown'], [None],
+                      [['first']], ['first'] * 251):
+            invalid = dict(layout, order=order)
+            response = client.put(
+                url, json={'layout': invalid, 'revision': 1}, headers=headers)
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(client.get(url).get_json()['layout'], layout)
+        # Reset and older clients can omit order without a schema migration.
+        reset = {'version': 1, 'items': {}}
+        self.assertEqual(client.put(
+            url, json={'layout': reset, 'revision': 1},
+            headers=headers).status_code, 200)
+        self.assertEqual(client.get(url).get_json()['layout'], reset)
+
     def test_database_row_has_owner_and_tenant_keys(self):
         with self.app.app_context():
             rows = MetricLayout.query.filter_by(

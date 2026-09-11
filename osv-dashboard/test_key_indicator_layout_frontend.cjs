@@ -153,6 +153,54 @@ function summaryFixture() {
     layout.restoreOriginalDom();
 }
 
+// Ordering is registry-stable for old preferences, while a partial saved
+// order is retained and new registry IDs are appended.
+{
+    const fixture = summaryFixture();
+    layout.state.activeContainer = fixture.container;
+    layout.captureOriginalDom(fixture.container, 3);
+    layout.state.items = layout.extractItems(fixture.container, 'cash');
+    const defaults = layout.generateDefaultLayout();
+    assert.deepEqual(Array.from(defaults.order),
+        Array.from(layout.state.items, item => item.id));
+    const reordered = layout.mergeLayout({
+        version: 1,
+        items: {[layout.state.items[0].id]: 'main'},
+        order: [layout.state.items[2].id]
+    });
+    assert.deepEqual(Array.from(reordered.order), [
+        layout.state.items[2].id,
+        layout.state.items[0].id,
+        layout.state.items[1].id,
+        layout.state.items[3].id
+    ]);
+    layout.restoreOriginalDom();
+}
+
+// Drag/drop's model operation supports mixed columns and keeps the placement
+// update and order update in one draft mutation.
+{
+    layout.state.items = [
+        {id: 'a', type: 'card'}, {id: 'b', type: 'section'},
+        {id: 'c', type: 'card'}, {id: 'd', type: 'section'}
+    ];
+    layout.state.layoutDraft = {
+        version: 1,
+        items: {a: 'main', b: 'detail', c: 'main', d: 'hidden'},
+        order: ['a', 'b', 'c', 'd']
+    };
+    layout.reorderDraftItem('b', 'main', 'c', 'before');
+    assert.deepEqual(Array.from(layout.state.layoutDraft.order), ['a', 'b', 'c', 'd']);
+    assert.equal(layout.state.layoutDraft.items.b, 'main');
+    layout.moveDraftItemOrder('c', 'up');
+    assert.deepEqual(Array.from(layout.state.layoutDraft.order), ['a', 'c', 'b', 'd']);
+    layout.reorderDraftItem('d', 'detail', null, 'end');
+    assert.deepEqual(Array.from(layout.state.layoutDraft.order), ['a', 'c', 'b', 'd']);
+    assert.equal(layout.state.layoutDraft.items.d, 'detail');
+    layout.state.layoutDraft = null;
+    layout.state.items = [];
+}
+
 // A stale first GET may finish after a second open, but only the second
 // context may update revision/configuration.
 {
@@ -254,6 +302,125 @@ function summaryFixture() {
     const css = fs.readFileSync(
         `${__dirname}/static/key_indicator_layout.css`, 'utf8');
     assert.match(css, /\.ki-layout-wrapper \[hidden\]\s*\{\s*display:\s*none !important;/);
+}
+
+// Main/detail presentation consumes the one mixed order stream, rather than
+// sorting cards ahead of sections in separate containers.
+{
+    const freshWindow = {};
+    vm.runInNewContext(
+        fs.readFileSync(`${__dirname}/static/key_indicator_layout.js`, 'utf8'),
+        {window: freshWindow, document, console});
+    const fresh = freshWindow.KI_Layout;
+    const grid = new Element();
+    const empty = new Element();
+    const panel = {
+        querySelector: selector => selector === '.ki-layout-grid-container' ? grid :
+            selector === '.ki-layout-empty' ? empty : new Element()
+    };
+    const wrapper = {
+        querySelector: selector => selector.includes('"main"') ? panel : panel
+    };
+    const title = new Element('div', 'modal-section-title');
+    const formula = new Element();
+    const first = new Element('div', 'cash-summary-card');
+    const second = new Element('div', 'cash-summary-card');
+    fresh.getWrapper = () => wrapper;
+    fresh.detachRenderedItems = () => {};
+    fresh.updateTabs = () => {};
+    fresh.rerenderCharts = () => {};
+    Object.assign(fresh.state, {
+        ready: true,
+        loading: false,
+        layoutConfig: {
+            version: 1,
+            items: {card1: 'main', section: 'main', card2: 'main'},
+            order: ['section', 'card2', 'card1']
+        },
+        items: [
+            {id: 'card1', type: 'card', elements: [first]},
+            {id: 'section', type: 'section', elements: [title, formula]},
+            {id: 'card2', type: 'card', elements: [second]}
+        ]
+    });
+    fresh.renderView();
+    assert.equal(grid.children.length, 3);
+    assert.equal(grid.children[0].classList.contains('ki-layout-item-section'), true);
+    assert.equal(grid.children[0].children[0], title);
+    assert.equal(grid.children[1], second);
+    assert.equal(grid.children[2], first);
+}
+
+// Saving sends the optional order alongside the version-1 placement map.
+{
+    let requestBody = null;
+    const freshWindow = {KI_CONFIG: {csrfToken: 'test'}};
+    const sandbox = {
+        window: freshWindow,
+        document,
+        console,
+        fetch: async (url, options) => {
+            requestBody = JSON.parse(options.body);
+            return {
+                ok: true,
+                json: async () => ({
+                    layout: requestBody.layout,
+                    revision: 2
+                })
+            };
+        }
+    };
+    vm.runInNewContext(
+        fs.readFileSync(`${__dirname}/static/key_indicator_layout.js`, 'utf8'),
+        sandbox);
+    const fresh = freshWindow.KI_Layout;
+    fresh.getWrapper = () => null;
+    Object.assign(fresh.state, {
+        activeContainer: new Element(),
+        apiUrl: '/layout',
+        ready: true,
+        isConstructor: true,
+        revision: 1,
+        layoutConfig: {version: 1, items: {a: 'main', b: 'detail'}, order: ['a', 'b']},
+        layoutDraft: {version: 1, items: {a: 'detail', b: 'main'}, order: ['b', 'a']}
+    });
+    await fresh.saveLayout();
+    assert.deepEqual(requestBody.layout.order, ['b', 'a']);
+    assert.equal(requestBody.layout.version, 1);
+    assert.deepEqual(requestBody.layout.items, {a: 'detail', b: 'main'});
+    fresh.onModalClose(true);
+}
+
+// Cancelling a draft discards its order edits without mutating the saved
+// layout that will be used when the constructor is opened again.
+{
+    const freshWindow = {};
+    vm.runInNewContext(
+        fs.readFileSync(`${__dirname}/static/key_indicator_layout.js`, 'utf8'),
+        {window: freshWindow, document, console});
+    const fresh = freshWindow.KI_Layout;
+    const gear = new Element('button');
+    const view = new Element();
+    const constructor = new Element();
+    const wrapper = {
+        querySelector: selector => selector === '.ki-layout-view' ? view :
+            selector === '.ki-layout-constructor' ? constructor : null,
+        querySelectorAll: () => []
+    };
+    fresh.getWrapper = () => wrapper;
+    fresh.getToolbar = () => ({querySelector: () => gear});
+    fresh.setBusy = () => {};
+    fresh.renderView = () => {};
+    Object.assign(fresh.state, {
+        activeContainer: new Element(),
+        ready: true,
+        isConstructor: true,
+        layoutConfig: {version: 1, items: {a: 'main', b: 'detail'}, order: ['a', 'b']},
+        layoutDraft: {version: 1, items: {a: 'main', b: 'detail'}, order: ['b', 'a']}
+    });
+    fresh.toggleConstructor(false);
+    assert.equal(fresh.state.layoutDraft, null);
+    assert.deepEqual(Array.from(fresh.state.layoutConfig.order), ['a', 'b']);
 }
 
 // Moving the toolbar outside the body must retain tab/gear updates and cleanup.
