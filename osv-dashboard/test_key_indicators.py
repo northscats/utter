@@ -540,6 +540,218 @@ class KeyIndicatorTests(unittest.TestCase):
             revenue_analytic_key(['A › B']),
             revenue_analytic_key(['A', 'B']))
 
+    def test_cash_does_not_compare_when_account_set_changes(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-02-28', skd=20),
+            ]),
+            '55': account('55', [day('2026-02-28', skd=5)], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-02-28')['cards']}['cash']
+        self.assertEqual(cash['date'], '2026-02-28')
+        self.assertEqual(cash['accounts'], ['51', '55'])
+        self.assertEqual(cash['missing_accounts'], ['50', '52'])
+        self.assertEqual(cash['coverage'], 'partial')
+        self.assertIsNone(cash['delta'])
+        self.assertFalse(cash['comparison']['comparable'])
+        self.assertEqual(cash['comparison']['previous_date'], '2026-01-31')
+
+    def test_cash_same_partial_account_set_is_comparable(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-02-28', skd=20),
+            ]),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-02-28')['cards']}['cash']
+        self.assertEqual(cash['coverage'], 'partial')
+        self.assertEqual(cash['comparison']['accounts'], ['51'])
+        self.assertTrue(cash['comparison']['comparable'])
+        self.assertEqual(cash['comparison']['value'], 10)
+        self.assertEqual(cash['delta']['coverage'], 'partial')
+        self.assertEqual(cash['delta']['accounts'], ['51'])
+        self.assertEqual(cash['delta']['previous_date'], '2026-01-31')
+        self.assertEqual(cash['delta']['date'], '2026-02-28')
+        self.assertIn('2026-01-31', cash['delta']['label'])
+        self.assertIn('2026-02-28', cash['delta']['label'])
+
+    def test_cash_zero_balances_are_complete_and_available(self):
+        src = build_indicator_source({
+            account_number: account(
+                account_number, [day('2026-01-31', skd=0, skk=0)])
+            for account_number in ('50', '51', '52', '55')
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-31')['cards']}['cash']
+        self.assertEqual(cash['value'], 0)
+        self.assertEqual(cash['accounts'], ['50', '51', '52', '55'])
+        self.assertEqual(cash['missing_accounts'], [])
+        self.assertEqual(cash['coverage'], 'complete')
+        self.assertFalse(cash['series'][0]['comparison']['comparable'])
+
+    def test_cash_series_does_not_bridge_a_missing_daily_point(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-03-31', skd=30),
+            ]),
+        })
+        result = build_key_indicators(
+            src, 'month', '2026-03-31', date_from='2026-01-31')
+        series = {item['date']: item for item in
+                  next(card for card in result['cards']
+                       if card['id'] == 'cash')['series']}
+        self.assertFalse(series['2026-01-31']['comparison']['comparable'])
+        self.assertFalse(series['2026-03-31']['comparison']['comparable'])
+        self.assertEqual(
+            series['2026-03-31']['comparison']['previous_date'],
+            '2026-03-30')
+
+    def test_cash_day_series_has_one_exact_date_point(self):
+        src = build_indicator_source({
+            '51': account('51', [day('2026-01-31', skd=15)]),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-31')['cards']}['cash']
+        self.assertEqual(len(cash['series']), 1)
+        self.assertEqual(cash['series'][0]['date'], '2026-01-31')
+        self.assertEqual(cash['series'][0]['value'], 15)
+        self.assertIsNone(cash['series'][0]['comparison']['previous_date'])
+        self.assertFalse(cash['series'][0]['comparison']['comparable'])
+
+    def test_cash_day_delta_does_not_bridge_an_omitted_calendar_day(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-01', skd=10),
+                day('2026-01-03', skd=30),
+            ], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-03')['cards']}['cash']
+        self.assertIsNone(cash['delta'])
+        self.assertFalse(cash['comparison']['comparable'])
+        self.assertEqual(cash['comparison']['previous_date'], '2026-01-02')
+        self.assertEqual(cash['comparison']['date'], '2026-01-03')
+        self.assertIn('слота', cash['comparison']['reason'])
+
+    def test_cash_month_delta_requires_the_prior_calendar_month_end(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-03-31', skd=30),
+            ], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-03-31')['cards']}['cash']
+        self.assertIsNone(cash['delta'])
+        self.assertFalse(cash['comparison']['comparable'])
+        self.assertEqual(cash['comparison']['previous_date'], '2026-02-28')
+        self.assertEqual(cash['comparison']['date'], '2026-03-31')
+        self.assertIn('слота', cash['comparison']['reason'])
+
+    def test_cash_quarter_delta_requires_the_prior_quarter_end(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-03-31', skd=10),
+                day('2026-09-30', skd=30),
+            ], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'quarter', '2026-09-30')['cards']}['cash']
+        self.assertIsNone(cash['delta'])
+        self.assertFalse(cash['comparison']['comparable'])
+        self.assertEqual(cash['comparison']['previous_date'], '2026-06-30')
+        self.assertEqual(cash['comparison']['date'], '2026-09-30')
+        self.assertIn('слота', cash['comparison']['reason'])
+
+    def test_cash_series_suppresses_account_change_and_compares_same_partial_set(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-02-28', skd=20),
+            ], period=''),
+            '55': account('55', [day('2026-02-28', skd=5)], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'quarter', '2026-02-28')['cards']}['cash']
+        points = {item['date']: item for item in cash['series']
+                  if item['date'] in ('2026-01-31', '2026-02-28')}
+        self.assertFalse(points['2026-02-28']['comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['comparison']['reason'],
+                         'Изменился состав счетов')
+
+        same_partial = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-02-28', skd=20),
+            ], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            same_partial, 'quarter', '2026-02-28')['cards']}['cash']
+        points = {item['date']: item for item in cash['series']
+                  if item['date'] in ('2026-01-31', '2026-02-28')}
+        self.assertTrue(points['2026-02-28']['comparison']['comparable'])
+        self.assertEqual(points['2026-02-28']['comparison']['value'], 10)
+        self.assertEqual(points['2026-02-28']['coverage'], 'partial')
+
+    def test_cash_month_series_uses_daily_slots_and_metadata(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-01', skd=10),
+                day('2026-01-03', skd=30),
+            ], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-01-03')['cards']}['cash']
+        self.assertEqual(
+            [point['date'] for point in cash['series']],
+            ['2026-01-01', '2026-01-02', '2026-01-03'])
+        self.assertEqual(
+            [point['value'] for point in cash['series']], [10, None, 30])
+        self.assertEqual(cash['series'][0]['accounts'], ['51'])
+        self.assertEqual(cash['series'][1]['coverage'], 'missing')
+        self.assertFalse(cash['series'][2]['comparison']['comparable'])
+
+    def test_cash_quarter_series_uses_month_end_points(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-31', skd=10),
+                day('2026-03-31', skd=30),
+            ], period='за 1 квартал 2026 г.'),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'quarter', '2026-03-31')['cards']}['cash']
+        self.assertEqual(
+            [point['date'] for point in cash['series']],
+            ['2026-01-31', '2026-02-28', '2026-03-31'])
+        self.assertEqual(
+            [point['value'] for point in cash['series']], [10, None, 30])
+        self.assertEqual(cash['series'][0]['coverage'], 'partial')
+        self.assertEqual(cash['series'][1]['coverage'], 'missing')
+        self.assertFalse(cash['series'][2]['comparison']['comparable'])
+
+    def test_cash_multi_quarter_range_has_unavailable_card_comparison(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-03-31', skd=10),
+                day('2026-06-30', skd=20),
+                day('2026-09-30', skd=30),
+            ], period='за 3 квартал 2026 г.'),
+        })
+        result = build_key_indicators(
+            src, 'quarter', '2026-09-30', date_from='2026-03-31')
+        cash = {item['id']: item for item in result['cards']}['cash']
+        self.assertIsNone(cash['delta'])
+        self.assertFalse(cash['comparison']['comparable'])
+        self.assertIsNone(cash['comparison']['previous_date'])
+        self.assertIn('диапазона', cash['comparison']['reason'])
+        self.assertEqual(len(cash['series']), 9)
+        self.assertEqual(cash['series'][0]['date'], '2026-01-31')
+        self.assertEqual(cash['series'][-1]['date'], '2026-09-30')
+
 
 if __name__ == '__main__':
     unittest.main()

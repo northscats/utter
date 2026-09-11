@@ -432,7 +432,7 @@
                 let formatted = this.formatValue(card.value, card.unit);
                 
                 let deltaHtml = '';
-                if (!isNull && card.delta) {
+                if (!isNull && card.delta && (id !== 'cash' || (card.comparison && card.comparison.comparable))) {
                     let dClass = 'neutral';
                     if (String(card.delta.value).startsWith('+')) dClass = 'up';
                     if (String(card.delta.value).startsWith('-')) dClass = 'down';
@@ -461,6 +461,7 @@
                 <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
+                  ${id === 'cash' ? `<div class="kpi-delta neutral">${esc(this.cashCoverageText(card))}${card.date ? ` · на ${esc(card.date)}` : ''}</div>` : ''}
                   ${deltaHtml}
                     ${metricTooltip}
                 </div>
@@ -3025,6 +3026,22 @@
                 Object.assign({}, card, {title: 'Формирование капитальных вложений'})), 50);
         },
 
+        cashCoverageText(item) {
+            const accounts = item.accounts || [];
+            if (item.coverage === 'missing') return 'Нет точных остатков';
+            if (!accounts.length) return 'Охват счетов не подтверждён';
+            return `${item.coverage === 'complete' ? 'Полный' : 'Частичный'} охват: сч. ${accounts.join(', ')}` +
+                (item.missing_accounts && item.missing_accounts.length ? `; нет данных: ${item.missing_accounts.join(', ')}` : '');
+        },
+
+        cashComparisonText(comparison) {
+            if (!comparison) return 'Нет подтверждённого сравнения';
+            const dates = comparison.previous_date && comparison.date
+                ? `${comparison.previous_date} → ${comparison.date}` : '';
+            return [dates, comparison.comparable ? 'одинаковый состав счетов' : comparison.reason || 'Нет сопоставимых остатков']
+                .filter(Boolean).join(' · ');
+        },
+
         renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
@@ -3052,16 +3069,20 @@
                 if (match) parts[match[1]] = item.value;
             });
             const cashFormatted = this.formatValue(card.value, card.unit);
-            const delta = card.delta && card.delta.value !== null ? card.delta.value : null;
+            const delta = card.comparison && card.comparison.comparable && Number.isFinite(card.comparison.value)
+                ? card.comparison.value : null;
             const deltaFormatted = this.formatValue(delta, 'RUB');
             const deltaText = delta === null ? 'Нужны данные' :
                 `${delta > 0 ? '+' : ''}${deltaFormatted.val} ${deltaFormatted.u}`;
-            const total = Number(card.value) || 0;
+            const total = Number.isFinite(card.value) ? card.value : null;
+            const coverageText = this.cashCoverageText(card);
+            const comparisonText = this.cashComparisonText(card.comparison);
+            const dateText = card.date ? `на ${card.date}` : 'дата не подтверждена';
             let rows = '';
             accounts.forEach(account => {
                 const value = Object.prototype.hasOwnProperty.call(parts, account) ? parts[account] : null;
                 const formatted = this.formatValue(value, card.unit);
-                const share = value !== null && total !== 0 ? `${(value / total * 100).toFixed(1)}%` : '—';
+                const share = value !== null && total !== null && total !== 0 ? `${(value / total * 100).toFixed(1)}%` : '—';
                 const required = value === null
                     ? `ОСВ по счёту ${account} на выбранную дату с начальным и конечным дебетовым/кредитовым сальдо.`
                     : null;
@@ -3072,7 +3093,7 @@
                     detail: accountDetails[account],
                     required,
                     norm: 'Индивидуальный норматив не задан',
-                    fact: `${formatted.val} ${formatted.u}${share !== '—' ? ` · ${share} от денежных средств` : ''}`,
+                    fact: `${formatted.val} ${formatted.u} · ${dateText}${share !== '—' ? ` · ${share} от известного итога` : ''}`,
                     deviation: required ? 'Расчёт невозможен' : 'Оценивается после задания норматива',
                     source: required ? `требуется ОСВ по счёту ${account}` : `ОСВ по счёту ${account}`
                 });
@@ -3091,26 +3112,26 @@
             const runwayTip = 'Нужна банковская выписка и кассовые операции минимум за 90 дней: дата, сумма, назначение платежа, контрагент, статья ДДС и корреспондирующий счёт. Внутренние переводы между счетами должны быть отмечены.';
             const fuelTip = 'Нужен складской отчёт 1С по топливу в натуральных единицах, вид топлива, доступный остаток, среднесуточный фактический расход и производственный план либо норматив потребления.';
             const changeTip = delta === null
-                ? 'Нужны конечные сальдо счетов 50, 51, 52 и 55 минимум на две сопоставимые даты с одинаковым составом счетов. ' + fullNcfTip
+                ? comparisonText + '. Нужны точные конечные сальдо на две даты с одинаковым составом доступных счетов.'
                 : 'Показано изменение бухгалтерского остатка между двумя сопоставимыми датами. Это не классифицированный отчёт о движении денежных средств. ' + fullNcfTip;
             const cashTipData = {
                 title: 'Денежные средства предприятия',
                 description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта. Средства на счёте 55 могут иметь ограничения по использованию.',
                 formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                detail: 'Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.',
+                detail: `${coverageText}. Отсутствующие счета не приняты за ноль. Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.`,
                 norm: 'Индивидуальный норматив предприятия не задан',
-                fact: `${cashFormatted.val} ${cashFormatted.u}`,
-                deviation: delta === null ? 'Нет сопоставимой предыдущей даты' : `${delta > 0 ? '+' : ''}${deltaFormatted.val} ${deltaFormatted.u}`,
+                fact: `${cashFormatted.val} ${cashFormatted.u} · ${dateText}`,
+                deviation: delta === null ? comparisonText : `${deltaText} · ${comparisonText}`,
                 source: 'конечные сальдо загруженных ОСВ по счетам 50, 51, 52 и 55'
             };
             const changeTipData = {
-                title: 'NCF / изменение денежных средств',
+                title: 'Изменение бухгалтерского остатка',
                 description: 'Изменение бухгалтерского остатка денежных средств между двумя сопоставимыми датами. Без статей ДДС это не полный отчёт о денежных потоках.',
-                formula: 'Изменение ДС = Остаток на конец периода − Остаток на конец предыдущего периода',
-                detail: 'Сравнение выполняется только при одинаковом составе счетов 50, 51, 52 и 55.',
-                required: delta === null ? changeTip : fullNcfTip,
+                formula: 'Изменение = Остаток на текущую дату − Остаток на предыдущую дату',
+                detail: `${comparisonText}. ${coverageText}. Разница остатков не является NCF. ${fullNcfTip}`,
+                required: delta === null ? changeTip : null,
                 norm: 'Положительное значение не является универсальной нормой',
-                fact: deltaText,
+                fact: `${deltaText} · ${comparisonText}`,
                 deviation: delta === null ? 'Расчёт невозможен' : 'Фактическое изменение остатка',
                 source: 'сопоставимые ОСВ; для полного NCF требуется аналитика движения денежных средств'
             };
@@ -3170,10 +3191,10 @@
                 <div class="cash-summary-grid">
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
-                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · бухгалтерский остаток</div>${this.cashTooltip(cashTipData)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение за период</div>
+                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · ${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : 'cash-value-ok'}">${esc(deltaText)}</div>
-                        <div class="cash-summary-sub">к предыдущей сопоставимой дате</div>${this.cashTooltip(changeTipData)}</div>
+                        <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Текущая ликвидность</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
                         <div class="cash-summary-sub">нет полного состава оборотных активов</div>${this.cashTooltip(currentLiquidityData)}</div>
@@ -3183,13 +3204,13 @@
                 </div>
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
                 <div style="overflow-x:auto"><table class="cash-table">
-                    <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}</td><td>По загруженным счетам</td><td>—</td></tr></tbody>
+                    <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля известного итога</th><th>Комментарий</th><th>Данные</th></tr></thead>
+                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}<br>${esc(coverageText)}</td><td>${total ? '100% известного итога' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td>${esc(dateText)}; по загруженным счетам</td><td>${esc(coverageText)}</td></tr></tbody>
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
-                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, 'СКд − СКк по счетам 50, 51, 52, 55', cashTipData, false)}
-                    ${this.cashMetricCard('NCF / изменение ДС', deltaText, delta === null ? 'нет двух сопоставимых дат' : 'изменение бухгалтерского остатка', changeTipData, delta === null)}
+                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null)}
+                    ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null)}
                     ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityData, true)}
                     ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
                     ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
@@ -3197,7 +3218,9 @@
                 </div>
                 <div class="modal-section-title">Динамика денежных средств</div>
                 <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
-                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущей точке</span></div>
+                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение к предыдущей сопоставимой точке</span>
+                    <span><i class="cash-chart-dot" style="background:#D97706"></i>Частичный охват счетов</span></div>
+                <div class="cash-summary-sub">При смене состава счетов или пропуске данных линия прерывается, изменение не рассчитывается. Частичные остатки сравниваются только при одинаковом охвате. Даты и счета — в подсказках точек.</div>
                 <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
             this.renderCashLineChart(card.series || []);
         },
@@ -3205,18 +3228,29 @@
         renderCashLineChart(series) {
             const container = document.getElementById('ki-cash-line-chart');
             if (!container) return;
-            const points = series.map((item, index) => ({
-                index, label: item.label, value: item.value === null ? null : Number(item.value) / 1000000
-            }));
+            const points = series.map((item, index) => {
+                const previous = series[index - 1];
+                const comparison = item.comparison;
+                // Fail closed if a stale/incomplete response omits comparison metadata.
+                const comparable = !!(previous && comparison && comparison.comparable === true &&
+                    Number.isFinite(item.value) && Number.isFinite(previous.value) &&
+                    Number.isFinite(comparison.value) && item.date && previous.date &&
+                    comparison.date === item.date && comparison.previous_date === previous.date &&
+                    item.accounts && item.accounts.length && previous.accounts &&
+                    [...item.accounts].sort().join(',') === [...previous.accounts].sort().join(','));
+                return {
+                    ...item, index, comparable,
+                    value: Number.isFinite(item.value) ? item.value / 1000000 : null
+                };
+            });
             const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
             if (!valid.length) {
                 container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
                 return;
             }
             const changes = points.map((item, index) => ({
-                index, label: item.label,
-                value: index > 0 && item.value !== null && points[index - 1].value !== null
-                    ? item.value - points[index - 1].value : null
+                ...item, index,
+                value: item.comparable ? item.comparison.value / 1000000 : null
             }));
             const values = valid.map(item => item.value).concat(
                 changes.filter(item => item.value !== null).map(item => item.value));
@@ -3229,7 +3263,7 @@
                 let path = '', drawing = false;
                 data.forEach(item => {
                     if (item.value === null || !Number.isFinite(item.value)) { drawing = false; return; }
-                    path += `${drawing ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
+                    path += `${drawing && item.comparable ? ' L' : ' M'} ${x(item.index).toFixed(1)} ${y(item.value).toFixed(1)}`;
                     drawing = true;
                 });
                 return path;
@@ -3245,7 +3279,7 @@
                 <path d="${pathFor(changes)}" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
             points.forEach((item, index) => {
                 if (item.value !== null && Number.isFinite(item.value)) {
-                    svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#3B82F6" tabindex="0"/>`;
+                    svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="${item.coverage === 'complete' ? '#3B82F6' : '#D97706'}" tabindex="0" aria-label="${esc(`Остаток на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
                 }
                 if (changes[index].value !== null) {
                     svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="#10B981" tabindex="0"/>`;
@@ -3258,24 +3292,25 @@
                 const index = Number(point.dataset.index);
                 const isChange = point.dataset.kind === 'change';
                 const item = isChange ? changes[index] : points[index];
-                const previous = index > 0 ? points[index - 1] : null;
+                const comparisonText = this.cashComparisonText(points[index].comparison);
+                const coverageText = this.cashCoverageText(points[index]);
                 return isChange ? {
-                    title: `Изменение денежных средств — ${item.label}`,
-                    description: 'Разница между остатком денежных средств текущего и предыдущего сопоставимого месяца.',
-                    formula: 'Изменение = Остаток текущего месяца − Остаток предыдущего месяца',
-                    detail: previous ? `Сравниваются ${previous.label} и ${item.label}. Используется одинаковый состав доступных счетов 50, 51, 52 и 55.` : 'Предыдущий сопоставимый месяц отсутствует.',
+                    title: `Изменение остатка — ${item.date}`,
+                    description: 'Разница бухгалтерских остатков на две точные даты, а не денежный поток NCF.',
+                    formula: 'Изменение = Остаток на текущую дату − Остаток на предыдущую дату',
+                    detail: `${comparisonText}. ${coverageText}.`,
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.value >= 0 ? '+' : ''}${item.value.toFixed(2)} млн ₽`,
                     deviation: 'Фактическое изменение остатка',
-                    source: 'месячные конечные сальдо ОСВ по денежным счетам'
+                    source: 'точные конечные сальдо ОСВ по денежным счетам на указанные даты'
                 } : {
-                    title: `Остаток денежных средств — ${item.label}`,
-                    description: 'Бухгалтерский остаток денежных средств на конец выбранного месяца.',
+                    title: `Остаток денежных средств — ${item.date || item.label}`,
+                    description: 'Бухгалтерский остаток денежных средств на указанную дату.',
                     formula: 'Остаток = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                    detail: 'Отсутствующие в выбранном месяце счета не принимаются за ноль.',
+                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль. ${comparisonText}.`,
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.value.toFixed(2)} млн ₽`,
-                    deviation: changes[index].value === null ? 'Нет предыдущего сопоставимого месяца' : `${changes[index].value >= 0 ? '+' : ''}${changes[index].value.toFixed(2)} млн ₽ к предыдущему месяцу`,
+                    deviation: changes[index].value === null ? comparisonText : `${changes[index].value >= 0 ? '+' : ''}${changes[index].value.toFixed(2)} млн ₽ · ${comparisonText}`,
                     source: 'конечные сальдо загруженных ОСВ по денежным счетам'
                 };
             };

@@ -14,6 +14,7 @@ from datetime import date as Date, timedelta
 
 
 _BALANCE_ACCOUNTS = {'50', '51', '52', '55', '60', '62', '66', '67', '70'}
+_CASH_ACCOUNTS = ('50', '51', '52', '55')
 _CARD_ORDER = ('cash', 'revenue', 'collection', 'ar', 'ap', 'cogs',
                'profit', 'credits', 'salary', 'capex')
 _TITLES = {
@@ -531,6 +532,98 @@ def _top_balance(source, account, end, credit=False):
                          if credit else top['skd'] - top['skk']), 2), None
 
 
+def _cash_snapshot(source, end):
+    """Return one exact-date cash snapshot with its account coverage.
+
+    A balance from another date is not a valid component of this snapshot.
+    Keeping the account set alongside the value makes it possible to avoid
+    comparing totals whose composition changed between dates.
+    """
+    parts, reasons = [], []
+    for account in _CASH_ACCOUNTS:
+        value, reason = _top_balance(source, account, end)
+        if value is not None:
+            parts.append((account, value))
+        elif account in source['accounts']:
+            reasons.append(f'{account}: {reason}')
+    accounts = [account for account, _ in parts]
+    missing_accounts = [account for account in _CASH_ACCOUNTS
+                        if account not in accounts]
+    value = round(sum(amount for _, amount in parts), 2) if parts else None
+    coverage = ('complete' if len(accounts) == len(_CASH_ACCOUNTS)
+                else 'partial' if accounts else 'missing')
+    return {
+        'date': end.isoformat(),
+        'value': value,
+        'accounts': accounts,
+        'missing_accounts': missing_accounts,
+        'coverage': coverage,
+        'parts': parts,
+        'reasons': reasons,
+    }
+
+
+def _previous_cash_endpoint(period, end):
+    """Return the exact calendar endpoint immediately before ``end``."""
+    if period == 'day':
+        return end - timedelta(days=1)
+    if period == 'month':
+        return end.replace(day=1) - timedelta(days=1)
+    if period == 'quarter':
+        quarter_start_month = ((end.month - 1) // 3) * 3 + 1
+        return end.replace(month=quarter_start_month, day=1) - timedelta(days=1)
+    if period == 'year':
+        return end.replace(year=end.year - 1, month=12, day=31)
+    return None
+
+
+def _cash_comparison(current, previous=None, reason=None):
+    """Compare two cash snapshots without bridging unavailable dates."""
+    current_date = current['date']
+    if previous is None:
+        return {
+            'comparable': False,
+            'previous_date': None,
+            'date': current_date,
+            'accounts': list(current['accounts']),
+            'value': None,
+            'reason': reason or 'Нет предыдущей точки',
+        }
+    previous_date = previous['date']
+    if reason is not None:
+        return {
+            'comparable': False,
+            'previous_date': previous_date,
+            'date': current_date,
+            'accounts': list(current['accounts']),
+            'value': None,
+            'reason': reason,
+        }
+    if current['value'] is None or previous['value'] is None:
+        reason = reason or 'Нет точного остатка'
+    elif not current['accounts'] or not previous['accounts']:
+        reason = reason or 'Нет точного остатка'
+    elif current['accounts'] != previous['accounts']:
+        reason = reason or 'Изменился состав счетов'
+    else:
+        return {
+            'comparable': True,
+            'previous_date': previous_date,
+            'date': current_date,
+            'accounts': list(current['accounts']),
+            'value': round(current['value'] - previous['value'], 2),
+            'reason': None,
+        }
+    return {
+        'comparable': False,
+        'previous_date': previous_date,
+        'date': current_date,
+        'accounts': list(current['accounts']),
+        'value': None,
+        'reason': reason,
+    }
+
+
 def _account_balance_analytics(source, account, end, credit=True):
     """Return leaf analytic balances from an exact account report boundary."""
     acc = source['accounts'].get(account)
@@ -796,17 +889,14 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     other_analytics = sorted(
         other_analytics_map.values(), key=lambda item: item['label'])
 
-    cash_parts, cash_reasons = [], []
-    for account in ('50', '51', '52', '55'):
-        value, why = _top_balance(source, account, end)
-        if value is not None:
-            cash_parts.append((account, value))
-        elif account in source['accounts']:
-            cash_reasons.append(f'{account}: {why}')
-    cash = round(sum(v for _, v in cash_parts), 2) if cash_parts else None
-    cash_reason = None if cash_parts else ('; '.join(cash_reasons) or 'Счета 50/51/52/55 не загружены')
-    cash_missing = [a for a in ('50', '51', '52', '55')
-                    if not any(part[0] == a for part in cash_parts)]
+    cash_snapshot = _cash_snapshot(source, end)
+    cash_parts = cash_snapshot['parts']
+    cash = cash_snapshot['value']
+    cash_reason = (
+        None if cash_parts else
+        ('; '.join(cash_snapshot['reasons']) or
+         'Счета 50/51/52/55 не загружены'))
+    cash_missing = cash_snapshot['missing_accounts']
     cash_notes = []
     if cash_parts:
         cash_notes.append('Поддерживаемый охват: счета ' +
@@ -952,6 +1042,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         _card('cash', cash, 'RUB', 'СКд − СКк по счетам 50, 51, 52, 55',
               'Конечные сальдо ОСВ', cash_reason,
               breakdown=[{'label': f'Счёт {a}', 'value': v} for a, v in cash_parts],
+              date=cash_snapshot['date'],
+              accounts=list(cash_snapshot['accounts']),
+              missing_accounts=list(cash_snapshot['missing_accounts']),
+              coverage=cash_snapshot['coverage'],
+              comparison=None,
               notes=cash_notes),
         _card('revenue', revenue, 'RUB',
               'ОбК(90.01*) − ОбД(90.03*)' if vat is not None else 'ОбК(90.01*), брутто',
@@ -1173,12 +1268,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['collection']['turnover_series'].append({
             'label': option['label'], 'value': month_turnover_ratio,
             'debit': month_debit, 'credit': month_credit})
-        cash_month = []
-        for account in ('50', '51', '52', '55'):
-            value, _ = _top_balance(source, account, month_end)
-            if value is not None:
-                cash_month.append(value)
-        month_values['cash'] = round(sum(cash_month), 2) if cash_month else None
+        cash_month = _cash_snapshot(source, month_end)
+        month_values['cash'] = cash_month['value']
+        card_map['cash']['series'].append({
+            'label': option['label'],
+            'date': cash_month['date'],
+            'value': cash_month['value'],
+            'accounts': list(cash_month['accounts']),
+            'missing_accounts': list(cash_month['missing_accounts']),
+            'coverage': cash_month['coverage'],
+        })
         month_values['ar'] = _sub_balance(
             source, '62', '62.01', month_end)[0]
         month_values['ap'] = _sub_balance(
@@ -1202,15 +1301,40 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'label': option['label'],
             'value': month_insurance_turnovers['credit']})
         for cid in _CARD_ORDER:
+            if cid == 'cash':
+                continue
             card_map[cid]['series'].append({
                 'label': option['label'], 'value': month_values[cid]})
 
-    # Compare only an immediately preceding equivalent selection with a
-    # declared complete report span and identical calculation basis.
+    for index, point in enumerate(card_map['cash']['series']):
+        previous = (card_map['cash']['series'][index - 1]
+                    if index else None)
+        point['comparison'] = _cash_comparison(
+            point, previous,
+            reason=('Нет предыдущей точки'
+                    if index == 0 else None))
+
+    # Non-cash cards compare only an immediately preceding equivalent
+    # selection with a declared complete report span and identical basis.
+    # Cash additionally requires the preceding calendar slot below.
     ranged_period = range_start_endpoint != endpoint
     selected_idx = (-1 if ranged_period else next(
         (i for i, item in enumerate(options)
          if item['value'] == endpoint.isoformat()), -1))
+    if ranged_period:
+        card_map['cash']['comparison'] = _cash_comparison(
+            cash_snapshot,
+            reason='Сравнение недоступно для выбранного диапазона дат')
+    else:
+        cash_previous_end = _previous_cash_endpoint(period, end)
+        cash_previous_slot = (
+            cash_previous_end is not None and
+            cash_previous_end.isoformat() in {item['value'] for item in options})
+        previous_cash = _cash_snapshot(source, cash_previous_end)
+        card_map['cash']['comparison'] = _cash_comparison(
+            cash_snapshot, previous_cash,
+            reason=(None if cash_previous_slot
+                    else 'Нет предыдущего календарного слота'))
     if selected_idx > 0:
         prev_end = _iso(options[selected_idx - 1]['value'])
         prev_start, _ = _range(period, prev_end)
@@ -1247,16 +1371,19 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         else:
             card_map['capex']['notes'].append(
                 'Сравнение скрыто: нет двух полностью сопоставимых периодов.')
-        previous_cash = []
-        for account in ('50', '51', '52', '55'):
-            value, _ = _top_balance(source, account, prev_end)
-            if value is not None:
-                previous_cash.append((account, value))
-        if ({a for a, _ in previous_cash} == {a for a, _ in cash_parts}
-                and cash_parts):
+        cash_comparison = card_map['cash']['comparison']
+        if cash_comparison['comparable']:
             card_map['cash']['delta'] = {
-                'value': round(cash - sum(v for _, v in previous_cash), 2),
-                'unit': 'RUB', 'label': 'к предыдущей сопоставимой дате'}
+                'value': cash_comparison['value'],
+                'unit': 'RUB',
+                'previous_date': cash_comparison['previous_date'],
+                'date': cash_comparison['date'],
+                'accounts': list(cash_snapshot['accounts']),
+                'coverage': cash_snapshot['coverage'],
+                'label': (
+                    f'{cash_comparison["previous_date"]} → '
+                    f'{cash_comparison["date"]}'),
+            }
         previous_ar = _sub_balance(source, '62', '62.01', prev_end)[0]
         previous_ap = _sub_balance(source, '60', '60.01', prev_end, credit=True)[0]
         if ar is not None and previous_ar is not None:
