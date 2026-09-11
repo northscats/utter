@@ -138,6 +138,11 @@ class DashboardLegacyRouteTests(unittest.TestCase):
         cls.imap_patch.stop()
         _TMP.cleanup()
 
+    def test_new_dashboard_has_no_company_back_button(self):
+        html = app_module.render_dashboard({})
+        self.assertNotIn('☰ Все предприятия', html)
+        self.assertNotIn('hd-back', html)
+
     def _client(self):
         client = self.app.test_client()
         with client.session_transaction() as session:
@@ -159,6 +164,8 @@ class DashboardLegacyRouteTests(unittest.TestCase):
             f'/dashboard/{self.company_id}/dashboard_current.html')
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
+        self.assertNotIn('☰ Все предприятия', body)
+        self.assertNotIn('<a class="hd-back"', body)
 
         self.assertIn(
             '<span><i style="background:#2e6e8e"></i>'

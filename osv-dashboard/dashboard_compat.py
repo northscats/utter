@@ -160,8 +160,6 @@ def upgrade_legacy_salary_daily_labels(html):
 
 
 _DATA_MARKER_RE = re.compile(r'\bconst\s+D\s*=\s*')
-_BACK_LINK_RE = re.compile(
-    r'<a\s+class="hd-back"[^>]*>.*?</a>', re.DOTALL)
 
 
 def _extract_saved_dataset(html):
@@ -220,14 +218,4 @@ def upgrade_saved_dashboard_template(html, template):
         'salary': {},
     })
     rendered = template.replace('/*__DATA__*/', json_for_script(dataset), 1)
-    # The current template intentionally has no dependency on a particular
-    # shell header.  Carry forward a generated snapshot's known back link so
-    # iframe navigation remains available after the response-only rebind.
-    back_link = _BACK_LINK_RE.search(html)
-    if back_link and 'class="hd-back"' not in rendered:
-        rendered = rendered.replace(
-            '<body data-mode="exec">',
-            '<body data-mode="exec">\n' + back_link.group(0),
-            1,
-        )
     return rendered

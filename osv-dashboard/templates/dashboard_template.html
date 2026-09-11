@@ -25,10 +25,6 @@ header{background:var(--ink); color:#e8eef2; padding:0}
 .logo h1{font-size:19px; font-weight:700; letter-spacing:.04em}
 .logo .sub{font-size:12px; color:#8fa3b1; letter-spacing:.12em; text-transform:uppercase}
 .hd-spacer{flex:1}
-.hd-back{color:#7fb3d0;text-decoration:none;font-size:13px;border:1px solid #3a5060;
-  border-radius:6px;padding:5px 13px;white-space:nowrap;transition:background .15s;
-  display:inline-flex;align-items:center;gap:5px}
-.hd-back:hover{background:#253545}
 .modes{display:flex; border:1px solid #46586634; border-radius:8px; overflow:hidden; background:#0f1922}
 .modes button{background:none;border:0;color:#93a7b5;padding:9px 20px;font:600 13px/1 'Segoe UI',sans-serif;
   letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border-left:1px solid #2b3a46}
@@ -239,7 +235,6 @@ footer{max-width:1240px;margin:30px auto 0;padding:0 22px 30px;font-size:12px;co
 </style>
 </head>
 <body data-mode="exec">
-<a class="hd-back" href="/">☰ Все предприятия</a>
 <!-- Скрытые элементы, на которые ссылается JS -->
 <div style="display:none">
   <div id="hd-badge"></div>
@@ -1717,19 +1712,5 @@ function _dmBindSliders(){
     </div>
   </div>
 </div>
-<script>
-/* ═══ Навигация из iframe: переводим top-фрейм, а не iframe ═══ */
-(function(){
-  if (window === window.top) return;          // standalone — ничего не делаем
-  document.addEventListener('DOMContentLoaded', function(){
-    document.querySelectorAll('a.hd-back').forEach(function(a){
-      a.addEventListener('click', function(e){
-        e.preventDefault();
-        window.top.location.href = a.href;   // навигация в главном окне
-      });
-    });
-  });
-})();
-</script>
 </body>
 </html>

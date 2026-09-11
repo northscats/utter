@@ -2885,24 +2885,12 @@ def dashboard(company_id, name):
     upgraded = upgrade_saved_dashboard_template(saved_html, current_template)
     html = (upgraded if upgraded is not None else saved_html)
     html = upgrade_legacy_salary_daily_labels(html)
-    # Гарантируем наличие кнопки "Все предприятия" независимо от даты генерации файла
-    back_href = f'/home?company={company_id}'
-    if 'hd-back' not in html:
-        html = html.replace(
-            '<a class="hd-back"',
-            f'<a class="hd-back" href="{back_href}">☰ Все предприятия</a>'
-            '\n    <a class="hd-back"',
-            1,
-        )
-    else:
-        # Обновляем ссылку "Все предприятия" независимо от даты генерации
-        # сохранённого файла, но оставляем саму ссылку в response-only HTML.
-        html = re.sub(
-            r'(<a\s+class="hd-back"\s+href=")[^"]*(">\s*☰ Все предприятия)',
-            lambda match: match.group(1) + back_href + match.group(2),
-            html,
-            count=1,
-        )
+    # Убираем устаревшую кнопку и в старых снимках без полного обновления
+    # шаблона. Меняем только ответ, не сохранённые финансовые отчёты.
+    html = re.sub(
+        r"""<a\b[^>]*\bclass=["']hd-back["'][^>]*>\s*☰\s*Все предприятия\s*</a>\s*""",
+        '', html,
+    )
     # Вставляем CSRF-токен, company_id и флаг AI прямо в уже собранный HTML
     ai_ok = AiProvider.query.filter_by(is_active=True).first() is not None
     html = html.replace("'__CSRF__'",   f"'{generate_csrf()}'",    1)
