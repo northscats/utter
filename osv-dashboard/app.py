@@ -36,6 +36,7 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        CompanyOkved, DailyRow, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
+                       CostAnalyticMapping,
                        Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, db, utcnow)
@@ -85,7 +86,7 @@ ANALYTICAL_ACCOUNT_NAMES = {
 _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
-    RevenueAnalyticMapping,
+    RevenueAnalyticMapping, CostAnalyticMapping,
 )
 
 
@@ -2407,6 +2408,8 @@ def key_indicators_page(company_id):
         data_url=url_for('key_indicators_data', company_id=company_id),
         mappings_url=url_for('key_indicator_revenue_mappings',
                              company_id=company_id),
+        cost_mappings_url=url_for('key_indicator_cost_mappings',
+                                  company_id=company_id),
         legacy_url=(url_for('dashboard', company_id=company_id,
                             name='dashboard_current.html')
                     if os.path.isfile(legacy_file) else None),
@@ -2447,9 +2450,19 @@ def key_indicators_data(company_id):
             'category': row.category,
         } for row in RevenueAnalyticMapping.query.filter_by(
             company_id=company_id).all()]
+        cost_mappings = [{
+            'account': row.account,
+            'analytic_key': row.analytic_key,
+            'analytic_label': row.analytic_label,
+            'category': row.category,
+            'target_account': row.target_account,
+            'valid_from': row.valid_from.isoformat(),
+            'valid_to': row.valid_to.isoformat(),
+        } for row in CostAnalyticMapping.query.filter_by(
+            company_id=company_id).all()]
         payload = build_key_indicators(
             source, period=period, date=date, date_from=date_from,
-            revenue_mappings=mappings)
+            revenue_mappings=mappings, cost_mappings=cost_mappings)
         payload['company'] = {'id': company.id, 'name': company.name}
         payload['updated_at'] = updated_at
     except SourceBusyError as exc:
@@ -2525,7 +2538,88 @@ def key_indicator_revenue_mappings(company_id):
         company_id=company_id).count()
     return jsonify(saved=saved)
 
-
+@app.route('/company/<int:company_id>/key-indicators/cost-mappings',
+           methods=['POST'])
+@admin_required
+def key_indicator_cost_mappings(company_id):
+    company = db.session.get(Company, company_id) or abort(404)
+    if company.is_archived:
+        abort(409, description='Архивное предприятие доступно только для чтения')
+    items = (request.get_json(silent=True) or {}).get('mappings')
+    if not isinstance(items, list):
+        return jsonify(error='Поле mappings должно быть списком'), 400
+    allowed_categories = {
+        'fuel', 'electricity', 'payroll', 'depreciation', 'repair',
+        'reagents', 'other'}
+    normalized = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return jsonify(error='Некорректная запись сопоставления'), 400
+        account = str(item.get('account') or '').strip()
+        analytic_key = str(item.get('analytic_key') or '').strip()
+        label = str(item.get('analytic_label') or '').strip()
+        category = str(item.get('category') or '').strip()
+        target = str(item.get('target_account') or '').strip()
+        try:
+            valid_from = datetime.strptime(
+                str(item.get('valid_from') or ''), '%Y-%m-%d').date()
+            valid_to = datetime.strptime(
+                str(item.get('valid_to') or ''), '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify(error='Период действия должен иметь формат ГГГГ-ММ-ДД'), 400
+        if (account not in ('20', '25', '26', '44')
+                or not re.fullmatch(r'[0-9a-f]{64}', analytic_key)
+                or not label or len(label) > 1000 or valid_from > valid_to):
+            return jsonify(error='Некорректная аналитика затрат'), 400
+        if category and category not in allowed_categories:
+            return jsonify(error='Неизвестная статья затрат'), 400
+        if category and target not in ('90.02', '90.07', '90.08'):
+            return jsonify(error='Неизвестный признанный итог'), 400
+        key = (account, analytic_key, valid_from, valid_to)
+        normalized[key] = (label, category or None, target)
+    normalized_items = list(normalized.items())
+    for index, (left_key, left_value) in enumerate(normalized_items):
+        for right_key, right_value in normalized_items[index + 1:]:
+            if left_key[:2] != right_key[:2]:
+                continue
+            overlaps = left_key[2] <= right_key[3] and left_key[3] >= right_key[2]
+            left_choice = left_value[1:]
+            right_choice = right_value[1:]
+            if overlaps and left_choice != right_choice:
+                return jsonify(
+                    error='Периоды противоречивых правил не должны пересекаться'), 400
+    existing = {
+        (row.account, row.analytic_key, row.valid_from, row.valid_to): row
+        for row in CostAnalyticMapping.query.filter_by(company_id=company_id).all()
+    }
+    for key, (label, category, target) in normalized.items():
+        row = existing.get(key)
+        for old_key, old_row in list(existing.items()):
+            same_analytic = old_key[:2] == key[:2]
+            overlaps = old_key[2] <= key[3] and old_key[3] >= key[2]
+            if same_analytic and overlaps and old_key != key:
+                db.session.delete(old_row)
+        if category is None:
+            if row is not None:
+                db.session.delete(row)
+            continue
+        if row is None:
+            db.session.add(CostAnalyticMapping(
+                company_id=company_id, account=key[0], analytic_key=key[1],
+                analytic_label=label, valid_from=key[2], valid_to=key[3],
+                category=category, target_account=target,
+                updated_by=current_user.id))
+        else:
+            row.analytic_label = label
+            row.category = category
+            row.target_account = target
+            row.updated_by = current_user.id
+    db.session.commit()
+    _durable_backup(
+        'сопоставление аналитик затрат',
+        allowed_removed_tables={'cost_analytic_mappings'})
+    return jsonify(saved=CostAnalyticMapping.query.filter_by(
+        company_id=company_id).count())
 @app.route('/company/<int:company_id>/key-indicators/annual-data')
 @login_required
 def annual_key_indicators_data(company_id):

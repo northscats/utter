@@ -1950,6 +1950,91 @@
             }, overrides);
         },
 
+        costCategoryDefinitions() {
+            return [
+                ['fuel', 'Топливо'], ['electricity', 'Электроэнергия'],
+                ['payroll', 'ФОТ'], ['depreciation', 'Амортизация'],
+                ['repair', 'Ремонт'], ['reagents', 'Реагенты'],
+                ['other', 'Прочее']
+            ];
+        },
+
+        renderCostMappingEditor(structure) {
+            const analytics = structure.analytics || [];
+            if (!config.canEditRevenueMappings || !analytics.length) return '';
+            const categories = this.costCategoryDefinitions().map(([id, label]) =>
+                `<option value="${id}">${esc(label)}</option>`).join('');
+            const targets = [
+                ['90.02', '90.02 — себестоимость продаж'],
+                ['90.07', '90.07 — расходы на продажу'],
+                ['90.08', '90.08 — управленческие расходы']
+            ].map(([id, label]) => `<option value="${id}">${esc(label)}</option>`).join('');
+            const rows = analytics.map(item => `<tr>
+                <td>${esc(item.account)}</td><td>${esc(item.analytic_label)}</td>
+                <td><select class="cost-mapping-category" data-account="${esc(item.account)}"
+                    data-key="${esc(item.analytic_key)}" data-label="${esc(item.analytic_label)}"
+                    data-from="${esc(item.valid_from)}" data-to="${esc(item.valid_to)}">
+                    <option value="">Не классифицировано</option>${categories}</select></td>
+                <td><select class="cost-mapping-target"><option value="">Выберите итог</option>${targets}</select></td>
+                <td><input class="cost-mapping-from" type="date" value="${esc(item.valid_from)}"></td>
+                <td><input class="cost-mapping-to" type="date" value="${esc(item.valid_to)}"></td>
+            </tr>`).join('');
+            setTimeout(() => {
+                document.querySelectorAll('.cost-mapping-category').forEach(select => {
+                    const item = analytics.find(row => row.account === select.dataset.account &&
+                        row.analytic_key === select.dataset.key);
+                    select.value = item && item.category ? item.category : '';
+                    const tr = select.closest('tr');
+                    tr.querySelector('.cost-mapping-target').value =
+                        item && item.target_account ? item.target_account : '';
+                });
+            }, 0);
+            return `<div class="modal-section-title">Сопоставление формирующих затрат</div>
+                <div class="revenue-mapping-help">Правила действуют для указанного периода. Каждая аналитика относится к одной статье и одному признанному итогу; счета 20/25/26/44 с итогами 90 повторно не складываются.</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table">
+                    <thead><tr><th>Счёт</th><th>Аналитика</th><th>Статья</th><th>Сверять с</th><th>С</th><th>По</th></tr></thead>
+                    <tbody>${rows}</tbody></table></div>
+                <button type="button" class="revenue-mapping-save" onclick="window.KI_App.saveCostMappings()">Сохранить сопоставления</button>
+                <span id="cost-mapping-status" class="revenue-mapping-status"></span>`;
+        },
+
+        async saveCostMappings() {
+            const status = document.getElementById('cost-mapping-status');
+            const mappings = Array.from(document.querySelectorAll('.cost-mapping-category'))
+                .map(select => {
+                    const tr = select.closest('tr');
+                    return {
+                        account: select.dataset.account,
+                        analytic_key: select.dataset.key,
+                        analytic_label: select.dataset.label,
+                        category: select.value,
+                        target_account: tr.querySelector('.cost-mapping-target').value,
+                        valid_from: tr.querySelector('.cost-mapping-from').value,
+                        valid_to: tr.querySelector('.cost-mapping-to').value
+                    };
+                });
+            status.textContent = 'Сохранение...';
+            try {
+                const response = await fetch(config.costMappingsUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': config.csrfToken
+                    },
+                    body: JSON.stringify({mappings})
+                });
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить');
+                status.textContent = 'Сохранено';
+                this.closeModal();
+                await this.fetchData();
+                this.openModal('cogs');
+            } catch (error) {
+                status.textContent = error.message;
+            }
+        },
+
         renderCogsModal(card) {
             const container = document.getElementById('ki-cogs-modal-content');
             if (!container) return;
@@ -1970,6 +2055,7 @@
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
                 ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const structure = card.cost_structure || {};
 
             const totalTip = this.cogsTooltip({
                 fact: rub(current),
@@ -2088,6 +2174,20 @@
                 </tr>`;
             }).join('') : `<tr><td colspan="5" class="chart-empty">В ОСВ нет аналитических оборотов 90.02. ${esc(required.articles)}</td></tr>`;
 
+            const structureRows = (structure.categories || []).map(row => `<tr>
+                <td><strong>${esc(row.label)}</strong></td>
+                <td>${esc(rub(row.value))}</td>
+                <td class="${row.share === null ? 'cash-value-missing' : ''}">${esc(pct(row.share))}</td>
+            </tr>`).join('');
+            const structureProblems = [
+                ...(structure.unclassified || []).map(row =>
+                    `Не сопоставлено: ${row.account} — ${row.analytic_label}`),
+                ...(structure.unknown_amounts || []).map(row =>
+                    `Нет суммы: ${row.account} — ${row.analytic_label}`),
+                ...(structure.conflicts || []).map(row =>
+                    `${row.message}${row.analytic_label ? ` — ${row.account}: ${row.analytic_label}` : ''}`)
+            ];
+
             const objectRows = ((state.data.objects || {}).rows || []).map(row => {
                 const factTip = this.cogsTooltip({
                     title: `Финансовый результат — ${row.label}`,
@@ -2151,8 +2251,19 @@
                 </table></div>
                 <div class="modal-section-title">Динамика себестоимости продаж 90.02</div>
                 <div class="modal-chart-wrap cogs-line-chart" id="ki-cogs-line-chart"></div>
+                <div class="modal-section-title">Структура затрат по утверждённым статьям</div>
+                ${structureProblems.length ? `<div class="revenue-classification-note">${esc(structureProblems.join('; '))}.</div>` : ''}
+                <div class="cash-info-banner"><strong>Контроль без повторного учёта.</strong>
+                    Классифицировано: ${esc(rub(structure.classified_total))};
+                    выбранный признанный итог (${esc((structure.selected_targets || []).join(', ') || 'не выбран')}):
+                    ${esc(rub(structure.recognized_total))};
+                    расхождение: ${esc(rub(structure.difference))}.
+                    ${structure.reconciled ? 'Итог сверён.' : 'Структура не подтверждена; доли не считаются корректными.'}</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table">
+                    <thead><tr><th>Статья</th><th>Формирующие затраты</th><th>Доля признанного итога</th></tr></thead>
+                    <tbody>${structureRows}</tbody></table></div>
+                ${this.renderCostMappingEditor(structure)}
                 <div class="modal-section-title">Фактические аналитики 90.02</div>
-                <div class="revenue-classification-note">Структура по экономическим статьям появится только после загрузки справочника статей затрат.</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table cogs-analytics-table">
                     <thead><tr><th>Аналитика 1С</th><th>Себестоимость</th><th>Доля 90.02</th><th>Статья затрат</th><th>Статус</th></tr></thead>
                     <tbody>${analyticRows}</tbody>
@@ -2167,7 +2278,7 @@
                     <thead><tr><th>Услуга / объект</th><th>Себестоимость</th><th>Выручка</th><th>Прибыль</th><th>Рентабельность</th><th>С/с единицы</th><th>Тариф</th></tr></thead>
                     <tbody>${objectRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Недоступная структура и тарифные показатели</div>
+                <div class="modal-section-title">Дополнительные тарифные показатели</div>
                 <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
             setTimeout(() => this.renderBarChart(
                 card.series || [], 'RUB', 'ki-cogs-line-chart', card), 50);

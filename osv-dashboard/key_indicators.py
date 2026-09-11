@@ -42,6 +42,16 @@ REVENUE_CATEGORIES = (
     ('subsidy', 'Субсидии'),
 )
 
+COST_CATEGORIES = (
+    ('fuel', 'Топливо'),
+    ('electricity', 'Электроэнергия'),
+    ('payroll', 'ФОТ'),
+    ('depreciation', 'Амортизация'),
+    ('repair', 'Ремонт'),
+    ('reagents', 'Реагенты'),
+    ('other', 'Прочее'),
+)
+
 
 def _number(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -740,7 +750,7 @@ def _card(cid, value, unit, formula, source_label, reason=None, **extra):
 
 
 def build_key_indicators(source, period='month', date=None, date_from=None,
-                         revenue_mappings=None):
+                         revenue_mappings=None, cost_mappings=None):
     """Calculate the strict JSON response contract from a source snapshot."""
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
@@ -848,6 +858,163 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 source, '90', '90.08', start, end, 'obd'),
         },
     ]
+    recognized_by_account = {
+        item['account']: item['value'] for item in recognized_costs}
+    applicable_cost_mappings = defaultdict(list)
+    for item in cost_mappings or []:
+        if not isinstance(item, dict):
+            continue
+        account = str(item.get('account') or '')
+        analytic_key = str(item.get('analytic_key') or '')
+        category = str(item.get('category') or '')
+        target_account = str(item.get('target_account') or '')
+        valid_from = _iso(item.get('valid_from'))
+        valid_to = _iso(item.get('valid_to'))
+        if (account in ('20', '25', '26', '44') and analytic_key
+                and category in {key for key, _ in COST_CATEGORIES}
+                and target_account in ('90.02', '90.07', '90.08')
+                and valid_from and valid_to
+                and valid_from <= end and valid_to >= start):
+            applicable_cost_mappings[(account, analytic_key)].append({
+                'category': category,
+                'target_account': target_account,
+                'valid_from': valid_from,
+                'valid_to': valid_to,
+            })
+
+    forming_groups = defaultdict(list)
+    forming_meta = {}
+    for account in ('20', '25', '26', '44'):
+        rows = _leaf_rows(
+            _daily(source, account, start, end),
+            lambda row: bool(_analytic_parts(row)))
+        for row in rows:
+            analytic_key, analytic_label = _analytic_identity(row)
+            identity = (account, analytic_key)
+            row_date = _iso(row.get('date'))
+            rules = [
+                rule for rule in applicable_cost_mappings.get(identity, [])
+                if row_date and rule['valid_from'] <= row_date <= rule['valid_to']]
+            choices = {
+                (rule['category'], rule['target_account']) for rule in rules}
+            conflict = len(choices) > 1
+            rule = None
+            if len(choices) == 1:
+                rule = max(
+                    rules, key=lambda item: (item['valid_from'], item['valid_to']))
+            segment = (
+                account, analytic_key,
+                rule['category'] if rule else '',
+                rule['target_account'] if rule else '',
+                rule['valid_from'].isoformat() if rule else '',
+                rule['valid_to'].isoformat() if rule else '',
+                conflict,
+            )
+            forming_groups[segment].append(row)
+            forming_meta[segment] = {
+                'identity': identity,
+                'analytic_label': analytic_label,
+                'rule': rule,
+                'conflict': conflict,
+                'choices': choices,
+            }
+
+    cost_mapping_conflicts = []
+    forming_analytics = []
+    category_amounts = defaultdict(float)
+    selected_targets = set()
+    for segment, rows in sorted(
+            forming_groups.items(),
+            key=lambda item: (item[0][0],
+                              forming_meta[item[0]]['analytic_label'],
+                              min(row['date'] for row in item[1]))):
+        meta = forming_meta[segment]
+        identity = meta['identity']
+        rule = meta['rule']
+        conflict = meta['conflict']
+        segment_dates = sorted(row['date'] for row in rows)
+        if conflict:
+            cost_mapping_conflicts.append({
+                'account': identity[0],
+                'analytic_key': identity[1],
+                'analytic_label': meta['analytic_label'],
+                'message': (
+                    'На дату затрат действуют противоречивые правила: '
+                    + ', '.join('/'.join(choice)
+                                for choice in sorted(meta['choices']))),
+            })
+        value = _known_sum(rows, 'obd')
+        if rule and value is not None:
+            category_amounts[rule['category']] += value
+            selected_targets.add(rule['target_account'])
+        forming_analytics.append({
+            'account': identity[0],
+            'analytic_key': identity[1],
+            'analytic_label': meta['analytic_label'],
+            'value': value,
+            'amount_known': value is not None,
+            'category': rule['category'] if rule else None,
+            'target_account': rule['target_account'] if rule else None,
+            'valid_from': (
+                rule['valid_from'].isoformat() if rule else segment_dates[0]),
+            'valid_to': (
+                rule['valid_to'].isoformat() if rule else segment_dates[-1]),
+            'conflict': conflict,
+        })
+    unclassified_costs = [
+        item for item in forming_analytics
+        if not item['category'] and not item['conflict']]
+    unknown_cost_amounts = [
+        item for item in forming_analytics if not item['amount_known']]
+    recognized_target_values = [
+        recognized_by_account[target] for target in selected_targets]
+    selected_recognized_total = (
+        round(sum(recognized_target_values), 2)
+        if selected_targets and all(value is not None
+                                    for value in recognized_target_values)
+        else None)
+    classified_cost_total = round(sum(category_amounts.values()), 2)
+    exceeds_total = (
+        selected_recognized_total is not None
+        and classified_cost_total > selected_recognized_total + 0.01)
+    if exceeds_total:
+        cost_mapping_conflicts.append({
+            'message': (
+                'Сумма классифицированных формирующих затрат превышает '
+                'выбранный признанный итог'),
+            'classified_total': classified_cost_total,
+            'recognized_total': selected_recognized_total,
+        })
+    cost_structure_valid = (
+        bool(forming_analytics) and not unclassified_costs
+        and not unknown_cost_amounts and not cost_mapping_conflicts
+        and selected_recognized_total is not None)
+    cost_categories = [{
+        'id': category,
+        'label': title,
+        'value': round(category_amounts[category], 2)
+        if category in category_amounts else 0.0,
+        'share': (
+            round(category_amounts[category] / selected_recognized_total * 100, 2)
+            if cost_structure_valid and selected_recognized_total else None),
+    } for category, title in COST_CATEGORIES]
+    cost_structure = {
+        'categories': cost_categories,
+        'analytics': forming_analytics,
+        'unclassified': unclassified_costs,
+        'unknown_amounts': unknown_cost_amounts,
+        'conflicts': cost_mapping_conflicts,
+        'selected_targets': sorted(selected_targets),
+        'classified_total': classified_cost_total,
+        'recognized_total': selected_recognized_total,
+        'difference': (
+            round(selected_recognized_total - classified_cost_total, 2)
+            if selected_recognized_total is not None else None),
+        'reconciled': (
+            cost_structure_valid
+            and abs(selected_recognized_total - classified_cost_total) <= 0.01),
+        'structure_valid': cost_structure_valid,
+    }
     selling_expense = recognized_costs[1]['value']
     admin_expense = recognized_costs[2]['value']
     profit_from_sales = (
@@ -1085,6 +1252,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               analytics=cogs_analytics,
               cost_movements=cost_movements,
               recognized_costs=recognized_costs,
+              cost_structure=cost_structure,
               notes=['Счета 20, 25, 26 и 44 не прибавляются к 90.02: '
                      'их суммы могут уже быть включены после закрытия периода.']),
         _card('profit', profit_display, 'RUB',

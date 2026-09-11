@@ -195,6 +195,9 @@ class Company(db.Model):
     revenue_analytic_mappings = db.relationship(
         'RevenueAnalyticMapping', backref='company', lazy=True,
         cascade='all, delete-orphan', passive_deletes=True)
+    cost_analytic_mappings = db.relationship(
+        'CostAnalyticMapping', backref='company', lazy=True,
+        cascade='all, delete-orphan', passive_deletes=True)
 
     @property
     def is_archived(self):
@@ -232,6 +235,34 @@ class RevenueAnalyticMapping(db.Model):
     analytic_key = db.Column(db.String(64), nullable=False)
     analytic_label = db.Column(db.String(1000), nullable=False)
     category = db.Column(db.String(32), nullable=False)
+    updated_by = db.Column(
+        db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
+
+
+class CostAnalyticMapping(db.Model):
+    """Периодное сопоставление формирующей затраты с экономической статьёй."""
+    __tablename__ = 'cost_analytic_mappings'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'account', 'analytic_key', 'valid_from', 'valid_to',
+            name='uq_cost_mapping_company_account_key_period'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    account = db.Column(db.String(2), nullable=False)
+    analytic_key = db.Column(db.String(64), nullable=False)
+    analytic_label = db.Column(db.String(1000), nullable=False)
+    category = db.Column(db.String(32), nullable=False)
+    target_account = db.Column(db.String(5), nullable=False)
+    valid_from = db.Column(db.Date, nullable=False)
+    valid_to = db.Column(db.Date, nullable=False)
     updated_by = db.Column(
         db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'))
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow,

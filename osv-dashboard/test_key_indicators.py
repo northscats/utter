@@ -312,6 +312,108 @@ class KeyIndicatorTests(unittest.TestCase):
             {'20': 40, '25': 4, '26': 3, '44': 2})
         self.assertIn('не прибавляются', cogs['notes'][0])
 
+    def test_cost_articles_reconcile_to_selected_recognized_total(self):
+        src = build_indicator_source({
+            '90': account('90', [
+                day('2026-01-31', '90.02', obd=70),
+                day('2026-01-31', '90.07', obd=5),
+            ]),
+            '20': account('20', [
+                day('2026-01-31', p1='Газ', obd=40),
+                day('2026-01-31', p1='Зарплата', obd=30),
+            ]),
+        })
+        mappings = [
+            {'account': '20', 'analytic_key': revenue_analytic_key([label]),
+             'analytic_label': f'«{label}»', 'category': category,
+             'target_account': '90.02', 'valid_from': '2026-01-01',
+             'valid_to': '2026-12-31'}
+            for label, category in (('Газ', 'fuel'), ('Зарплата', 'payroll'))
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            src, cost_mappings=mappings)['cards']}['cogs']
+        structure = card['cost_structure']
+        self.assertTrue(structure['reconciled'])
+        self.assertEqual(structure['recognized_total'], 70)
+        self.assertEqual(sum(item['share'] or 0
+                             for item in structure['categories']), 100)
+        self.assertEqual(structure['selected_targets'], ['90.02'])
+
+    def test_cost_structure_rejects_overlap_and_more_than_one_hundred_percent(self):
+        src = build_indicator_source({
+            '90': account('90', [day('2026-01-31', '90.02', obd=50)]),
+            '20': account('20', [day('2026-01-31', p1='Газ', obd=60)]),
+        })
+        base = {'account': '20',
+                'analytic_key': revenue_analytic_key(['Газ']),
+                'analytic_label': '«Газ»', 'target_account': '90.02',
+                'valid_from': '2026-01-01', 'valid_to': '2026-12-31'}
+        mappings = [dict(base, category='fuel'),
+                    dict(base, category='other', valid_from='2026-01-15')]
+        structure = {item['id']: item for item in build_key_indicators(
+            src, cost_mappings=mappings)['cards']}['cogs']['cost_structure']
+        self.assertFalse(structure['structure_valid'])
+        self.assertTrue(structure['conflicts'])
+        self.assertTrue(all(item['share'] is None
+                            for item in structure['categories']))
+
+    def test_cost_mapping_changes_category_on_its_effective_date(self):
+        src = build_indicator_source({
+            '90': account('90', [day('2026-01-31', '90.02', obd=70)]),
+            '20': account('20', [
+                day('2026-01-10', p1='Энергоресурс', obd=40),
+                day('2026-01-20', p1='Энергоресурс', obd=30),
+            ]),
+        })
+        common = {
+            'account': '20',
+            'analytic_key': revenue_analytic_key(['Энергоресурс']),
+            'analytic_label': '«Энергоресурс»',
+            'target_account': '90.02',
+        }
+        mappings = [
+            dict(common, category='fuel', valid_from='2026-01-01',
+                 valid_to='2026-01-15'),
+            dict(common, category='electricity', valid_from='2026-01-16',
+                 valid_to='2026-01-31'),
+        ]
+        structure = {item['id']: item for item in build_key_indicators(
+            src, cost_mappings=mappings)['cards']}['cogs']['cost_structure']
+        amounts = {item['id']: item['value'] for item in structure['categories']}
+        self.assertEqual(amounts['fuel'], 40)
+        self.assertEqual(amounts['electricity'], 30)
+        self.assertTrue(structure['reconciled'])
+
+    def test_cost_structure_suppresses_shares_when_forming_total_exceeds_target(self):
+        src = build_indicator_source({
+            '90': account('90', [day('2026-01-31', '90.02', obd=50)]),
+            '20': account('20', [day('2026-01-31', p1='Газ', obd=60)]),
+        })
+        mapping = {
+            'account': '20', 'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»', 'category': 'fuel',
+            'target_account': '90.02', 'valid_from': '2026-01-01',
+            'valid_to': '2026-12-31'}
+        structure = {item['id']: item for item in build_key_indicators(
+            src, cost_mappings=[mapping])['cards']}['cogs']['cost_structure']
+        self.assertFalse(structure['structure_valid'])
+        self.assertIn('превышает', structure['conflicts'][0]['message'])
+        self.assertTrue(all(item['share'] is None
+                            for item in structure['categories']))
+
+    def test_cost_mapping_outside_selected_period_is_unclassified(self):
+        src = build_indicator_source({
+            '20': account('20', [day('2026-01-31', p1='Газ', obd=10)]),
+        })
+        mapping = {
+            'account': '20', 'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»', 'category': 'fuel',
+            'target_account': '90.02', 'valid_from': '2025-01-01',
+            'valid_to': '2025-12-31'}
+        structure = {item['id']: item for item in build_key_indicators(
+            src, cost_mappings=[mapping])['cards']}['cogs']['cost_structure']
+        self.assertEqual(len(structure['unclassified']), 1)
+
     def test_profit_detail_separates_gross_sales_other_and_pretax_results(self):
         src = build_indicator_source({
             '90': account('90', [

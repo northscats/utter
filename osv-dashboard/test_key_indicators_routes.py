@@ -12,7 +12,7 @@ _TMP = tempfile.TemporaryDirectory(prefix='key-indicators-test-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP.name, 'test.db')
 
 import app as app_module
-from database import (Company, CompanyMembership, DailyRow,
+from database import (Company, CompanyMembership, CostAnalyticMapping, DailyRow,
                       RevenueAnalyticMapping, Upload, User, UserModuleAccess, db)
 import key_indicators_service as service
 from key_indicators import build_indicator_source, revenue_analytic_key
@@ -462,6 +462,51 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                     company_id=self.company).all()
             }
         self.assertTrue({'«Январь»', '«Февраль»'}.issubset(labels))
+
+    def test_only_admin_can_save_periodic_cost_mapping(self):
+        url = f'/company/{self.company}/key-indicators/cost-mappings'
+        payload = {'mappings': [{
+            'account': '20',
+            'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»',
+            'category': 'fuel',
+            'target_account': '90.02',
+            'valid_from': '2026-01-01',
+            'valid_to': '2026-12-31',
+        }]}
+        self.assertEqual(
+            self.client('kpi_allowed').post(url, json=payload).status_code, 403)
+        response = self.client('kpi_admin').post(url, json=payload)
+        self.assertEqual(response.status_code, 200)
+        with self.app.app_context():
+            row = CostAnalyticMapping.query.filter_by(
+                company_id=self.company).one()
+            self.assertEqual(row.category, 'fuel')
+            self.assertEqual(row.target_account, '90.02')
+            self.assertEqual(row.valid_from, date(2026, 1, 1))
+
+    def test_cost_mapping_rejects_invalid_period(self):
+        url = f'/company/{self.company}/key-indicators/cost-mappings'
+        response = self.client('kpi_admin').post(url, json={'mappings': [{
+            'account': '20', 'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»', 'category': 'fuel',
+            'target_account': '90.02', 'valid_from': '2026-02-01',
+            'valid_to': '2026-01-01',
+        }]})
+        self.assertEqual(response.status_code, 400)
+
+    def test_cost_mapping_rejects_conflicting_overlap(self):
+        url = f'/company/{self.company}/key-indicators/cost-mappings'
+        common = {
+            'account': '20', 'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»', 'target_account': '90.02',
+            'valid_from': '2026-01-01', 'valid_to': '2026-12-31',
+        }
+        response = self.client('kpi_admin').post(url, json={'mappings': [
+            dict(common, category='fuel'),
+            dict(common, category='other', valid_from='2026-06-01'),
+        ]})
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == '__main__':
