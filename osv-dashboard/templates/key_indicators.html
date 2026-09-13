@@ -11,6 +11,7 @@
     <script>
         window.KI_CONFIG = {
             dataUrl: {{ data_url | tojson }},
+            aiReportUrl: {{ ai_report_url | tojson }},
             mappingsUrl: {{ mappings_url | tojson }},
             costMappingsUrl: {{ cost_mappings_url | tojson }},
             debtorMappingsUrl: {{ debtor_mappings_url | tojson }},
@@ -24,7 +25,6 @@
             companyId: {{ company.id | tojson }},
             companyName: {{ company.name | tojson }},
             embedded: {{ embedded | default(false) | tojson }},
-            legacyUrl: {{ legacy_url | default('') | tojson }},
             historicalImportUrl: {{ url_for('company_detail', company_id=company.id, _anchor='historical-analytics') | default('/company/'~company.id~'#historical-analytics') | tojson }}
         };
     </script>
@@ -161,14 +161,15 @@
       </div>
     </div>
 
-    <!-- АНАЛИЗ ИИ: существующий отчёт внутри вкладки -->
+    <!-- АНАЛИЗ ИИ: фактологический отчёт по выбранному периоду -->
     <div class="tab-content" id="tab-ai">
       <iframe id="ki-ai-frame" title="Анализ ИИ предприятия"
               style="display:none; width:100%; height:calc(100vh - 155px); min-height:500px; border:0;"></iframe>
-      <div class="container" id="ki-ai-empty" style="display:none;">
-        <h3>Анализ ИИ ещё не сформирован</h3>
-        <p>Загрузите ОСВ-файлы предприятия, чтобы сформировать анализ.</p>
-        <a href="{{ url_for('company_detail', company_id=company.id, embedded=1) if embedded else url_for('company_detail', company_id=company.id) }}">Перейти к данным</a>
+      <div class="container" id="ki-ai-empty" style="display:none;" aria-live="polite">
+        <h3 id="ki-ai-state-title">Анализ готовится</h3>
+        <p id="ki-ai-state-text">Дождитесь загрузки показателей выбранного периода.</p>
+        <button type="button" id="ki-ai-retry" onclick="window.KI_App.retryAiReport()" style="display:none;">Повторить</button>
+        <a id="ki-ai-data-link" href="{{ url_for('company_detail', company_id=company.id, embedded=1) if embedded else url_for('company_detail', company_id=company.id) }}" style="display:none;">Перейти к данным</a>
       </div>
     </div>
 

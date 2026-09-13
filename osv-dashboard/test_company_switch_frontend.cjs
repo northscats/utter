@@ -14,6 +14,7 @@ function companyConfig(id, name) {
         pageUrl: `/company/${id}/key-indicators`,
         dataUrl: `/company/${id}/key-indicators/data`,
         annualDataUrl: `/company/${id}/key-indicators/annual-data`,
+        aiReportUrl: `/company/${id}/key-indicators/ai-report`,
         mappingsUrl: `/company/${id}/key-indicators/revenue-mappings`,
         costMappingsUrl: `/company/${id}/key-indicators/cost-mappings`,
         debtorMappingsUrl: `/company/${id}/key-indicators/debtor-mappings`,

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Анализ показателей — {{ company.name }}</title>
+  <style>
+    body { margin:0; background:#f7f9fc; color:#172033; font:14px/1.5 Arial,sans-serif; }
+    main { max-width:1080px; margin:0 auto; padding:24px; }
+    h1 { margin:0 0 4px; font-size:24px; } h2 { font-size:18px; margin:0 0 12px; }
+    .sub { color:#657187; margin:0 0 20px; } .card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:18px; margin:14px 0; }
+    .facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); gap:10px; }
+    .fact { border-left:3px solid #3b82f6; background:#f8fafc; padding:10px; } .fact strong { display:block; }
+    table { border-collapse:collapse; width:100%; } th,td { border-bottom:1px solid #e5e7eb; padding:9px; text-align:left; vertical-align:top; } th { color:#526078; font-weight:600; }
+    .muted { color:#657187; } .warning { background:#fff8e6; border-color:#f3c45b; } .error { background:#fff1f2; border-color:#fda4af; }
+    .partial { display:block; color:#9a6700; font-size:12px; margin-top:3px; } .limitations { font-size:12px; color:#657187; }
+    button { background:#176b87; color:#fff; border:0; border-radius:6px; padding:8px 12px; cursor:pointer; } button:disabled { opacity:.6; cursor:wait; }
+    #ai-brief-result { white-space:pre-wrap; margin-top:12px; } #ai-brief-error { color:#9f1239; margin-top:8px; }
+    ul { padding-left:20px; margin:8px 0; } code { white-space:normal; }
+  </style>
+</head>
+<body>
+<main>
+  {% if error %}
+    <section class="card error"><h1>Отчёт недоступен</h1><p>{{ error }}</p><p class="muted">Вернитесь к показателям, выберите доступный период и повторите попытку.</p></section>
+  {% else %}
+    <h1>Что происходит — данные за {{ period_label }}</h1>
+    <p class="sub">{{ company.name }} · {% if annual %}принятая годовая финансовая аналитика{% else %}загруженные данные ОСВ{% endif %}</p>
+    <section class="card">
+      <h2>Краткое фактическое резюме</h2>
+      {% if narrative %}<ul>{% for item in narrative %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+      <div class="facts">
+      {% for card in payload.cards if card.value is not none %}
+        <div class="fact"><strong>{{ card.title }}</strong>
+          {% if card.unit == 'RUB' %}{{ '{:,.2f}'.format(card.value / 1000000).replace(',', ' ') }} млн ₽
+          {% elif card.unit == 'percent' %}{{ '{:,.2f}'.format(card.value).replace(',', ' ') }} %
+          {% else %}{{ '{:,.2f}'.format(card.value).replace(',', ' ') }}{% endif %}
+        </div>
+      {% else %}
+        <p class="muted">В выбранном периоде нет подтверждённых значений для сводного вывода.</p>
+      {% endfor %}
+      </div>
+    </section>
+    <section class="card">
+      <h2>Показатели выбранного периода</h2>
+      <table><thead><tr><th>Показатель</th><th>Факт</th><th>Расчёт / источник</th><th>Ограничения</th></tr></thead><tbody>
+      {% for card in report_cards %}
+        <tr><td>{{ card.title }}</td><td>
+          {% if card.value is none %}Н/Д{% elif card.unit == 'RUB' %}{{ '{:,.2f}'.format(card.value / 1000000).replace(',', ' ') }} млн ₽
+          {% elif card.unit == 'percent' %}{{ '{:,.2f}'.format(card.value).replace(',', ' ') }} %
+          {% else %}{{ '{:,.2f}'.format(card.value).replace(',', ' ') }}{% endif %}
+          {% if card.report_partial_balance %}<span class="partial">Частичная известная сумма</span>{% endif %}
+        </td><td class="muted">{{ card.formula or card.period_label or 'Формула не указана' }}{% if card.source %}<br>{{ card.source }}{% endif %}</td>
+        <td class="limitations">
+          {% if card.report_partial_balance %}В итог включены только доступные сальдо; отсутствуют: {{ card.report_missing_accounts | join(', ') }}. Значения отсутствующих счетов не приняты за ноль.<br>{% endif %}
+          {% if card.reason %}{{ card.reason }}<br>{% endif %}
+          {% if card.missing_reason %}{{ card.missing_reason }}<br>{% endif %}
+          {% for note in card.notes or [] %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% if not card.report_partial_balance and not card.reason and not card.missing_reason and not (card.notes or []) %}Нет дополнительных ограничений.{% endif %}
+        </td></tr>
+      {% endfor %}
+      </tbody></table>
+    </section>
+    {% if ai_brief_payload %}
+    <section class="card">
+      <h2>Резюме ИИ</h2>
+      <p class="muted">По желанию сформируйте краткое резюме только по фактам выбранного периода. Запрос не отправляется автоматически.</p>
+      <button type="button" id="ai-brief-btn">✦ Резюме ИИ</button>
+      <div id="ai-brief-error" role="alert"></div>
+      <div id="ai-brief-result" aria-live="polite"></div>
+    </section>
+    {% endif %}
+    {% if not annual and payload.objects and payload.objects.rows %}
+    <section class="card"><h2>Объекты учёта продаж</h2><table><thead><tr><th>Объект</th><th>Выручка</th><th>Себестоимость</th><th>Результат</th></tr></thead><tbody>
+    {% for row in payload.objects.rows %}<tr><td>{{ row.label }}</td><td>{{ row.revenue if row.revenue is not none else 'Н/Д' }}</td><td>{{ row.cost if row.cost is not none else 'Н/Д' }}</td><td>{{ row.profit if row.profit is not none else 'Н/Д' }}</td></tr>{% endfor %}
+    </tbody></table><p class="muted">Суммы в таблице — в рублях; детализация берётся только из строк выбранного периода.</p></section>
+    {% endif %}
+    {% if payload.warnings or (payload.quality and payload.quality.warnings) %}
+    <section class="card warning"><h2>Ограничения данных</h2><ul>
+      {% for warning in payload.warnings or [] %}<li>{{ warning }}</li>{% endfor %}
+      {% for warning in (payload.quality.warnings if payload.quality else []) %}<li>{{ warning }}</li>{% endfor %}
+    </ul><p class="muted">Недоступные значения не заменяются нулями и не переносятся из сохранённого отчёта на другую дату.</p></section>
+    {% endif %}
+    <section class="card"><h2>Как читать отчёт</h2><p>Это периодный фактологический анализ. Он использует тот же нормализованный расчёт, что и карточки «Основных показателей». Сохранённый подробный отчёт ОСВ не встроен: его остатки относятся к исходной дате выгрузки и могут быть недостоверны для выбранной даты.</p></section>
+  {% endif %}
+</main>
+{% if ai_brief_payload %}
+<script>
+(() => {
+  const button = document.getElementById('ai-brief-btn');
+  const result = document.getElementById('ai-brief-result');
+  const error = document.getElementById('ai-brief-error');
+  const facts = {{ ai_brief_payload | tojson }};
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.textContent = 'Формирую…';
+    error.textContent = '';
+    try {
+      const response = await fetch('/ai/brief', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': {{ csrf_token() | tojson }},
+                  'X-Requested-With': 'XMLHttpRequest'},
+        body: JSON.stringify(facts)
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok || !data.brief) {
+        throw new Error(data.error || 'Не удалось сформировать резюме.');
+      }
+      const brief = data.brief;
+      result.textContent = [brief.lead, ...(brief.points || []), brief.foot]
+        .filter(Boolean).join('\n');
+      button.textContent = '✦ Обновить';
+    } catch (err) {
+      error.textContent = err.message || 'Не удалось выполнить запрос.';
+      button.textContent = '✦ Резюме ИИ';
+    } finally {
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

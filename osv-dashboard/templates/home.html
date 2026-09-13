@@ -358,7 +358,7 @@ body.splitter-dragging iframe{pointer-events:none}
              data-ki-config="{{ {
                 'companyId': c.id,
                 'companyName': c.name,
-                'legacyUrl': url_for('dashboard', company_id=c.id, name='dashboard_current.html') if c.has_dashboard else none,
+                'aiReportUrl': url_for('key_indicators_ai_report', company_id=c.id),
                 'pageUrl': url_for('key_indicators_page', company_id=c.id),
                 'dataUrl': url_for('key_indicators_data', company_id=c.id),
                 'annualDataUrl': url_for('annual_key_indicators_data', company_id=c.id),

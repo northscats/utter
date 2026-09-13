@@ -1,6 +1,8 @@
 """Isolated SQLite regressions; never touches the application's real database."""
 import copy
+import json
 import os
+import re
 import tempfile
 import unittest
 from datetime import date
@@ -211,6 +213,217 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertIn('&lt;script&gt;', response.get_data(as_text=True))
         self.assertIn('key_indicators.js', response.get_data(as_text=True))
         self.assertIn('window.KI_CONFIG =', response.get_data(as_text=True))
+
+    def test_ai_report_uses_selected_operational_period_not_saved_dashboard(self):
+        source = build_indicator_source({
+            '90': {
+                'acc': '90', 'period': 'за январь 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [
+                    {'date': '2026-01-30', 'month': '2026-01',
+                     'path1': '90.01', 'path2': '', 'path3': '',
+                     'obd': 0, 'obk': 1000000},
+                    {'date': '2026-01-31', 'month': '2026-01',
+                     'path1': '90.01', 'path2': '', 'path3': '',
+                     'obd': 0, 'obk': 2000000},
+                ],
+            },
+            '51': {
+                'acc': '51', 'period': 'за январь 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [{
+                    'date': '2026-01-31', 'month': '2026-01',
+                    'path1': '', 'path2': '', 'path3': '',
+                    'obd': 0, 'obk': 0, 'skd': 3000000, 'skk': 0,
+                }],
+            },
+            '66': {
+                'acc': '66', 'period': 'за январь 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [{
+                    'date': '2026-01-31', 'month': '2026-01',
+                    'path1': '', 'path2': '', 'path3': '',
+                    'obd': 0, 'obk': 0, 'skd': 0, 'skk': 4000000,
+                }],
+            },
+        })
+        report_url = f'/company/{self.company}/key-indicators/ai-report'
+        with patch.object(service, 'load_company_source', return_value=(source, None)):
+            first = self.client('kpi_allowed').get(
+                report_url, query_string={'period': 'day', 'date': '2026-01-30'})
+            second = self.client('kpi_allowed').get(
+                report_url, query_string={'period': 'day', 'date': '2026-01-31'})
+            missing = self.client('kpi_allowed').get(
+                report_url, query_string={'period': 'day', 'date': '2026-02-01'})
+            first_data = self.client('kpi_allowed').get(
+                self.url(data=True),
+                query_string={'period': 'day', 'date': '2026-01-30'})
+            second_data = self.client('kpi_allowed').get(
+                self.url(data=True),
+                query_string={'period': 'day', 'date': '2026-01-31'})
+            first_shell = self.client('kpi_allowed').get(
+                self.url(), query_string={'period': 'day', 'date': '2026-01-30'})
+            second_shell = self.client('kpi_allowed').get(
+                self.url(), query_string={'period': 'day', 'date': '2026-01-31'})
+        first_html = first.get_data(as_text=True)
+        second_html = second.get_data(as_text=True)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertIn('Что происходит — данные за 30.01.2026', first_html)
+        self.assertIn('Что происходит — данные за 31.01.2026', second_html)
+        self.assertIn('1.00 млн ₽', first_html)
+        self.assertIn('2.00 млн ₽', second_html)
+        self.assertNotIn('dashboard_current.html', second_html)
+        self.assertIn('Частичная известная сумма', second_html)
+        self.assertIn('отсутствуют: 50, 52, 55', second_html)
+        self.assertIn('отсутствуют: 67', second_html)
+        self.assertEqual(missing.status_code, 400)
+        self.assertIn('Отчёт недоступен', missing.get_data(as_text=True))
+        fixture_path = '/tmp/ai-period-fixtures.json'
+        def fixture_html(value):
+            # Browser fixtures document rendered shape, never a request token.
+            value = re.sub(r'csrfToken:\s*"[^"]*"', 'csrfToken: "[redacted]"', value)
+            return re.sub(r"'X-CSRFToken':\s*\"[^\"]*\"",
+                          "'X-CSRFToken': \"[redacted]\"", value)
+        with open(fixture_path, 'w', encoding='utf-8') as fixture:
+            json.dump({
+                'first': {
+                    'report_html': fixture_html(first_html),
+                    'kpi_shell_html': fixture_html(first_shell.get_data(as_text=True)),
+                    'kpi_payload': first_data.get_json(),
+                },
+                'second': {
+                    'report_html': fixture_html(second_html),
+                    'kpi_shell_html': fixture_html(second_shell.get_data(as_text=True)),
+                    'kpi_payload': second_data.get_json(),
+                },
+            }, fixture, ensure_ascii=False, indent=2)
+        self.assertTrue(os.path.isfile(fixture_path))
+
+    def test_ai_report_names_gross_profit_fallback_without_sales_result_claim(self):
+        source = build_indicator_source({
+            '90': {
+                'acc': '90', 'period': 'за январь 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [
+                    {'date': '2026-01-31', 'month': '2026-01',
+                     'path1': '90.01', 'path2': '', 'path3': '',
+                     'obd': 0, 'obk': 3000000},
+                    {'date': '2026-01-31', 'month': '2026-01',
+                     'path1': '90.02', 'path2': '', 'path3': '',
+                     'obd': 1000000, 'obk': 0},
+                    {'date': '2026-01-31', 'month': '2026-01',
+                     'path1': '90.03', 'path2': '', 'path3': '',
+                     'obd': 0, 'obk': 0},
+                ],
+            },
+        })
+        with patch.object(service, 'load_company_source', return_value=(source, None)):
+            response = self.client('kpi_allowed').get(
+                f'/company/{self.company}/key-indicators/ai-report',
+                query_string={'period': 'day', 'date': '2026-01-31'})
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Валовая прибыль: 2.00 млн ₽', html)
+        self.assertNotIn('Результат от продаж по расчёту показателей', html)
+
+    def test_ai_report_keeps_manual_brief_action_for_complete_period_facts(self):
+        source = build_indicator_source({
+            '90': {
+                'acc': '90', 'period': 'за январь 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [
+                    {'date': '2026-01-31', 'month': '2026-01',
+                     'path1': account, 'path2': '', 'path3': '',
+                     'obd': debit, 'obk': credit}
+                    for account, debit, credit in (
+                        ('90.01', 0, 3000000), ('90.03', 0, 0),
+                        ('90.02', 1000000, 0), ('90.07', 0, 0),
+                        ('90.08', 0, 0),
+                    )
+                ],
+            },
+        })
+        with patch.object(service, 'load_company_source', return_value=(source, None)):
+            response = self.client('kpi_allowed').get(
+                f'/company/{self.company}/key-indicators/ai-report',
+                query_string={'period': 'day', 'date': '2026-01-31'})
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('id="ai-brief-btn"', html)
+        self.assertIn("fetch('/ai/brief'", html)
+        self.assertIn('"period": "31.01.2026"', html)
+
+    def test_ai_report_uses_annual_year_contract_separately(self):
+        report_url = f'/company/{self.company}/key-indicators/ai-report'
+        annual_payload = {
+            'mode': 'annual', 'year': 2024, 'cards': [{
+                'id': 'revenue', 'title': 'Выручка', 'value': 3000000,
+                'unit': 'RUB', 'period_label': 'За год',
+                'missing_reason': None,
+            }], 'warnings': [],
+        }
+        with patch.object(app_module, '_require_historical_import'), patch(
+                'annual_key_indicators.build_annual_key_indicators',
+                return_value=annual_payload):
+            response = self.client('kpi_admin').get(
+                report_url, query_string={'mode': 'annual', 'year': '2024'})
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Что происходит — данные за 2024', html)
+        self.assertIn('3.00 млн ₽', html)
+
+    def test_ai_report_accepts_normalized_month_and_quarter_ranges(self):
+        source = build_indicator_source({
+            '90': {
+                'acc': '90', 'period': 'за 1 полугодие 2026 г.', 'rows': [],
+                'warnings': [], 'top': {
+                    'snd': 0, 'snk': 0, 'obd': 0, 'obk': 0,
+                    'skd': 0, 'skk': 0,
+                },
+                'daily': [
+                    {'date': day, 'month': day[:7], 'path1': '90.01',
+                     'path2': '', 'path3': '', 'obd': 0, 'obk': amount}
+                    for day, amount in (
+                        ('2026-03-31', 1000000), ('2026-04-30', 2000000),
+                        ('2026-06-30', 4000000),
+                    )
+                ],
+            },
+        })
+        report_url = f'/company/{self.company}/key-indicators/ai-report'
+        with patch.object(service, 'load_company_source', return_value=(source, None)):
+            month = self.client('kpi_allowed').get(report_url, query_string={
+                'period': 'month', 'date_from': '2026-03-31',
+                'date': '2026-04-30',
+            })
+            quarter = self.client('kpi_allowed').get(report_url, query_string={
+                'period': 'quarter', 'date_from': '2026-03-31',
+                'date': '2026-06-30',
+            })
+        self.assertEqual(month.status_code, 200)
+        self.assertEqual(quarter.status_code, 200)
+        self.assertIn('Что происходит — данные за 01.03.2026 — 30.04.2026',
+                      month.get_data(as_text=True))
+        self.assertIn('3.00 млн ₽', month.get_data(as_text=True))
+        self.assertIn('Что происходит — данные за 01.01.2026 — 30.06.2026',
+                      quarter.get_data(as_text=True))
+        self.assertIn('7.00 млн ₽', quarter.get_data(as_text=True))
 
     def test_quarter_range_api_returns_daily_points(self):
         source = build_indicator_source({'51': report(

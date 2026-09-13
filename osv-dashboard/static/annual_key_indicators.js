@@ -68,6 +68,7 @@
             state.reqId++;
             state.chartJob = null;
             if (abortController) abortController.abort();
+            if (window.KI_App) window.KI_App.invalidateAiReport('loading');
         },
 
         switchCompany(next, companySwitchToken) {
@@ -157,7 +158,7 @@
         async fetchData(companySwitchToken = null, skipRequestedYear = false,
                         fallbackRequestedYear = null) {
             if (!state.active) return;
-            
+            if (window.KI_App) window.KI_App.invalidateAiReport('loading');
             if (window.KI_App) window.KI_App.showLoading();
             document.getElementById('ki-error').style.display = 'none';
             
@@ -215,6 +216,7 @@
                 
                 state.data = data;
                 state.year = data.year;
+                if (window.KI_App) window.KI_App.setAiReport('annual', data);
                 if (fallbackRequestedYear !== null &&
                     Number.isInteger(Number(data.year)) &&
                     Number(data.year) !== fallbackRequestedYear &&
@@ -245,9 +247,11 @@
                      companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
                 if (companySwitchToken !== null && window.KI_App &&
                     window.KI_App.state.companySwitching) {
+                    window.KI_App.invalidateAiReport('error', e.message);
                     window.KI_App.showCompanySwitchError(companySwitchToken, e.message);
                     return;
                 }
+                if (window.KI_App) window.KI_App.invalidateAiReport('error', e.message);
                 document.getElementById('ki-error-text').textContent = e.message;
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {

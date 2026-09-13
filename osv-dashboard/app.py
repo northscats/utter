@@ -2411,82 +2411,86 @@ def company_upload_all(company_id):
 @login_required
 def key_indicators_page(company_id):
     company = _require_company_access(company_id)
-    legacy_file = os.path.join(OUTPUT, str(company_id), 'dashboard_current.html')
     return render_template(
         'key_indicators.html', company=company,
         data_url=url_for('key_indicators_data', company_id=company_id),
+        ai_report_url=url_for('key_indicators_ai_report', company_id=company_id),
         mappings_url=url_for('key_indicator_revenue_mappings',
                              company_id=company_id),
         cost_mappings_url=url_for('key_indicator_cost_mappings',
                                   company_id=company_id),
         debtor_mappings_url=url_for('key_indicator_debtor_mappings',
                                     company_id=company_id),
-        legacy_url=(url_for('dashboard', company_id=company_id,
-                            name='dashboard_current.html')
-                    if os.path.isfile(legacy_file) else None),
         embedded=request.args.get('embedded') == '1',
     )
 
 
-@app.route('/company/<int:company_id>/key-indicators/data')
-@login_required
-def key_indicators_data(company_id):
-    from key_indicators import build_key_indicators
-    from key_indicators_service import (
-        SourceBusyError, SourceReadError, load_company_source,
-    )
-    company = _require_company_access(company_id)
+def _key_indicator_request_period():
+    """Validate common operational KPI arguments."""
     period = request.args.get('period', 'month')
-    date = request.args.get('date') or None
+    endpoint = request.args.get('date') or None
     date_from = request.args.get('date_from') or None
     if period not in ('day', 'month', 'quarter', 'year'):
-        return jsonify(error='Неизвестный период'), 400
-    for value in (date, date_from):
+        raise ValueError('Неизвестный период')
+    for value in (endpoint, date_from):
         if value is None:
             continue
         try:
             datetime.strptime(value, '%Y-%m-%d')
         except ValueError:
-            return jsonify(error='Дата должна иметь формат ГГГГ-ММ-ДД'), 400
+            raise ValueError('Дата должна иметь формат ГГГГ-ММ-ДД')
     if date_from is not None and period not in ('day', 'month', 'quarter'):
-        return jsonify(
-            error='Начальная дата доступна для дня, месяца и квартала'
-        ), 400
+        raise ValueError('Начальная дата доступна для дня, месяца и квартала')
+    return period, endpoint, date_from
+
+
+def _key_indicator_mappings(company_id):
+    """Read mappings used by both the JSON cards and factual report."""
+    return (
+        [{'account': row.account, 'analytic_key': row.analytic_key,
+          'analytic_label': row.analytic_label, 'category': row.category}
+         for row in RevenueAnalyticMapping.query.filter_by(company_id=company_id).all()],
+        [{'account': row.account, 'analytic_key': row.analytic_key,
+          'analytic_label': row.analytic_label, 'category': row.category,
+          'target_account': row.target_account,
+          'valid_from': row.valid_from.isoformat(),
+          'valid_to': row.valid_to.isoformat()}
+         for row in CostAnalyticMapping.query.filter_by(company_id=company_id).all()],
+        [{'id': row.id, 'account': row.account, 'analytic_key': row.analytic_key,
+          'analytic_label': row.analytic_label, 'category': row.category,
+          'effective_from': row.effective_from.isoformat(),
+          'effective_to': row.effective_to.isoformat()}
+         for row in DebtorAnalyticMapping.query.filter_by(company_id=company_id).all()],
+    )
+
+
+def _operational_key_indicators_payload(company, period, endpoint, date_from):
+    """Calculate the one authoritative period payload used by both views."""
+    from key_indicators import build_key_indicators
+    from key_indicators_service import load_company_source
+
+    source, updated_at = load_company_source(company.id, UPLOADS)
+    mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company.id)
+    payload = build_key_indicators(
+        source, period=period, date=endpoint, date_from=date_from,
+        revenue_mappings=mappings, cost_mappings=cost_mappings,
+        debtor_mappings=debtor_mappings)
+    payload['company'] = {'id': company.id, 'name': company.name}
+    payload['updated_at'] = updated_at
+    return payload
+
+
+@app.route('/company/<int:company_id>/key-indicators/data')
+@login_required
+def key_indicators_data(company_id):
+    from key_indicators_service import (
+        SourceBusyError, SourceReadError,
+    )
+    company = _require_company_access(company_id)
     try:
-        source, updated_at = load_company_source(company_id, UPLOADS)
-        mappings = [{
-            'account': row.account,
-            'analytic_key': row.analytic_key,
-            'analytic_label': row.analytic_label,
-            'category': row.category,
-        } for row in RevenueAnalyticMapping.query.filter_by(
-            company_id=company_id).all()]
-        cost_mappings = [{
-            'account': row.account,
-            'analytic_key': row.analytic_key,
-            'analytic_label': row.analytic_label,
-            'category': row.category,
-            'target_account': row.target_account,
-            'valid_from': row.valid_from.isoformat(),
-            'valid_to': row.valid_to.isoformat(),
-        } for row in CostAnalyticMapping.query.filter_by(
-            company_id=company_id).all()]
-        debtor_mappings = [{
-            'id': row.id,
-            'account': row.account,
-            'analytic_key': row.analytic_key,
-            'analytic_label': row.analytic_label,
-            'category': row.category,
-            'effective_from': row.effective_from.isoformat(),
-            'effective_to': row.effective_to.isoformat(),
-        } for row in DebtorAnalyticMapping.query.filter_by(
-            company_id=company_id).all()]
-        payload = build_key_indicators(
-            source, period=period, date=date, date_from=date_from,
-            revenue_mappings=mappings, cost_mappings=cost_mappings,
-            debtor_mappings=debtor_mappings)
-        payload['company'] = {'id': company.id, 'name': company.name}
-        payload['updated_at'] = updated_at
+        period, endpoint, date_from = _key_indicator_request_period()
+        payload = _operational_key_indicators_payload(
+            company, period, endpoint, date_from)
     except SourceBusyError as exc:
         response = jsonify(error=str(exc))
         response.status_code = 503
@@ -2502,6 +2506,162 @@ def key_indicators_data(company_id):
     response = jsonify(payload)
     response.headers['Cache-Control'] = 'private, no-store'
     return response
+
+
+def _ai_report_period_label(payload, annual=False):
+    """Present the exact normalized period, rather than a source-file label."""
+    if annual:
+        return str(payload.get('year') or 'год не указан')
+    period = payload.get('period') or {}
+
+    def displayed(value):
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').strftime('%d.%m.%Y')
+        except (TypeError, ValueError):
+            return None
+
+    start, end = displayed(period.get('start')), displayed(period.get('end'))
+    if start and end:
+        return start if start == end else f'{start} — {end}'
+    return period.get('label') or 'период не указан'
+
+
+def _ai_report_value(value, unit):
+    """Formatting only; calculations remain in the KPI service."""
+    if unit == 'RUB':
+        return f'{value / 1000000:,.2f}'.replace(',', ' ') + ' млн ₽'
+    if unit == 'percent':
+        return f'{value:,.2f}'.replace(',', ' ') + ' %'
+    return f'{value:,.2f}'.replace(',', ' ')
+
+
+def _ai_report_narrative(payload):
+    """Conservative statements that do not infer facts absent from ОСВ."""
+    cards = {item.get('id'): item for item in payload.get('cards') or []}
+    result = []
+    for card_id in ('revenue', 'profit', 'cash', 'ar'):
+        card = cards.get(card_id) or {}
+        value = card.get('value')
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            # The KPI profit card can explicitly fall back to gross profit
+            # when selling/administrative expenses are unavailable.  Do not
+            # call that fallback a sales result.
+            title = card.get('title') or card_id
+            if card_id == 'profit' and card.get('profit_from_sales') is None:
+                title = 'Валовая прибыль'
+            result.append(f'{title}: {_ai_report_value(value, card.get("unit"))}.')
+    return result[:4]
+
+
+def _ai_report_cards(payload):
+    """Add presentation-only coverage markers without changing KPI facts."""
+    result = []
+    for item in payload.get('cards') or []:
+        card = dict(item)
+        partial = False
+        missing = []
+        if card.get('id') == 'cash':
+            partial = card.get('coverage') == 'partial'
+            missing = list(card.get('missing_accounts') or [])
+        elif card.get('id') == 'credits':
+            coverage = card.get('coverage') or {}
+            partial = (card.get('value') is not None
+                       and coverage.get('complete') is False)
+            missing = list(coverage.get('missing') or [])
+        card['report_partial_balance'] = partial
+        card['report_missing_accounts'] = missing
+        result.append(card)
+    return result
+
+
+def _ai_brief_payload(payload, period_label):
+    """Prepare optional AI facts solely from the selected server calculation."""
+    cards = {item.get('id'): item for item in payload.get('cards') or []}
+    revenue, cost, profit = (cards.get(key) or {} for key in
+                             ('revenue', 'cogs', 'profit'))
+    data = {
+        'company_name': payload.get('company', {}).get('name', ''),
+        'period': period_label,
+    }
+    gross = next((item.get('value') for item in revenue.get('details') or []
+                  if item.get('label') == 'Выручка брутто'), None)
+    vat = next((item.get('value') for item in revenue.get('details') or []
+                if item.get('label') == 'НДС'), None)
+    selling, administrative = profit.get('selling_expense'), profit.get('admin_expense')
+    values = (gross, vat, cost.get('value'), selling, administrative)
+    if all(isinstance(value, (int, float)) and not isinstance(value, bool)
+           for value in values):
+        data['pl'] = {
+            'rev_total': gross, 'nds_total': vat, 'cost_total': cost['value'],
+            'adm_total': selling + administrative,
+        }
+    cash = cards.get('cash') or {}
+    # /ai/brief has no representation for an incomplete cash composition.
+    # Omit it rather than inviting the provider to call a partial sum total.
+    if cash.get('coverage') == 'complete' and isinstance(cash.get('value'), (int, float)):
+        data['cash'] = {'end': cash['value']}
+    # Do not offer an AI request that contains only a company name and period:
+    # that would invite an invented conclusion when no compatible facts exist.
+    return data if ('pl' in data or 'cash' in data) else None
+
+
+@app.route('/company/<int:company_id>/key-indicators/ai-report')
+@login_required
+def key_indicators_ai_report(company_id):
+    """Render a factual report from the same calculation as the KPI cards.
+
+    A saved dashboard is deliberately not embedded: its balances belong to the
+    saved ОСВ boundary and cannot safely describe an arbitrary selected date.
+    """
+    from key_indicators_service import SourceBusyError, SourceReadError
+
+    company = _require_company_access(company_id)
+    mode = request.args.get('mode', 'operational')
+    if mode not in ('operational', 'annual'):
+        return render_template('key_indicators_ai_report.html', company=company,
+                               error='Неизвестный режим отчёта'), 400
+    try:
+        if mode == 'annual':
+            from annual_key_indicators import build_annual_key_indicators
+            _require_historical_import()
+            raw_year = request.args.get('year')
+            if raw_year is not None and not re.fullmatch(r'\d{4}', raw_year):
+                raise ValueError('Год должен иметь формат ГГГГ')
+            year = int(raw_year) if raw_year is not None else None
+            if year is not None and not 1900 <= year <= 2100:
+                raise ValueError('Год должен иметь формат ГГГГ')
+            payload = build_annual_key_indicators(company, requested_year=year)
+        else:
+            period, endpoint, date_from = _key_indicator_request_period()
+            payload = _operational_key_indicators_payload(
+                company, period, endpoint, date_from)
+    except SourceBusyError as exc:
+        response = Response(render_template(
+            'key_indicators_ai_report.html', company=company, error=str(exc)),
+            status=503)
+        response.headers['Retry-After'] = '3'
+        return response
+    except SourceReadError as exc:
+        return render_template('key_indicators_ai_report.html', company=company,
+                               error=str(exc)), 422
+    except ValueError as exc:
+        return render_template('key_indicators_ai_report.html', company=company,
+                               error=str(exc)), 400
+    except Exception:
+        app.logger.exception('Key indicator AI report failed for company %s', company_id)
+        return render_template(
+            'key_indicators_ai_report.html', company=company,
+            error='Не удалось сформировать отчёт. Повторите запрос позже.'), 500
+
+    annual = mode == 'annual'
+    period_label = _ai_report_period_label(payload, annual)
+    response = render_template(
+        'key_indicators_ai_report.html', company=company, payload=payload,
+        annual=annual, period_label=period_label,
+        narrative=_ai_report_narrative(payload),
+        report_cards=_ai_report_cards(payload),
+        ai_brief_payload=(None if annual else _ai_brief_payload(payload, period_label)))
+    return Response(response, headers={'Cache-Control': 'private, no-store'})
 
 
 def _metric_layout_response(payload, status=200):
@@ -4595,8 +4755,11 @@ def ai_brief():
             lines.append(f'Крупнейший кредитор: {top[0]} — {top[2]/1e6:.1f} млн ₽'.replace('.', ','))
     if cash:
         cash_end  = cash.get('end', 0)
-        cash_days = cash.get('days', 0)
-        lines.append(f'Деньги на счетах и в кассе: {cash_end/1e6:.1f} млн ₽ (≈{max(cash_days,0):.0f} раб. дней платежей)'.replace('.', ','))
+        cash_days = cash.get('days')
+        cash_line = f'Деньги на счетах и в кассе: {cash_end/1e6:.1f} млн ₽'
+        if isinstance(cash_days, (int, float)) and not isinstance(cash_days, bool):
+            cash_line += f' (≈{max(cash_days,0):.0f} раб. дней платежей)'
+        lines.append(cash_line.replace('.', ','))
     if hazard:
         h_clean = _re.sub(r'<[^>]+>', '', hazard)
         lines.append(f'\n⚠ Качество данных: {h_clean}')

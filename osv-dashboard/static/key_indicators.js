@@ -16,6 +16,7 @@
         companySwitching: false,
         companySwitchPeriodFallback: null,
         reqId: 0,
+        aiReport: null,
         chartJobs: {}
     };
     
@@ -174,6 +175,19 @@
                 }
                 urls[name] = parsed.href;
             });
+            if (source.aiReportUrl) {
+                let reportURL;
+                try {
+                    reportURL = new URL(source.aiReportUrl, window.location.origin);
+                } catch (error) {
+                    throw new Error('Сервер передал некорректный адрес анализа показателей.');
+                }
+                if (reportURL.origin !== window.location.origin ||
+                    !reportURL.pathname.includes(`/company/${companyId}/`)) {
+                    throw new Error('Адрес анализа не относится к выбранному предприятию.');
+                }
+                urls.aiReportUrl = reportURL.href;
+            }
             if (source.dashboardLayoutURL) {
                 let dashboardURL;
                 try {
@@ -333,10 +347,14 @@
             state.modalCardId = null;
             state.companySwitchPeriodFallback = null;
             this.clearChartJobs();
+            this.invalidateAiReport('loading');
             Object.assign(config, normalized, {
                 layoutBaseUrl: normalized.layoutBaseURL,
                 layoutUrlTemplate: normalized.layoutBaseURL
             });
+            // A cached/older switch payload may not yet contain this optional
+            // URL.  Never retain the previous company's report endpoint.
+            if (!normalized.aiReportUrl) delete config.aiReportUrl;
             this.updateFrameUrl(normalized);
             if (abortController) abortController.abort();
             state.reqId += 1;
@@ -399,7 +417,7 @@
                 document.getElementById('ki-date-select').style.display = 'none';
                 document.getElementById('ki-date-from-select').style.display = 'none';
                 document.getElementById('ki-quarter-buttons').style.display = 'none';
-                document.querySelector('.tabs-bar').style.display = 'none';
+                document.querySelector('.tabs-bar').style.display = 'flex';
                 document.getElementById('ki-operational-container').style.display = 'none';
                 document.getElementById('ki-annual-container').style.display = 'block';
             } else {
@@ -435,11 +453,12 @@
             if (mode === 'annual') {
                 state.reqId++;
                 if (abortController) abortController.abort();
+                this.invalidateAiReport('loading');
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
                 document.getElementById('ki-date-from-select').style.display = 'none';
                 document.getElementById('ki-quarter-buttons').style.display = 'none';
-                document.querySelector('.tabs-bar').style.display = 'none';
+                document.querySelector('.tabs-bar').style.display = 'flex';
                 document.getElementById('tab-analytics').classList.add('active');
                 if (document.getElementById('tab-recommendations')) document.getElementById('tab-recommendations').classList.remove('active');
                 if (document.getElementById('tab-ai')) document.getElementById('tab-ai').classList.remove('active');
@@ -454,6 +473,7 @@
                 if (window.KI_AnnualApp) window.KI_AnnualApp.activate();
             } else {
                 if (window.KI_AnnualApp) window.KI_AnnualApp.deactivate();
+                this.invalidateAiReport('loading');
                 const annualYearSelect = document.getElementById('ki-annual-year-select');
                 const annualYearButtons = document.getElementById('ki-annual-year-buttons');
                 if (annualYearSelect) annualYearSelect.style.display = 'none';
@@ -533,20 +553,141 @@
             document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add('active');
             document.getElementById(`tab-${tabName}`).classList.add('active');
             if (tabName === 'ai') {
-                const frame = document.getElementById('ki-ai-frame');
-                const empty = document.getElementById('ki-ai-empty');
-                const url = window.KI_CONFIG.legacyUrl;
-                const dataLink = empty.querySelector('a');
-                if (dataLink && window.KI_CONFIG.historicalImportUrl) {
-                    const dataUrl = new URL(window.KI_CONFIG.historicalImportUrl, window.location.origin);
-                    if (window.KI_CONFIG.embedded) dataUrl.searchParams.set('embedded', '1');
-                    dataLink.href = dataUrl.href;
-                }
-                frame.style.display = url ? 'block' : 'none';
-                empty.style.display = url ? 'none' : 'block';
-                if (url && frame.getAttribute('src') !== url) frame.src = url;
-                if (!url) frame.removeAttribute('src');
+                this.renderAiReport();
             }
+        },
+
+        aiTabActive() {
+            const tab = document.getElementById('tab-ai');
+            return !!(tab && tab.classList.contains('active'));
+        },
+
+        setAiEmptyState(kind, message) {
+            const frame = document.getElementById('ki-ai-frame');
+            const empty = document.getElementById('ki-ai-empty');
+            const title = document.getElementById('ki-ai-state-title');
+            const text = document.getElementById('ki-ai-state-text');
+            const retry = document.getElementById('ki-ai-retry');
+            const dataLink = document.getElementById('ki-ai-data-link');
+            if (frame) frame.style.display = 'none';
+            if (!empty) return;
+            empty.style.display = 'block';
+            if (title) title.textContent = kind === 'error' ? 'Не удалось загрузить анализ' :
+                (kind === 'empty' ? 'Нет данных для анализа' : 'Анализ готовится');
+            if (text) text.textContent = message ||
+                (kind === 'error' ? 'Проверьте подключение и повторите попытку.' :
+                    'Дождитесь загрузки показателей выбранного периода.');
+            if (retry) retry.style.display = kind === 'error' ? 'inline-block' : 'none';
+            if (dataLink) {
+                dataLink.style.display = kind === 'empty' ? 'inline-block' : 'none';
+                if (config && config.historicalImportUrl) dataLink.href = config.historicalImportUrl;
+            }
+        },
+
+        invalidateAiReport(kind = 'loading', message = null) {
+            state.aiReport = null;
+            const frame = document.getElementById('ki-ai-frame');
+            if (frame) {
+                frame.onload = null;
+                frame.onerror = null;
+                if (typeof frame.removeAttribute === 'function') {
+                    frame.removeAttribute('src');
+                } else {
+                    frame.src = '';
+                }
+            }
+            if (this.aiTabActive()) this.setAiEmptyState(kind, message);
+        },
+
+        setAiReport(mode, data) {
+            if (!config || !config.aiReportUrl || !data) {
+                this.invalidateAiReport('empty',
+                    'Для выбранного периода нет доступного источника анализа.');
+                return;
+            }
+            let report;
+            try {
+                const base = (window.location && window.location.origin) || 'http://localhost';
+                report = new URL(config.aiReportUrl, base);
+                if (mode === 'annual') {
+                    report.searchParams.set('mode', 'annual');
+                    if (data.year !== null && data.year !== undefined) {
+                        report.searchParams.set('year', String(data.year));
+                    }
+                } else {
+                    const period = data.period || {};
+                    report.searchParams.set('period', period.kind || state.period);
+                    if (period.date) report.searchParams.set('date', period.date);
+                    if (period.date_from && period.date_from !== period.date) {
+                        report.searchParams.set('date_from', period.date_from);
+                    }
+                }
+            } catch (error) {
+                this.invalidateAiReport('error', 'Сервер передал некорректный адрес анализа.');
+                return;
+            }
+            state.aiReport = {
+                url: report.pathname + report.search,
+                mode,
+                companyId: config.companyId
+            };
+            if (this.aiTabActive()) this.renderAiReport();
+        },
+
+        renderAiReport() {
+            const report = state.aiReport;
+            if (!report || report.companyId !== config.companyId) {
+                this.setAiEmptyState('loading');
+                return;
+            }
+            const frame = document.getElementById('ki-ai-frame');
+            const empty = document.getElementById('ki-ai-empty');
+            if (!frame || !empty) return;
+            const expectedUrl = report.url;
+            if (report.loaded && frame.getAttribute('src') === expectedUrl) {
+                frame.style.display = 'block';
+                empty.style.display = 'none';
+                return;
+            }
+            this.setAiEmptyState('loading', 'Загружается анализ выбранного периода…');
+            frame.onload = () => {
+                if (state.aiReport !== report) return;
+                // A cleared iframe also emits load for about:blank. Never
+                // treat that or an older navigation as the selected report.
+                try {
+                    if (frame.contentWindow &&
+                        frame.contentWindow.location.href !==
+                        new URL(expectedUrl, window.location.href).href) return;
+                } catch (error) {
+                    this.setAiEmptyState('error');
+                    return;
+                }
+                report.loaded = true;
+                if (!this.aiTabActive()) return;
+                frame.style.display = 'block';
+                empty.style.display = 'none';
+            };
+            frame.onerror = () => {
+                if (state.aiReport && state.aiReport.url === expectedUrl) {
+                    this.setAiEmptyState('error');
+                }
+            };
+            if (frame.getAttribute('src') !== expectedUrl) frame.src = expectedUrl;
+        },
+
+        retryAiReport() {
+            if (state.aiReport) {
+                state.aiReport.loaded = false;
+                const frame = document.getElementById('ki-ai-frame');
+                if (frame && typeof frame.removeAttribute === 'function') {
+                    frame.removeAttribute('src');
+                } else if (frame) {
+                    frame.src = '';
+                }
+                this.renderAiReport();
+                return;
+            }
+            this.retry();
         },
         
         onPeriodChange(kind) {
@@ -555,6 +696,7 @@
             state.date = null;
             state.dateFrom = null;
             state.quarterAnchor = null;
+            this.invalidateAiReport('loading');
             this.fetchData();
         },
 
@@ -567,6 +709,7 @@
                 [state.dateFrom, state.date] = [state.quarterAnchor, val].sort();
                 state.quarterAnchor = null;
             }
+            this.invalidateAiReport('loading');
             this.fetchData();
         },
         
@@ -583,6 +726,7 @@
                     && state.dateFrom && state.dateFrom > val) {
                 state.dateFrom = val;
             }
+            this.invalidateAiReport('loading');
             this.fetchData();
         },
 
@@ -590,6 +734,7 @@
             if (state.dateFrom === val) return;
             state.dateFrom = val;
             if (state.date && val > state.date) state.date = val;
+            this.invalidateAiReport('loading');
             this.fetchData();
         },
         
@@ -609,6 +754,7 @@
         
         async fetchData(companySwitchToken = null, skipPeriodSelection = false,
                         fallbackSelection = null) {
+            this.invalidateAiReport('loading');
             this.showLoading();
             document.getElementById('ki-error').style.display = 'none';
             
@@ -677,6 +823,7 @@
                      companySwitchToken !== state.companySwitchToken)) return;
                 
                 state.data = data;
+                this.setAiReport('operational', data);
                 if (companySwitchToken !== null) state.quarterAnchor = null;
                 if (data.period) {
                     state.period = data.period.kind || state.period;
@@ -703,9 +850,11 @@
                      companySwitchToken !== state.companySwitchToken) ||
                     e.name === 'AbortError') return;
                 if (state.companySwitching) {
+                    this.invalidateAiReport('error', e.message);
                     this.showCompanySwitchError(companySwitchToken, e.message);
                     return;
                 }
+                this.invalidateAiReport('error', e.message);
                 document.getElementById('ki-error-text').textContent = e.message;
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {
