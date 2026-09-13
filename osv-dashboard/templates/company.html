@@ -138,15 +138,8 @@ tr:last-child td{border-bottom:0}
 .ac-year-select:disabled{cursor:default;color:var(--mut)}
 .ac-summary{font-size:12px;color:var(--mut)}
 .ac-summary b{color:var(--ink)}
-.ac-mode-switch{display:flex;align-items:center;gap:3px;padding:3px;background:#f0f3f5;
-  border:1px solid var(--line);border-radius:7px}
-.ac-mode-btn{border:0;border-radius:5px;padding:4px 10px;background:transparent;color:var(--mut);
-  font:600 11px 'Segoe UI',sans-serif;cursor:pointer;transition:background .15s,color .15s}
-.ac-mode-btn:hover{color:var(--ink)}
-.ac-mode-btn.active{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(31,55,71,.16)}
-.ac-mode-btn:focus-visible{outline:2px solid var(--water);outline-offset:1px}
 /* month grid */
-.ac-months{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.ac-months{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px}
 @media(max-width:720px){.ac-months{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:480px){.ac-months{grid-template-columns:repeat(2,1fr)}}
 .ac-month{border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -919,12 +912,6 @@ tr:last-child td{border-bottom:0}
           {% endfor %}
         </select>
       </div>
-      <div class="ac-mode-switch" role="group" aria-label="Режим отображения покрытия" onclick="event.stopPropagation()">
-        <button type="button" class="ac-mode-btn active" data-coverage-mode-btn="daily"
-                aria-pressed="true" onclick="setCoverageMode('daily')">Суточные</button>
-        <button type="button" class="ac-mode-btn" data-coverage-mode-btn="monthly"
-                aria-pressed="false" onclick="setCoverageMode('monthly')">Месячные</button>
-      </div>
       <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
       {% if ac.has_any %}
@@ -1417,32 +1404,6 @@ function setCoverageYear(year){
     localStorage.setItem('ac_collapsed', collapsed ? '1' : '0');
     applyAC(true);
   };
-})();
-
-// --- Переключение суточного / месячного покрытия ---
-(function(){
-  var savedMode = localStorage.getItem('ac_coverage_mode');
-  var mode = savedMode === 'monthly' ? 'monthly' : 'daily';
-
-  function applyCoverageMode(){
-    var card = document.getElementById('ac-card');
-    if(!card) return;
-    card.setAttribute('data-coverage-mode', mode);
-    document.querySelectorAll('[data-coverage-mode-btn]').forEach(function(btn){
-      var active = btn.getAttribute('data-coverage-mode-btn') === mode;
-      btn.classList.toggle('active', active);
-      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-  }
-
-  window.setCoverageMode = function(nextMode){
-    if(nextMode !== 'daily' && nextMode !== 'monthly') return;
-    mode = nextMode;
-    localStorage.setItem('ac_coverage_mode', mode);
-    applyCoverageMode();
-  };
-
-  applyCoverageMode();
 })();
 
 // --- Подсветка дней по счёту ---
