@@ -314,6 +314,8 @@
                 delete state.errors[mode];
                 this.apply(mode);
                 if (state.dialogMode === mode && state.dialog && !state.draft) {
+                    state.draft = clone(state.layouts[mode]);
+                    state.savedDraft = clone(state.layouts[mode]);
                     this.renderDialog();
                 }
             }).catch(error => {
@@ -345,8 +347,8 @@
             // constructor remains the recovery path even when every card is
             // hidden, so keep its existing bar/opener available in both modes.
             if (tabs && mode === 'annual') tabs.style.display = 'flex';
-            const loading = !!state.loading[mode] || state.saving;
-            gear.disabled = loading;
+            // Allow opening the loading/error state instead of ignoring clicks.
+            gear.disabled = state.saving;
             gear.title = state.errors[mode] ?
                 'Настройки карточек не загружены — нажмите для повтора' :
                 'Настроить карточки показателей';
@@ -556,7 +558,7 @@
             if (state.saving) {
                 status.className = 'ki-dashboard-layout-status';
                 status.textContent = 'Сохранение…';
-            } else if (!state.isDirty()) {
+            } else if (!this.isDirty()) {
                 status.className = 'ki-dashboard-layout-status';
                 status.textContent = '';
             }

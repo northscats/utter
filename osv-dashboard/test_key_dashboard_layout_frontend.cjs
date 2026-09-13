@@ -84,3 +84,33 @@ context.confirm = () => false;
 assert.equal(manager.prepareModeSwitch('annual'), false);
 
 console.log('PASS: dashboard layout URL, unknown/new-card append, visibility merge, dirty guard');
+
+// Exercise the real open/render path, not just the data helpers. A call to
+// state.isDirty() used to throw here before the dialog became visible.
+const elements = {};
+for (const selector of [
+  '.ki-dashboard-layout-status', '.ki-dashboard-layout-list',
+  '[data-action="save"]', '[data-action="reset"]',
+  '.ki-dashboard-layout-title',
+]) elements[selector] = {appendChild() {}, innerHTML: '', textContent: ''};
+context.document.createElement = () => ({
+  textContent: '', innerHTML: '',
+  querySelector: () => ({textContent: ''}),
+});
+context.document.getElementById = () => null;
+manager.state.dialog = {
+  hidden: true,
+  querySelector: selector => elements[selector] || null,
+};
+manager.state.companyId = 7;
+manager.state.draft = null;
+manager.state.savedDraft = null;
+manager.state.saving = false;
+manager.state.loading.operational = false;
+manager.open();
+assert.equal(manager.state.dialog.hidden, false);
+assert.equal(elements['[data-action="save"]'].disabled, false);
+assert.equal(elements['.ki-dashboard-layout-title'].textContent, 'Настройка карточек ОСВ');
+assert.equal(manager.close(), true);
+assert.equal(manager.state.dialog.hidden, true);
+console.log('PASS: actual open/render/close path does not throw');
