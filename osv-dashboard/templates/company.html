@@ -131,7 +131,9 @@ tr:last-child td{border-bottom:0}
 .ac-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .ac-title{font-size:13px;font-weight:700;color:#31424f;text-transform:uppercase;
   letter-spacing:.07em;flex:0 0 auto}
-.ac-header .ab-upload-form{margin:0 auto 0 0;flex-wrap:nowrap;border:0;padding:0;width:auto}
+.ac-header .ab-upload-form{margin:0;flex-wrap:nowrap;border:0;padding:0;width:auto}
+.ac-regen-form{display:flex;margin:0 auto 0 0}
+#ac-toggle-btn{margin-left:auto}
 .ac-year-select{font:700 14px 'Segoe UI',sans-serif;color:var(--ink);
   background:#fff;border:1px solid var(--line);border-radius:6px;
   padding:5px 26px 5px 9px;cursor:pointer;letter-spacing:normal}
@@ -451,7 +453,7 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Панель предприятия: имя + дашборд -->
+  <!-- Панель предприятия -->
   {% set current_dash = uploads|selectattr('dashboard_file')|list|first %}
   <div class="action-bar">
 
@@ -474,38 +476,7 @@ tr:last-child td{border-bottom:0}
       {% endif %}
     </form>
 
-    <div class="ab-sep"></div>
-
-    {% if config.COMPANY_COMPARISON_ENABLED and config.HISTORICAL_IMPORT_ENABLED and config.HISTORICAL_EXPERT_ENABLED %}
-    <a class="ab-btn" href="{{ url_for('company_comparison', company=company.id) }}"
-       title="Выбрать ещё одно предприятие и сопоставить годовые метрики">Сравнить</a>
-    <div class="ab-sep"></div>
-    {% endif %}
-
-    <!-- Кнопка анализа ОСВ -->
-    {% if current_dash %}
-    <div class="ab-dash-seg">
-      <a class="ab-btn ab-btn-dash"
-         href="{{ url_for('dashboard', company_id=company.id, name='dashboard_current.html') }}"
-         onclick="return handleDashClick(this, {{ company.id }})"
-         title="Обновлён {{ current_dash.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">
-        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="16" height="14" rx="2"/><path d="M6 8h8M6 12h5"/>
-        </svg>
-        Открыть анализ ОСВ
-      </a>
-      <form method="post" action="{{ url_for('company_regen', company_id=company.id) }}" style="display:inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="ab-btn" title="Пересобрать анализ ОСВ из загруженных данных"
-                style="padding:6px 10px">
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 4v5h5"/><path d="M16 16v-5h-5"/>
-            <path d="M4.93 9A8 8 0 1 1 15.07 11"/>
-          </svg>
-        </button>
-      </form>
-    </div>
-    {% else %}
+    {% if not current_dash %}
     <span class="ab-dash-none" title="Загрузите ОСВ — анализ появится автоматически">
       Анализ ОСВ не построен
     </span>
@@ -911,6 +882,19 @@ tr:last-child td{border-bottom:0}
           </svg>
         </button>
       </form>
+      {% if current_dash %}
+      <form method="post" action="{{ url_for('company_regen', company_id=company.id) }}"
+            class="ac-regen-form" onclick="event.stopPropagation()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="ab-btn" title="Пересобрать анализ ОСВ из загруженных данных"
+                aria-label="Пересобрать анализ ОСВ" style="padding:6px 10px">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 4v5h5"/><path d="M16 16v-5h-5"/>
+            <path d="M4.93 9A8 8 0 1 1 15.07 11"/>
+          </svg>
+        </button>
+      </form>
+      {% endif %}
       <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
       {% if ac.has_any %}
