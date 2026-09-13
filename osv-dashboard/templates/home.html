@@ -358,6 +358,7 @@ body.splitter-dragging iframe{pointer-events:none}
              data-ki-config="{{ {
                 'companyId': c.id,
                 'companyName': c.name,
+                'legacyUrl': url_for('dashboard', company_id=c.id, name='dashboard_current.html') if c.has_dashboard else none,
                 'pageUrl': url_for('key_indicators_page', company_id=c.id),
                 'dataUrl': url_for('key_indicators_data', company_id=c.id),
                 'annualDataUrl': url_for('annual_key_indicators_data', company_id=c.id),
@@ -433,9 +434,6 @@ body.splitter-dragging iframe{pointer-events:none}
         <div class="sl-nav-item active" data-nav="cards" onclick="setNavView('cards',this)">
           <span class="ico">📊</span><span>Основные показатели</span>
         </div>
-        <div class="sl-nav-item" data-nav="kpi" onclick="setNavView('kpi',this)">
-          <span class="ico">🖥️</span><span>Анализ ОСВ</span>
-        </div>
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
           <span class="ico">📋</span><span>Данные</span>
         </div>
@@ -476,13 +474,13 @@ body.splitter-dragging iframe{pointer-events:none}
       <!-- Нет анализа ОСВ -->
       <div class="sl-state sl-nodash" id="sl-nodash">
         <div class="sl-nodash-icon">📂</div>
-        <div class="sl-nodash-title">Анализ ОСВ ещё не сформирован</div>
+        <div class="sl-nodash-title">Анализ ИИ ещё не сформирован</div>
         <div class="sl-nodash-sub" id="sl-nodash-sub">Загрузите ОСВ-файлы, чтобы сформировать анализ</div>
         <a class="sl-nodash-link" id="sl-nodash-link" href="#">📤 Загрузить файлы</a>
       </div>
 
       <!-- iframe (анализ ОСВ / данные и отчётность) -->
-      <iframe id="sl-iframe" title="Анализ ОСВ предприятия"></iframe>
+      <iframe id="sl-iframe" title="Аналитика предприятия"></iframe>
 
       <!-- KPI-карточки -->
       <div class="sl-scroll-panel" id="sl-kpi-cards"></div>
@@ -932,7 +930,7 @@ window.addEventListener('message', function(event){
   postComparisonSelection();
 });
 
-/* ── Анализ ОСВ (iframe) ── */
+/* ── Анализ ИИ (iframe) ── */
 function renderDashView(el) {
   var hasDash = el.dataset.hasDash === '1';
   var dash = el.dataset.dash;

@@ -442,6 +442,7 @@
                 document.querySelector('.tabs-bar').style.display = 'none';
                 document.getElementById('tab-analytics').classList.add('active');
                 if (document.getElementById('tab-recommendations')) document.getElementById('tab-recommendations').classList.remove('active');
+                if (document.getElementById('tab-ai')) document.getElementById('tab-ai').classList.remove('active');
                 document.querySelectorAll('.tab-btn').forEach(btn => {
                     btn.classList.toggle('active', btn.dataset.tab === 'analytics');
                 });
@@ -531,6 +532,21 @@
             document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
             document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add('active');
             document.getElementById(`tab-${tabName}`).classList.add('active');
+            if (tabName === 'ai') {
+                const frame = document.getElementById('ki-ai-frame');
+                const empty = document.getElementById('ki-ai-empty');
+                const url = window.KI_CONFIG.legacyUrl;
+                const dataLink = empty.querySelector('a');
+                if (dataLink && window.KI_CONFIG.historicalImportUrl) {
+                    const dataUrl = new URL(window.KI_CONFIG.historicalImportUrl, window.location.origin);
+                    if (window.KI_CONFIG.embedded) dataUrl.searchParams.set('embedded', '1');
+                    dataLink.href = dataUrl.href;
+                }
+                frame.style.display = url ? 'block' : 'none';
+                empty.style.display = url ? 'none' : 'block';
+                if (url && frame.getAttribute('src') !== url) frame.src = url;
+                if (!url) frame.removeAttribute('src');
+            }
         },
         
         onPeriodChange(kind) {
