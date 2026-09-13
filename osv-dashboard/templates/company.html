@@ -130,7 +130,8 @@ tr:last-child td{border-bottom:0}
   padding:18px 20px;margin-bottom:20px}
 .ac-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .ac-title{font-size:13px;font-weight:700;color:#31424f;text-transform:uppercase;
-  letter-spacing:.07em;flex:1}
+  letter-spacing:.07em;flex:0 0 auto}
+.ac-header .ab-upload-form{margin:0 auto 0 0;flex-wrap:nowrap;border:0;padding:0;width:auto}
 .ac-year-select{font:700 14px 'Segoe UI',sans-serif;color:var(--ink);
   background:#fff;border:1px solid var(--line);border-radius:6px;
   padding:5px 26px 5px 9px;cursor:pointer;letter-spacing:normal}
@@ -450,7 +451,7 @@ tr:last-child td{border-bottom:0}
   </div>
   {% endif %}
 
-  <!-- Единая панель: имя + загрузка + дашборд -->
+  <!-- Панель предприятия: имя + дашборд -->
   {% set current_dash = uploads|selectattr('dashboard_file')|list|first %}
   <div class="action-bar">
 
@@ -471,27 +472,6 @@ tr:last-child td{border-bottom:0}
         </svg>
       </button>
       {% endif %}
-    </form>
-
-    <div class="ab-sep"></div>
-
-    <!-- Загрузка файлов -->
-    <form method="post" action="{{ url_for('company_upload_all', company_id=company.id) }}"
-          enctype="multipart/form-data" id="frm" class="ab-upload-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
-        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
-        </svg>
-      </label>
-      <input type="file" name="files" id="files-input" multiple
-             accept=".xls,.xlsx,.zip" style="display:none">
-      <span id="flist" class="ab-flist">не выбраны</span>
-      <button class="ab-btn ab-btn-go" id="go" type="submit" disabled title="Загрузить выбранные файлы">
-        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/>
-        </svg>
-      </button>
     </form>
 
     <div class="ab-sep"></div>
@@ -912,6 +892,25 @@ tr:last-child td{border-bottom:0}
           {% endfor %}
         </select>
       </div>
+      <!-- Загрузка файлов: сразу после выбора года -->
+      <form method="post" action="{{ url_for('company_upload_all', company_id=company.id) }}"
+            enctype="multipart/form-data" id="frm" class="ab-upload-form"
+            onclick="event.stopPropagation()">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="files-input" class="ab-btn ab-btn-pick" title="Выбрать файлы (.xls, .xlsx, .zip)">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 14v3h12v-3"/><polyline points="7 8 10 5 13 8"/><line x1="10" y1="5" x2="10" y2="14"/>
+          </svg>
+        </label>
+        <input type="file" name="files" id="files-input" multiple
+               accept=".xls,.xlsx,.zip" style="display:none">
+        <span id="flist" class="ab-flist">не выбраны</span>
+        <button class="ab-btn ab-btn-go" id="go" type="submit" disabled title="Загрузить выбранные файлы">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="13 16 17 12 13 8"/><path d="M3 12h14"/>
+          </svg>
+        </button>
+      </form>
       <span id="ac-toggle-btn" style="font-size:11px;color:var(--mut);border:1px solid var(--line);
         border-radius:5px;padding:2px 8px;white-space:nowrap;user-select:none">▲ свернуть</span>
       {% if ac.has_any %}
