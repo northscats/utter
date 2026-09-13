@@ -27,18 +27,71 @@
 
     const AnnualApp = {
         state: state,
+
+        hasRange() {
+            return Number.isInteger(Number(state.rangeStart)) &&
+                Number.isInteger(Number(state.rangeEnd)) &&
+                Number(state.rangeStart) !== Number(state.rangeEnd);
+        },
+
+        payloadRange(data = state.data) {
+            const from = data && Number(data.year_from);
+            const to = data && Number(data.year_to);
+            if (!Number.isInteger(from) || !Number.isInteger(to)) return null;
+            return {
+                start: Math.min(from, to),
+                end: Math.max(from, to)
+            };
+        },
+
+        requestedSelection() {
+            return this.hasRange() ? {
+                year: Number(state.year),
+                rangeStart: Number(state.rangeStart),
+                rangeEnd: Number(state.rangeEnd)
+            } : {
+                year: Number(state.year),
+                rangeStart: null,
+                rangeEnd: null
+            };
+        },
+
+        syncLocation() {
+            if (!window.location || !window.history ||
+                typeof window.history.replaceState !== 'function') return;
+            const locationUrl = new URL(window.location.href || window.location);
+            if (state.rangeStart !== null && state.rangeEnd !== null &&
+                this.hasRange()) {
+                locationUrl.searchParams.set('year_from', state.rangeStart);
+                locationUrl.searchParams.set('year_to', state.rangeEnd);
+                locationUrl.searchParams.set('year', state.rangeEnd);
+            } else if (Number.isInteger(Number(state.year))) {
+                locationUrl.searchParams.set('year', state.year);
+                locationUrl.searchParams.delete('year_from');
+                locationUrl.searchParams.delete('year_to');
+            } else {
+                locationUrl.searchParams.delete('year');
+                locationUrl.searchParams.delete('year_from');
+                locationUrl.searchParams.delete('year_to');
+            }
+            window.history.replaceState({}, '', locationUrl);
+        },
         
         init() {
             const urlParams = new URLSearchParams(window.location.search);
             const year = parseInt(urlParams.get('year'), 10);
             const yearFrom = parseInt(urlParams.get('year_from'), 10);
             const yearTo = parseInt(urlParams.get('year_to'), 10);
-            if (Number.isInteger(yearFrom) && Number.isInteger(yearTo)) {
+            if (Number.isInteger(yearFrom) && Number.isInteger(yearTo) &&
+                yearFrom !== yearTo) {
                 state.rangeStart = Math.min(yearFrom, yearTo);
                 state.rangeEnd = Math.max(yearFrom, yearTo);
+                // The legacy `year` parameter is always the range end.
                 state.year = state.rangeEnd;
             } else if (Number.isInteger(year)) {
                 state.year = year;
+            } else if (Number.isInteger(yearFrom)) {
+                state.year = yearFrom;
             }
             if (urlParams.get('mode') === 'annual') {
                 this.activate();
@@ -60,6 +113,8 @@
 
         activate() {
             state.active = true;
+            state.data = null;
+            state.chartJob = null;
             this.fetchData();
         },
 
@@ -109,23 +164,12 @@
                 state.year = state.rangeEnd;
             }
 
-            const url = new URL(window.location);
-            url.searchParams.set('year', year);
-            if (state.rangeStart !== null && state.rangeEnd !== null) {
-                url.searchParams.set('year_from', state.rangeStart);
-                url.searchParams.set('year_to', state.rangeEnd);
-                url.searchParams.set('year', state.rangeEnd);
-            } else {
-                url.searchParams.delete('year_from');
-                url.searchParams.delete('year_to');
-            }
-            window.history.replaceState({}, '', url);
-
-            if (state.data && state.data.year === state.year) {
-                this.render();
-            } else {
-                this.fetchData();
-            }
+            this.syncLocation();
+            // Do not leave cards, charts, or the AI tab showing the previous
+            // selection while the new interval is being calculated.
+            state.data = null;
+            state.chartJob = null;
+            this.fetchData();
         },
 
         isYearSelected(year) {
@@ -156,7 +200,7 @@
         },
 
         async fetchData(companySwitchToken = null, skipRequestedYear = false,
-                        fallbackRequestedYear = null) {
+                        fallbackRequestedSelection = null) {
             if (!state.active) return;
             if (window.KI_App) window.KI_App.invalidateAiReport('loading');
             if (window.KI_App) window.KI_App.showLoading();
@@ -171,7 +215,25 @@
                 let url = config.annualDataUrl;
                 const requestedYear = state.year;
                 const requestedYearNumber = Number(requestedYear);
-                if (requestedYear && !skipRequestedYear) {
+                const requestedRange = this.hasRange() ? {
+                    start: Number(state.rangeStart),
+                    end: Number(state.rangeEnd)
+                } : null;
+                // A first click on a year is an anchor for the next click.
+                // Keep it through the settled single-year response so two
+                // ordinary button clicks can form a range.
+                const pendingSelectionStart = Number.isInteger(
+                    Number(state.selectionStart)) ? Number(state.selectionStart) : null;
+                const requestedSelection = {
+                    year: requestedYearNumber,
+                    rangeStart: requestedRange ? requestedRange.start : null,
+                    rangeEnd: requestedRange ? requestedRange.end : null
+                };
+                if (!skipRequestedYear && requestedRange) {
+                    url += `?year=${encodeURIComponent(requestedRange.end)}` +
+                        `&year_from=${encodeURIComponent(requestedRange.start)}` +
+                        `&year_to=${encodeURIComponent(requestedRange.end)}`;
+                } else if (requestedYear && !skipRequestedYear) {
                     url += `?year=${encodeURIComponent(requestedYear)}`;
                 }
                 
@@ -203,7 +265,7 @@
                     if (reqId !== state.reqId ||
                         (window.KI_App &&
                          companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
-                    return this.fetchData(companySwitchToken, true, requestedYearNumber);
+                    return this.fetchData(companySwitchToken, true, requestedSelection);
                 }
                 
                 if (!response.ok) {
@@ -215,11 +277,36 @@
                      companySwitchToken !== window.KI_App.state.companySwitchToken)) return;
                 
                 state.data = data;
-                state.year = data.year;
-                if (window.KI_App) window.KI_App.setAiReport('annual', data);
-                if (fallbackRequestedYear !== null &&
+                const responseRange = this.payloadRange(data);
+                const fallback = fallbackRequestedSelection === null ? null :
+                    (typeof fallbackRequestedSelection === 'object'
+                        ? fallbackRequestedSelection
+                        : {year: Number(fallbackRequestedSelection)});
+                if (requestedRange && responseRange) {
+                    state.rangeStart = responseRange.start;
+                    state.rangeEnd = responseRange.end;
+                    state.year = Number.isInteger(Number(data.year))
+                        ? Number(data.year) : responseRange.end;
+                    state.selectionStart = null;
+                } else if (requestedRange) {
+                    // Keep the requested interval when talking to an older
+                    // endpoint that has not started returning range metadata.
+                    state.rangeStart = requestedRange.start;
+                    state.rangeEnd = requestedRange.end;
+                    state.year = Number.isInteger(Number(data.year))
+                        ? Number(data.year) : requestedRange.end;
+                    state.selectionStart = null;
+                } else {
+                    state.rangeStart = null;
+                    state.rangeEnd = null;
+                    state.selectionStart = pendingSelectionStart;
+                    state.year = Number.isInteger(Number(data.year))
+                        ? Number(data.year) : requestedYear;
+                }
+                if (fallback &&
                     Number.isInteger(Number(data.year)) &&
-                    Number(data.year) !== fallbackRequestedYear &&
+                    (fallback.rangeStart !== null ||
+                     Number(data.year) !== Number(fallback.year)) &&
                     window.KI_App && window.KI_App.state.companySwitching) {
                     const actualYear = Number(data.year);
                     state.rangeStart = null;
@@ -227,16 +314,20 @@
                     state.selectionStart = actualYear;
                     state.year = actualYear;
                     state.companySwitchYearFallback = {
-                        requestedYear: fallbackRequestedYear,
+                        requestedYear: Number(fallback.year),
                         actualYear
                     };
-                    const locationUrl = new URL(window.location.href);
-                    locationUrl.searchParams.set('year', actualYear);
-                    locationUrl.searchParams.delete('year_from');
-                    locationUrl.searchParams.delete('year_to');
-                    window.history.replaceState({}, '', locationUrl);
+                    if (fallback.rangeStart !== null &&
+                        fallback.rangeEnd !== null) {
+                        state.companySwitchYearFallback.requestedRange = {
+                            yearFrom: Number(fallback.rangeStart),
+                            yearTo: Number(fallback.rangeEnd)
+                        };
+                    }
                 }
-                
+                if (requestedRange && responseRange) this.syncLocation();
+                if (fallback) this.syncLocation();
+                if (window.KI_App) window.KI_App.setAiReport('annual', data);
                 this.render();
                 if (companySwitchToken !== null && window.KI_App) {
                     window.KI_App.finishCompanySwitch(companySwitchToken);
@@ -283,13 +374,161 @@
             };
         },
 
+        periodLabel(data = state.data) {
+            if (data && data.period_label) return String(data.period_label);
+            const responseRange = this.payloadRange(data);
+            if (responseRange && responseRange.start !== responseRange.end) {
+                return `${responseRange.start}–${responseRange.end}`;
+            }
+            if (data && Number.isInteger(Number(data.year))) {
+                return String(Number(data.year));
+            }
+            return this.displayedPeriodLabel();
+        },
+
         displayedPeriodLabel() {
+            if (state.data && state.data.period_label) {
+                return String(state.data.period_label);
+            }
+            const responseRange = this.payloadRange();
+            if (responseRange && responseRange.start !== responseRange.end) {
+                return `${responseRange.start}–${responseRange.end}`;
+            }
             if (state.rangeStart !== null && state.rangeEnd !== null) {
                 return state.rangeStart === state.rangeEnd
                     ? String(state.rangeStart)
                     : `${state.rangeStart}–${state.rangeEnd}`;
             }
             return state.year == null ? 'Период не указан' : String(state.year);
+        },
+
+        previousPeriodLabel() {
+            const data = state.data || {};
+            const previous = data.previous_range || data.previous_period || {};
+            if (data.previous_period_label) return String(data.previous_period_label);
+            if (data.previous_range_label) return String(data.previous_range_label);
+            if (previous.period_label) return String(previous.period_label);
+            if (previous.label) return String(previous.label);
+            const from = Number(previous.year_from !== undefined
+                ? previous.year_from : data.previous_year_from);
+            const to = Number(previous.year_to !== undefined
+                ? previous.year_to : data.previous_year_to);
+            if (Number.isInteger(from) && Number.isInteger(to)) {
+                return from === to ? String(from) : `${Math.min(from, to)}–${Math.max(from, to)}`;
+            }
+            return null;
+        },
+
+        cardPeriodLabel(card) {
+            const raw = card && card.period_label ? String(card.period_label) : '';
+            const normalized = raw.trim().toLowerCase();
+            const interval = this.periodLabel();
+            const endYear = Number((state.data || {}).year_to ||
+                (state.data || {}).year);
+            const kind = String((card && card.kind) || '').toLowerCase();
+            const genericFlow = normalized === 'за год' ||
+                normalized === 'за календарный год' ||
+                (kind === 'flow' && !raw);
+            const genericBalance = normalized === 'на 31.12' ||
+                normalized === 'на конец года' ||
+                normalized === 'на конец периода' ||
+                (kind === 'balance' && !/\b(?:19|20)\d{2}\b/.test(raw));
+            const genericRatio = normalized === 'по итогам года' ||
+                normalized === 'по итогам периода' ||
+                (kind === 'ratio' && !raw);
+            const intervalIsRange = this.hasRange() || !!this.payloadRange();
+
+            // Keep the legacy single-year presentation intact when the
+            // server still sends kind-only labels.
+            if (!intervalIsRange && raw && Number.isInteger(endYear) &&
+                (genericFlow || genericBalance || genericRatio)) {
+                return `${raw} ${endYear}`;
+            }
+
+            // New payloads carry the complete label.  Older payloads carry
+            // only the kind marker, which must be expanded without placing a
+            // multi-year interval after a balance's closing date.
+            if (genericBalance && Number.isInteger(endYear)) {
+                return `на 31.12.${endYear}`;
+            }
+            if (genericFlow) return `за ${interval}`;
+            if (genericRatio) return `по итогам ${interval}`;
+            return raw || interval;
+        },
+
+        provenanceText(card) {
+            if (!card || !card.provenance) return 'Нет данных';
+
+            const flatten = value => {
+                if (Array.isArray(value)) return value.reduce(
+                    (all, item) => all.concat(flatten(item)), []);
+                return value && typeof value === 'object' ? [value] : [];
+            };
+            let sources = flatten(card.provenance);
+            const byYear = [];
+            if (card.provenance_by_year &&
+                typeof card.provenance_by_year === 'object') {
+                Object.keys(card.provenance_by_year).sort().forEach(year => {
+                    flatten(card.provenance_by_year[year]).forEach(source => {
+                        byYear.push(source.year === undefined &&
+                            source.year_from === undefined
+                            ? Object.assign({year}, source) : source);
+                    });
+                });
+            }
+            // Aggregated range payloads may flatten `provenance` while
+            // retaining the year association in provenance_by_year.
+            if (byYear.length && sources.every(source =>
+                source.year === undefined && source.year_from === undefined)) {
+                sources = byYear;
+            }
+            if (!sources.length) return 'Нет данных';
+
+            const normalize = (source, fallbackYear = null) => {
+                if (!source || typeof source !== 'object') return null;
+                const nested = source.provenance &&
+                    typeof source.provenance === 'object' &&
+                    !Array.isArray(source.provenance)
+                    ? source.provenance : source;
+                const year = source.year !== undefined ? source.year :
+                    (source.year_from !== undefined ? source.year_from :
+                        (nested.year !== undefined ? nested.year :
+                            (nested.year_from !== undefined
+                                ? nested.year_from : fallbackYear)));
+                const component = source.component !== undefined
+                    ? source.component : nested.component;
+                const normalized = Object.assign({}, nested);
+                if (year !== null && year !== undefined) normalized.year = year;
+                if (component !== null && component !== undefined) {
+                    normalized.component = component;
+                }
+                return normalized;
+            };
+            const seen = new Set();
+            const lines = sources.map(source => {
+                source = normalize(source);
+                if (!source) return '';
+                const year = source.year !== undefined ? source.year :
+                    source.year_from;
+                const filename = source.filename || source.file ||
+                    source.original_filename;
+                const sheet = source.sheet || source.sheet_name;
+                const cell = source.cell || source.cell_ref;
+                const component = source.component;
+                const details = [
+                    component ? String(component) : '',
+                    filename ? `Файл: ${filename}` : '',
+                    sheet ? `Лист: ${sheet}` : '',
+                    cell ? `Ячейка: ${cell}` : ''
+                ].filter(Boolean).join(', ') || 'Нет данных';
+                const line = year === undefined || year === null
+                    ? details : `${year} год: ${details}`;
+                const marker = `${year === undefined ? '' : year}|${details}`;
+                if (seen.has(marker)) return '';
+                seen.add(marker);
+                return line;
+            }).filter(Boolean);
+            return lines.length ? lines.join('\n') : 'Нет данных';
         },
 
         render() {
@@ -403,7 +642,16 @@
                 
                 let deltaHtml = '';
                 let hasDelta = card.delta !== null && card.delta !== undefined;
-                let comparisonNote = card.comparison_note ? ` · ${card.comparison_note}` : '';
+                const rangePayload = this.hasRange() || !!this.payloadRange();
+                let comparisonNote = card.comparison_note ||
+                    card.comparison_label ||
+                    (rangePayload ? card.previous_period_label : '') || '';
+                if (!comparisonNote && hasDelta &&
+                    rangePayload) {
+                    const previousLabel = this.previousPeriodLabel();
+                    if (previousLabel) comparisonNote = `к ${previousLabel}`;
+                }
+                comparisonNote = comparisonNote ? ` · ${comparisonNote}` : '';
 
                 if (!isNull && hasDelta) {
                     let dClass = 'neutral';
@@ -445,8 +693,16 @@
                      deltaHtml = `<div class="kpi-delta neutral">${esc(card.missing_reason)}</div>`;
                 } else if (!isNull && card.comparison_note) {
                      deltaHtml = `<div class="kpi-delta neutral">${esc(card.comparison_note)}</div>`;
-                } else if (!isNull && state.data.previous_year) {
-                    deltaHtml = `<div class="kpi-delta neutral">Нет данных за ${state.data.previous_year}</div>`;
+                } else if (!isNull) {
+                    const previousLabel = this.previousPeriodLabel();
+                    const hasRange = this.hasRange() || !!this.payloadRange();
+                    if (previousLabel) {
+                        deltaHtml = `<div class="kpi-delta neutral">Нет данных за ${esc(previousLabel)}</div>`;
+                    } else if (!hasRange && state.data.previous_year) {
+                        // Keep the single-year wording for legacy payloads;
+                        // never describe an interval as only its last year.
+                        deltaHtml = `<div class="kpi-delta neutral">Нет данных за ${state.data.previous_year}</div>`;
+                    }
                 }
                 
                 const ariaLabel = `${card.title}. Значение: ${formatted.val} ${formatted.u}.`;
@@ -456,7 +712,7 @@
                 <div class="kpi-card status-${statusClass} clickable" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_AnnualApp.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}" style="opacity:0.3"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
-                  <div style="font-size:12px;color:#6B7280;margin-bottom:8px">${esc(card.period_label)} ${esc(state.data.year)}</div>
+                  <div style="font-size:12px;color:#6B7280;margin-bottom:8px">${esc(this.cardPeriodLabel(card))}</div>
                   ${deltaHtml}
                 </div>
                 `;
@@ -524,10 +780,7 @@
                 rb.style.display = 'none';
             }
             
-            let provText = 'Нет данных';
-            if (card.provenance) {
-                provText = `Файл: ${card.provenance.filename}, Лист: ${card.provenance.sheet}, Ячейка: ${card.provenance.cell}`;
-            }
+            const provText = this.provenanceText(card);
             document.getElementById('ki-modal-formula').textContent = card.formula || 'Показатель из годовой отчетности 1С';
             document.getElementById('ki-modal-source').textContent = provText;
             

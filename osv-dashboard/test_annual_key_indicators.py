@@ -183,6 +183,149 @@ class AnnualKeyIndicatorTests(unittest.TestCase):
         self.assertIn("верхней границей", revenue["comparison_note"])
         self.assertEqual(revenue["provenance"]["cell"], "D2")
 
+    def test_multi_year_range_sums_flows_and_uses_last_balance_boundary(self):
+        for year, revenue, cash in (
+                (2021, 10, 100), (2022, 20, 200),
+                (2023, 30, 300), (2024, 40, 400)):
+            version = self._version(self.company, year)
+            self._metric(version, "financial_results", "Выручка",
+                         revenue, "thousand_rubles", cell=f"A{year}")
+            self._metric(version, "assets",
+                         "денежные средства и краткосрочные фин. вложения",
+                         cash, "thousand_rubles", cell=f"B{year}")
+        db.session.commit()
+
+        payload = build_annual_key_indicators(
+            self.company, year_from=2023, year_to=2024)
+        cards = {card["id"]: card for card in payload["cards"]}
+        self.assertEqual(payload["year"], 2024)
+        self.assertEqual(payload["year_from"], 2023)
+        self.assertEqual(payload["year_to"], 2024)
+        self.assertEqual(payload["period_label"], "2023–2024")
+        self.assertEqual(payload["previous_year_from"], 2021)
+        self.assertEqual(payload["previous_year_to"], 2022)
+        self.assertEqual(payload["previous_year"], 2022)
+        self.assertEqual(cards["revenue"]["value"], 70000.0)
+        self.assertEqual(cards["revenue"]["previous_value"], 30000.0)
+        self.assertEqual(cards["revenue"]["delta"], 40000.0)
+        self.assertEqual(cards["cash"]["value"], 400000.0)
+        self.assertEqual(cards["cash"]["period_label"], "на 31.12.2024")
+        self.assertEqual(len(cards["revenue"]["provenance"]), 2)
+
+    def test_multi_year_missing_flow_is_not_partially_summed(self):
+        first = self._version(self.company, 2023)
+        last = self._version(self.company, 2025)
+        self._metric(first, "financial_results", "Выручка",
+                     10, "thousand_rubles")
+        self._metric(last, "financial_results", "Выручка",
+                     50, "thousand_rubles")
+        # Annual ratio facts alone cannot be averaged over an interval.
+        self._metric(first, "profitability",
+                     "Рентабельность продаж (прибыль от продаж / выручка)",
+                     10, "percent")
+        self._metric(last, "profitability",
+                     "Рентабельность продаж (прибыль от продаж / выручка)",
+                     50, "percent")
+        db.session.commit()
+
+        payload = build_annual_key_indicators(
+            self.company, year_from=2023, year_to=2025)
+        cards = {card["id"]: card for card in payload["cards"]}
+        self.assertIsNone(cards["revenue"]["value"])
+        self.assertIn("2024", cards["revenue"]["missing_reason"])
+        self.assertIsNone(cards["profitability"]["value"])
+        self.assertIn("не суммируются и не усредняются",
+                      cards["profitability"]["missing_reason"])
+
+    def test_multi_year_ratios_recompute_from_supported_components(self):
+        for year, revenue, sales_profit, current_assets, current_liabilities in (
+                (2023, 100, 30, 200, 100),
+                (2024, 100, 40, 300, 150)):
+            version = self._version(self.company, year)
+            self._metric(version, "financial_results", "Выручка",
+                         revenue, "thousand_rubles")
+            self._metric(version, "financial_results",
+                         "Прибыль (убыток) от продаж",
+                         sales_profit, "thousand_rubles")
+            self._metric(version, "financial_results",
+                         "Рентабельность продаж (прибыль от продаж / выручка)",
+                         99, "percent")
+            self._metric(version, "assets", "Оборотные активы, всего",
+                         current_assets, "thousand_rubles")
+            self._metric(version, "liabilities",
+                         "Краткосрочные обязательства, всего",
+                         current_liabilities, "thousand_rubles")
+            self._metric(version, "liquidity",
+                         "Коэффициент текущей (общей) ликвидности",
+                         99, "ratio")
+        db.session.commit()
+
+        payload = build_annual_key_indicators(
+            self.company, year_from=2023, year_to=2024)
+        cards = {card["id"]: card for card in payload["cards"]}
+        self.assertAlmostEqual(cards["profitability"]["value"], 35.0)
+        self.assertAlmostEqual(cards["current_liquidity"]["value"], 2.0)
+
+    def test_sparse_previous_range_keeps_boundary_balance_comparison(self):
+        # 2021 is absent, so previous flow facts are incomplete.  The 2022
+        # boundary is still authoritative for balances and liquidity.
+        previous = self._version(self.company, 2022)
+        current_first = self._version(self.company, 2023)
+        current_last = self._version(self.company, 2024)
+        for version, revenue, cash, current_assets, current_liabilities in (
+                (previous, 20, 200, 300, 150),
+                (current_first, 30, 300, 400, 200),
+                (current_last, 40, 500, 600, 300)):
+            self._metric(version, "financial_results", "Выручка",
+                         revenue, "thousand_rubles")
+            self._metric(version, "assets",
+                         "денежные средства и краткосрочные фин. вложения",
+                         cash, "thousand_rubles")
+            self._metric(version, "assets", "Оборотные активы, всего",
+                         current_assets, "thousand_rubles")
+            self._metric(version, "liabilities",
+                         "Краткосрочные обязательства, всего",
+                         current_liabilities, "thousand_rubles")
+        db.session.commit()
+
+        payload = build_annual_key_indicators(
+            self.company, year_from=2023, year_to=2024)
+        cards = {card["id"]: card for card in payload["cards"]}
+        self.assertFalse(payload["previous_range"]["complete"])
+        self.assertIsNone(cards["revenue"]["previous_value"])
+        self.assertEqual(cards["cash"]["previous_value"], 200000.0)
+        self.assertEqual(cards["cash"]["delta"], 300000.0)
+        self.assertAlmostEqual(cards["current_liquidity"]["previous_value"], 2.0)
+        self.assertAlmostEqual(cards["current_liquidity"]["value"], 2.0)
+        self.assertEqual(cards["current_liquidity"]["delta"], 0.0)
+
+    def test_ratio_range_provenance_keeps_year_and_component(self):
+        for year, revenue, sales_profit in ((2023, 100, 30), (2024, 100, 40)):
+            version = self._version(self.company, year)
+            self._metric(version, "financial_results", "Выручка",
+                         revenue, "thousand_rubles",
+                         cell=f"A{year}")
+            self._metric(version, "financial_results",
+                         "Прибыль (убыток) от продаж",
+                         sales_profit, "thousand_rubles",
+                         cell=f"B{year}")
+        db.session.commit()
+
+        payload = build_annual_key_indicators(
+            self.company, year_from=2023, year_to=2024)
+        card = next(card for card in payload["cards"]
+                    if card["id"] == "profitability")
+        records = card["provenance_components"]
+        self.assertEqual(
+            [(record["year"], record["component"]) for record in records],
+            [(2023, "denominator"), (2023, "numerator"),
+             (2024, "denominator"), (2024, "numerator")])
+        self.assertEqual(card["provenance"], records)
+        self.assertEqual(len(card["provenance_by_year"]), 4)
+        self.assertEqual(
+            {record["provenance"]["cell"] for record in records},
+            {"A2023", "A2024", "B2023", "B2024"})
+
     def test_only_active_accepted_tenant_rows_and_version_switch(self):
         old = self._version(self.company, 2025, version_no=1, active=False)
         active = self._version(
@@ -244,6 +387,36 @@ class AnnualKeyIndicatorTests(unittest.TestCase):
         self.assertIn("Единица", revenue["missing_reason"])
         self.assertEqual(revenue["provenance"]["cell"], "B2")
         self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+
+    def test_range_route_and_ai_report_share_annual_period_metadata(self):
+        for year, revenue in ((2023, 10), (2024, 20)):
+            version = self._version(self.company, year)
+            self._metric(version, "financial_results", "Выручка",
+                         revenue, "thousand_rubles")
+        db.session.commit()
+        self.ctx.pop()
+        self.ctx = None
+
+        headers = {"Accept": "application/json"}
+        response = self._client("allowed").get(
+            self._url(query="?year=2024&year_from=2023&year_to=2024"),
+            headers=headers)
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["year"], 2024)
+        self.assertEqual(payload["year_from"], 2023)
+        self.assertEqual(payload["year_to"], 2024)
+        self.assertEqual(payload["period_label"], "2023–2024")
+
+        report = self._client("allowed").get(
+            f"/company/{self.company.id}/key-indicators/ai-report",
+            query_string={
+                "mode": "annual", "year": "2024",
+                "year_from": "2023", "year_to": "2024",
+            })
+        self.assertEqual(report.status_code, 200)
+        self.assertIn("Что происходит — данные за 2023–2024",
+                      report.get_data(as_text=True))
 
 
 if __name__ == "__main__":

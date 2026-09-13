@@ -193,4 +193,178 @@ async function testAnnual() {
     console.log("PASS: Annual mode VM tests");
 }
 
-testAnnual().catch(e => { console.error(e); process.exitCode = 1; });
+async function testAnnualRange() {
+    const nodes = new Map();
+    const requests = [];
+    const makeNode = id => {
+        if (!nodes.has(id)) {
+            const classes = new Set();
+            nodes.set(id, {
+                style: {}, textContent: '', innerHTML: '', dataset: {},
+                classList: {
+                    add: name => classes.add(name),
+                    remove: name => classes.delete(name),
+                    contains: name => classes.has(name),
+                    toggle: (name, value) => value ? classes.add(name) : classes.delete(name)
+                },
+                setAttribute: () => {},
+                getAttribute: () => {},
+                addEventListener: () => {},
+                querySelector: () => ({ onclick: null, focus: () => {} })
+            });
+        }
+        return nodes.get(id);
+    };
+    const context = vm.createContext({
+        window: {
+            location: {
+                search: '?mode=annual&year=2025&year_from=2023&year_to=2025',
+                pathname: '/', href: 'http://localhost/?mode=annual&year=2025&year_from=2023&year_to=2025',
+                toString() { return this.href; }
+            },
+            history: { replaceState: (a, b, url) => {
+                context.window.location.href = url.toString();
+                context.window.location.search = new URL(url.toString()).search;
+            } },
+            KI_CONFIG: {
+                companyId: 1,
+                companyName: 'Range Corp',
+                annualDataUrl: '/annual-data',
+                dataUrl: '/operational-data',
+                aiReportUrl: '/ai-report'
+            }
+        },
+        AbortController, Intl, console, URLSearchParams, URL,
+        setTimeout: fn => fn(),
+        document: {
+            addEventListener() {},
+            querySelectorAll() { return []; },
+            querySelector() { return { style: {} }; },
+            getElementById: makeNode
+        },
+        fetch: async url => {
+            requests.push(url);
+            const parsed = new URL(url, 'http://localhost');
+            const isRange = parsed.searchParams.has('year_from');
+            return {
+                ok: true, status: 200,
+                text: async () => JSON.stringify(isRange ? {
+                    mode: 'annual',
+                    year: 2025, year_from: 2023, year_to: 2025,
+                    period_label: '2023–2025 гг.',
+                    previous_range: {
+                        year_from: 2020, year_to: 2022, label: '2020–2022 гг.'
+                    },
+                    years: [2020, 2021, 2022, 2023, 2024, 2025],
+                    timeline_years: [2023, 2024, 2025],
+                    cards: [
+                        {id: 'revenue', title: 'Выручка', kind: 'flow',
+                         value: 6000000, unit: 'RUB', period_label: 'за год',
+                         delta: 1000000, comparison_note: null,
+                         provenance: [
+                             {year: 2023, filename: 'revenue-2023.xlsx',
+                              sheet: 'Итоги', cell: 'B2'},
+                             {year: 2025, filename: 'revenue-2025.xlsx',
+                              sheet: 'Итоги', cell: 'B2'}
+                         ]},
+                        {id: 'cash', title: 'Денежные средства', kind: 'balance',
+                         value: 2000000, unit: 'RUB', period_label: 'на 31.12',
+                         delta: null},
+                        {id: 'profitability', title: 'Рентабельность',
+                         kind: 'ratio', value: 12.5, unit: 'percent',
+                         period_label: 'по итогам 2023–2025 годов', delta: null,
+                         provenance: [
+                             {year: 2023, component: 'numerator',
+                              provenance: {filename: 'profit-2023.xlsx',
+                                  sheet: 'Расчет', cell: 'C3'}},
+                             {year: 2023, component: 'denominator',
+                              provenance: {filename: 'revenue-2023.xlsx',
+                                  sheet: 'Расчет', cell: 'C4'}}
+                         ],
+                         provenance_by_year: {
+                             2023: [
+                                 {year: 2023, component: 'numerator',
+                                  provenance: {filename: 'profit-2023.xlsx',
+                                      sheet: 'Расчет', cell: 'C3'}},
+                                 {year: 2023, component: 'denominator',
+                                  provenance: {filename: 'revenue-2023.xlsx',
+                                      sheet: 'Расчет', cell: 'C4'}}
+                             ]
+                         }}
+                    ]
+                } : {
+                    mode: 'annual', year: 2024, years: [2023, 2024, 2025],
+                    timeline_years: [2024], period_label: '2024',
+                    cards: [
+                        {id: 'revenue', title: 'Выручка', kind: 'flow',
+                         value: 1000000, unit: 'RUB', period_label: 'за год',
+                         delta: null}
+                    ]
+                })
+            };
+        }
+    });
+    vm.runInContext(appScript, context);
+    vm.runInContext(annualScript, context);
+    const app = context.window.KI_App;
+    const annual = context.window.KI_AnnualApp;
+    app.showLoading = () => {};
+    app.hideLoading = () => {};
+    annual.init();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(requests[0],
+        '/annual-data?year=2025&year_from=2023&year_to=2025');
+    assert.equal(annual.state.rangeStart, 2023);
+    assert.equal(annual.state.rangeEnd, 2025);
+    assert.equal(annual.displayedPeriodLabel(), '2023–2025 гг.');
+    assert.match(makeNode('ki-topbar-subtitle').textContent, /2023–2025 гг\./);
+    const grid = makeNode('ki-annual-cards-grid').innerHTML;
+    assert.match(grid, /за 2023–2025 гг\./);
+    assert.match(grid, /на 31\.12\.2025/);
+    assert.doesNotMatch(grid, /на 31\.12[^<]*2023–2025/);
+    assert.match(app.state.aiReport.url,
+        /mode=annual&year=2025&year_from=2023&year_to=2025/);
+    annual.openModal('revenue');
+    assert.equal(makeNode('ki-modal-subtitle').textContent,
+        'Детализация по данным Отчета · 2023–2025 гг.');
+    assert.match(makeNode('ki-modal-source').textContent, /2023 год/);
+    assert.match(makeNode('ki-modal-source').textContent, /revenue-2025\.xlsx/);
+    annual.openModal('profitability');
+    const ratioSource = makeNode('ki-modal-source').textContent;
+    assert.match(ratioSource, /2023 год/);
+    assert.match(ratioSource, /numerator.*profit-2023\.xlsx/);
+    assert.match(ratioSource, /denominator.*revenue-2023\.xlsx/);
+
+    annual.onYearChange(2024);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.at(-1), '/annual-data?year=2024');
+    assert.equal(annual.state.rangeStart, null);
+    assert.equal(annual.state.rangeEnd, null);
+    assert.equal(annual.displayedPeriodLabel(), '2024');
+    assert.equal(app.state.aiReport.url, '/ai-report?mode=annual&year=2024');
+    assert.match(makeNode('ki-topbar-subtitle').textContent, /2024$/);
+
+    // A settled first click remains the anchor for the next ordinary button
+    // click; only the second click sends the interval request.
+    annual.state.selectionStart = null;
+    annual.state.rangeStart = null;
+    annual.state.rangeEnd = null;
+    annual.state.year = 2025;
+    annual.onYearChange(2023);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.at(-1), '/annual-data?year=2023');
+    assert.equal(annual.state.selectionStart, 2023);
+    annual.onYearChange(2025);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests.at(-1),
+        '/annual-data?year=2025&year_from=2023&year_to=2025');
+    assert.equal(annual.state.rangeStart, 2023);
+    assert.equal(annual.state.rangeEnd, 2025);
+    console.log('PASS: Annual range request, labels, AI URL, and single-year switch');
+}
+
+(async () => {
+    await testAnnual();
+    await testAnnualRange();
+})().catch(e => { console.error(e); process.exitCode = 1; });

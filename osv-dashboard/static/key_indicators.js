@@ -611,8 +611,26 @@
                 report = new URL(config.aiReportUrl, base);
                 if (mode === 'annual') {
                     report.searchParams.set('mode', 'annual');
+                    // The report endpoint accepts the legacy end year as
+                    // well as the complete selected interval.  Clear any
+                    // query left by a cached/configured URL before applying
+                    // the current payload so a previous range cannot leak
+                    // into a single-year report.
+                    report.searchParams.delete('year');
+                    report.searchParams.delete('year_from');
+                    report.searchParams.delete('year_to');
                     if (data.year !== null && data.year !== undefined) {
                         report.searchParams.set('year', String(data.year));
+                    }
+                    const yearFrom = Number(data.year_from);
+                    const yearTo = Number(data.year_to);
+                    if (Number.isInteger(yearFrom) && Number.isInteger(yearTo) &&
+                        yearFrom !== yearTo) {
+                        report.searchParams.set('year_from', String(Math.min(yearFrom, yearTo)));
+                        report.searchParams.set('year_to', String(Math.max(yearFrom, yearTo)));
+                        // The server contract defines `year` as the range
+                        // end.  Prefer that canonical value when present.
+                        report.searchParams.set('year', String(Math.max(yearFrom, yearTo)));
                     }
                 } else {
                     const period = data.period || {};

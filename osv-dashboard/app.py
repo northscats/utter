@@ -2511,6 +2511,13 @@ def key_indicators_data(company_id):
 def _ai_report_period_label(payload, annual=False):
     """Present the exact normalized period, rather than a source-file label."""
     if annual:
+        period_label = payload.get('period_label')
+        if period_label:
+            return str(period_label)
+        year_from, year_to = payload.get('year_from'), payload.get('year_to')
+        if year_from is not None and year_to is not None:
+            return (str(year_from) if year_from == year_to
+                    else f'{year_from}–{year_to}')
         return str(payload.get('year') or 'год не указан')
     period = payload.get('period') or {}
 
@@ -2524,6 +2531,35 @@ def _ai_report_period_label(payload, annual=False):
     if start and end:
         return start if start == end else f'{start} — {end}'
     return period.get('label') or 'период не указан'
+
+
+def _annual_key_indicator_request_range():
+    """Validate the annual endpoint's backward-compatible year arguments."""
+    raw_year = request.args.get('year')
+    raw_from = request.args.get('year_from')
+    raw_to = request.args.get('year_to')
+    if (raw_from is None) != (raw_to is None):
+        raise ValueError(
+            'Параметры year_from и year_to должны передаваться вместе')
+
+    def parse(raw, label):
+        if raw is None or not re.fullmatch(r'\d{4}', raw):
+            raise ValueError(f'{label} должен иметь формат ГГГГ')
+        value = int(raw)
+        if not 1900 <= value <= 2100:
+            raise ValueError(f'{label} должен иметь формат ГГГГ')
+        return value
+
+    year = parse(raw_year, 'Год') if raw_year is not None else None
+    year_from = parse(raw_from, 'Начальный год') if raw_from is not None else None
+    year_to = parse(raw_to, 'Конечный год') if raw_to is not None else None
+    if year_from is not None:
+        if year_from > year_to:
+            raise ValueError('Начальный год не может быть больше конечного')
+        if year is not None and year != year_to:
+            raise ValueError(
+                'Параметр year должен совпадать с концом выбранного диапазона')
+    return year, year_from, year_to
 
 
 def _ai_report_value(value, unit):
@@ -2624,13 +2660,10 @@ def key_indicators_ai_report(company_id):
         if mode == 'annual':
             from annual_key_indicators import build_annual_key_indicators
             _require_historical_import()
-            raw_year = request.args.get('year')
-            if raw_year is not None and not re.fullmatch(r'\d{4}', raw_year):
-                raise ValueError('Год должен иметь формат ГГГГ')
-            year = int(raw_year) if raw_year is not None else None
-            if year is not None and not 1900 <= year <= 2100:
-                raise ValueError('Год должен иметь формат ГГГГ')
-            payload = build_annual_key_indicators(company, requested_year=year)
+            year, year_from, year_to = _annual_key_indicator_request_range()
+            payload = build_annual_key_indicators(
+                company, requested_year=year,
+                year_from=year_from, year_to=year_to)
         else:
             period, endpoint, date_from = _key_indicator_request_period()
             payload = _operational_key_indicators_payload(
@@ -3016,17 +3049,11 @@ def annual_key_indicators_data(company_id):
 
     _require_historical_import()
     company = _require_company_access(company_id)
-    raw_year = request.args.get('year')
-    year = None
-    if raw_year is not None:
-        try:
-            year = int(raw_year)
-        except (TypeError, ValueError):
-            return jsonify(error='Год должен иметь формат ГГГГ'), 400
-        if str(year) != raw_year or year < 1900 or year > 2100:
-            return jsonify(error='Год должен иметь формат ГГГГ'), 400
     try:
-        payload = build_annual_key_indicators(company, requested_year=year)
+        year, year_from, year_to = _annual_key_indicator_request_range()
+        payload = build_annual_key_indicators(
+            company, requested_year=year,
+            year_from=year_from, year_to=year_to)
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     response = jsonify(payload)
