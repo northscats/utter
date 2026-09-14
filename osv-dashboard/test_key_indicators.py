@@ -4,7 +4,7 @@ from datetime import date, timedelta
 import time
 
 from key_indicators import (build_indicator_source, build_key_indicators,
-                            revenue_analytic_key)
+                            revenue_analytic_key, _period_bounds)
 
 
 def account(acc, daily=(), rows=(), top=None, period='за январь 2026 г.'):
@@ -2260,3 +2260,224 @@ class DailyIndexPerformanceTests(unittest.TestCase):
         cash = {item['id']: item for item in result['cards']}['cash']
         self.assertEqual(len(cash['series']), 365)
         self.assertLess(elapsed, 4.0)
+
+
+class PeriodAggregateTests(unittest.TestCase):
+    def _report(self, period, rows, top=None):
+        if top is None:
+            top = dict(snd=0, snk=0, obd=0, obk=0, skd=0, skk=0)
+        return {
+            'period': period,
+            'source_file': f'{period}.xlsx',
+            'top': top,
+            'rows': rows,
+        }
+
+    def test_n_months_period_is_a_real_report_boundary(self):
+        self.assertEqual(
+            _period_bounds('Оборотно-сальдовая ведомость за 9 месяцев 2026 г.'),
+            (date(2026, 1, 1), date(2026, 9, 30)))
+
+    def test_exact_period_rows_supply_cards_without_daily_fabrication(self):
+        rows = [
+            dict(lvl=0, label='90', p0='90', p1='', p2='', p3='',
+                 snd=0, snk=0, obd=100, obk=100, skd=0, skk=0),
+            dict(lvl=1, label='90.01', p0='90', p1='90.01', p2='', p3='',
+                 snd=0, snk=0, obd=0, obk=100, skd=0, skk=100),
+            dict(lvl=1, label='90.03', p0='90', p1='90.03', p2='', p3='',
+                 snd=0, snk=0, obd=20, obk=0, skd=20, skk=0),
+            dict(lvl=1, label='90.02', p0='90', p1='90.02', p2='', p3='',
+                 snd=0, snk=0, obd=60, obk=0, skd=60, skk=0),
+        ]
+        raw = account('90', [day('2026-01-31', '90.01', obk=999)],
+                      period='за январь 2026 г.')
+        raw['balance_reports'] = [self._report('за январь 2026 г.', rows)]
+        source = build_indicator_source({'90': raw})
+        result = build_key_indicators(source, period='month',
+                                      date='2026-01-31')
+        cards = {item['id']: item for item in result['cards']}
+        self.assertEqual(cards['revenue']['value'], 80)
+        self.assertEqual(cards['cogs']['value'], 60)
+        self.assertEqual(cards['profit']['value'], 20)
+        self.assertEqual(cards['revenue']['period_provenance']['kind'],
+                         'period_aggregate')
+        self.assertEqual(result['period']['series_kind'], 'month')
+        self.assertEqual(
+            [point['value'] for point in cards['revenue']['series']], [80])
+        self.assertEqual(
+            [point['provenance'] for point in cards['revenue']['series']],
+            ['period_aggregate'])
+
+    def test_complete_report_tiling_sums_only_disjoint_intervals(self):
+        jan = [
+            dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                 p2='', p3='', snd=0, snk=0, obd=0, obk=10, skd=0, skk=10),
+        ]
+        feb = [
+            dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                 p2='', p3='', snd=0, snk=0, obd=0, obk=30, skd=0, skk=30),
+        ]
+        raw = account('90', period='за январь 2026 г.')
+        raw['balance_reports'] = [
+            self._report('за январь 2026 г.', jan),
+            self._report('за февраль 2026 г.', feb),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': raw}), period='month',
+            date='2026-02-28', date_from='2026-01-31')
+        revenue = {item['id']: item for item in result['cards']}['revenue']
+        self.assertEqual(revenue['value'], 40)
+        self.assertEqual(
+            [point['value'] for point in revenue['series']], [10, 30])
+        self.assertEqual(result['period']['series_kind'], 'month')
+
+    def test_exact_report_rows_are_used_for_ar_and_ap_balances(self):
+        row62 = dict(lvl=1, label='62.01', p0='62', p1='62.01',
+                     p2='', p3='', snd=0, snk=0, obd=0, obk=0,
+                     skd=45, skk=5)
+        row60 = dict(lvl=1, label='60.01', p0='60', p1='60.01',
+                     p2='', p3='', snd=0, snk=0, obd=0, obk=0,
+                     skd=3, skk=28)
+        raw62 = account('62', period='за январь 2026 г.')
+        raw62['balance_reports'] = [self._report(
+            'за январь 2026 г.', [row62],
+            top=dict(snd=0, snk=0, obd=0, obk=0, skd=45, skk=5))]
+        raw60 = account('60', period='за январь 2026 г.')
+        raw60['balance_reports'] = [self._report(
+            'за январь 2026 г.', [row60],
+            top=dict(snd=0, snk=0, obd=0, obk=0, skd=3, skk=28))]
+        result = build_key_indicators(build_indicator_source(
+            {'62': raw62, '60': raw60}), period='month',
+            date='2026-01-31')
+        cards = {item['id']: item for item in result['cards']}
+        self.assertEqual(cards['ar']['value'], 40)
+        self.assertEqual(cards['ap']['value'], 25)
+
+    def test_missing_numeric_subaccount_does_not_fallback_to_root_balance(self):
+        root62 = dict(lvl=0, label='62', p0='62', p1='', p2='', p3='',
+                      snd=0, snk=0, obd=0, obk=0, skd=0, skk=0)
+        buyer = dict(lvl=1, label='Покупатель', p0='62',
+                     p1='Покупатель', p2='', p3='',
+                     snd=0, snk=0, obd=0, obk=0, skd=420000, skk=0)
+        root60 = dict(lvl=0, label='60', p0='60', p1='', p2='', p3='',
+                      snd=0, snk=0, obd=0, obk=0, skd=0, skk=0)
+        supplier = dict(lvl=1, label='Поставщик', p0='60',
+                        p1='Поставщик', p2='', p3='',
+                        snd=0, snk=0, obd=0, obk=5660000, skd=0, skk=5660000)
+        raw62 = account('62', period='за январь 2026 г.')
+        raw62['balance_reports'] = [self._report(
+            'за январь 2026 г.', [root62, buyer], top=root62)]
+        raw60 = account('60', period='за январь 2026 г.')
+        raw60['balance_reports'] = [self._report(
+            'за январь 2026 г.', [root60, supplier], top=root60)]
+        cards = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': raw62, '60': raw60}),
+            period='month', date='2026-01-31')['cards']}
+        self.assertIsNone(cards['ar']['value'])
+        self.assertIn('отсутствует', cards['ar']['reason'])
+        self.assertIsNone(cards['ap']['value'])
+        self.assertIn('отсутствует', cards['ap']['reason'])
+        self.assertIsNone(cards['ap']['credit_turnover'])
+        self.assertTrue(cards['ap']['analytics'])
+        self.assertTrue(all(not item['included_in_total']
+                            for item in cards['ar']['analytics']))
+
+    def test_period_leaf_deduplication_is_partitioned_by_report_interval(self):
+        jan = [
+            dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                 p2='', p3='', snd=0, snk=0, obd=0, obk=10, skd=0, skk=10),
+        ]
+        feb = [
+            dict(lvl=2, label='90.01.1', p0='90', p1='90.01',
+                 p2='90.01.1', p3='', snd=0, snk=0, obd=0, obk=30,
+                 skd=0, skk=30),
+        ]
+        raw = account('90', period='за январь 2026 г.')
+        raw['balance_reports'] = [
+            self._report('за январь 2026 г.', jan),
+            self._report('за февраль 2026 г.', feb),
+        ]
+        revenue = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'90': raw}), period='month',
+            date='2026-02-28', date_from='2026-01-31')['cards']}['revenue']
+        self.assertEqual(revenue['value'], 40)
+
+    def test_period_mapping_must_cover_the_whole_aggregate_interval(self):
+        jan = [dict(lvl=1, label='Газ', p0='20', p1='Газ',
+                    p2='', p3='', snd=0, snk=0, obd=10, obk=0,
+                    skd=0, skk=0)]
+        feb = [dict(lvl=1, label='Газ', p0='20', p1='Газ',
+                    p2='', p3='', snd=0, snk=0, obd=20, obk=0,
+                    skd=0, skk=0)]
+        raw = account('20', period='за январь 2026 г.')
+        raw['balance_reports'] = [
+            self._report('за январь 2026 г.', jan),
+            self._report('за февраль 2026 г.', feb),
+        ]
+        mapping = {
+            'account': '20',
+            'analytic_key': revenue_analytic_key(['Газ']),
+            'analytic_label': '«Газ»',
+            'category': 'fuel',
+            'target_account': '90.02',
+            'valid_from': '2026-01-01',
+            'valid_to': '2026-01-31',
+        }
+        result = build_key_indicators(
+            build_indicator_source({'20': raw}), period='month',
+            date='2026-02-28', date_from='2026-01-31',
+            cost_mappings=[mapping])
+        structure = {item['id']: item for item in result['cards']}[
+            'cogs']['cost_structure']
+        self.assertTrue(structure['conflicts'])
+        self.assertEqual(structure['classified_total'], 0.0)
+        self.assertEqual(structure['categories'][0]['value'], 0.0)
+
+    def test_debtor_mapping_midperiod_is_not_used_for_aggregate_balance(self):
+        report_rows = [
+            dict(lvl=0, label='62.01', p0='62', p1='62.01',
+                 p2='', p3='', snd=0, snk=0, obd=0, obk=0,
+                 skd=100, skk=0),
+            dict(lvl=1, label='Покупатель', p0='62', p1='62.01',
+                 p2='Покупатель', p3='', snd=0, snk=0, obd=0, obk=0,
+                 skd=100, skk=0),
+        ]
+        raw = account('62', [
+            day('2026-01-31', '62.01'),
+            day('2026-02-28', '62.01'),
+        ], period='за 2 месяца 2026 г.')
+        raw['balance_reports'] = [self._report(
+            'за 2 месяца 2026 г.', report_rows)]
+        mapping = {
+            'account': '62.01',
+            'analytic_key': revenue_analytic_key(['Покупатель']),
+            'analytic_label': '«Покупатель»',
+            'category': 'population',
+            'effective_from': '2026-02-01',
+            'effective_to': '2026-02-28',
+        }
+        ar = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': raw}), period='month',
+            date='2026-02-28', date_from='2026-01-31',
+            debtor_mappings=[mapping])['cards']}['ar']
+        self.assertEqual(ar['value'], 100)
+        self.assertEqual(ar['debtor_segments']['classified_total'], 0.0)
+        self.assertTrue(ar['debtor_segments']['unmapped'])
+
+    def test_period_provenance_is_not_inherited_from_unrelated_accounts(self):
+        raw90 = account('90', [
+            day('2026-01-31', '90.02', obd=70),
+        ], period='за январь 2026 г.')
+        row20 = dict(lvl=1, label='Газ', p0='20', p1='Газ',
+                     p2='', p3='', snd=0, snk=0, obd=10, obk=0,
+                     skd=0, skk=0)
+        raw20 = account('20', period='за январь 2026 г.')
+        raw20['balance_reports'] = [self._report(
+            'за январь 2026 г.', [row20])]
+        cards = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'90': raw90, '20': raw20}),
+            period='month', date='2026-01-31')['cards']}
+        self.assertNotIn('period_provenance', cards['cogs'])
+        movement = next(item for item in cards['cogs']['cost_movements']
+                        if item['account'] == '20')
+        self.assertEqual(movement['provenance'], 'period_aggregate')

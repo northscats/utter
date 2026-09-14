@@ -93,6 +93,17 @@ def _period_bounds(text):
     if m:
         q = int(m.group(1))
         return Date(year, 3 * q - 2, 1), Date(year, 3 * q, calendar.monthrange(year, 3 * q)[1])
+    # 1C uses this form for a report covering the beginning of a year:
+    # ``за 9 месяцев 2026 г.``.  It is a period total, not an unsupported
+    # free-form header.  Keep the end at the last day of the stated month;
+    # do not turn it into a set of fabricated daily observations.
+    months_match = re.search(
+        r'(?<!\d)(\d{1,2})\s*месяц(?:а|ев)?\b', text)
+    if months_match:
+        months = int(months_match.group(1))
+        if 1 <= months <= 12:
+            return Date(year, 1, 1), Date(
+                year, months, calendar.monthrange(year, months)[1])
     if 'полугод' in text:
         half_marker = re.search(r'(?:^|\D)([12])\s*(?:-?е\s+)?полугод|'
                                 r'\b(ii|втор\w*)\s+полугод', text)
@@ -378,6 +389,197 @@ def _daily(source, account, start, end):
     return result
 
 
+def _report_bounds(report):
+    """Return normalized bounds for one accepted period report."""
+    start = _iso(report.get('report_start'))
+    end = _iso(report.get('report_end'))
+    if start and end:
+        return start, end
+    return _period_bounds(report.get('period'))
+
+
+def _report_precedence(report, index):
+    """Sort key where a later source revision wins an equal interval."""
+    updated = str(report.get('source_updated_at') or '')
+    return updated, index
+
+
+def _period_report_selection(source, account, start, end):
+    """Select an exact report or a complete, disjoint report tiling.
+
+    Reports are period totals and may not be prorated.  An exact report wins
+    over a tiling (for example a 9-month report wins over nine monthly
+    reports); duplicate intervals use the latest accepted source revision.
+    Returning ``None`` is intentional: callers must keep using daily data or
+    report an unavailable/partial result rather than silently summing a
+    fragment of the selected period.
+    """
+    acc = source.get('accounts', {}).get(str(account))
+    if not acc:
+        return None
+    prepared = []
+    for index, report in enumerate(acc.get('balance_reports') or []):
+        if not isinstance(report, dict):
+            continue
+        report_start, report_end = _report_bounds(report)
+        if not report_start or not report_end:
+            continue
+        if report_start < start or report_end > end or report_start > report_end:
+            continue
+        prepared.append((index, report_start, report_end, report))
+    if not prepared:
+        return None
+
+    exact = [
+        item for item in prepared
+        if item[1] == start and item[2] == end
+    ]
+    if exact:
+        return [max(exact, key=lambda item: _report_precedence(item[3], item[0]))[3]]
+
+    # Keep only the latest revision of each interval.  Different intervals
+    # can still overlap; the search below accepts only a disjoint tiling.
+    latest_by_span = {}
+    for item in prepared:
+        span = (item[1], item[2])
+        previous = latest_by_span.get(span)
+        if previous is None or _report_precedence(
+                item[3], item[0]) > _report_precedence(previous[3], previous[0]):
+            latest_by_span[span] = item
+    by_start = defaultdict(list)
+    for item in latest_by_span.values():
+        by_start[item[1]].append(item)
+    for candidates in by_start.values():
+        candidates.sort(
+            key=lambda item: (item[2], _report_precedence(item[3], item[0])),
+            reverse=True)
+
+    memo = {}
+
+    def tile(cursor):
+        if cursor == end + timedelta(days=1):
+            return []
+        if cursor in memo:
+            return memo[cursor]
+        for item in by_start.get(cursor, []):
+            next_cursor = item[2] + timedelta(days=1)
+            if next_cursor > end + timedelta(days=1):
+                continue
+            tail = tile(next_cursor)
+            if tail is not None:
+                memo[cursor] = [item] + tail
+                return memo[cursor]
+        memo[cursor] = None
+        return None
+
+    tiling = tile(start)
+    return [item[3] for item in tiling] if tiling is not None else None
+
+
+def _period_rows(source, account, start, end):
+    """Return rows from an exact/complete period report, if one is usable."""
+    reports = _period_report_selection(source, account, start, end)
+    if reports is None:
+        return None
+    rows = []
+    for report in reports:
+        report_start, report_end = _report_bounds(report)
+        report_rows = report.get('rows') or []
+        if not report_rows and isinstance(report.get('top'), dict):
+            # Empty ОСВ is still an authentic zero total.  It must not become
+            # a fabricated daily movement, but it can satisfy an exact report
+            # total for account-level details.
+            report_rows = [{
+                'lvl': 0,
+                'label': str(account),
+                'p0': str(account), 'p1': '', 'p2': '', 'p3': '',
+                **report['top'],
+            }]
+        for row in report_rows:
+            if not isinstance(row, dict):
+                continue
+            item = dict(row)
+            item['date'] = report_end.isoformat()
+            item['month'] = report_end.strftime('%Y-%m')
+            item['_period_aggregate'] = True
+            item['_period_start'] = report_start.isoformat()
+            item['_period_end'] = report_end.isoformat()
+            item['_period_source_file'] = str(report.get('source_file') or '')
+            rows.append(item)
+    return rows
+
+
+def _movement_rows(source, account, start, end):
+    """Use report totals when they cover the whole interval, else daily rows."""
+    report_rows = _period_rows(source, account, start, end)
+    return report_rows if report_rows is not None else _daily(
+        source, account, start, end)
+
+
+def _period_provenance(source, account, start, end):
+    reports = _period_report_selection(source, account, start, end)
+    if reports is None:
+        return None
+    intervals = []
+    files = []
+    for report in reports:
+        report_start, report_end = _report_bounds(report)
+        intervals.append({
+            'start': report_start.isoformat(),
+            'end': report_end.isoformat(),
+        })
+        if report.get('source_file'):
+            files.append(str(report['source_file']))
+    return {
+        'kind': 'period_aggregate',
+        'basis': 'ОСВ: периодные итоги',
+        'intervals': intervals,
+        'source_files': files,
+        'note': 'Суточные движения не синтезируются и месяцы не распределяются.',
+    }
+
+
+def _combined_period_provenance(source, accounts, start, end):
+    """Return aggregate provenance only when every contributor is period data."""
+    accounts = list(dict.fromkeys(str(account) for account in accounts))
+    if not accounts:
+        return None
+    evidence = [
+        (account, _period_provenance(source, account, start, end))
+        for account in accounts
+    ]
+    if any(provenance is None for _, provenance in evidence):
+        return None
+    intervals = []
+    files = []
+    for _, provenance in evidence:
+        intervals.extend(provenance['intervals'])
+        files.extend(provenance['source_files'])
+    return {
+        'kind': 'period_aggregate',
+        'basis': 'ОСВ: периодные итоги',
+        'accounts': accounts,
+        'intervals': intervals,
+        'source_files': list(dict.fromkeys(files)),
+        'note': 'Суточные движения не синтезируются и месяцы не распределяются.',
+    }
+
+
+def _aggregate_series_slots(source, start, end):
+    """Pick the most granular complete report tiling for chart slots."""
+    candidates = []
+    for account in source.get('accounts', {}):
+        reports = _period_report_selection(source, account, start, end)
+        if not reports:
+            continue
+        spans = [_report_bounds(report) for report in reports]
+        if all(span[0] and span[1] for span in spans):
+            candidates.append(spans)
+    if not candidates:
+        return None
+    return max(candidates, key=len)
+
+
 def _exact_balance_rows(source, account, end):
     """Return balance observations for one exact date in O(1) with an index."""
     indexed = source.get('_balance_index')
@@ -395,6 +597,47 @@ def _exact_balance_rows(source, account, end):
 def _leaf_rows(rows, predicate):
     """Select the deepest account code per date and analytic coordinate."""
     matched = [r for r in rows if predicate(r)]
+    # Period reports carry the hierarchy in p0..p3, while daily rows carry
+    # account coordinates in path1..path3. Select only terminal rows for a
+    # report subtotal without changing the long-standing daily-row behaviour.
+    if any(r.get('_period_aggregate') for r in matched):
+        def hierarchy_depth(row):
+            depth = int(row.get('lvl') or 0)
+            for index, key in enumerate(('p0', 'p1', 'p2', 'p3')):
+                if row.get(key):
+                    depth = max(depth, index)
+            return depth
+
+        # A report subtotal is only a parent of rows in that same report.
+        # Without this partition, a January 90.01 subtotal can be discarded
+        # because a deeper February 90.01 child happens to be present in the
+        # selected report tiling.
+        partitions = defaultdict(list)
+        for row in matched:
+            partition = (
+                row.get('_period_start'),
+                row.get('_period_end'),
+                row.get('_period_source_file'),
+            )
+            partitions[partition].append(row)
+        result = []
+        for partition_rows in partitions.values():
+            for row in partition_rows:
+                row_level = hierarchy_depth(row)
+                is_parent = False
+                for child in partition_rows:
+                    child_level = hierarchy_depth(child)
+                    if child is row or child_level <= row_level:
+                        continue
+                    if all(
+                        not row.get(key) or child.get(key) == row.get(key)
+                        for key in ('p0', 'p1', 'p2', 'p3')
+                    ):
+                        is_parent = True
+                        break
+                if not is_parent:
+                    result.append(row)
+        return result
     grouped = defaultdict(list)
     for row in matched:
         paths = [row.get(k, '') for k in
@@ -421,7 +664,8 @@ def _leaf_rows(rows, predicate):
 
 def _has_prefix(row, prefix):
     return any(str(row.get(k) or '').startswith(prefix)
-               for k in ('path1', 'path2', 'path3'))
+               for k in ('p0', 'p1', 'p2', 'p3',
+                         'path1', 'path2', 'path3'))
 
 
 def _analytic_label(row):
@@ -465,8 +709,7 @@ def _turnover_basis(rows):
     for row in rows:
         by_date[row['date']].append(row)
     for dated in by_date.values():
-        plain = [r for r in dated if not any(
-            (r.get('path1'), r.get('path2'), r.get('path3')))]
+        plain = [r for r in dated if not _analytic_parts(r)]
         result.extend(plain if plain else _leaf_rows(dated, lambda r: True))
     return result
 
@@ -479,6 +722,8 @@ def _account_covers(source, account, start, end):
     acc = source['accounts'].get(account)
     if not acc:
         return False
+    if _period_report_selection(source, account, start, end) is not None:
+        return True
     spans = [(acc.get('report_start'), acc.get('report_end'))]
     spans += [(r.get('report_start'), r.get('report_end'))
               for r in acc.get('balance_reports') or []]
@@ -488,7 +733,7 @@ def _account_covers(source, account, start, end):
 
 
 def _pl_facts(source, start, end):
-    d90 = _daily(source, '90', start, end)
+    d90 = _movement_rows(source, '90', start, end)
     rev_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.01'))
     vat_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.03'))
     cost_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.02'))
@@ -506,27 +751,45 @@ def _pl_facts(source, start, end):
                 ('gross' if gross is not None else None))
 
 
+def _report_scope_row(report, account, sub):
+    """Find a report row for an explicitly exported subaccount."""
+    rows = report.get('rows') or []
+    matches = [
+        row for row in rows
+        if str(row.get('label') or '') == sub
+        or sub in {str(row.get(key) or '') for key in
+                   ('p0', 'p1', 'p2', 'p3')}
+    ]
+    if matches:
+        # A numeric subaccount subtotal is preferred over its analytic leaves.
+        return min(matches, key=lambda row: int(row.get('lvl') or 0))
+    return None
+
+
 def _sub_balance(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
-    # Explicit daily balances are valid only for that exact date.
-    explicit = [r for r in _exact_balance_rows(source, account, end)
-                if any(k in r for k in ('skd', 'skk'))]
-    specific = [r for r in explicit if sub in
-                (r.get('path1'), r.get('path2'), r.get('path3'))]
-    if specific:
-        specific = _leaf_rows(specific, lambda row: True)
-        return round(sum(max(0.0, (r.get('skk', 0) - r.get('skd', 0))
-                                 if credit else
-                                 (r.get('skd', 0) - r.get('skk', 0)))
-                         for r in specific), 2), None
     report = next((r for r in reversed(acc.get('balance_reports') or [])
                    if r.get('report_end') == end.isoformat()), None)
+    # A report at the exact endpoint is the latest accepted source for that
+    # interval. Never add or prefer an overlapping older daily observation.
+    if report is None:
+        explicit = [r for r in _exact_balance_rows(source, account, end)
+                    if any(k in r for k in ('skd', 'skk'))]
+        specific = [r for r in explicit if sub in
+                    (r.get('path1'), r.get('path2'), r.get('path3'))]
+        if specific:
+            specific = _leaf_rows(specific, lambda row: True)
+            return round(sum(max(0.0, (r.get('skk', 0) - r.get('skd', 0))
+                                     if credit else
+                                     (r.get('skd', 0) - r.get('skk', 0)))
+                             for r in specific), 2), None
     report_rows = report.get('rows', []) if report else acc['rows']
     if report is None and acc.get('report_end') != end.isoformat():
         return None, 'Сальдо доступно только на исходную границу отчёта'
-    row = next((r for r in report_rows if r['label'] == sub), None)
+    row = _report_scope_row(
+        {'rows': report_rows}, account, sub) if report_rows else None
     if row is None:
         return None, f'Субсчёт {sub} отсутствует; значение не считается нулём'
     value = row['skk'] - row['skd'] if credit else row['skd'] - row['skk']
@@ -546,8 +809,8 @@ def _sub_opening_balance(source, account, sub, start, credit=False):
         })
     report = next((item for item in reversed(reports)
                    if item.get('report_start') == start.isoformat()), None)
-    row = next((item for item in (report.get('rows') if report else []) or []
-                if item.get('label') == sub), None)
+    row = _report_scope_row(
+        {'rows': report.get('rows') if report else []}, account, sub)
     if not row:
         return None
     value = row.get('snk', 0) - row.get('snd', 0) if credit else \
@@ -568,12 +831,51 @@ def _sub_balance_analytics(source, account, sub, end, credit=False):
     observations = _exact_balance_rows(source, account, end)
     debtor_scope = sub == '62.01' or sub == '76'
     if not debtor_scope:
-        explicit = [
+        report_at_end = next((
+            item for item in reversed(acc.get('balance_reports') or [])
+            if item.get('report_end') == end.isoformat()), None)
+        explicit = [] if report_at_end is not None else [
             row for row in observations
             if _has_prefix(row, sub)
             and _analytic_parts(row)
             and any(key in row for key in ('skd', 'skk'))
         ]
+        # Period reports do not enter the dated observation index. Read their
+        # exact-end rows as balances too, but only for an explicit subaccount.
+        if not explicit:
+            report = report_at_end
+            report_rows = report.get('rows') if report else (
+                acc.get('rows') if acc.get('report_end') == end.isoformat()
+                else None)
+            if report_rows:
+                explicit = [
+                    row for row in report_rows
+                    if _has_prefix(row, sub)
+                    and _analytic_parts(row)
+                    and any(key in row for key in ('skd', 'skk'))
+                ]
+                if not explicit:
+                    # Keep authentic root-level analytic leaves visible as
+                    # detail, but never use their net as the requested
+                    # 60.01/62.01 balance or turnover.
+                    root_present = any(
+                        str(row.get('label') or '') == str(account)
+                        and int(row.get('lvl') or 0) == 0
+                        for row in report_rows)
+                    if root_present:
+                        explicit = [
+                            row for row in report_rows
+                            if _analytic_parts(row)
+                            and any(key in row for key in ('skd', 'skk'))
+                        ]
+                explicit = [
+                    {
+                        **row,
+                        'date': end.isoformat(),
+                        '_period_aggregate': True,
+                    }
+                    for row in explicit
+                ]
         basis = _leaf_rows(explicit, lambda row: True)
         grouped = defaultdict(list)
         labels = {}
@@ -655,7 +957,7 @@ def _sub_balance_analytics(source, account, sub, end, credit=False):
 
 def _sub_turnover(source, account, sub, start, end, side):
     """Return turnover for an exact subaccount without parent/child duplication."""
-    rows = _daily(source, account, start, end)
+    rows = _movement_rows(source, account, start, end)
     basis = _leaf_rows(rows, lambda row: _has_prefix(row, sub))
     return _known_sum(basis, side) if basis else None
 
@@ -664,19 +966,22 @@ def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
-    top_index = source.get('_top_balance_index')
-    if top_index is not None:
-        row = top_index.get(str(account), {}).get(end.isoformat())
-    else:
-        explicit = [r for r in _exact_balance_rows(source, account, end)
-                    if not any((r.get('path1'), r.get('path2'), r.get('path3')))
-                    and any(k in r for k in ('skd', 'skk'))]
-        row = explicit[-1] if explicit else None
-    if row is not None:
-        return round(max(0.0, row.get('skk', 0) - row.get('skd', 0)
-                             if credit else row.get('skd', 0) - row.get('skk', 0)), 2), None
     report = next((r for r in reversed(acc.get('balance_reports') or [])
                    if r.get('report_end') == end.isoformat()), None)
+    if report is None:
+        top_index = source.get('_top_balance_index')
+        if top_index is not None:
+            row = top_index.get(str(account), {}).get(end.isoformat())
+        else:
+            explicit = [r for r in _exact_balance_rows(source, account, end)
+                        if not any((r.get('path1'), r.get('path2'),
+                                    r.get('path3')))
+                        and any(k in r for k in ('skd', 'skk'))]
+            row = explicit[-1] if explicit else None
+        if row is not None:
+            return round(max(0.0, row.get('skk', 0) - row.get('skd', 0)
+                                 if credit else
+                                 row.get('skd', 0) - row.get('skk', 0)), 2), None
     if report is not None:
         top = report['top']
     elif acc.get('report_end') == end.isoformat() and acc.get('top') is not None:
@@ -785,7 +1090,9 @@ def _account_balance_analytics(source, account, end, credit=True):
     if not acc:
         return []
     observations = _exact_balance_rows(source, account, end)
-    explicit = [
+    report = next((item for item in reversed(acc.get('balance_reports') or [])
+                   if item.get('report_end') == end.isoformat()), None)
+    explicit = [] if report is not None else [
         row for row in observations
         if any((row.get('path1'), row.get('path2'), row.get('path3')))
         and any(key in row for key in ('skd', 'skk'))
@@ -803,10 +1110,32 @@ def _account_balance_analytics(source, account, end, credit=True):
             'debit_turnover': row.get('obd') if row.get('obd_known') is not False else None,
             'credit_turnover': row.get('obk') if row.get('obk_known') is not False else None,
         } for row in basis]
-    report = next((item for item in reversed(acc.get('balance_reports') or [])
-                   if item.get('report_end') == end.isoformat()), None)
     rows = report.get('rows', []) if report else (
         acc.get('rows', []) if acc.get('report_end') == end.isoformat() else [])
+    if report is not None:
+        report_basis = [
+            {
+                **row,
+                'date': end.isoformat(),
+                '_period_aggregate': True,
+            }
+            for row in rows if _analytic_parts(row)
+        ]
+        if report_basis:
+            rows = _leaf_rows(report_basis, lambda row: True)
+            return [{
+                'account': account,
+                'label': _analytic_identity(row)[1],
+                'value': round(max(
+                    0.0, row.get('skk', 0) - row.get('skd', 0)
+                    if credit else row.get('skd', 0) - row.get('skk', 0)), 2),
+                'credit_balance': round(max(
+                    0.0, row.get('skk', 0) - row.get('skd', 0)), 2),
+                'debit_balance': round(max(
+                    0.0, row.get('skd', 0) - row.get('skk', 0)), 2),
+                'debit_turnover': row.get('obd'),
+                'credit_turnover': row.get('obk'),
+            } for row in rows]
     result = []
     for index, row in enumerate(rows):
         level = row.get('lvl', 0)
@@ -852,10 +1181,15 @@ def _top_opening_balance(source, account, start, credit=False):
 
 
 def _account_turnovers(source, account, start, end):
-    rows = _daily(source, account, start, end)
-    plain = [row for row in rows
-             if not any((row.get('path1'), row.get('path2'), row.get('path3')))]
-    basis = plain if plain else _turnover_basis(rows)
+    rows = _movement_rows(source, account, start, end)
+    if any(row.get('_period_aggregate') for row in rows):
+        # Report hierarchies keep account/subaccount codes in p0..p3.  The
+        # terminal row is the only movement amount to add; summing the root,
+        # subaccount, and analytic leaf would double count a period total.
+        basis = _leaf_rows(rows, lambda row: True)
+    else:
+        plain = [row for row in rows if not _analytic_parts(row)]
+        basis = plain if plain else _turnover_basis(rows)
     return {
         'debit': _known_sum(basis, 'obd') if basis else None,
         'credit': _known_sum(basis, 'obk') if basis else None,
@@ -1007,7 +1341,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             ('25', 'Общепроизводственные затраты'),
             ('26', 'Общехозяйственные затраты'),
             ('44', 'Расходы на продажу')):
-        movement_rows = _turnover_basis(_daily(source, account, start, end))
+        movement_rows = _turnover_basis(
+            _movement_rows(source, account, start, end))
         cost_movements.append({
             'account': account,
             'label': movement_label,
@@ -1060,20 +1395,37 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     forming_meta = {}
     for account in ('20', '25', '26', '44'):
         rows = _leaf_rows(
-            _daily(source, account, start, end),
+            _movement_rows(source, account, start, end),
             lambda row: bool(_analytic_parts(row)))
         for row in rows:
             analytic_key, analytic_label = _analytic_identity(row)
             identity = (account, analytic_key)
             row_date = _iso(row.get('date'))
+            aggregate_mapping = bool(row.get('_period_aggregate'))
             rules = [
                 rule for rule in applicable_cost_mappings.get(identity, [])
-                if row_date and rule['valid_from'] <= row_date <= rule['valid_to']]
+                if (
+                    (aggregate_mapping and
+                     rule['valid_from'] <= start and
+                     rule['valid_to'] >= end)
+                    or
+                    (not aggregate_mapping and row_date and
+                     rule['valid_from'] <= row_date <= rule['valid_to'])
+                )]
             choices = {
                 (rule['category'], rule['target_account']) for rule in rules}
-            conflict = len(choices) > 1
+            overlapping_rules = [
+                rule for rule in applicable_cost_mappings.get(identity, [])
+                if rule['valid_from'] <= end and rule['valid_to'] >= start
+            ]
+            temporal_conflict = (
+                aggregate_mapping and bool(overlapping_rules) and
+                any(not (rule['valid_from'] <= start and
+                         rule['valid_to'] >= end)
+                    for rule in overlapping_rules))
+            conflict = len(choices) > 1 or temporal_conflict
             rule = None
-            if len(choices) == 1:
+            if len(choices) == 1 and not conflict:
                 rule = max(
                     rules, key=lambda item: (item['valid_from'], item['valid_to']))
             segment = (
@@ -1113,7 +1465,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'analytic_key': identity[1],
                 'analytic_label': meta['analytic_label'],
                 'message': (
-                    'На дату затрат действуют противоречивые правила: '
+                    'На выбранный период действуют противоречивые или '
+                    'неполные правила: '
                     + ', '.join('/'.join(choice)
                                 for choice in sorted(meta['choices']))),
             })
@@ -1214,7 +1567,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             ('91.01', 'obk', 'income'),
             ('91.02', 'obd', 'expense')):
         rows = _leaf_rows(
-            _daily(source, '91', start, end),
+            _movement_rows(source, '91', start, end),
             lambda row, prefix=sub: _has_prefix(row, prefix))
         grouped = defaultdict(list)
         labels = {}
@@ -1246,7 +1599,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             cash_notes.append('Частичный охват: нет поддерживаемого сальдо по счетам ' +
                               ', '.join(cash_missing) + '; они не приняты за ноль.')
 
-    d62 = _daily(source, '62', start, end)
+    d62 = _movement_rows(source, '62', start, end)
     collection = None
     collection_reason = ('ОСВ не связывает начисления с оплатами и не содержит '
                          'распределение платежей по срокам; собираемость недоступна')
@@ -1254,7 +1607,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     collection_analytics = []
     if d62:
         # Account-level rows and analytic rows must never be added together.
-        plain = [r for r in d62 if not any((r['path1'], r['path2'], r['path3']))]
+        plain = [r for r in d62 if not _analytic_parts(r)]
         basis = plain if plain else _leaf_rows(d62, lambda r: True)
         charged, paid = _sum(basis, 'obd'), _sum(basis, 'obk')
         if charged:
@@ -1284,6 +1637,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     ar_76_analytics = _sub_balance_analytics(source, '76', '76', end)
     active_debtor_mappings = defaultdict(set)
     known_debtor_mapping_keys = set()
+    overlapping_debtor_mappings = defaultdict(list)
     for item in debtor_mappings or []:
         if not isinstance(item, dict):
             continue
@@ -1298,10 +1652,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 and effective_from and effective_to):
             mapping_key = (account, analytic_key)
             known_debtor_mapping_keys.add(mapping_key)
-            # AR is a balance at the reporting endpoint, so the category must
-            # be effective on that exact date. Mere overlap with the selected
-            # turnover period is not enough.
-            if effective_from <= end <= effective_to:
+            if effective_from <= end and effective_to >= start:
+                overlapping_debtor_mappings[mapping_key].append({
+                    'category': category,
+                    'covers_interval': (
+                        effective_from <= start and effective_to >= end),
+                })
+            # A period aggregate must have one unambiguous mapping for its
+            # whole interval. Endpoint-only validity would classify an
+            # aggregate report using a mid-period rule.
+            if effective_from <= start and effective_to >= end:
                 active_debtor_mappings[mapping_key].add(category)
     ar_analytics = []
     debtor_conflicts = []
@@ -1314,7 +1674,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         effective_from = _iso(item.get('effective_from'))
         effective_to = _iso(item.get('effective_to'))
         if effective_from and effective_to and \
-                effective_from <= end and effective_to >= start:
+                effective_from <= start and effective_to >= end:
             active_mapping_records.append({
                 'id': item.get('id'),
                 'account': str(item.get('account') or ''),
@@ -1330,19 +1690,32 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             account = item.get('account') or account_root
             categories = active_debtor_mappings.get(
                 (account, item['analytic_key']), set())
-            category = next(iter(categories)) if len(categories) == 1 else None
+            mapping_key = (account, item['analytic_key'])
+            overlapping = overlapping_debtor_mappings.get(mapping_key, [])
+            overlap_categories = {
+                record['category'] for record in overlapping}
+            temporal_conflict = (
+                bool(overlapping) and
+                any(not record['covers_interval']
+                    for record in overlapping))
+            conflict = temporal_conflict or len(overlap_categories) > 1
+            category = (
+                next(iter(categories))
+                if len(categories) == 1 and not conflict else None)
             classified = {
                 **item, 'account': account, 'category': category,
                 'included_in_total': account == '62.01' or category is not None,
             }
             ar_analytics.append(classified)
-            if len(categories) > 1:
+            if conflict:
                 conflict = {
                     **classified, 'categories': sorted(categories),
-                    'message': 'Для аналитики одновременно действуют разные категории',
+                    'message': (
+                        'Для аналитики действуют конфликтующие или '
+                        'не покрывающие весь выбранный период правила'),
                 }
                 debtor_conflicts.append(conflict)
-            elif category is None:
+            if category is None:
                 if (account, item['analytic_key']) in known_debtor_mapping_keys:
                     debtor_unmapped.append(classified)
                 else:
@@ -1427,10 +1800,10 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     credit_analytics = []
     for account in ('66', '67'):
         value, why = _top_balance(source, account, end, credit=True)
-        account_daily = _daily(source, account, start, end)
+        account_daily = _movement_rows(source, account, start, end)
         plain_turnovers = [
             row for row in account_daily
-            if not any((row.get('path1'), row.get('path2'), row.get('path3')))
+            if not _analytic_parts(row)
         ]
         turnover_rows = (
             plain_turnovers if plain_turnovers else
@@ -1652,26 +2025,116 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['cogs']['status'] = 'warning'
         card_map['cogs']['status_label'] = 'Выше выручки'
 
-    # Every ОСВ chart uses the same selected window at daily grain. Calendar
-    # gaps remain null, never interpolated or treated as zero. Balances still
-    # require an exact dated observation; a report interval must not be
-    # expanded into invented daily balances.
-    series_kind = 'day'
-    series_dates = []
-    cursor = start
-    while cursor <= end:
-        if series_kind == 'day':
+    card_source_accounts = {
+        'cash': ('50', '51', '52', '55'),
+        'revenue': ('90',),
+        'collection': ('62',),
+        'ar': ('62', '76'),
+        'ap': ('60',),
+        'cogs': ('90', '20', '25', '26', '44'),
+        'profit': ('90', '91'),
+        'credits': ('66', '67'),
+        'salary': ('70', '69'),
+        'capex': ('08',),
+    }
+    # Provenance belongs to the accounts that actually form a value. For
+    # example, COGS is the 90.02 value and must not inherit period provenance
+    # merely because an unrelated 20 account has monthly reports.
+    value_accounts = {
+        'cash': tuple(account for account, _ in cash_parts),
+        'revenue': ('90',),
+        'collection': ('62',),
+        'ar': tuple(
+            ['62'] + sorted({
+                str(item.get('account'))
+                for item in ar_analytics
+                if str(item.get('account') or '').startswith('76.')
+                and item.get('included_in_total')
+            })),
+        'ap': ('60',),
+        'cogs': ('90',),
+        'profit': ('90',),
+        'credits': tuple(account for account, _ in credit_parts),
+        'salary': ('70',),
+        'capex': ('08',),
+    }
+    period_card_provenance = {}
+    for card_id, accounts_for_value in value_accounts.items():
+        if card_map[card_id]['value'] is None:
+            continue
+        provenance = _combined_period_provenance(
+            source, accounts_for_value, start, end)
+        if provenance is not None:
+            period_card_provenance[card_id] = provenance
+            card_map[card_id]['source'] = (
+                'Периодные итоги ОСВ (точные отчётные интервалы)')
+            card_map[card_id]['period_provenance'] = provenance
+
+    def add_period_detail_provenance(item, account):
+        if _period_provenance(source, str(account), start, end):
+            item['provenance'] = 'period_aggregate'
+            item['provenance_accounts'] = [str(account)]
+
+    for detail in card_map['revenue'].get('details') or []:
+        add_period_detail_provenance(detail, '90')
+    for detail in card_map['collection'].get('details') or []:
+        if detail.get('label') == 'Соотношение оборотов, не собираемость':
+            add_period_detail_provenance(detail, '62')
+    for item in card_map['cogs'].get('cost_movements') or []:
+        add_period_detail_provenance(item, item.get('account'))
+    for item in card_map['cogs'].get('recognized_costs') or []:
+        add_period_detail_provenance(
+            item, str(item.get('account') or '').split('.')[0])
+    for item in card_map['cogs'].get('cost_structure', {}).get(
+            'analytics', []) or []:
+        add_period_detail_provenance(item, item.get('account'))
+    for item in card_map['ap'].get('components') or []:
+        add_period_detail_provenance(
+            item, str(item.get('account') or '').split('.')[0])
+    for item in card_map['ap'].get('analytics') or []:
+        add_period_detail_provenance(item, '60')
+    for item in card_map['credits'].get('accounts') or []:
+        add_period_detail_provenance(item, item.get('account'))
+    for item in card_map['ar'].get('analytics') or []:
+        add_period_detail_provenance(
+            item, str(item.get('account') or '').split('.')[0])
+
+    # Daily sources retain their daily chart (with null gaps).  A complete
+    # report tiling uses one point per authentic report interval instead:
+    # placing a monthly total on every day, or even on month-end, would
+    # fabricate daily movements.  The card value remains the exact aggregate.
+    aggregate_slots = _aggregate_series_slots(source, start, end)
+    if aggregate_slots:
+        monthly_slots = all(
+            slot_start == slot_end.replace(day=1)
+            and slot_end.day == calendar.monthrange(
+                slot_end.year, slot_end.month)[1]
+            for slot_start, slot_end in aggregate_slots
+        )
+        series_kind = 'month' if monthly_slots else 'period'
+        month_options = []
+        for slot_start, slot_end in aggregate_slots:
+            if monthly_slots:
+                label = _options([slot_end], 'month')[0]['label']
+            else:
+                label = f'{slot_start.isoformat()} — {slot_end.isoformat()}'
+            month_options.append({
+                'value': slot_end.isoformat(),
+                'label': label,
+                '_start': slot_start.isoformat(),
+            })
+    else:
+        series_kind = 'day'
+        series_dates = []
+        cursor = start
+        while cursor <= end:
             series_dates.append(cursor)
             cursor += timedelta(days=1)
-        else:
-            last = cursor.replace(
-                day=calendar.monthrange(cursor.year, cursor.month)[1])
-            series_dates.append(min(last, end))
-            cursor = last + timedelta(days=1)
-    month_options = _options(series_dates, series_kind)
+        month_options = _options(series_dates, series_kind)
     for option in month_options:
         month_end = _iso(option['value'])
-        month_start, _ = _range(series_kind, month_end)
+        month_start = _iso(option.get('_start')) if option.get('_start') \
+            else _range(series_kind, month_end)[0]
         month_pl = _pl_facts(source, month_start, month_end)
         month_selling = _sub_turnover(
             source, '90', '90.07', month_start, month_end, 'obd')
@@ -1722,7 +2185,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'date': point_date, 'label': option['label'],
             'value': _top_balance(source, '08', month_end)[0]})
         month_values['collection'] = None
-        month62 = _turnover_basis(_daily(source, '62', month_start, month_end))
+        month62 = _turnover_basis(
+            _movement_rows(source, '62', month_start, month_end))
         month_debit = _known_sum(month62, 'obd') if month62 else None
         month_credit = _known_sum(month62, 'obk') if month62 else None
         month_turnover_ratio = (
@@ -1770,6 +2234,52 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             card_map[cid]['series'].append({
                 'date': point_date, 'label': option['label'],
                 'value': month_values[cid]})
+
+    series_accounts = {
+        'cash': {'series': value_accounts['cash']},
+        'revenue': {'series': ('90',)},
+        'collection': {'turnover_series': ('62',)},
+        'ar': {'series': ('62',)},
+        'ap': {'series': ('60',)},
+        'cogs': {'series': ('90',)},
+        'profit': {
+            'series': ('90',),
+            'gross_series': ('90',),
+            'sales_profit_series': ('90',),
+            'other_result_series': ('91',),
+            'pretax_series': ('90', '91'),
+        },
+        'credits': {'series': value_accounts['credits']},
+        'salary': {
+            'series': ('70',),
+            'accrual_series': ('70',),
+            'insurance_series': ('69',),
+        },
+        'capex': {
+            'series': ('08',),
+            'credit_series': ('08',),
+            'balance_series': ('08',),
+        },
+    }
+    for card_id, fields in series_accounts.items():
+        for field, accounts_for_point in fields.items():
+            points = card_map[card_id].get(field) or []
+            for option, point in zip(month_options, points):
+                if point.get('value') is None:
+                    continue
+                point_accounts = (
+                    tuple(point.get('accounts') or accounts_for_point)
+                    if card_id == 'cash' else accounts_for_point)
+                point_end = _iso(option['value'])
+                point_start = (_iso(option['_start'])
+                               if option.get('_start') else
+                               _range(series_kind, point_end)[0])
+                provenance = _combined_period_provenance(
+                    source, point_accounts, point_start, point_end)
+                if provenance is None:
+                    continue
+                point['provenance'] = 'period_aggregate'
+                point['provenance_accounts'] = list(point_accounts)
 
     for index, point in enumerate(card_map['cash']['series']):
         previous = (card_map['cash']['series'][index - 1]
@@ -2044,6 +2554,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                        abs(reconciliation_difference) <= 0.01 and
                        not conflicts and not unclassified),
     }
+    for item in discovered:
+        add_period_detail_provenance(item, '90')
     recommendations = []
     if profit_display is not None and profit_display < 0:
         recommendations.append({
@@ -2100,6 +2612,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'period': {'kind': period, 'date': endpoint.isoformat(),
                    'date_from': range_start_endpoint.isoformat(),
                    'series_kind': series_kind,
+                   'provenance': (
+                       'period_aggregate' if aggregate_slots else 'daily'),
                    'label': label,
                    'start': start.isoformat(), 'end': end.isoformat(),
                    'options': options, 'available_kinds': available,
@@ -2126,13 +2640,22 @@ def _debtor_report_analytics(rows, sub):
             str(row.get(key) or '').strip()
             for key in ('p0', 'p1', 'p2', 'p3')]
         if sub == '62.01':
-            if '62.01' not in account_candidates:
+            if '62.01' in account_candidates:
+                account = '62.01'
+            elif '62' in account_candidates:
+                # Preserve root-level debtor leaves as excluded detail. The
+                # root is not a substitute for the requested 62.01 balance.
+                account = '62'
+            else:
                 continue
-            account = '62.01'
         else:
             candidates = [
                 value for value in account_candidates
                 if re.fullmatch(r'76(?:\.\d+)+', value)]
+            if not candidates and '76' in account_candidates:
+                # As above, expose root-level detail without allowing it into
+                # the explicitly scoped 76 subaccount total.
+                candidates = ['76']
             if not candidates:
                 continue
             account = max(candidates, key=lambda value: value.count('.'))
