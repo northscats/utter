@@ -20,7 +20,7 @@ _CARD_ORDER = ('cash', 'revenue', 'collection', 'ar', 'ap', 'cogs',
 _TITLES = {
     'cash': 'Денежные средства',
     'revenue': 'Выручка',
-    'collection': 'Уровень собираемости',
+    'collection': 'Собираемость (прокси по ОСВ)',
     'ar': 'Подтверждённая дебиторская задолженность',
     'ap': 'Кредиторская задолженность (60.01)',
     'cogs': 'Себестоимость продаж',
@@ -193,6 +193,10 @@ def build_indicator_source(parsed_data):
                     'p3': str(item.get('p3') or ''),
                     **{k: _number(item.get(k)) for k in
                        ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
+                    **{f'{k}_known': (
+                        isinstance(item.get(k), (int, float))
+                        and not isinstance(item.get(k), bool))
+                       for k in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
                 })
                 stack.append((level, label))
             return result
@@ -962,6 +966,139 @@ def _sub_turnover(source, account, sub, start, end, side):
     return _known_sum(basis, side) if basis else None
 
 
+def _explicit_subaccount_rows(rows, sub):
+    """Return terminal rows belonging to an explicit subaccount.
+
+    A root 62 row is deliberately not a match for either 62.01 or 62.02.
+    ОСВ exports may contain the subaccount subtotal beside its analytical
+    children, so remove a numeric parent whenever a deeper row is present.
+    This is kept separate from the generic turnover basis because the
+    collection proxy has a strict, named four-component contract.
+    """
+    sub = str(sub)
+    matched = []
+    for row in rows:
+        codes = [
+            str(row.get(key) or '').strip()
+            for key in ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')
+        ]
+        if any(code == sub or code.startswith(sub + '.') for code in codes):
+            matched.append(row)
+    if not matched:
+        return []
+
+    def numeric_codes(row):
+        return [
+            code for code in (
+                str(row.get(key) or '').strip()
+                for key in ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')
+            )
+            if re.fullmatch(r'\d{2}(?:\.\d+)+', code)
+        ]
+
+    partitions = defaultdict(list)
+    for row in matched:
+        partitions[(
+            row.get('date'),
+            row.get('_period_start'),
+            row.get('_period_end'),
+            row.get('_period_source_file'),
+        )].append(row)
+    result = []
+    for partition_rows in partitions.values():
+        codes_by_row = {id(row): numeric_codes(row) for row in partition_rows}
+        analytics_by_row = {
+            id(row): tuple(_analytic_parts(row)) for row in partition_rows
+        }
+        for row in partition_rows:
+            row_codes = codes_by_row[id(row)]
+            row_subcodes = [code for code in row_codes
+                            if code == sub or code.startswith(sub + '.')]
+            if not row_subcodes:
+                continue
+            row_code = max(row_subcodes, key=lambda code: code.count('.'))
+            row_analytics = analytics_by_row[id(row)]
+            has_child = False
+            for child in partition_rows:
+                if child is row:
+                    continue
+                child_codes = codes_by_row[id(child)]
+                child_subcodes = [code for code in child_codes
+                                  if code == sub or code.startswith(sub + '.')]
+                if not child_subcodes:
+                    continue
+                child_code = max(child_subcodes, key=lambda code: code.count('.'))
+                child_analytics = analytics_by_row[id(child)]
+                if child_code.startswith(row_code + '.') or (
+                        child_code == row_code and
+                        ((not row_analytics and child_analytics) or
+                         (row_analytics and
+                          len(child_analytics) > len(row_analytics) and
+                          child_analytics[:len(row_analytics)] ==
+                          row_analytics))):
+                    has_child = True
+                    break
+            if not has_child:
+                result.append(row)
+    return result
+
+
+def _explicit_subaccount_turnover(source, sub, start, end):
+    """Return both known sides of one explicit collection subaccount."""
+    rows = _explicit_subaccount_rows(
+        _movement_rows(source, '62', start, end), sub)
+    return {
+        'debit': _known_sum(rows, 'obd') if rows else None,
+        'credit': _known_sum(rows, 'obk') if rows else None,
+        'rows': rows,
+    }
+
+
+def _collection_components(source, start, end):
+    """Read the four strict ОСВ components used by collection proxy."""
+    values = {
+        sub: _explicit_subaccount_turnover(source, sub, start, end)
+        for sub in ('62.01', '62.02')
+    }
+    debit_01 = values['62.01']['debit']
+    credit_01 = values['62.01']['credit']
+    debit_02 = values['62.02']['debit']
+    credit_02 = values['62.02']['credit']
+    components = [
+        {'account': '62.01', 'label': 'Дебетовый оборот 62.01',
+         'side': 'debit', 'value': debit_01},
+        {'account': '62.01', 'label': 'Кредитовый оборот 62.01',
+         'side': 'credit', 'value': credit_01},
+        {'account': '62.02', 'label': 'Дебетовый оборот 62.02',
+         'side': 'debit', 'value': debit_02},
+        {'account': '62.02', 'label': 'Кредитовый оборот 62.02',
+         'side': 'credit', 'value': credit_02},
+    ]
+    missing = [item['label'] for item in components
+               if item['value'] is None]
+    value = None
+    reason = None
+    if missing:
+        reason = 'Нет обязательных компонентов: ' + ', '.join(missing)
+        for item in components:
+            if item['value'] is None:
+                item['reason'] = 'Обязательный компонент отсутствует или неизвестен'
+    elif debit_01 == 0:
+        reason = 'Дебетовый оборот 62.01 равен нулю; процент не рассчитывается'
+        for item in components:
+            if item['account'] == '62.01' and item['side'] == 'debit':
+                item['reason'] = reason
+    else:
+        value = round(
+            (credit_01 + credit_02 - debit_02) / debit_01 * 100, 2)
+    return {
+        'value': value,
+        'reason': reason,
+        'components': components,
+        'accounts': values,
+    }
+
+
 def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
@@ -1600,36 +1737,27 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                               ', '.join(cash_missing) + '; они не приняты за ноль.')
 
     d62 = _movement_rows(source, '62', start, end)
-    collection = None
-    collection_reason = ('ОСВ не связывает начисления с оплатами и не содержит '
-                         'распределение платежей по срокам; собираемость недоступна')
-    turnover_ratio = None
+    collection_data = _collection_components(source, start, end)
+    collection = collection_data['value']
+    collection_reason = collection_data['reason']
+    collection_components = collection_data['components']
+    # Keep the account-level component rows as the auditable analytics.  They
+    # are intentionally not inferred from root 62 or from payment registers.
     collection_analytics = []
-    if d62:
-        # Account-level rows and analytic rows must never be added together.
-        plain = [r for r in d62 if not _analytic_parts(r)]
-        basis = plain if plain else _leaf_rows(d62, lambda r: True)
-        charged, paid = _sum(basis, 'obd'), _sum(basis, 'obk')
-        if charged:
-            turnover_ratio = round(paid / charged * 100, 2)
-        analytic_rows = _leaf_rows(
-            d62, lambda r: bool(_analytic_parts(r)))
-        analytic_groups = defaultdict(list)
-        analytic_labels = {}
-        for row in analytic_rows:
-            key, label = _analytic_identity(row)
-            analytic_groups[key].append(row)
-            analytic_labels[key] = label
-        for key, rows in sorted(
-                analytic_groups.items(), key=lambda item: analytic_labels[item[0]]):
-            debit = _known_sum(rows, 'obd')
-            credit = _known_sum(rows, 'obk')
-            ratio = (round(credit / debit * 100, 2)
-                     if debit not in (None, 0) and credit is not None else None)
-            collection_analytics.append({
-                'analytic_key': key, 'label': analytic_labels[key],
-                'debit': debit, 'credit': credit, 'turnover_ratio': ratio,
-            })
+    for sub in ('62.01', '62.02'):
+        item = collection_data['accounts'][sub]
+        collection_analytics.append({
+            'account': sub,
+            'analytic_key': None,
+            'label': f'Субсчёт {sub}',
+            'debit': item['debit'],
+            'credit': item['credit'],
+            'turnover_ratio': (
+                round(item['credit'] / item['debit'] * 100, 2)
+                if item['debit'] not in (None, 0)
+                and item['credit'] is not None else None),
+        })
+    turnover_ratio = collection
 
     ar_62, ar_reason = _sub_balance(source, '62', '62.01', end)
     ar_opening = _sub_opening_balance(source, '62', '62.01', start)
@@ -1881,17 +2009,29 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               details=[{'label': 'Выручка брутто', 'value': gross_rev, 'unit': 'RUB'},
                        {'label': 'НДС', 'value': vat, 'unit': 'RUB',
                         **({'reason': 'Строки 90.03 отсутствуют'} if vat is None else {})}]),
-        _card('collection', collection, '%', 'Требуется распределение оплат по начислениям',
-              'Суточные обороты счёта 62', collection_reason,
+        _card('collection', collection, '%',
+              '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
+              'Явные обороты ОСВ 62.01 и 62.02',
+              collection_reason,
+               measurement_basis='accounting_collection_proxy',
+               linked_payments_available=False,
+               accounting_proxy={
+                   'value': collection,
+                   'formula': '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
+                   'source': 'Явные обороты ОСВ 62.01 и 62.02',
+               },
+               collection_components=collection_components,
+               components=collection_components,
                turnover_ratio=turnover_ratio,
                turnover_series=[],
                analytics=collection_analytics,
-              details=[{'label': 'Соотношение оборотов, не собираемость',
-                        'value': turnover_ratio, 'unit': '%',
-                        **({} if turnover_ratio is not None else
-                           {'reason': 'Нет ненулевой базы дебетового оборота счёта 62'})},
-                       {'label': 'График/возраст долга', 'value': None, 'unit': 'RUB',
-                        'reason': 'ОСВ не содержит сроков возникновения и погашения долга'}]),
+               details=collection_components + [
+                   {'label': 'Связанные оплаты по начислениям',
+                    'value': None, 'unit': '%',
+                    'reason': ('ОСВ не содержит связи платежа с начислением; '
+                               'показатель является бухгалтерским прокси')},
+                   {'label': 'График/возраст долга', 'value': None, 'unit': 'RUB',
+                    'reason': 'ОСВ не содержит сроков возникновения и погашения долга'}]),
         _card('ar', ar, 'RUB',
               'max(СКд − СКк, 0) по 62.01 + явно сопоставленный дебет 76',
               'Сальдо 62.01 и разрешённые аналитики 76', ar_reason,
@@ -2078,8 +2218,12 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     for detail in card_map['revenue'].get('details') or []:
         add_period_detail_provenance(detail, '90')
     for detail in card_map['collection'].get('details') or []:
-        if detail.get('label') == 'Соотношение оборотов, не собираемость':
+        if detail.get('account') in ('62.01', '62.02'):
             add_period_detail_provenance(detail, '62')
+    for item in card_map['collection'].get('components') or []:
+        add_period_detail_provenance(item, '62')
+    for item in card_map['collection'].get('analytics') or []:
+        add_period_detail_provenance(item, '62')
     for item in card_map['cogs'].get('cost_movements') or []:
         add_period_detail_provenance(item, item.get('account'))
     for item in card_map['cogs'].get('recognized_costs') or []:
@@ -2184,18 +2328,22 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['capex']['balance_series'].append({
             'date': point_date, 'label': option['label'],
             'value': _top_balance(source, '08', month_end)[0]})
-        month_values['collection'] = None
-        month62 = _turnover_basis(
-            _movement_rows(source, '62', month_start, month_end))
-        month_debit = _known_sum(month62, 'obd') if month62 else None
-        month_credit = _known_sum(month62, 'obk') if month62 else None
-        month_turnover_ratio = (
-            round(month_credit / month_debit * 100, 2)
-            if month_debit not in (None, 0) and month_credit is not None else None)
+        month_collection = _collection_components(
+            source, month_start, month_end)
+        month_values['collection'] = month_collection['value']
+        month_components = {
+            item['label']: item['value']
+            for item in month_collection['components']
+        }
         card_map['collection']['turnover_series'].append({
             'date': point_date, 'label': option['label'],
-            'value': month_turnover_ratio,
-            'debit': month_debit, 'credit': month_credit})
+            'value': month_collection['value'],
+            'components': month_collection['components'],
+            'reason': month_collection['reason'],
+            'debit_6201': month_components.get('Дебетовый оборот 62.01'),
+            'credit_6201': month_components.get('Кредитовый оборот 62.01'),
+            'debit_6202': month_components.get('Дебетовый оборот 62.02'),
+            'credit_6202': month_components.get('Кредитовый оборот 62.02')})
         cash_month = _cash_snapshot(source, month_end)
         month_values['cash'] = cash_month['value']
         card_map['cash']['series'].append({

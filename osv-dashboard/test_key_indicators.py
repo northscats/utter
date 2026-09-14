@@ -517,11 +517,10 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         })
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['details'][0]['value'], 90)
-        self.assertEqual(card['turnover_ratio'], 90)
-        self.assertEqual(card['turnover_series'][-1]['value'], 90)
-        self.assertIsNone(card['turnover_series'][0]['value'])
-        self.assertIn('не собираемость', card['details'][0]['label'])
+        self.assertIsNone(card['details'][0]['value'])
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertIsNone(card['turnover_series'][-1]['value'])
+        self.assertIn('62.01', card['reason'])
 
     def test_collection_analytics_do_not_double_count_parent_rows(self):
         rows = [
@@ -531,8 +530,8 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({'62': account('62', rows)})
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['turnover_ratio'], 80)
-        self.assertEqual(len(card['analytics']), 1)
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertEqual(len(card['analytics']), 2)
         self.assertEqual(card['analytics'][0]['debit'], 100)
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
@@ -1367,11 +1366,10 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         })
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['details'][0]['value'], 90)
-        self.assertEqual(card['turnover_ratio'], 90)
-        self.assertEqual(card['turnover_series'][-1]['value'], 90)
-        self.assertIsNone(card['turnover_series'][0]['value'])
-        self.assertIn('не собираемость', card['details'][0]['label'])
+        self.assertIsNone(card['details'][0]['value'])
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertIsNone(card['turnover_series'][-1]['value'])
+        self.assertIn('62.01', card['reason'])
 
     def test_collection_analytics_do_not_double_count_parent_rows(self):
         rows = [
@@ -1381,8 +1379,8 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({'62': account('62', rows)})
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['turnover_ratio'], 80)
-        self.assertEqual(len(card['analytics']), 1)
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertEqual(len(card['analytics']), 2)
         self.assertEqual(card['analytics'][0]['debit'], 100)
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
@@ -1865,10 +1863,10 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         })
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['details'][0]['value'], 90)
-        self.assertEqual(card['turnover_ratio'], 90)
-        self.assertEqual(card['turnover_series'][-1]['value'], 90)
-        self.assertIn('не собираемость', card['details'][0]['label'])
+        self.assertIsNone(card['details'][0]['value'])
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertIsNone(card['turnover_series'][-1]['value'])
+        self.assertIn('62.01', card['reason'])
 
     def test_collection_analytics_do_not_double_count_parent_rows(self):
         rows = [
@@ -1878,8 +1876,8 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({'62': account('62', rows)})
         card = {x['id']: x for x in build_key_indicators(src)['cards']}['collection']
         self.assertIsNone(card['value'])
-        self.assertEqual(card['turnover_ratio'], 80)
-        self.assertEqual(len(card['analytics']), 1)
+        self.assertIsNone(card['turnover_ratio'])
+        self.assertEqual(len(card['analytics']), 2)
         self.assertEqual(card['analytics'][0]['debit'], 100)
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
@@ -2331,6 +2329,75 @@ class PeriodAggregateTests(unittest.TestCase):
             [point['value'] for point in revenue['series']], [10, 30])
         self.assertEqual(result['period']['series_kind'], 'month')
 
+    def test_collection_exact_report_keeps_terminal_same_code_analytic_leaf(self):
+        rows = [
+            dict(lvl=0, label='62.01', p0='62', p1='62.01',
+                 p2='', p3='', snd=0, snk=0, obd=60, obk=30,
+                 skd=0, skk=0),
+            dict(lvl=1, label='Покупатель', p0='62', p1='62.01',
+                 p2='Покупатель', p3='', snd=0, snk=0, obd=50, obk=25,
+                 skd=0, skk=0),
+            dict(lvl=2, label='Договор 1', p0='62', p1='62.01',
+                 p2='Покупатель', p3='Договор 1', snd=0, snk=0,
+                 obd=40, obk=20, skd=0, skk=0),
+            dict(lvl=0, label='62.02', p0='62', p1='62.02',
+                 p2='', p3='', snd=0, snk=0, obd=10, obk=20,
+                 skd=0, skk=0),
+        ]
+        raw = account(
+            '62', [day('2026-01-31', '62.01')],
+            period='за январь 2026 г.')
+        raw['balance_reports'] = [self._report(
+            'за январь 2026 г.', rows)]
+        cards = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': raw}), period='month',
+            date='2026-01-31')['cards']}
+        collection = cards['collection']
+        self.assertEqual(
+            [item['value'] for item in collection['components']],
+            [40, 20, 10, 20])
+        self.assertEqual(collection['value'], 75)
+        self.assertEqual(
+            collection['formula'],
+            '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%')
+
+    def test_collection_tiled_reports_keep_terminal_leaves_and_sum_components(self):
+        def collection_rows(debit_01, credit_01, debit_02, credit_02):
+            return [
+                dict(lvl=1, label='Покупатель', p0='62', p1='62.01',
+                     p2='Покупатель', p3='', snd=0, snk=0, obd=debit_01 + 5,
+                     obk=credit_01 + 5, skd=0, skk=0),
+                dict(lvl=2, label='Договор 1', p0='62', p1='62.01',
+                     p2='Покупатель', p3='Договор 1', snd=0, snk=0,
+                     obd=debit_01, obk=credit_01, skd=0, skk=0),
+                dict(lvl=1, label='62.02', p0='62', p1='62.02',
+                     p2='', p3='', snd=0, snk=0, obd=debit_02,
+                     obk=credit_02, skd=0, skk=0),
+            ]
+
+        raw = account('62', [
+            day('2026-01-31', '62.01'),
+            day('2026-02-28', '62.01'),
+        ], period='за январь 2026 г.')
+        raw['balance_reports'] = [
+            self._report('за январь 2026 г.',
+                         collection_rows(40, 20, 10, 20)),
+            self._report('за февраль 2026 г.',
+                         collection_rows(60, 30, 20, 40)),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'62': raw}), period='month',
+            date='2026-02-28', date_from='2026-01-31')
+        collection = {item['id']: item for item in result['cards']}[
+            'collection']
+        self.assertEqual(
+            [item['value'] for item in collection['components']],
+            [100, 50, 30, 60])
+        self.assertEqual(collection['value'], 80)
+        self.assertEqual(
+            [point['value'] for point in collection['turnover_series']],
+            [75, 83.33])
+
     def test_exact_report_rows_are_used_for_ar_and_ap_balances(self):
         row62 = dict(lvl=1, label='62.01', p0='62', p1='62.01',
                      p2='', p3='', snd=0, snk=0, obd=0, obk=0,
@@ -2481,3 +2548,77 @@ class PeriodAggregateTests(unittest.TestCase):
         movement = next(item for item in cards['cogs']['cost_movements']
                         if item['account'] == '20')
         self.assertEqual(movement['provenance'], 'period_aggregate')
+
+    def test_collection_proxy_uses_the_four_explicit_components(self):
+        rows = [
+            day('2026-01-31', '62.01', obd=100, obk=50),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}))['cards']}[
+                'collection']
+        self.assertEqual(card['value'], 60)
+        self.assertEqual(
+            card['formula'],
+            '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%')
+        self.assertEqual(
+            [item['value'] for item in card['components']],
+            [100, 50, 10, 20])
+
+    def test_collection_proxy_missing_6202_is_not_zero(self):
+        rows = [day('2026-01-31', '62.01', obd=100, obk=50)]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}))['cards']}[
+                'collection']
+        self.assertIsNone(card['value'])
+        self.assertIn('62.02', card['reason'])
+        self.assertIsNone(card['turnover_series'][-1]['value'])
+
+    def test_collection_proxy_does_not_substitute_root_62(self):
+        rows = [day('2026-01-31', '62', obd=100, obk=90)]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}))['cards']}[
+                'collection']
+        self.assertIsNone(card['value'])
+        self.assertTrue(all(item['value'] is None for item in card['components']))
+
+    def test_collection_proxy_rejects_zero_6201_debit(self):
+        rows = [
+            day('2026-01-31', '62.01', obd=0, obk=50),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}))['cards']}[
+                'collection']
+        self.assertIsNone(card['value'])
+        self.assertIn('нулю', card['reason'])
+
+    def test_collection_proxy_deduplicates_subaccount_parent_and_leaf(self):
+        rows = [
+            day('2026-01-31', '62.01', obd=100, obk=50),
+            day('2026-01-31', '62.01.1', obd=40, obk=20),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}))['cards']}[
+                'collection']
+        self.assertEqual(card['value'], 75)
+        self.assertEqual(
+            {item['label']: item['value'] for item in card['components']},
+            {'Дебетовый оборот 62.01': 40,
+             'Кредитовый оборот 62.01': 20,
+             'Дебетовый оборот 62.02': 10,
+             'Кредитовый оборот 62.02': 20})
+
+    def test_collection_proxy_daily_gap_is_null_not_zero(self):
+        rows = [
+            day('2026-01-30', '62.01', obd=100, obk=50),
+            day('2026-01-30', '62.02', obd=10, obk=20),
+            day('2026-01-31', '62.01', obd=100, obk=50),
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}),
+            period='day', date='2026-01-31',
+            date_from='2026-01-30')['cards']}['collection']
+        self.assertEqual([item['value'] for item in card['turnover_series']],
+                         [60, None])

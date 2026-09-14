@@ -1428,9 +1428,9 @@
                     required: 'Для плана-факта нужны утверждённый план выручки, тарифы и аналитика 90.01/90.03 по видам услуг и объектам.'
                 },
                 collection: {
-                    description: 'Доля начислений, фактически погашенных потребителями.',
-                    detail: 'Простое отношение кредитового и дебетового оборота счёта 62 не является собираемостью: ОСВ не связывает конкретную оплату с начислением.',
-                    required: 'Регистр начислений и распределённых оплат из 1С: предприятие, потребитель, категория потребителя, договор, лицевой счёт, услуга, расчётный период, документ и дата начисления, сумма начисления, документ и дата оплаты, сумма оплаты, распределение платежа по начислениям, погашенная сумма, аванс и его зачёт, корректировка, сторно и возврат.'
+                    description: 'Бухгалтерский прокси собираемости по явным оборотам 62.01 и 62.02.',
+                    detail: 'ОСВ не связывает платёж с конкретным начислением. Поэтому это расчётный показатель по субсчетам, а не подтверждённая сумма распределённых оплат.',
+                    required: 'Нужны явные обороты ОбД и ОбК по 62.01 и 62.02 за полный выбранный период. Для самостоятельной проверки фактических оплат дополнительно нужны регистр начислений, платежей и их распределения.'
                 },
                 ar: {
                     description: 'Подтверждённая дебиторская задолженность покупателей по субсчёту 62.01.',
@@ -1901,7 +1901,8 @@
 
         collectionRequirements() {
             return {
-                fact: 'Регистр начислений и распределённых оплат из 1С: предприятие, потребитель, категория потребителя, договор, лицевой счёт, услуга, расчётный период, документ и дата начисления, сумма начисления, документ и дата оплаты, сумма оплаты, распределение платежа по начислениям, погашенная сумма, аванс и его зачёт, корректировка, сторно и возврат.',
+                fact: 'ОСВ с явными дебетовыми и кредитовыми оборотами 62.01 и 62.02 за выбранный период; отсутствие любого из четырёх компонентов означает Н/Д.',
+                linked: 'Для подтверждённой собираемости нужны регистр начислений и оплат, документы платежей и их распределение по начислениям. ОСВ этого связывания не содержит.',
                 plan: 'Утверждённый план собираемости из 1С или системы бюджетирования: предприятие, сегмент потребителей, месяц, плановый процент, версия плана, дата утверждения, ответственное лицо и период действия.',
                 previousYear: 'Те же регистры начислений и распределённых оплат за полный аналогичный период прошлого года, рассчитанные по тем же сегментам, услугам и правилам учёта авансов, корректировок и сторно.',
                 segments: 'Справочник соответствия аналитик счёта 62 категориям потребителей: контрагент, договор, лицевой счёт, вид договора, категория «Население / УК-ТСЖ / Бюджет / Прочие юрлица / Субсидии», дата начала и окончания действия категории.',
@@ -1912,16 +1913,16 @@
         collectionTooltip(overrides = {}) {
             const required = this.collectionRequirements();
             return Object.assign({
-                title: 'Фактический уровень собираемости',
-                description: 'Доля начислений выбранного расчётного периода, погашенная распределёнными платежами.',
-                formula: 'Собираемость = Оплаты, распределённые на начисления периода / Начисления периода после корректировок × 100%',
-                detail: 'Дебетовый и кредитовый обороты счёта 62 не связывают платёж с начислением и поэтому сами по себе не являются собираемостью.',
+                title: 'Собираемость по ОСВ (бухгалтерский прокси)',
+                description: 'Показатель по четырём явным компонентам оборотов 62.01 и 62.02.',
+                formula: '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
+                detail: 'Все четыре компонента обязательны, а ОбД(62.01) не должен быть нулевым. Это не заменяет подтверждённые оплаты, распределённые по начислениям.',
                 required: required.fact,
-                norm: 'План или норматив предприятия не загружен',
+                norm: 'Норматив не применяется к бухгалтерскому прокси',
                 fact: 'Н/Д',
-                deviation: 'Расчёт невозможен по одной ОСВ',
+                deviation: 'Недостаточно явных оборотов 62.01/62.02',
                 deviationClass: 'missing',
-                source: 'требуется регистр начислений и распределённых оплат из 1С'
+                source: 'явные обороты ОСВ 62.01 и 62.02'
             }, overrides);
         },
 
@@ -1942,21 +1943,32 @@
             const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');
             const arRevenueRatio = arCard.value !== null && arCard.value !== undefined &&
                 revenueIsNet ? arCard.value / revenueCard.value * 100 : null;
-            const turnover = card.turnover_ratio;
+            const turnover = card.value;
+            const components = card.components || card.collection_components || [];
             const rub = value => value === null || value === undefined
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
                 ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
 
-            const factTip = this.collectionTooltip();
+            const factTip = this.collectionTooltip({
+                fact: pct(turnover),
+                required: turnover === null || turnover === undefined
+                    ? required.fact : null,
+                deviation: turnover === null || turnover === undefined
+                    ? (card.reason || 'Н/Д') : 'Рассчитано по четырём явным компонентам ОСВ',
+                deviationClass: turnover === null || turnover === undefined ? 'missing' : 'neutral',
+                source: card.source
+            });
             const turnoverTip = this.collectionTooltip({
-                title: 'Соотношение оборотов счёта 62 — не собираемость',
-                description: 'Справочное отношение кредитового оборота расчётов с покупателями к дебетовому обороту.',
-                formula: 'Оборотный коэффициент = ОбК(62) / ОбД(62) × 100%',
-                detail: 'ОбК может включать оплату старого долга, авансы, зачёты и сторно; ОбД — корректировки и иные операции. Значение не оценивается по нормативу собираемости.',
-                required: null, norm: 'Не применяется', fact: pct(turnover),
-                deviation: 'Справочный бухгалтерский индикатор', deviationClass: 'neutral',
-                source: 'обороты загруженной ОСВ счёта 62'
+                title: 'Компоненты собираемости по ОСВ',
+                description: 'Проверка четырёх обязательных оборотов явных субсчетов.',
+                formula: card.formula,
+                detail: 'Корень 62 и отсутствующие компоненты не заменяют явные 62.01/62.02.',
+                required: required.fact, norm: 'Не применяется', fact: pct(turnover),
+                deviation: turnover === null || turnover === undefined
+                    ? (card.reason || 'Н/Д') : 'Компоненты известны',
+                deviationClass: turnover === null || turnover === undefined ? 'missing' : 'neutral',
+                source: card.source
             });
             const arChangeTip = this.collectionTooltip({
                 title: 'Изменение дебиторской задолженности',
@@ -1982,37 +1994,37 @@
                 source: 'ОСВ 62.01, 90.01 и 90.03'
             });
 
-            const analytics = card.analytics || [];
+            const analytics = components.length ? components : (card.analytics || []);
             const analyticRows = analytics.length ? analytics.map(row => {
-                const analyticBase = `Аналитика 1С: ${row.label}.`;
+                const analyticBase = `${row.label}.`;
                 const debitTip = this.collectionTooltip({
                     title: `Дебетовый оборот 62 — ${row.label}`,
-                    description: 'Бухгалтерский дебетовый оборот выбранной аналитики счёта 62.',
-                    formula: 'Σ ОбД(62) по аналитике и выбранному периоду',
+                    description: `Явный дебетовый оборот субсчёта ${row.account || '62'}.`,
+                    formula: `ОбД(${row.account || '62'})`,
                     detail: `${analyticBase} Оборот может включать начисления, корректировки и другие операции.`,
                     required: null, norm: 'Не применяется', fact: rub(row.debit),
                     deviation: 'Факт ОСВ, не подтверждённые начисления', deviationClass: 'neutral',
-                    source: 'ОСВ счёта 62'
+                    source: `ОСВ ${row.account || '62'}`
                 });
                 const creditTip = this.collectionTooltip({
                     title: `Кредитовый оборот 62 — ${row.label}`,
-                    description: 'Бухгалтерский кредитовый оборот выбранной аналитики счёта 62.',
-                    formula: 'Σ ОбК(62) по аналитике и выбранному периоду',
+                    description: `Явный кредитовый оборот субсчёта ${row.account || '62'}.`,
+                    formula: `ОбК(${row.account || '62'})`,
                     detail: `${analyticBase} Оборот может включать оплаты, зачёты, авансы, корректировки и сторно.`,
                     required: null, norm: 'Не применяется', fact: rub(row.credit),
                     deviation: 'Факт ОСВ, не подтверждённые оплаты', deviationClass: 'neutral',
-                    source: 'ОСВ счёта 62'
+                    source: `ОСВ ${row.account || '62'}`
                 });
                 const rowTurnoverTip = this.collectionTooltip({
-                    title: `Соотношение оборотов — ${row.label}`,
-                    description: 'Справочное соотношение оборотов выбранной аналитики, не фактическая собираемость.',
-                    formula: 'ОбК(62, аналитика) / ОбД(62, аналитика) × 100%',
+                    title: `Компонент — ${row.label}`,
+                    description: 'Компонент строгого расчёта собираемости по ОСВ.',
+                    formula: `ОбД/ОбК(${row.account || '62'})`,
                     detail: analyticBase,
-                    required: `${required.fact} ${required.segments}`,
-                    norm: 'Норматив собираемости неприменим', fact: pct(row.turnover_ratio),
-                    deviation: row.turnover_ratio === null ? 'Нет ненулевой базы ОбД' : 'Справочный индикатор',
-                    deviationClass: row.turnover_ratio === null ? 'missing' : 'neutral',
-                    source: 'аналитические обороты ОСВ счёта 62'
+                    required: required.fact,
+                    norm: 'Норматив не применяется', fact: rub(row.value),
+                    deviation: row.value === null ? 'Компонент Н/Д' : 'Компонент известен',
+                    deviationClass: row.value === null ? 'missing' : 'neutral',
+                    source: `ОСВ ${row.account || '62'}`
                 });
                 const segmentFactTip = this.collectionTooltip({
                     title: `Фактическая собираемость — ${row.label}`,
@@ -2055,9 +2067,9 @@
                         required: required.segments, norm: 'Не применяется', fact: 'Есть в ОСВ',
                         deviation: 'Категория потребителя не подтверждена', deviationClass: 'missing', source: 'ОСВ счёта 62'
                     }))}
-                    ${this.collectionCell(esc(rub(row.debit)), debitTip)}
-                    ${this.collectionCell(esc(rub(row.credit)), creditTip)}
-                    ${this.collectionCell(esc(pct(row.turnover_ratio)), rowTurnoverTip)}
+                    ${this.collectionCell(esc(rub(row.side === 'debit' ? row.value : row.debit)), debitTip)}
+                    ${this.collectionCell(esc(rub(row.side === 'credit' ? row.value : row.credit)), creditTip)}
+                    ${this.collectionCell(esc(row.side ? (row.side === 'debit' ? 'Знаменатель' : 'Числитель') : pct(row.turnover_ratio)), rowTurnoverTip)}
                     ${this.collectionCell('Нужны данные', segmentFactTip, 'cash-value-missing')}
                     ${this.collectionCell('Нужны данные', planTip, 'cash-value-missing')}
                     ${this.collectionCell('Нужны данные', planDeltaTip, 'cash-value-missing')}
@@ -2067,23 +2079,30 @@
             }).join('') : `<tr><td colspan="9" class="chart-empty">В ОСВ счёта 62 нет доступной аналитической детализации. ${esc(required.segments)}</td></tr>`;
 
             container.innerHTML = `
-                <div class="modal-info-banner"><strong>Фактическая собираемость не выводится из оборотов ОСВ.</strong>
-                    Отношение ОбК(62) / ОбД(62) показано отдельно как бухгалтерский индикатор и не сравнивается с нормативом 95%.</div>
+                <div class="modal-info-banner"><strong>Собираемость по ОСВ рассчитана как бухгалтерский прокси.</strong>
+                    Нужны все четыре явных компонента 62.01/62.02; корень 62 не подставляется, а связанные оплаты по начислениям ОСВ не подтверждает.</div>
                 <div class="modal-summary collection-summary">
-                    ${this.cashMetricCard('Фактическая собираемость', 'Нужны данные', 'распределённые оплаты / начисления', factTip, true)}
-                    ${this.cashMetricCard('Соотношение оборотов 62', pct(turnover), 'справочно, не собираемость', turnoverTip, turnover === null)}
+                    ${this.cashMetricCard('Собираемость по ОСВ', pct(turnover), 'бухгалтерский прокси', factTip, turnover === null)}
+                    ${this.cashMetricCard('Связанные оплаты', 'Н/Д', 'нужен регистр распределения', this.collectionTooltip({
+                        title: 'Оплаты, связанные с начислениями',
+                        description: 'Самостоятельная метрика по платежным документам и регистру начислений.',
+                        formula: 'Распределённые оплаты / начисления × 100%',
+                        detail: required.linked,
+                        required: required.linked,
+                        source: 'регистр начислений и платежей из 1С'
+                    }), true)}
                     ${this.cashMetricCard('Изменение ДЗ', arChange === null ? 'Нужны данные' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`, 'к предыдущему доступному месяцу', arChangeTip, arChange === null)}
                     ${this.cashMetricCard('ДЗ / Выручка', pct(arRevenueRatio), 'бухгалтерский индикатор', ratioTip, arRevenueRatio === null)}
                 </div>
-                <div class="modal-section-title">Доступная динамика по ОСВ</div>
+                <div class="modal-section-title">Динамика прокси по явным оборотам ОСВ</div>
                 <div class="collection-chart-grid">
-                    <div><div class="collection-chart-title">Соотношение оборотов 62, % — не собираемость</div><div class="modal-chart-wrap" id="ki-collection-turnover-chart"></div></div>
+                    <div><div class="collection-chart-title">Собираемость по ОСВ (прокси), %</div><div class="modal-chart-wrap" id="ki-collection-turnover-chart"></div></div>
                     <div><div class="collection-chart-title">Дебиторская задолженность 62.01, млн ₽</div><div class="modal-chart-wrap" id="ki-collection-ar-chart"></div></div>
                 </div>
-                <div class="modal-section-title">Детализация по фактическим аналитикам счёта 62</div>
-                <div class="revenue-classification-note">Строки не называются сегментами потребителей до загрузки справочника соответствия. Субсидии нельзя автоматически определять по счёту 76.</div>
+                <div class="modal-section-title">Обязательные компоненты расчёта</div>
+                <div class="revenue-classification-note">Показываются только явные субсчета 62.01 и 62.02; итоговый корень 62 не используется как замена.</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table">
-                    <thead><tr><th>Аналитика 1С</th><th>ОбД 62</th><th>ОбК 62</th><th>ОбК/ОбД</th><th>Факт сбора</th><th>План</th><th>Δ к плану</th><th>Δ к АПГ</th><th>Статус</th></tr></thead>
+                    <thead><tr><th>Компонент</th><th>ОбД</th><th>ОбК</th><th>Роль в формуле</th><th>Факт оплаты</th><th>План</th><th>Δ к плану</th><th>Δ к АПГ</th><th>Статус</th></tr></thead>
                     <tbody>${analyticRows}</tbody>
                 </table></div>
                 <div class="modal-section-title">Какие данные нужны для полного окна</div>
@@ -2095,12 +2114,12 @@
                 </div>`;
 
             this.scheduleChart('ki-collection-turnover-chart', () => {
-                this.renderBarChart(card.turnover_series || [], '%', 'ki-collection-turnover-chart', {
+                    this.renderBarChart(card.turnover_series || [], '%', 'ki-collection-turnover-chart', {
                     id: 'collection',
-                    title: 'Соотношение оборотов счёта 62',
-                    formula: 'ОбК(62) / ОбД(62) × 100%',
-                    source: 'дневные обороты ОСВ счёта 62',
-                    reason: 'Показатель не является фактической собираемостью'
+                        title: 'Собираемость по ОСВ (бухгалтерский прокси)',
+                        formula: card.formula,
+                        source: card.source,
+                        reason: card.reason || 'Все четыре компонента обязательны'
                 });
                 this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard);
             });

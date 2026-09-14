@@ -181,6 +181,12 @@ async function checkBootstrap(configuration) {
     company.dataset.indicators + '?embedded=1&mode=annual',
     company.dataset.indicators + '?mode=annual'
   ]);
+  assert.match(script, /\(ОбК\(62\.01\) \+ ОбК\(62\.02\) − ОбД\(62\.02\)\) \/ ОбД\(62\.01\)/,
+    'collection modal must show the strict ОСВ formula');
+  assert.match(script, /Собираемость по ОСВ \(бухгалтерский прокси\)/,
+    'collection UI must distinguish the accounting proxy from linked payments');
+  assert.match(script, /Корень 62 и отсутствующие компоненты не заменяют/,
+    'collection UI must not imply root 62 substitution');
   console.log('PASS: configuration scopes, loading/error cleanup, RUB scaling, zero/null, Escape dismissal');
   console.log('PASS: Основные показатели uses live screen; Анализ ОСВ preserves legacy dashboard');
 })().catch(error => { console.error(error); process.exitCode = 1; });
