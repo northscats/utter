@@ -176,3 +176,17 @@ mtime_ms = 1789116627456
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/fbccf249-bec2-474e-8032-c399007d1c9a/f9bdf622-07a4-48bd-a2f9-8cceb1f226ef"
 storage_version_token = "1789116648763471"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "PzW_wEv4vCuzp_8pxN8gq"
+uri = "file://exports/Itogi_audita.doc"
+type = "word_document"
+title = "Итоги аудита.doc"
+description = "Подробный отчёт на 13 страницах: источники предприятий, оценки метрик, рекомендации и возможности прогнозирования. Формат Word DOC."
+logical_id = "889620c1-278c-4ef1-a461-709207cd896b"
+content_hash = "sha256:dcc48e887040f324be73eaff76124a8aafea491d51d2535c03b20a861f170ff1"
+size = 126464
+mtime_ms = 1789368123954
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/889620c1-278c-4ef1-a461-709207cd896b/513a095e-8d56-41d4-9b92-b6aa093ad9f4"
+storage_version_token = "1789368132373724"
+content_type = "application/msword"
