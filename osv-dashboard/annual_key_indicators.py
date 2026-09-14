@@ -7,6 +7,7 @@ import math
 
 from database import HistoricalImport, HistoricalMetricValue, HistoricalYearVersion
 from historical_parser import canonical_metric_key
+from annual_source_passport import build_annual_source_passport
 
 
 def _key(label):
@@ -641,6 +642,14 @@ def build_annual_key_indicators(
             "period_label": _range_label(previous_from, previous_to),
             "complete": previous_complete,
         }
+    source_passport = build_annual_source_passport(
+        company,
+        versions=versions,
+        year_from=selected_from,
+        year_to=selected_to,
+        requested_year=requested_year,
+        cards=cards,
+    )
     return {
         "mode": "annual",
         "company": {"id": company.id, "name": company.name},
@@ -654,6 +663,7 @@ def build_annual_key_indicators(
         "previous_range": previous_range,
         "updated_at": _iso(latest_activation),
         "sources": sources, "cards": cards, "warnings": warnings,
+        "source_passport": source_passport,
         "methodology": list(METHODOLOGY),
     }
 

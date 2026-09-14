@@ -2467,7 +2467,7 @@ def _key_indicator_mappings(company_id):
 def _operational_key_indicators_payload(company, period, endpoint, date_from):
     """Calculate the one authoritative period payload used by both views."""
     from key_indicators import build_key_indicators
-    from key_indicators_service import load_company_source
+    from key_indicators_service import load_company_source, build_period_passport
 
     source, updated_at = load_company_source(company.id, UPLOADS)
     mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company.id)
@@ -2477,6 +2477,7 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         debtor_mappings=debtor_mappings)
     payload['company'] = {'id': company.id, 'name': company.name}
     payload['updated_at'] = updated_at
+    payload['source_passport'] = build_period_passport(source, payload)
     return payload
 
 

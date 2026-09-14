@@ -441,6 +441,10 @@
                 return;
             }
             state.mode = mode;
+            if (window.KI_SourcePassport &&
+                typeof window.KI_SourcePassport.setMode === 'function') {
+                window.KI_SourcePassport.setMode(mode);
+            }
 
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.mode === mode);
@@ -774,6 +778,12 @@
                         fallbackSelection = null) {
             this.invalidateAiReport('loading');
             this.showLoading();
+            if (window.KI_SourcePassport &&
+                typeof window.KI_SourcePassport.clear === 'function') {
+                // Never leave a previous company's or period's passport
+                // visible while the read-only source request is in flight.
+                window.KI_SourcePassport.clear('Загрузка данных');
+            }
             document.getElementById('ki-error').style.display = 'none';
             
             if (abortController) abortController.abort();
@@ -873,6 +883,10 @@
                     return;
                 }
                 this.invalidateAiReport('error', e.message);
+                if (window.KI_SourcePassport &&
+                    typeof window.KI_SourcePassport.clear === 'function') {
+                    window.KI_SourcePassport.clear(e.message);
+                }
                 document.getElementById('ki-error-text').textContent = e.message;
                 document.getElementById('ki-error').style.display = 'flex';
             } finally {
@@ -894,6 +908,10 @@
             this.renderObjectsTable();
             this.renderQuality();
             this.renderRecommendations();
+            if (window.KI_SourcePassport &&
+                typeof window.KI_SourcePassport.renderOperational === 'function') {
+                window.KI_SourcePassport.renderOperational(state.data);
+            }
         },
         
         renderPeriodSelector() {

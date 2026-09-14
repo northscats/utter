@@ -619,6 +619,10 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertEqual(len(payload['cards']), 10)
         self.assertTrue(all(card['value'] is None for card in payload['cards']))
         self.assertIsNone(payload['updated_at'])
+        passport = payload['source_passport']
+        self.assertEqual(passport['available_accounts'], [])
+        self.assertEqual(len(passport['cards']), len(payload['cards']))
+        self.assertTrue(all(card['reason'] for card in passport['cards']))
 
     def test_invalid_period_rejected_before_source_load(self):
         with patch.object(service, 'load_company_source') as loader:
