@@ -67,7 +67,8 @@ const template = fs.readFileSync(`${__dirname}/templates/key_indicators.html`, '
 assert.ok(template.indexOf('data-tab="recommendations"') < template.indexOf('data-tab="ai"'));
 assert.ok(template.indexOf('data-tab="ai"') < template.indexOf('data-tab="data"'));
 const home = fs.readFileSync(`${__dirname}/templates/home.html`, 'utf8');
-assert.equal(home.includes('data-nav="kpi"'), false);
+assert.equal(home.includes('data-nav="kpi"'), true);
+assert.match(home, /data-nav="kpi" onclick="setNavView\('kpi',this\)">\s*<span class="ico">[^<]*<\/span><span>Анализ ОСВ<\/span>/);
 const script = fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8');
 assert.equal(script.includes("document.querySelector('.tabs-bar').style.display = 'none'"), false);
 console.log('PASS: AI tab uses normalized period report, clears stale frame and supports annual state');
