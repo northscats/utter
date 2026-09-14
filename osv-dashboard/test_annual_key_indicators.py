@@ -85,6 +85,7 @@ class AnnualKeyIndicatorTests(unittest.TestCase):
             with client.session_transaction() as session:
                 session["_user_id"] = str(user_id)
                 session["_fresh"] = True
+                session["password_version"] = 1
         return client
 
     def _url(self, company=None, query=""):

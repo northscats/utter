@@ -37,6 +37,7 @@ nano .env
 |---|---|
 | `POSTGRES_PASSWORD` | Сложный пароль БД |
 | `SESSION_SECRET` | `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `INITIAL_ADMIN_PASSWORD` | Секретная фраза не менее 15 Unicode-символов (только для чистой БД) |
 
 Остальные значения можно оставить по умолчанию.
 
@@ -91,25 +92,9 @@ sudo systemctl reload apache2
 
 Откройте `https://домен.ru/osv/login`
 
-```
-Логин:  admin
-Пароль: admin123
-```
-
-**Сразу смените пароль** через интерфейс (Настройки → пользователи) или командой:
-
-```bash
-docker compose exec web python - <<'PY'
-import bcrypt
-from app import app, db
-from database import User
-with app.app_context():
-    u = User.query.filter_by(username='admin').first()
-    u.password_hash = bcrypt.hashpw(b'НовыйПароль', bcrypt.gensalt()).decode()
-    db.session.commit()
-    print('Готово')
-PY
-```
+Логин: **admin**. Пароль берётся из `INITIAL_ADMIN_PASSWORD` только при
+первом создании базы, не печатается приложением и не попадает в логи.
+После входа система требует задать новый пароль через страницу смены пароля.
 
 ---
 
@@ -151,6 +136,7 @@ sudo podman run -d \
   --network host \
   -e DATABASE_URL=postgresql://osv_user:<ПАРОЛЬ>@localhost:5433/osv_db \
   -e SESSION_SECRET=<СЕКРЕТ> \
+   -e INITIAL_ADMIN_PASSWORD=<СЕКРЕТНАЯ_ФРАЗА_НЕ_МЕНЕЕ_15_СИМВОЛОВ> \
   -e PORT=4545 \
   -e SCRIPT_NAME=/osv \
   -v uploads_data:/app/uploads \

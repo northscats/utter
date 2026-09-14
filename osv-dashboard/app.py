@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import calendar
+import hashlib
 from io import BytesIO
 from datetime import datetime, timedelta, timezone
 import re
@@ -16,7 +17,7 @@ import threading
 import bcrypt
 from flask import (Flask, Response, abort, flash, g, has_request_context, jsonify,
                    redirect, render_template, request, send_file, send_from_directory,
-                   url_for)
+                   session, url_for)
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
@@ -59,6 +60,7 @@ from metric_layouts import (
     RESERVED_DASHBOARD_IDS, LayoutValidationError, validate_layout_payload,
     validate_mode_metric,
 )
+from password_policy import validate_password
 
 # ---------------------------------------------------------------------------
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -180,13 +182,14 @@ def _schedule_durable_safety_backup(reason):
 
 
 def _durable_restore():
-    """Merge durable data after schema creation; never block application start."""
+    """Merge durable data after schema creation and report its status."""
     if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
-        return
+        return True
     from durable_data import restore
     try:
         result = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
         app.logger.info('durable restore completed: %s', result)
+        return True
     except Exception as exc:
         db.session.rollback()
         app.logger.exception('durable restore failed')
@@ -196,6 +199,7 @@ def _durable_restore():
         except Exception:
             db.session.rollback()
             app.logger.exception('could not record durable restore error')
+        return False
 
 # Тот же набор из 20 аналитических счетов используется для оценки
 # комплектности загрузок и для блока покрытия данными.
@@ -323,6 +327,40 @@ def _maybe_start_imap_thread():
     if request.endpoint in ('healthz', 'healthz_watchdog_recovery'):
         return None
     _ensure_imap_thread()
+
+
+@app.before_request
+def _enforce_password_lifecycle():
+    """Bind sessions to the password version and enforce forced changes."""
+    if request.endpoint == 'static' or request.path.startswith('/static/'):
+        return None
+    if not current_user.is_authenticated:
+        return None
+
+    current_version = int(current_user.password_version or 1)
+    session_version = session.get('password_version')
+    if session_version is None:
+        # Do not bless a session created before the version binding existed:
+        # it may be a stolen/restored cookie from before a password change.
+        logout_user()
+        flash('Сессия устарела. Войдите снова.')
+        return redirect(url_for('login'))
+    try:
+        version_matches = int(session_version) == current_version
+    except (TypeError, ValueError):
+        version_matches = False
+    if not version_matches:
+        logout_user()
+        flash('Пароль был изменён. Войдите снова.')
+        return redirect(url_for('login'))
+
+    if request.endpoint in ('login', 'logout', 'healthz',
+                            'healthz_watchdog_recovery'):
+        return None
+    if (current_user.password_change_required
+            and request.endpoint != 'password_change_required'):
+        return redirect(url_for('password_change_required'))
+
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
@@ -485,12 +523,57 @@ def _save_kpi_cache(dataset, out_dir):
 def _dataset_metrics_json(dataset):
     from builder import extract_kpis
     return json.dumps(extract_kpis(dataset)['metrics'], ensure_ascii=False)
+_PASSWORD_HASH_PREFIX = 'bcrypt-sha256$1$'
+
+
 def _hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    """Hash the complete UTF-8 password, including passwords over 72 bytes."""
+    digest = hashlib.sha256(plain.encode('utf-8')).digest()
+    return _PASSWORD_HASH_PREFIX + bcrypt.hashpw(
+        digest, bcrypt.gensalt()).decode('ascii')
 
 
 def _check_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    try:
+        if hashed.startswith(_PASSWORD_HASH_PREFIX):
+            hashed = hashed[len(_PASSWORD_HASH_PREFIX):]
+            candidate = hashlib.sha256(plain.encode('utf-8')).digest()
+        else:
+            # Existing accounts used raw bcrypt and remain verifiable.
+            candidate = plain.encode('utf-8')
+        return bcrypt.checkpw(candidate, hashed.encode())
+    except (ValueError, TypeError):
+        return False
+
+
+def _set_user_password(user, password: str, *, require_change: bool = False):
+    """Update password metadata atomically with the hash.
+
+    ``password_version`` is intentionally bumped for every change so sessions
+    established before an administrator reset cannot remain usable.
+    """
+    user.password_hash = _hash_password(password)
+    user.password_changed_at = utcnow()
+    user.password_change_required = bool(require_change)
+    user.password_version = (user.password_version or 0) + 1
+
+
+def _audit_in_transaction(action: str, details=None, user_id=None):
+    """Add a security audit row to the caller's transaction.
+
+    Password mutation callers commit only after this row has been added, so
+    the mutation and its audit record cannot silently diverge.
+    """
+    uid = user_id
+    if uid is None and current_user.is_authenticated:
+        uid = current_user.id
+    db.session.add(AuditLog(
+        user_id=uid,
+        action=action,
+        details=json.dumps(details, ensure_ascii=False, default=str)
+                if details is not None else None,
+        ip=request.remote_addr if has_request_context() else None,
+    ))
 
 
 def _company_summary(company):
@@ -1409,6 +1492,23 @@ def get_csrf_token():
 # ---------------------------------------------------------------------------
 # Маршруты авторизации
 # ---------------------------------------------------------------------------
+def _configured_login_hosts():
+    """Return explicitly configured browser origins, never proxy headers."""
+    hosts = {request.host.lower()}
+    for raw in (
+            os.environ.get('REPLIT_DOMAINS', ''),
+            os.environ.get('REPLIT_DEV_DOMAIN', ''),
+    ):
+        for item in raw.split(','):
+            value = item.strip()
+            if not value:
+                continue
+            parsed = urlparse(value if '://' in value else f'//{value}')
+            if parsed.netloc:
+                hosts.add(parsed.netloc.lower())
+    return hosts
+
+
 @app.route('/login', methods=['GET', 'POST'])
 @csrf.exempt
 def login():
@@ -1423,12 +1523,7 @@ def login():
     if request.method == 'POST':
         source = request.headers.get('Origin') or request.headers.get('Referer')
         source_host = urlparse(source).netloc.lower() if source else ''
-        allowed_hosts = {
-            request.host.lower(),
-            *(part.strip().lower() for part in
-              request.headers.get('X-Forwarded-Host', '').split(',')
-              if part.strip()),
-        }
+        allowed_hosts = _configured_login_hosts()
         if not source_host or source_host not in allowed_hosts:
             abort(403, description='Недопустимый источник запроса входа')
         try:
@@ -1443,7 +1538,10 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and _check_password(password, user.password_hash):
             login_user(user)
+            session['password_version'] = int(user.password_version or 1)
             log_event('login_ok', {'username': username})
+            if user.password_change_required:
+                return redirect(url_for('password_change_required'))
             return redirect(url_for('modules_dashboard'))
         log_event('login_fail', {'username': username})
         error = 'Неверный логин или пароль.'
@@ -1452,7 +1550,66 @@ def login():
         login_csrf_token=_LOGIN_CSRF.dumps('login'))
 
 
-@app.route('/logout')
+@app.route('/password/change-required', methods=['GET', 'POST'])
+@login_required
+def password_change_required():
+    """The only application page available to an account awaiting a change."""
+    user = current_user
+    error = None
+    if request.method == 'POST':
+        current = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        repeat = request.form.get('new_password_repeat', '')
+        if not _check_password(current, user.password_hash):
+            error = 'Текущий пароль указан неверно.'
+        elif new_password != repeat:
+            error = 'Новые пароли не совпадают.'
+        elif _check_password(new_password, user.password_hash):
+            error = 'Новый пароль должен отличаться от текущего.'
+        else:
+            error = validate_password(new_password, username=user.username)
+        if not error:
+            _set_user_password(user, new_password, require_change=False)
+            _audit_in_transaction('password_changed', {'reason': 'forced'})
+            db.session.commit()
+            session['password_version'] = int(user.password_version or 1)
+            return redirect(url_for('modules_dashboard'))
+    return render_template('password_change.html', error=error,
+                           forced=True, username=user.username)
+
+
+@app.route('/profile/password', methods=['GET', 'POST'])
+@login_required
+def profile_password():
+    """Voluntary self-service password change for already active users."""
+    if current_user.password_change_required:
+        return redirect(url_for('password_change_required'))
+    error = None
+    if request.method == 'POST':
+        current = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        repeat = request.form.get('new_password_repeat', '')
+        if not _check_password(current, current_user.password_hash):
+            error = 'Текущий пароль указан неверно.'
+        elif new_password != repeat:
+            error = 'Новые пароли не совпадают.'
+        elif _check_password(new_password, current_user.password_hash):
+            error = 'Новый пароль должен отличаться от текущего.'
+        else:
+            error = validate_password(new_password, username=current_user.username)
+        if not error:
+            _set_user_password(current_user, new_password)
+            _audit_in_transaction(
+                'password_changed', {'reason': 'self_service'})
+            db.session.commit()
+            session['password_version'] = int(current_user.password_version or 1)
+            flash('Пароль изменён.')
+            return redirect(url_for('modules_dashboard'))
+    return render_template('password_change.html', error=error,
+                           forced=False, username=current_user.username)
+
+
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     log_event('logout')
@@ -5180,16 +5337,26 @@ def users_list():
 @admin_required
 def users_create():
     username = request.form.get('username', '').strip()
-    password = request.form.get('password', '').strip()
+    # Never strip passwords: spaces, including leading/trailing spaces, are
+    # intentional password code points.
+    password = request.form.get('password', '')
+    password_repeat = request.form.get('password_repeat')
+    if password_repeat is None:
+        password_repeat = request.form.get(
+            'password_confirmation',
+            request.form.get('password_confirm', ''),
+        )
     role = request.form.get('role', 'user')
     if role not in ('admin', 'user'):
         role = 'user'
     error = None
     if not username:
         error = 'Укажите логин.'
-    elif len(password) < 4:
-        error = 'Пароль должен содержать не менее 4 символов.'
-    elif User.query.filter_by(username=username).first():
+    elif password != password_repeat:
+        error = 'Пароли не совпадают.'
+    else:
+        error = validate_password(password, username=username)
+    if not error and User.query.filter_by(username=username).first():
         error = f'Пользователь «{username}» уже существует.'
     if error:
         users = User.query.order_by(User.created_at.desc()).all()
@@ -5201,6 +5368,8 @@ def users_create():
         username=username,
         password_hash=_hash_password(password),
         role=role,
+        password_change_required=True,
+        password_version=1,
     )
     db.session.add(new_user)
     db.session.flush()
@@ -5222,8 +5391,10 @@ def users_create():
             participation_type='employee',
             is_primary=False,
         ))
+    _audit_in_transaction('user_created', {
+        'username': username, 'role': role, 'password_change_required': True,
+    })
     db.session.commit()
-    log_event('user_created', {'username': username, 'role': role})
     return redirect(url_for('users_list', created=username), code=303)
 
 
@@ -5242,11 +5413,30 @@ def users_delete(user_id):
 @admin_required
 def users_set_password(user_id):
     user = db.session.get(User, user_id)
-    password = request.form.get('password', '').strip()
-    if user and len(password) >= 4:
-        user.password_hash = _hash_password(password)
+    password = request.form.get('password', '')
+    password_repeat = request.form.get('password_repeat')
+    if password_repeat is None:
+        password_repeat = request.form.get(
+            'password_confirmation',
+            request.form.get('password_confirm', ''),
+        )
+    error = None
+    if not user:
+        error = 'Пользователь не найден.'
+    elif password != password_repeat:
+        error = 'Пароли не совпадают.'
+    elif _check_password(password, user.password_hash):
+        error = 'Новый пароль должен отличаться от текущего.'
+    else:
+        error = validate_password(password, username=user.username)
+    if not error:
+        _set_user_password(user, password, require_change=True)
+        _audit_in_transaction(
+            'user_password_changed', {'username': user.username},
+            user_id=current_user.id)
         db.session.commit()
-        log_event('user_password_changed', {'username': user.username})
+    else:
+        flash(error)
     return redirect(url_for('users_list'))
 
 
@@ -5317,6 +5507,63 @@ def users_set_companies(user_id):
 # ---------------------------------------------------------------------------
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
+def _ensure_user_password_columns():
+    """Install lifecycle columns before durable restore can query User rows."""
+    from sqlalchemy import inspect as _inspect_password, text as _text_password
+    inspector = _inspect_password(db.engine)
+    existing = {column['name'] for column in inspector.get_columns('users')}
+    columns = (
+        ('password_changed_at', "TIMESTAMP WITH TIME ZONE"),
+        ('password_change_required', "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ('password_version', "INTEGER NOT NULL DEFAULT 1"),
+    )
+    with db.engine.begin() as connection:
+        for name, definition in columns:
+            if name not in existing:
+                connection.execute(_text_password(
+                    f'ALTER TABLE users ADD COLUMN {name} {definition}'))
+        connection.execute(_text_password(
+            "UPDATE users SET password_version = 1 "
+            "WHERE password_version IS NULL OR password_version < 1"))
+        connection.execute(_text_password(
+            "UPDATE users SET password_change_required = FALSE "
+            "WHERE password_change_required IS NULL"))
+
+
+def _ensure_initial_admin_after_restore():
+    """Create the bootstrap account only after durable recovery has settled."""
+    if User.query.first():
+        return False
+    initial_password = os.environ.get('INITIAL_ADMIN_PASSWORD', '')
+    if not initial_password:
+        raise RuntimeError(
+            'No initial admin account was created. Set '
+            'INITIAL_ADMIN_PASSWORD (a compliant secret) before '
+            'starting a clean database.')
+    if validate_password(initial_password, username='admin'):
+        raise RuntimeError(
+            'INITIAL_ADMIN_PASSWORD does not satisfy the password policy')
+    admin = User(
+        username='admin',
+        password_hash=_hash_password(initial_password),
+        role='admin',
+        password_change_required=True,
+        password_version=1,
+    )
+    db.session.add(admin)
+    db.session.flush()
+    _audit_in_transaction(
+        'user_created',
+        {'username': 'admin', 'bootstrap': True,
+         'password_change_required': True},
+        user_id=admin.id)
+    db.session.commit()
+    app.logger.info(
+        'Created initial admin account from configured secret; '
+        'password change is required')
+    return True
+
+
 def init_db(perform_durable=True):
     """Prepare the database, optionally including slow App Storage recovery.
 
@@ -5326,10 +5573,12 @@ def init_db(perform_durable=True):
     """
     with app.app_context():
         db.create_all()
-        # Safe merge recovery precedes hand-written migrations. Existing rows
-        # always win; only missing protected data and files are restored.
-        if perform_durable:
-            _durable_restore()
+        # User is part of the durable restore set; make its additive columns
+        # available before restore queries the model on an old database.
+        _ensure_user_password_columns()
+        # Миграции must complete before durable restore so restored rows are
+        # read with the current schema. Bootstrap is deliberately later still:
+        # a restored original user always wins over an initial admin.
         # Миграция: новые колонки парсера документов и ИИ-провайдера.
         # Диалектобезопасно: колонки добавляются только если их нет
         # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
@@ -5359,6 +5608,19 @@ def init_db(perform_durable=True):
                         f'ALTER TABLE {table} ADD COLUMN {_col} {_def}'))
                     app.logger.info('migration: %s.%s added', table, _col)
                 _cd.commit()
+
+        _add_missing('users', [
+            ('password_changed_at', "TIMESTAMP WITH TIME ZONE"),
+            ('password_change_required', "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ('password_version', "INTEGER NOT NULL DEFAULT 1"),
+        ])
+        with db.engine.begin() as _user_password_conn:
+            _user_password_conn.execute(_text_docs(
+                "UPDATE users SET password_version = 1 "
+                "WHERE password_version IS NULL OR password_version < 1"))
+            _user_password_conn.execute(_text_docs(
+                "UPDATE users SET password_change_required = FALSE "
+                "WHERE password_change_required IS NULL"))
 
         _add_missing('ai_providers', [
             ('is_local', "BOOLEAN NOT NULL DEFAULT FALSE"),
@@ -5633,30 +5895,35 @@ def init_db(perform_durable=True):
                 _conn3.commit()
         except Exception:
             pass
-        # Создаём admin, если пользователей нет
-        if not User.query.first():
-            admin = User(
-                username='admin',
-                password_hash=_hash_password('admin123'),
-                role='admin',
-            )
-            db.session.add(admin)
-            db.session.commit()
-            print('Создан пользователь admin / admin123 — смените пароль!')
-        if perform_durable:
-            _finish_durable_startup()
+        if not perform_durable:
+            # Gunicorn completes recovery and bootstrap in its background
+            # startup phase after this schema-only step.
+            app.config['DURABLE_STARTUP_READY'] = False
+            return
+        if not _durable_restore():
+            app.config['DURABLE_STARTUP_READY'] = False
+            raise RuntimeError(
+                'Durable restore failed; bootstrap was not attempted')
+        _ensure_initial_admin_after_restore()
+        _finish_durable_startup()
+        app.config['DURABLE_STARTUP_READY'] = True
 
 
 def _finish_durable_startup(restore=False):
-    """Complete slow durable maintenance after the app can answer HTTP."""
+    """Complete restore, bootstrap, and backup after schema readiness."""
     with app.app_context():
         if restore:
-            _durable_restore()
+            if not _durable_restore():
+                app.config['DURABLE_STARTUP_READY'] = False
+                raise RuntimeError(
+                    'Durable restore failed; bootstrap was not attempted')
+            _ensure_initial_admin_after_restore()
         if not app.config.get('TESTING'):
             from durable_data import has_snapshot
             _durable_backup(
                 'первичный снимок после запуска',
                 required=not has_snapshot())
+        app.config['DURABLE_STARTUP_READY'] = True
 
 
 def _dataset_closure_status(dataset):

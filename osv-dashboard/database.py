@@ -73,6 +73,11 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.Text, nullable=False)
     role = db.Column(db.String(20), nullable=False, default='user')  # 'admin' | 'user'
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Additive password lifecycle fields.  Existing accounts remain usable
+    # until an administrator explicitly requires a change.
+    password_changed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    password_change_required = db.Column(db.Boolean, nullable=False, default=False)
+    password_version = db.Column(db.Integer, nullable=False, default=1)
 
     @property
     def is_admin(self):

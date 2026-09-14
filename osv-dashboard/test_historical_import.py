@@ -13,6 +13,7 @@ from openpyxl import Workbook
 
 _TMP = tempfile.mkdtemp(prefix="historical_import_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/test.db"
+os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "test-admin-passphrase-2026")
 os.environ["ENCRYPTION_KEY"] = (
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +46,7 @@ def login_as(client, user_id):
     with client.session_transaction() as session:
         session["_user_id"] = str(user_id)
         session["_fresh"] = True
+        session["password_version"] = 1
 
 
 check("служебный тип text не отображается как единица измерения",

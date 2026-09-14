@@ -14,6 +14,7 @@ import zipfile
 
 _TMP = tempfile.mkdtemp(prefix='docs_api_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_TMP}/test.db'
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,6 +39,7 @@ with app.app_context():
 with client.session_transaction() as s:
     s['_user_id'] = str(admin_id)
     s['_fresh'] = True
+    s['password_version'] = 1
 
 def check(name, cond, extra=''):
     print(('PASS' if cond else 'FAIL'), name, extra)

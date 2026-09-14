@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 _TMP = tempfile.mkdtemp(prefix='one_c_integration_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 os.environ['ENCRYPTION_KEY'] = (
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 os.environ.pop('REPLIT_DEPLOYMENT', None)
@@ -92,6 +93,7 @@ class OneCIntegrationTest(unittest.TestCase):
         with client.session_transaction() as session:
             session['_user_id'] = str(user_id)
             session['_fresh'] = True
+            session['password_version'] = 1
 
     def csrf(self, client):
         page = client.get('/settings', base_url='https://localhost')

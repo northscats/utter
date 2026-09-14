@@ -148,6 +148,7 @@ class DashboardLegacyRouteTests(unittest.TestCase):
         with client.session_transaction() as session:
             session['_user_id'] = str(self.admin_id)
             session['_fresh'] = True
+            session['password_version'] = 1
         return client
 
     def test_authenticated_route_upgrades_response_without_writing_file(self):

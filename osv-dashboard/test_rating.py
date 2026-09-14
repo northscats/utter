@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 TMP = tempfile.mkdtemp(prefix='rating_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{TMP}/rating.db'
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 os.environ.setdefault(
     'ENCRYPTION_KEY',
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
@@ -34,6 +35,7 @@ def login_as(client, user_id):
     with client.session_transaction() as session:
         session['_user_id'] = str(user_id)
         session['_fresh'] = True
+        session['password_version'] = 1
 
 
 check('нижняя граница нормы включительна',

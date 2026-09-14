@@ -11,6 +11,7 @@ os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
 os.environ.setdefault(
     'ENCRYPTION_KEY',
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app as app_module
@@ -58,6 +59,7 @@ client = app.test_client()
 with client.session_transaction() as session:
     session['_user_id'] = str(admin_id)
     session['_fresh'] = True
+    session['password_version'] = 1
 
 page = client.get(f'/company/{company_id}').get_data(as_text=True)
 stale_token = re.search(

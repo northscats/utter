@@ -9,9 +9,12 @@ import time
 
 _TMP = tempfile.mkdtemp(prefix='module_access_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 os.environ.setdefault(
     'ENCRYPTION_KEY',
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
+os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app as app_module
@@ -27,6 +30,7 @@ def login_as(client, user):
     with client.session_transaction() as session:
         session['_user_id'] = str(user.id)
         session['_fresh'] = True
+        session['password_version'] = int(user.password_version or 1)
 
 
 def check(label, condition, detail=''):
@@ -74,7 +78,7 @@ login_page = client.get('/login').get_data(as_text=True)
 login_token = re.search(
     r'name="login_csrf_token" value="([^"]+)"', login_page).group(1)
 cross_origin = client.post('/login', data={
-    'username': 'admin', 'password': 'admin123',
+    'username': 'admin', 'password': 'test-admin-passphrase-2026',
     'login_csrf_token': login_token,
 }, headers={
     'Origin': 'https://evil.example',
@@ -82,17 +86,36 @@ cross_origin = client.post('/login', data={
 })
 check('чужой Origin не может выполнить login-CSRF',
       cross_origin.status_code == 403)
+# Fetch a fresh stateless login token for the real same-origin attempt.
+login_page = client.get('/login')
+login_token = re.search(
+    r'name="login_csrf_token" value="([^"]+)"', login_page.get_data(as_text=True)
+).group(1)
 r = client.post('/login', data={
-    'username': 'admin', 'password': 'admin123',
+    'username': 'admin', 'password': 'test-admin-passphrase-2026',
     'login_csrf_token': login_token,
-}, headers={
-    'Origin': 'https://preview.example',
-    'X-Forwarded-Host': 'preview.example',
-})
+}, base_url='https://preview.example',
+   headers={'Origin': 'https://preview.example'})
+if r.status_code == 302 and r.headers['Location'].endswith('/password/change-required'):
+    forced_page = client.get(r.headers['Location'],
+                             base_url='https://preview.example')
+    forced_token = re.search(
+        r'name="csrf_token" value="([^"]+)"',
+        forced_page.get_data(as_text=True)).group(1)
+    r = client.post('/password/change-required',
+                    base_url='https://preview.example', data={
+        'csrf_token': forced_token,
+        'current_password': 'test-admin-passphrase-2026',
+        'new_password': 'test-admin-passphrase-updated-2026',
+        'new_password_repeat': 'test-admin-passphrase-updated-2026',
+    }, headers={
+        'Referer': 'https://preview.example/password/change-required',
+    })
 check('успешный вход ведёт в каталог модулей',
-      r.status_code == 302 and r.headers['Location'].endswith('/modules'))
+      r.status_code == 302 and r.headers['Location'].endswith('/modules'),
+      '')
 app.config['WTF_CSRF_ENABLED'] = False
-r = client.get('/')
+r = client.get('/', base_url='https://preview.example')
 check('повторное открытие ведёт в каталог модулей',
       r.status_code == 302 and r.headers['Location'].endswith('/modules'))
 
@@ -141,7 +164,8 @@ app.config['DURABLE_BACKUP_ASYNC_TEST'] = True
 started_at = time.monotonic()
 r = client.post('/users/create', data={
     'username': 'created-with-company',
-    'password': 'pass1234',
+    'password': 'created-user-passphrase-2026',
+    'password_repeat': 'created-user-passphrase-2026',
     'role': 'user',
     'modules': ['documents'],
     'companies': [str(company_id)],
@@ -178,7 +202,8 @@ check('после создания показывается подтвержде
 # Ошибка создания снова открывает модальное окно и не теряет логин.
 r = client.post('/users/create', data={
     'username': 'created-with-company',
-    'password': 'pass1234',
+    'password': 'created-user-passphrase-2026',
+    'password_repeat': 'created-user-passphrase-2026',
     'role': 'user',
 })
 error_body = r.get_data(as_text=True)

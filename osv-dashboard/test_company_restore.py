@@ -22,6 +22,7 @@ _TMP = tempfile.mkdtemp(prefix='company_restore_test_')
 _STORAGE = os.path.join(_TMP, 'storage')
 os.makedirs(_STORAGE, exist_ok=True)
 os.environ['DATABASE_URL'] = f"sqlite:///{os.path.join(_TMP, 'test.db')}"
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 os.environ['ENCRYPTION_KEY'] = (
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 os.environ.pop('DURABLE_BACKUP_DIR', None)
@@ -99,6 +100,7 @@ def login_as(client, user_id):
     with client.session_transaction() as session:
         session['_user_id'] = str(user_id)
         session['_fresh'] = True
+        session['password_version'] = 1
 
 
 def company_counts(company_id):

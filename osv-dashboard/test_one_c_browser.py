@@ -53,6 +53,7 @@ def main():
         with fixture_client.session_transaction() as session:
             session['_user_id'] = str(user_id)
             session['_fresh'] = True
+            session['password_version'] = 1
         session_value = fixture_client.get_cookie('session').value
         with sync_playwright() as pw:
             browser = pw.chromium.launch(executable_path=shutil.which('chromium'),

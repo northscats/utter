@@ -76,6 +76,7 @@ cd /opt/osv-dashboard
 sudo -u www-data env \
     DATABASE_URL="postgresql://осв_user:ПАРОЛЬ@localhost:5432/осв_db" \
     SESSION_SECRET="любая-длинная-строка" \
+    INITIAL_ADMIN_PASSWORD="секретная фраза не менее 15 Unicode-символов" \
     SCRIPT_NAME="/osv" \
     venv/bin/python - <<'PY'
 from app import app, db, init_db
@@ -85,7 +86,9 @@ with app.app_context():
 PY
 ```
 
-После этой команды будет создан пользователь **admin / admin123** — смените пароль сразу.
+В чистой базе будет создан пользователь **admin** с заданным
+`INITIAL_ADMIN_PASSWORD`. Вход сразу переводится на обязательную смену
+пароля; секрет не выводится приложением и не записывается в журнал.
 
 ---
 
@@ -129,21 +132,10 @@ sudo systemctl reload nginx
 
 ## 9. Смена пароля admin
 
-Войдите в psql и обновите хэш:
-
-```bash
-cd /opt/osv-dashboard
-sudo -u www-data env DATABASE_URL="..." venv/bin/python - <<'PY'
-import bcrypt
-from app import app, db
-from database import User
-with app.app_context():
-    u = User.query.filter_by(username='admin').first()
-    u.password_hash = bcrypt.hashpw(b'НовыйПароль', bcrypt.gensalt()).decode()
-    db.session.commit()
-    print('Готово')
-PY
-```
+Для существующей учётной записи используйте страницу «Сменить пароль».
+Администраторский сброс на странице «Пользователи» помечает пароль как
+временный и также требует смену при следующем входе. Не записывайте пароль
+или его хэш в команды shell/history.
 
 ---
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 _TMP = tempfile.mkdtemp(prefix="durable_data_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/test.db"
+os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "test-admin-passphrase-2026")
 os.environ["DURABLE_BACKUP_DIR"] = f"{_TMP}/backup"
 os.environ["ENCRYPTION_KEY"] = (
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")

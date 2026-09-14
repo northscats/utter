@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import zipfile
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -113,6 +114,7 @@ with app.app_context():
 with client.session_transaction() as s:
     s['_user_id'] = str(admin_id)
     s['_fresh'] = True
+    s['password_version'] = 1
 
 def check(name, cond, extra=''):
     print(('PASS' if cond else 'FAIL'), name, extra)

@@ -19,8 +19,12 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
 </style>
 </head><body>
 <header class="hd"><div class="logo">УТ</div><div class="brand">ГИС УЗТЭР</div><span class="user">{{ current_user.username }}</span>
+<a class="out" href="{{ url_for('profile_password') }}">Сменить пароль</a>
 {% if current_user.is_admin %}<a class="out" href="{{ url_for('users_list') }}">Управление</a>{% endif %}
-<a class="out" href="{{ url_for('logout') }}">Выйти</a></header>
+<form method="post" action="{{ url_for('logout') }}" style="display:inline;margin-left:12px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button class="out" type="submit" style="background:none;border:0;font:650 15px 'Segoe UI';cursor:pointer">Выйти</button>
+</form></header>
 <main>{% block content %}<div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
 <p class="lead">Доступны только разделы, назначенные вашей учётной записи.</p>
 {% if modules %}<div class="grid">{% for module in modules %}
@@ -33,5 +37,5 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
 {% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M4 7v14h11"/></svg>{% endif %}
 </div><h2>{{ module.name }}</h2><p>{{ module.description }}</p><span class="go">Открыть модуль →</span></a>
 {% endfor %}</div>{% else %}
-<div class="empty"><h2>Нет доступных модулей</h2><p>Администратор ещё не назначил вам доступ. Обратитесь к администратору системы или выйдите из учётной записи.</p><a class="btn" href="{{ url_for('logout') }}">Выйти из системы</a></div>
+<div class="empty"><h2>Нет доступных модулей</h2><p>Администратор ещё не назначил вам доступ. Обратитесь к администратору системы или выйдите из учётной записи.</p><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Выйти из системы</button></form></div>
 {% endif %}{% endblock %}</main></body></html>

@@ -314,7 +314,7 @@ textarea{resize:vertical}
         <a href="{{ url_for('settings') }}">Настройки</a>
         <div class="hd-drop-sep"></div>
         {% endif %}
-        <a href="{{ url_for('logout') }}">Выйти</a>
+        <form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;border:0;background:transparent;color:inherit;font:12px 'Segoe UI';cursor:pointer">Выйти</button></form>
       </div>
     </div>
   </div>

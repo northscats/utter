@@ -151,6 +151,7 @@ class OneCPostgresConcurrencyTest(unittest.TestCase):
         with client.session_transaction() as session:
             session['_user_id'] = str(self.admin_id)
             session['_fresh'] = True
+            session['password_version'] = 1
 
     def create_channel(self):
         client = app.test_client()

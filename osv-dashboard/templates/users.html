@@ -82,7 +82,7 @@ body.modal-open{overflow:hidden}
   line-height:1;cursor:pointer;padding:2px 6px;border-radius:5px}
 .modal-close:hover{background:#f0f3f5;color:var(--ink)}
 .modal-desc{font-size:13px;color:var(--mut);margin-bottom:20px}
-.modal-fields{display:grid;grid-template-columns:1fr 1fr 160px;gap:12px}
+.modal-fields{display:grid;grid-template-columns:1fr 1fr 1fr 120px;gap:12px}
 .modal-fields label,.modal-access label{font-size:11px;color:var(--mut);display:block;
   margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em}
 .modal-fields input,.modal-fields select{
@@ -138,6 +138,7 @@ body.modal-open{overflow:hidden}
 .company-access select{border:1px solid var(--line);border-radius:6px;padding:5px 7px;font:12px 'Segoe UI';max-width:220px}
 .create-access{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
 .create-access>div{min-width:0}
+.policy-note{font-size:12px;color:var(--mut);margin-top:10px}
 .create-access label{font-size:11px;color:var(--mut);display:block;margin-bottom:5px;
    text-transform:uppercase;letter-spacing:.06em}
 
@@ -147,7 +148,7 @@ body.modal-open{overflow:hidden}
   .page-title-row .btn{width:100%}
   .modal-backdrop{padding:12px}
   .modal{max-height:calc(100vh - 24px);padding:18px}
-  .modal-fields,.modal-access{grid-template-columns:1fr}
+   .modal-fields,.modal-access{grid-template-columns:1fr}
   .actions{flex-direction:column;align-items:flex-start}
   .pw-form{flex-wrap:wrap}
   .create-access{grid-template-columns:1fr}
@@ -176,7 +177,11 @@ body.modal-open{overflow:hidden}
         <a href="{{ url_for('users_list') }}">Пользователи</a>
         <a href="{{ url_for('settings') }}">Настройки</a>
         <div class="hd-drop-sep"></div>
-        <a href="{{ url_for('logout') }}">Выйти</a>
+        <a href="{{ url_for('profile_password') }}">Сменить пароль</a>
+        <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;border:0;background:transparent;color:#c8d8e4;font:12px 'Segoe UI';cursor:pointer">Выйти</button>
+        </form>
       </div>
     </div>
   </div>
@@ -192,6 +197,9 @@ body.modal-open{overflow:hidden}
   {% if created_username %}
   <div class="alert alert-success">Пользователь «{{ created_username }}» создан.</div>
   {% endif %}
+  {% with messages = get_flashed_messages() %}
+    {% for message in messages %}<div class="alert alert-error">{{ message }}</div>{% endfor %}
+  {% endwith %}
 
   <!-- ─── Список пользователей ─── -->
   <div class="card">
@@ -273,10 +281,11 @@ body.modal-open{overflow:hidden}
           </td>
           <td style="color:var(--mut);font-size:13px">{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
           <td>
-            <form class="pw-form" method="post" action="{{ url_for('users_set_password', user_id=u.id) }}">
+            <form class="pw-form" method="post" data-username="{{ u.username }}" action="{{ url_for('users_set_password', user_id=u.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="password" name="password" placeholder="Новый пароль" minlength="4">
-              <button class="btn btn-ghost btn-sm" type="submit">Установить</button>
+              <input type="password" name="password" placeholder="Новый пароль" minlength="15" required>
+              <input type="password" name="password_repeat" placeholder="Повторите пароль" minlength="15" required>
+              <button class="btn btn-ghost btn-sm" type="submit" disabled>Установить</button>
             </form>
           </td>
           <td>
@@ -327,7 +336,7 @@ body.modal-open{overflow:hidden}
         <h2 id="create-user-title">Добавить пользователя</h2>
         <button class="modal-close" type="button" id="close-create-user" aria-label="Закрыть">×</button>
       </div>
-      <p class="modal-desc">Создайте новую учётную запись. Пароль должен содержать не менее 4 символов.</p>
+       <p class="modal-desc">Создайте новую учётную запись. Пароль должен содержать не менее 15 символов Unicode. Пробелы разрешены, обязательных классов символов нет.</p>
       <form method="post" action="{{ url_for('users_create') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if error %}
@@ -341,8 +350,13 @@ body.modal-open{overflow:hidden}
           </div>
           <div>
             <label>Пароль</label>
-            <input type="password" name="password" placeholder="минимум 4 символа"
-                   required minlength="4">
+            <input type="password" id="create-password" name="password" placeholder="минимум 15 символов"
+                    required minlength="15">
+          </div>
+          <div>
+            <label>Повторите пароль</label>
+            <input type="password" id="create-password-repeat" name="password_repeat"
+                   placeholder="повторите пароль" required minlength="15">
           </div>
           <div>
             <label>Роль</label>
@@ -352,7 +366,8 @@ body.modal-open{overflow:hidden}
             </select>
           </div>
         </div>
-        <div class="modal-access">
+         <p class="policy-note" id="create-password-policy">Пробелы и Unicode разрешены. Пароль не должен быть распространённым или связанным с логином.</p>
+         <div class="modal-access">
           <div><label>Доступ к модулям</label>
             <details class="multi-picker">
               <summary><span class="picker-label" data-empty-label="Нет модулей">Нет модулей</span></summary>
@@ -394,7 +409,17 @@ body.modal-open{overflow:hidden}
     </div>
   </div>
 </main>
+<script src="{{ url_for('static', filename='password_policy.js') }}"></script>
 <script>
+document.querySelectorAll('.pw-form').forEach(function(form){
+  var password=form.querySelector('input[name="password"]');
+  var repeat=form.querySelector('input[name="password_repeat"]');
+  var submit=form.querySelector('button[type="submit"]');
+  if(window.PasswordPolicyMeter&&password&&repeat)PasswordPolicyMeter.init({
+    password:password,repeat:repeat,username:form.getAttribute('data-username')||'',
+    submit:submit
+  });
+});
 document.querySelectorAll('.multi-picker').forEach(function(picker){
   var label=picker.querySelector('.picker-label');
   var checks=Array.from(picker.querySelectorAll('input[type="checkbox"]'));
@@ -424,6 +449,22 @@ var closeCreateUser=document.getElementById('close-create-user');
 var cancelCreateUser=document.getElementById('cancel-create-user');
 var createUserForm=createUserModal?createUserModal.querySelector('form'):null;
 var submitCreateUser=document.getElementById('submit-create-user');
+var createPassword=document.getElementById('create-password');
+var createPasswordRepeat=document.getElementById('create-password-repeat');
+var createPasswordPolicy=document.getElementById('create-password-policy');
+if(window.PasswordPolicyMeter&&createPassword&&createPasswordRepeat){
+  PasswordPolicyMeter.init({
+    password:createPassword,
+    repeat:createPasswordRepeat,
+    username:function(){return (createUserModal.querySelector('input[name="username"]')||{}).value||'';},
+    message:createPasswordPolicy,
+    submit:submitCreateUser
+  });
+  var createUsername=createUserModal.querySelector('input[name="username"]');
+  if(createUsername)createUsername.addEventListener('input',function(){
+    createPassword.dispatchEvent(new Event('input'));
+  });
+}
 function showCreateUser(){
   if(!createUserModal)return;
   createUserModal.hidden=false;

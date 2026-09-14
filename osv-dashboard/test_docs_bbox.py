@@ -2,6 +2,7 @@
 """Детерминированные проверки гибридной координатной подсветки."""
 import json
 import os
+import re
 import tempfile
 
 _tmp = tempfile.mkdtemp(prefix='docs_bbox_test_')
@@ -14,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 import doc_analysis
 from app import _hash_password, app
 from database import (AiProvider, DocCatalog, DocFile, DocFilePage, DocFinding,
-                      DocPackage, User, db)
+                      DocPackage, User, UserModuleAccess, db)
 from doc_analysis import (ProviderNotLocalError, _analyze_page_vision, analyze_file,
                           _parse_vision_findings, match_quote_boxes)
 from doc_parser import (convert_to_pdf, extract_pdf_pages_data, ocr_image_data,
@@ -168,6 +169,7 @@ with app.app_context():
     catalog = DocCatalog(name='BBox')
     db.session.add_all([owner, stranger, catalog])
     db.session.flush()
+    db.session.add(UserModuleAccess(user_id=owner.id, module_key='documents'))
     package = DocPackage(title='BBox package', uploaded_by=owner.id, status='done')
     db.session.add(package)
     db.session.flush()
@@ -198,7 +200,15 @@ with app.app_context():
     file_id = doc_file.id
 
 client = app.test_client()
-client.post('/login', data={'username': 'bbox-owner', 'password': 'bbox-pass'})
+login_page = client.get('/login', base_url='http://localhost')
+login_token = re.search(
+    r'name="login_csrf_token" value="([^"]+)"',
+    login_page.get_data(as_text=True)).group(1)
+client.post(
+    '/login', base_url='http://localhost',
+    data={'username': 'bbox-owner', 'password': 'bbox-pass',
+          'login_csrf_token': login_token},
+    headers={'Origin': 'http://localhost'})
 detail = client.get(f'/docs/files/{file_id}')
 payload = detail.get_json()
 check('API владельца возвращает bbox и legacy fallback',
@@ -206,8 +216,19 @@ check('API владельца возвращает bbox и legacy fallback',
       and payload['findings'][1]['boxes'] == []
       and payload['findings'][2]['boxes'] == []
       and payload['findings'][3]['confidence'] is None)
-client.get('/logout')
-client.post('/login', data={'username': 'bbox-stranger', 'password': 'bbox-pass'})
+logout_page = client.get('/docs/').get_data(as_text=True)
+logout_token = re.search(
+    r'name="csrf_token" value="([^"]+)"', logout_page).group(1)
+client.post('/logout', data={'csrf_token': logout_token})
+login_page = client.get('/login', base_url='http://localhost')
+login_token = re.search(
+    r'name="login_csrf_token" value="([^"]+)"',
+    login_page.get_data(as_text=True)).group(1)
+client.post(
+    '/login', base_url='http://localhost',
+    data={'username': 'bbox-stranger', 'password': 'bbox-pass',
+          'login_csrf_token': login_token},
+    headers={'Origin': 'http://localhost'})
 check('координаты закрыты от постороннего пользователя',
       client.get(f'/docs/files/{file_id}').status_code == 403)
 

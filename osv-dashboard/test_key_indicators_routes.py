@@ -194,6 +194,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             with client.session_transaction() as session:
                 session['_user_id'] = str(self.ids[username])
                 session['_fresh'] = True
+                session['password_version'] = 1
         return client
 
     def url(self, company=None, data=False):
