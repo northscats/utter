@@ -360,6 +360,7 @@ body.splitter-dragging iframe{pointer-events:none}
                 'companyName': c.name,
                 'aiReportUrl': url_for('key_indicators_ai_report', company_id=c.id),
                 'pageUrl': url_for('key_indicators_page', company_id=c.id),
+                 'companyDataUrl': url_for('company_detail', company_id=c.id, embedded=1, _anchor='historical-analytics'),
                 'dataUrl': url_for('key_indicators_data', company_id=c.id),
                 'annualDataUrl': url_for('annual_key_indicators_data', company_id=c.id),
                 'mappingsUrl': url_for('key_indicator_revenue_mappings', company_id=c.id),

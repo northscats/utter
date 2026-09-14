@@ -26,6 +26,7 @@
             companyId: {{ company.id | tojson }},
             companyName: {{ company.name | tojson }},
             embedded: {{ embedded | default(false) | tojson }},
+            companyDataUrl: {{ url_for('company_detail', company_id=company.id, embedded=1, _anchor='historical-analytics') | tojson }},
             historicalImportUrl: {{ url_for('company_detail', company_id=company.id, _anchor='historical-analytics') | default('/company/'~company.id~'#historical-analytics') | tojson }}
         };
     </script>
@@ -83,11 +84,11 @@
       <button type="button" class="tab-btn" data-tab="ai" onclick="window.KI_App.switchTab('ai')">
         Анализ ИИ
       </button>
-      <a class="tab-btn" data-tab="data"
-         href="{{ url_for('company_detail', company_id=company.id, embedded=1, _anchor='historical-analytics') if embedded else url_for('company_detail', company_id=company.id, _anchor='historical-analytics') }}">
+      <button type="button" class="tab-btn" data-tab="data"
+              onclick="window.KI_App.switchTab('data')">
         <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
         Данные
-      </a>
+      </button>
       <button type="button" class="ki-dashboard-layout-gear" id="ki-dashboard-layout-gear"
               aria-label="Настроить карточки показателей" title="Настроить карточки показателей">
         <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2">
@@ -193,6 +194,12 @@
         <button type="button" id="ki-ai-retry" onclick="window.KI_App.retryAiReport()" style="display:none;">Повторить</button>
         <a id="ki-ai-data-link" href="{{ url_for('company_detail', company_id=company.id, embedded=1) if embedded else url_for('company_detail', company_id=company.id) }}" style="display:none;">Перейти к данным</a>
       </div>
+    </div>
+
+    <!-- ДАННЫЕ: форма и история предприятия внутри оболочки показателей -->
+    <div class="tab-content" id="tab-data">
+      <iframe id="ki-data-frame" title="Данные предприятия"
+              style="display:block; width:100%; height:calc(100vh - 155px); min-height:620px; border:0; background:#e9edf0;"></iframe>
     </div>
 
     <!-- MODAL -->

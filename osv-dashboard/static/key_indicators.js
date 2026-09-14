@@ -188,6 +188,19 @@
                 }
                 urls.aiReportUrl = reportURL.href;
             }
+            if (source.companyDataUrl) {
+                let companyDataURL;
+                try {
+                    companyDataURL = new URL(source.companyDataUrl, window.location.origin);
+                } catch (error) {
+                    throw new Error('Сервер передал некорректный адрес данных предприятия.');
+                }
+                if (companyDataURL.origin !== window.location.origin ||
+                    companyDataURL.pathname !== `/company/${companyId}`) {
+                    throw new Error('Адрес данных не относится к выбранному предприятию.');
+                }
+                urls.companyDataUrl = companyDataURL.href;
+            }
             if (source.dashboardLayoutURL) {
                 let dashboardURL;
                 try {
@@ -559,6 +572,32 @@
             if (tabName === 'ai') {
                 this.renderAiReport();
             }
+            if (tabName === 'data') {
+                this.renderDataPage();
+            }
+        },
+
+        renderDataPage() {
+            const frame = document.getElementById('ki-data-frame');
+            if (!frame || !config || !config.companyDataUrl) return;
+
+            let dataUrl;
+            try {
+                const origin = window.location && window.location.origin ?
+                    window.location.origin : 'http://localhost';
+                dataUrl = new URL(config.companyDataUrl, origin);
+                dataUrl.searchParams.set('embedded', '1');
+            } catch (error) {
+                frame.removeAttribute('src');
+                return;
+            }
+
+            const expectedUrl = dataUrl.pathname + dataUrl.search + dataUrl.hash;
+            if (frame.getAttribute('src') === expectedUrl) return;
+            frame.onload = () => {
+                frame.style.display = 'block';
+            };
+            frame.src = expectedUrl;
         },
 
         aiTabActive() {
