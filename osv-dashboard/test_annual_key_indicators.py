@@ -125,7 +125,7 @@ class AnnualKeyIndicatorTests(unittest.TestCase):
         payload = build_annual_key_indicators(self.company)
         self.assertEqual(payload["years"], [])
         self.assertIsNone(payload["year"])
-        self.assertEqual(len(payload["cards"]), 10)
+        self.assertEqual(len(payload["cards"]), 19)
         self.assertTrue(all(card["value"] is None for card in payload["cards"]))
 
     def test_units_zero_bounds_negative_and_gaps(self):

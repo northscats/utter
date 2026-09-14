@@ -177,6 +177,27 @@ async function testAnnual() {
     KI_AnnualApp.openModal('profitability');
     assert.equal(modal.style.visibility, 'visible');
 
+    KI_AnnualApp.state.data.cards.push({
+        id: 'autonomy', title: 'Коэффициент автономии', value: 0.4,
+        unit: 'ratio', kind: 'balance', delta: 0.1,
+        formula: 'Собственный капитал / Валюта баланса',
+        calculation_note: 'По подтверждённым компонентам на 31 декабря.',
+        provenance: [{
+            year: 2024, component: 'equity', source_label: 'Собственный капитал',
+            provenance: { filename: 'annual.xlsx', sheet: 'Баланс', cell: 'C5' }
+        }],
+        series: []
+    });
+    KI_AnnualApp.renderCards();
+    assert.ok(cardsGrid.innerHTML.includes('data-metric="autonomy"'));
+    const newCard = cardsGrid.innerHTML.split('data-metric="autonomy"')[1];
+    assert.ok(newCard.includes('kpi-delta neutral'), 'Stability changes are not risk assessments');
+    KI_AnnualApp.openModal('autonomy');
+    assert.ok(nodes.get('ki-modal-formula').textContent.includes('Собственный капитал / Валюта баланса'));
+    assert.ok(nodes.get('ki-modal-formula').textContent.includes('31 декабря'));
+    assert.ok(nodes.get('ki-modal-source').textContent.includes('Собственный капитал'));
+    assert.ok(nodes.get('ki-modal-source').textContent.includes('C5'));
+
     KI_App.switchMode('operational');
     assert.equal(KI_AnnualApp.state.active, false);
     assert.equal(KI_App.state.mode, 'operational');

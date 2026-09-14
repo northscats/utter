@@ -6,8 +6,10 @@ from datetime import timezone
 import math
 
 from database import HistoricalImport, HistoricalMetricValue, HistoricalYearVersion
-from historical_parser import canonical_metric_key
 from annual_source_passport import build_annual_source_passport
+from historical_parser import (
+    _unit, _value, canonical_metric_key, normalize_name,
+)
 
 
 def _key(label):
@@ -77,6 +79,99 @@ CARD_SPECS = (
         "keys": (_key("Коэффициент текущей (общей) ликвидности"),),
         "source_unit": "ratio",
     },
+    # The following cards are deliberately appended after the original ten:
+    # consumers of this endpoint have historically treated the first ten
+    # cards (and their order) as the legacy contract.
+    {
+        "id": "autonomy", "title": "Коэффициент автономии",
+        "unit": "ratio", "kind": "balance", "derived": "autonomy",
+        "formula": "Собственный капитал / Валюта баланса",
+        "calculation_note": (
+            "Рассчитан по компонентам баланса на последнюю границу периода; "
+            "опубликованный коэффициент автономии не подставляется."),
+    },
+    {
+        "id": "net_working_capital", "title": "Чистый оборотный капитал (NWC)",
+        "unit": "RUB", "kind": "balance", "derived": "net_working_capital",
+        "formula": "Оборотные активы, всего - Краткосрочные обязательства, всего",
+        "calculation_note": (
+            "Рассчитан как разность подтверждённых балансовых компонентов "
+            "на 31 декабря; пропуск не заменяется нулём."),
+    },
+    {
+        "id": "quick_liquidity", "title": "Коэффициент быстрой ликвидности",
+        "unit": "ratio", "kind": "balance", "derived": "quick_liquidity",
+        "formula": (
+            "(Денежные средства и краткосрочные финансовые вложения + "
+            "Дебиторская задолженность) / Краткосрочные обязательства, всего"),
+        "calculation_note": (
+            "Рассчитан по денежным средствам, дебиторской задолженности и "
+            "краткосрочным обязательствам на 31 декабря; знаменатель должен "
+            "быть положительным."),
+    },
+    {
+        "id": "absolute_liquidity", "title": "Коэффициент абсолютной ликвидности",
+        "unit": "ratio", "kind": "balance", "derived": "absolute_liquidity",
+        "formula": (
+            "Денежные средства и краткосрочные финансовые вложения / "
+            "Краткосрочные обязательства, всего"),
+        "calculation_note": (
+            "Рассчитан по подтверждённым денежным средствам и краткосрочным "
+            "обязательствам на 31 декабря; знаменатель должен быть положительным."),
+    },
+    {
+        "id": "short_term_liabilities",
+        "title": "Краткосрочные обязательства",
+        "unit": "RUB", "kind": "balance", "derived": "short_term_liabilities",
+        "section": "liabilities",
+        "keys": (_key("Краткосрочные обязательства, всего"),),
+        "source_unit": "thousand_rubles",
+        "formula": "Краткосрочные обязательства, всего",
+        "calculation_note": (
+            "Подтверждённый остаток пассива на 31 декабря; значение источника "
+            "не суммируется по годам."),
+    },
+    {
+        "id": "long_term_liabilities",
+        "title": "Долгосрочные обязательства",
+        "unit": "RUB", "kind": "balance", "derived": "long_term_liabilities",
+        "section": "liabilities",
+        "keys": (_key("Долгосрочные обязательства, всего"),),
+        "source_unit": "thousand_rubles",
+        "formula": "Долгосрочные обязательства, всего",
+        "calculation_note": (
+            "Подтверждённый остаток пассива на 31 декабря; значение источника "
+            "не суммируется по годам."),
+    },
+    {
+        "id": "short_term_share", "title": "Доля краткосрочных обязательств",
+        "unit": "percent", "kind": "balance", "derived": "short_term_share",
+        "formula": (
+            "Краткосрочные обязательства, всего / (Краткосрочные обязательства, "
+            "всего + Долгосрочные обязательства, всего) × 100"),
+        "calculation_note": (
+            "Рассчитана по двум видам обязательств на 31 декабря; общий "
+            "знаменатель должен быть положительным."),
+    },
+    {
+        "id": "long_term_share", "title": "Доля долгосрочных обязательств",
+        "unit": "percent", "kind": "balance", "derived": "long_term_share",
+        "formula": (
+            "Долгосрочные обязательства, всего / (Краткосрочные обязательства, "
+            "всего + Долгосрочные обязательства, всего) × 100"),
+        "calculation_note": (
+            "Рассчитана по двум видам обязательств на 31 декабря; общий "
+            "знаменатель должен быть положительным."),
+    },
+    {
+        "id": "interest_coverage", "title": "Покрытие процентов (ICR)",
+        "unit": "ratio", "kind": "ratio", "derived": "interest_coverage",
+        "formula": "EBIT (прибыль до % и налогов) / Проценты к уплате",
+        "calculation_note": (
+            "Рассчитано как отношение сумм потоков EBIT и процентов к уплате "
+            "за весь выбранный период; усреднение годовых коэффициентов не "
+            "выполняется, знаменатель должен быть положительным."),
+    },
 )
 
 METHODOLOGY = [
@@ -85,6 +180,14 @@ METHODOLOGY = [
     "Сравнение выполняется с эквивалентным непосредственно предшествующим диапазоном.",
     "Остатки берутся на последнюю границу диапазона, а отношения пересчитываются только из подтверждённых компонентов.",
     "Границы вида «меньше» сохранены; для них изменение не рассчитывается.",
+    "Новые карточки финансовой устойчивости, NWC, ликвидности и структуры обязательств "
+    "не используют опубликованные отношения: они единообразно пересчитываются из "
+    "подтверждённых компонентов по формулам карточек.",
+    "Для балансовых новых карточек (в том числе ликвидности, автономии и долей) "
+    "используется граница 31 декабря; для ICR суммируются потоки всех лет диапазона.",
+    "Пропуски, верхние границы и неоднозначные источники делают расчёт недоступным. "
+    "Знаменатель каждого нового отношения должен быть строго положительным; "
+    "подстановка нуля и усреднение годовых отношений запрещены.",
 ]
 
 
@@ -132,6 +235,73 @@ def _empty_fact(reason="Показатель отсутствует в прин�
     }
 
 
+_EBIT_LABEL = "EBIT (прибыль до % и налогов)"
+
+
+def _legacy_ebit_fact(row, spec):
+    """Read one persisted EBIT row corrected only from its raw evidence.
+
+    Older imports classified the percent sign in the confirmed EBIT label as
+    the unit, even when the annual cell was a money value.  This is an
+    in-memory compatibility correction for the annual component extractor:
+    the persisted row is never mutated and no other mislabelled metric is
+    accepted.  Both the raw label/period and raw cell text must make the
+    parser's corrected ``thousand_rubles`` result unambiguous.
+    """
+    if (
+        row.unit != "percent"
+        or row.is_missing
+        or row.section_key != "financial_results"
+        or row.metric_key != _key(_EBIT_LABEL)
+        or normalize_name(row.metric_label) != normalize_name(_EBIT_LABEL)
+        or spec.get("source_unit") != "thousand_rubles"
+    ):
+        return None
+    raw = row.raw_value
+    if raw is None:
+        return None
+    raw_text = raw.raw_text or ""
+    period = row.period_label or ""
+    if not str(period).strip() or str(row.year_version.year) not in str(period):
+        return None
+    corrected_unit, factor = _unit(
+        row.metric_label, period, row.section_key, raw_text)
+    parsed = _value(
+        raw_text, corrected_unit, factor, row.year_version.year,
+        period, raw.cell_ref)
+    # Explicit percent evidence in the value/header (including an upper bound)
+    # remains percent and is deliberately rejected by the normal unit gate.
+    if (
+        corrected_unit != "thousand_rubles"
+        or parsed.get("unit") != "thousand_rubles"
+        or parsed.get("value") is None
+        or not math.isfinite(float(parsed["value"]))
+    ):
+        return None
+    provenance = {
+        "filename": row.year_version.historical_import.original_filename,
+        "sheet": raw.sheet_name if raw else "",
+        "cell": raw.cell_ref if raw else "",
+    }
+    value = float(parsed["value"])
+    if spec.get("unit") == "RUB":
+        value *= 1000.0
+    return {
+        "value": value,
+        "upper_bound": bool(parsed.get("is_upper_bound") or row.is_upper_bound),
+        "missing_reason": None,
+        "provenance": provenance,
+        "provenance_by_year": {row.year_version.year: provenance},
+        "provenance_components": [],
+        "correction_note": (
+            "Применена только для годового ICR совместимость с ранее "
+            "сохранённой строкой EBIT: знак «%» в точной метке "
+            "«EBIT (прибыль до % и налогов)» не является единицей; "
+            "единица подтверждена parser по периоду и исходному тексту ячейки."
+        ),
+    }
+
+
 def _fact(rows, spec):
     candidates = [
         row for row in rows
@@ -141,7 +311,12 @@ def _fact(rows, spec):
     if not candidates:
         return _empty_fact()
     unit_rows = [row for row in candidates if row.unit == spec["source_unit"]]
-    if not unit_rows:
+    corrected_rows = [
+        corrected for row in candidates
+        if (corrected := _legacy_ebit_fact(row, spec)) is not None
+    ]
+    unit_rows_count = len(unit_rows) + len(corrected_rows)
+    if not unit_rows_count:
         units = ", ".join(sorted({row.unit for row in candidates}))
         fact = _empty_fact(
             "Единица источника не соответствует показателю"
@@ -162,8 +337,10 @@ def _fact(rows, spec):
         return fact
     # Two aliases (or parallel columns of the same unit) are not silently
     # prioritised: doing so would make the result dependent on row order.
-    if len(unit_rows) != 1:
+    if unit_rows_count != 1:
         return _empty_fact("Неоднозначный источник: найдено несколько значений")
+    if corrected_rows:
+        return corrected_rows[0]
     row = unit_rows[0]
     raw = row.raw_value
     provenance = {
@@ -210,15 +387,33 @@ def _comparison(current, previous, previous_reason=None):
     return delta, delta / previous["value"] * 100.0, None
 
 
-def _component_spec(section, keys, source_unit, unit="RUB", kind="flow"):
+def _component_spec(
+    section, keys, source_unit, unit="RUB", kind="flow", label=None
+):
     """Create an internal source specification for ratio recalculation."""
     return {
         "section": section,
         "keys": tuple(_key(key) for key in keys),
+        "source_label": keys[0] if keys else None,
         "source_unit": source_unit,
         "unit": unit,
         "kind": kind,
+        "label": label,
     }
+
+
+def _component_identity(spec):
+    """Return a collision-safe identity for a source component.
+
+    A metric key is only unique inside a parser section.  In particular,
+    ``ВАЛЮТА БАЛАНСА`` is valid in both ``assets`` and ``liabilities``.
+    Keeping the section and unit in this identity prevents a newly added
+    derived card from accidentally reusing a component from another section.
+    """
+    return (
+        spec["section"], spec["keys"], spec["source_unit"],
+        spec.get("unit"), spec.get("kind"),
+    )
 
 
 _RATIO_COMPONENTS = {
@@ -240,6 +435,84 @@ _RATIO_COMPONENTS = {
         _component_spec(
             "liabilities", ("Краткосрочные обязательства, всего",),
             "thousand_rubles", "RUB", "balance"),
+    ),
+}
+
+
+# New cards intentionally have their own component catalogue instead of
+# reading published ratios.  The parser labels here are exact, confirmed
+# labels; aliases from another section are never substituted.
+_DERIVED_COMPONENTS = {
+    "autonomy": (
+        _component_spec(
+            "liabilities", ("Собственный капитал",),
+            "thousand_rubles", "RUB", "balance", "equity"),
+        _component_spec(
+            "assets", ("ВАЛЮТА БАЛАНСА",),
+            "thousand_rubles", "RUB", "balance", "assets"),
+    ),
+    "net_working_capital": (
+        _component_spec(
+            "assets", ("Оборотные активы, всего",),
+            "thousand_rubles", "RUB", "balance", "current_assets"),
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+    ),
+    "quick_liquidity": (
+        _component_spec(
+            "assets",
+            ("денежные средства и краткосрочные фин. вложения",),
+            "thousand_rubles", "RUB", "balance", "cash"),
+        _component_spec(
+            "assets", ("дебиторская задолженность",),
+            "thousand_rubles", "RUB", "balance", "accounts_receivable"),
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+    ),
+    "absolute_liquidity": (
+        _component_spec(
+            "assets",
+            ("денежные средства и краткосрочные фин. вложения",),
+            "thousand_rubles", "RUB", "balance", "cash"),
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+    ),
+    "short_term_liabilities": (
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+    ),
+    "long_term_liabilities": (
+        _component_spec(
+            "liabilities", ("Долгосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "long_term_liabilities"),
+    ),
+    "short_term_share": (
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+        _component_spec(
+            "liabilities", ("Долгосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "long_term_liabilities"),
+    ),
+    "long_term_share": (
+        _component_spec(
+            "liabilities", ("Краткосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "short_term_liabilities"),
+        _component_spec(
+            "liabilities", ("Долгосрочные обязательства, всего",),
+            "thousand_rubles", "RUB", "balance", "long_term_liabilities"),
+    ),
+    "interest_coverage": (
+        _component_spec(
+            "financial_results", ("EBIT (прибыль до % и налогов)",),
+            "thousand_rubles", "RUB", "flow", "ebit"),
+        _component_spec(
+            "financial_results", ("Проценты к уплате",),
+            "thousand_rubles", "RUB", "flow", "interest_expense"),
     ),
 }
 
@@ -275,6 +548,17 @@ def _ratio_provenance(facts):
     """Keep both ratio components, even when they share a calendar year."""
     records = []
     for component, fact in facts:
+        if isinstance(component, dict):
+            component_name = component.get("label") or "component"
+            source_label = (
+                component.get("source_label")
+                or (component.get("keys") or ("",))[0]
+            )
+        else:
+            # Legacy ratio cards intentionally retain their old public
+            # ``numerator``/``denominator`` provenance labels.
+            component_name = component
+            source_label = None
         by_year = fact.get("provenance_by_year") or {}
         if isinstance(by_year, dict):
             items = by_year.items()
@@ -287,11 +571,14 @@ def _ratio_provenance(facts):
             )
         for year, provenance in items:
             if provenance:
-                records.append({
+                record = {
                     "year": year,
-                    "component": component,
+                    "component": component_name,
                     "provenance": provenance,
-                })
+                }
+                if source_label:
+                    record["source_label"] = source_label
+                records.append(record)
     return sorted(records, key=lambda item: (
         item.get("year") or 0, item.get("component") or ""))
 
@@ -308,6 +595,26 @@ def _missing_years_reason(label, facts, year_from, year_to):
         f"{_range_label(year_from, year_to)}: отсутствуют подтверждённые "
         f"значения за {years} ({details})."
     )
+
+
+def _correction_notes(facts):
+    """Collect compatibility notes without duplicating an annual source note."""
+    notes = []
+    for fact in facts:
+        values = fact.get("correction_notes") or []
+        if fact.get("correction_note"):
+            values = [*values, fact["correction_note"]]
+        for note in values:
+            if note and note not in notes:
+                notes.append(note)
+    return notes
+
+
+def _attach_correction_notes(target, facts):
+    notes = _correction_notes(facts)
+    if notes:
+        target["correction_notes"] = notes
+    return target
 
 
 def _aggregate_component(facts, spec, year_from, year_to):
@@ -327,22 +634,22 @@ def _aggregate_component(facts, spec, year_from, year_to):
         return boundary_fact
     if any(fact.get("value") is None for _, fact in selected):
         values = [fact for _, fact in selected]
-        return {
+        return _attach_correction_notes({
             **_empty_fact(
                 _missing_years_reason(
                     "компонент", selected, year_from, year_to)),
             "upper_bound": any(fact.get("upper_bound") for fact in values),
             "provenance": _provenance_for(values),
             "provenance_by_year": _provenance_by_year(selected),
-        }
+        }, values)
     values = [fact for _, fact in selected]
-    return {
+    return _attach_correction_notes({
         "value": sum(fact["value"] for fact in values),
         "upper_bound": any(fact.get("upper_bound") for fact in values),
         "missing_reason": None,
         "provenance": _provenance_for(values),
         "provenance_by_year": _provenance_by_year(selected),
-    }
+    }, values)
 
 
 def _aggregate_fact(facts, spec, year_from, year_to):
@@ -394,10 +701,10 @@ def _aggregate_ratio(spec, facts_by_spec, year_from, year_to):
             "за многолетний диапазон: формула не поддержана.")
     numerator_spec, denominator_spec = components
     numerator = _aggregate_component(
-        facts_by_spec[numerator_spec["keys"]], numerator_spec,
+        facts_by_spec[_component_identity(numerator_spec)], numerator_spec,
         year_from, year_to)
     denominator = _aggregate_component(
-        facts_by_spec[denominator_spec["keys"]], denominator_spec,
+        facts_by_spec[_component_identity(denominator_spec)], denominator_spec,
         year_from, year_to)
     component_facts = (
         ("numerator", numerator), ("denominator", denominator))
@@ -446,6 +753,166 @@ def _aggregate_ratio(spec, facts_by_spec, year_from, year_to):
         "provenance": provenance, "provenance_by_year": provenance_by_year,
         "provenance_components": provenance_records,
     }
+
+
+def _derived_provenance(components, component_facts):
+    """Return audit records with a stable label for every derived component."""
+    records = []
+    for component in components:
+        fact = component_facts[_component_identity(component)]
+        records.extend(_ratio_provenance([(component, fact)]))
+    return sorted(records, key=lambda item: (
+        item.get("year") or 0, item.get("component") or ""))
+
+
+def _derived_missing_fact(spec, components, component_facts, message):
+    records = _derived_provenance(components, component_facts)
+    facts = [
+        component_facts[_component_identity(component)]
+        for component in components
+    ]
+    return _attach_correction_notes({
+        **_empty_fact(message),
+        "upper_bound": any(fact.get("upper_bound") for fact in facts),
+        "provenance": records,
+        "provenance_by_year": records,
+        "provenance_components": records,
+    }, facts)
+
+
+def _aggregate_derived(spec, component_facts, year_from, year_to):
+    """Calculate one new card from its exact, typed accounting components."""
+    derived_id = spec["derived"]
+    components = _DERIVED_COMPONENTS[derived_id]
+    aggregate_facts = [
+        _aggregate_component(
+            component_facts[_component_identity(component)], component,
+            year_from, year_to)
+        for component in components
+    ]
+    by_identity = {
+        _component_identity(component): fact
+        for component, fact in zip(components, aggregate_facts)
+    }
+    records = _derived_provenance(components, by_identity)
+    provenance = records
+    provenance_by_year = (
+        aggregate_facts[0].get("provenance_by_year", {})
+        if len(components) == 1 else provenance
+    )
+    for component, fact in zip(components, aggregate_facts):
+        if fact.get("value") is None:
+            label = component["label"]
+            source_label = component.get("source_label") or label
+            reason = fact.get("missing_reason") or "нет подтверждённого значения"
+            return _attach_correction_notes({
+                **_empty_fact(
+                    f"Показатель «{spec['title']}» не рассчитан: отсутствует "
+                    f"компонент «{label} ({source_label})» ({reason})."),
+                "upper_bound": any(
+                    item.get("upper_bound") for item in aggregate_facts),
+                "provenance": provenance,
+                "provenance_by_year": provenance_by_year,
+                "provenance_components": records,
+            }, aggregate_facts)
+    if any(fact.get("upper_bound") for fact in aggregate_facts):
+        bounded = ", ".join(
+            f"{component['label']} ({component.get('source_label') or component['label']})"
+            for component, fact
+            in zip(components, aggregate_facts) if fact.get("upper_bound"))
+        return _attach_correction_notes({
+            **_empty_fact(
+                f"Показатель «{spec['title']}» не рассчитан: компонент(ы) "
+                f"«{bounded}» содержат верхнюю границу."),
+            "upper_bound": True,
+            "provenance": provenance,
+            "provenance_by_year": provenance_by_year,
+            "provenance_components": records,
+        }, aggregate_facts)
+
+    values = {
+        component["label"]: fact["value"]
+        for component, fact in zip(components, aggregate_facts)
+    }
+    denominator = None
+    if derived_id == "autonomy":
+        denominator = values["assets"]
+        value = values["equity"] / denominator if denominator > 0 else None
+    elif derived_id == "net_working_capital":
+        value = values["current_assets"] - values["short_term_liabilities"]
+    elif derived_id == "quick_liquidity":
+        denominator = values["short_term_liabilities"]
+        value = (
+            (values["cash"] + values["accounts_receivable"]) / denominator
+            if denominator > 0 else None
+        )
+    elif derived_id == "absolute_liquidity":
+        denominator = values["short_term_liabilities"]
+        value = values["cash"] / denominator if denominator > 0 else None
+    elif derived_id == "short_term_liabilities":
+        value = values["short_term_liabilities"]
+    elif derived_id == "long_term_liabilities":
+        value = values["long_term_liabilities"]
+    elif derived_id in {"short_term_share", "long_term_share"}:
+        denominator = (
+            values["short_term_liabilities"]
+            + values["long_term_liabilities"])
+        numerator_label = (
+            "short_term_liabilities"
+            if derived_id == "short_term_share"
+            else "long_term_liabilities"
+        )
+        value = (
+            values[numerator_label] / denominator * 100.0
+            if denominator > 0 else None
+        )
+    elif derived_id == "interest_coverage":
+        denominator = values["interest_expense"]
+        value = values["ebit"] / denominator if denominator > 0 else None
+    else:
+        return _derived_missing_fact(
+            spec, components, by_identity,
+            f"Показатель «{spec['title']}» не поддерживает расчёт.")
+
+    if denominator is not None and denominator <= 0:
+        denominator_labels = {
+            "autonomy": "assets / Валюта баланса",
+            "quick_liquidity": (
+                "short_term_liabilities / Краткосрочные обязательства, всего"),
+            "absolute_liquidity": (
+                "short_term_liabilities / Краткосрочные обязательства, всего"),
+            "short_term_share": (
+                "short_term_liabilities + long_term_liabilities / "
+                "Краткосрочные и Долгосрочные обязательства, всего"),
+            "long_term_share": (
+                "short_term_liabilities + long_term_liabilities / "
+                "Краткосрочные и Долгосрочные обязательства, всего"),
+            "interest_coverage": "interest_expense / Проценты к уплате",
+        }
+        denominator_label = denominator_labels[derived_id]
+        return _attach_correction_notes({
+            **_empty_fact(
+                f"Показатель «{spec['title']}» не рассчитан: знаменатель "
+                f"«{denominator_label}» должен быть положительным "
+                f"(получено {denominator})."),
+            "provenance": provenance,
+            "provenance_by_year": provenance_by_year,
+            "provenance_components": records,
+        }, aggregate_facts)
+    if value is None or not math.isfinite(float(value)):
+        return _attach_correction_notes({
+            **_empty_fact(
+                f"Показатель «{spec['title']}» не рассчитан: результат "
+                "не является конечным числом."),
+            "provenance": provenance,
+            "provenance_by_year": provenance,
+            "provenance_components": records,
+        }, aggregate_facts)
+    return _attach_correction_notes({
+        "value": float(value), "upper_bound": False, "missing_reason": None,
+        "provenance": provenance, "provenance_by_year": provenance_by_year,
+        "provenance_components": records,
+    }, aggregate_facts)
 
 
 def _normalise_range(requested_year, year_from, year_to):
@@ -524,6 +991,10 @@ def build_annual_key_indicators(
     fact_years = sorted(fact_years)
     facts = {}
     for spec in CARD_SPECS:
+        # Derived cards are materialised after the collision-safe component
+        # catalogue below has been loaded.
+        if spec.get("derived"):
+            continue
         facts[spec["id"]] = {
             year: _fact(rows_by_year.get(year, ()), spec)
             if year in rows_by_year else _empty_fact(
@@ -534,18 +1005,29 @@ def build_annual_key_indicators(
     # Ratio components are read from the same selected active versions, but
     # remain separate from the public card facts to avoid alias substitution.
     component_specs = {}
-    for components in _RATIO_COMPONENTS.values():
+    for components in (
+        tuple(_RATIO_COMPONENTS.values())
+        + tuple(_DERIVED_COMPONENTS.values())
+    ):
         for component in components:
-            component_specs.setdefault(component["keys"], component)
+            component_specs.setdefault(
+                _component_identity(component), component)
     component_facts = {
-        keys: {
+        identity: {
             year: _fact(rows_by_year.get(year, ()), component)
             if year in rows_by_year else _empty_fact(
                 "За этот календарный год нет принятой версии")
             for year in fact_years
         }
-        for keys, component in component_specs.items()
+        for identity, component in component_specs.items()
     }
+    for spec in CARD_SPECS:
+        if spec.get("derived"):
+            facts[spec["id"]] = {
+                year: _aggregate_derived(
+                    spec, component_facts, year, year)
+                for year in fact_years
+            }
     range_facts = {}
     previous_facts = {}
     for spec in CARD_SPECS:
@@ -554,7 +1036,10 @@ def build_annual_key_indicators(
                 "Нет принятых годовых данных")
             previous_facts[spec["id"]] = None
             continue
-        if spec["kind"] == "ratio" and selected_from != selected_to:
+        if spec.get("derived"):
+            range_facts[spec["id"]] = _aggregate_derived(
+                spec, component_facts, selected_from, selected_to)
+        elif spec["kind"] == "ratio" and selected_from != selected_to:
             range_facts[spec["id"]] = _aggregate_ratio(
                 spec, component_facts, selected_from, selected_to)
         else:
@@ -564,7 +1049,10 @@ def build_annual_key_indicators(
         # balance at its final boundary.  Flow aggregation deliberately sees
         # every missing year and returns an unavailable fact itself.
         if previous_from is not None:
-            if spec["kind"] == "ratio" and previous_from != previous_to:
+            if spec.get("derived"):
+                previous_facts[spec["id"]] = _aggregate_derived(
+                    spec, component_facts, previous_from, previous_to)
+            elif spec["kind"] == "ratio" and previous_from != previous_to:
                 previous_facts[spec["id"]] = _aggregate_ratio(
                     spec, component_facts, previous_from, previous_to)
             else:
@@ -589,7 +1077,7 @@ def build_annual_key_indicators(
             "upper_bound": facts[spec["id"]][year]["upper_bound"],
             "missing_reason": facts[spec["id"]][year]["missing_reason"],
         } for year in timeline]
-        cards.append({
+        card = {
             "id": spec["id"], "title": spec["title"],
             "value": current["value"], "unit": spec["unit"],
             "kind": spec["kind"], "period_label": _period_label(
@@ -606,7 +1094,19 @@ def build_annual_key_indicators(
             "provenance_by_year": current.get("provenance_by_year", {}),
             "provenance_components": current.get("provenance_components", []),
             "previous_period_label": _range_label(previous_from, previous_to),
-        })
+        }
+        # Formula metadata is part of the contract for the stability
+        # extension.  Leave the legacy cards untouched so their established
+        # shape and rating treatment remain backwards compatible.
+        if spec.get("formula"):
+            card["formula"] = spec["formula"]
+            card["calculation_note"] = spec.get("calculation_note")
+        correction_notes = current.get("correction_notes")
+        if current.get("correction_note"):
+            correction_notes = [current["correction_note"]]
+        if correction_notes:
+            card["correction_note"] = correction_notes
+        cards.append(card)
 
     activation_values = [
         version.activated_at for version in versions
@@ -664,6 +1164,14 @@ def build_annual_key_indicators(
         "updated_at": _iso(latest_activation),
         "sources": sources, "cards": cards, "warnings": warnings,
         "source_passport": source_passport,
+        "validation_notes": [
+            "Расчёт новых карточек выполняется только из подтверждённых "
+            "компонентов с точным разделом, меткой и единицей источника.",
+            "Пропуски и верхние границы не заменяются нулём; положительность "
+            "знаменателей проверяется до деления.",
+            "Для балансовых карточек используется последний год диапазона, "
+            "для ICR суммируются EBIT и проценты за каждый год диапазона.",
+        ],
         "methodology": list(METHODOLOGY),
     }
 

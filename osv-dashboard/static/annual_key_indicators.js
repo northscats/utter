@@ -498,6 +498,7 @@
                 const component = source.component !== undefined
                     ? source.component : nested.component;
                 const normalized = Object.assign({}, nested);
+                normalized.source_label = source.source_label || nested.source_label;
                 if (year !== null && year !== undefined) normalized.year = year;
                 if (component !== null && component !== undefined) {
                     normalized.component = component;
@@ -516,7 +517,7 @@
                 const cell = source.cell || source.cell_ref;
                 const component = source.component;
                 const details = [
-                    component ? String(component) : '',
+                    source.source_label || (component ? String(component) : ''),
                     filename ? `Файл: ${filename}` : '',
                     sheet ? `Лист: ${sheet}` : '',
                     cell ? `Ячейка: ${cell}` : ''
@@ -627,7 +628,7 @@
             
             let html = '';
             
-            // Expected cards: revenue, cogs, net_profit, profitability, cash, ar, ap, equity, assets, current_liquidity
+            // Preserve the original order; additional annual indicators follow it.
             const order = ['revenue', 'cogs', 'net_profit', 'profitability', 'cash', 'ar', 'ap', 'equity', 'assets', 'current_liquidity'];
             (state.data.cards || []).forEach(card => {
                 if (card && card.id && !order.includes(card.id)) order.push(card.id);
@@ -655,8 +656,9 @@
 
                 if (!isNull && hasDelta) {
                     let dClass = 'neutral';
-                    if (card.delta > 0) dClass = 'up';
-                    if (card.delta < 0) dClass = 'down';
+                    // A movement in debt or liquidity is not a risk assessment.
+                    if (!card.calculation_note && card.delta > 0) dClass = 'up';
+                    if (!card.calculation_note && card.delta < 0) dClass = 'down';
                     
                     let displayVal = card.delta;
                     let numVal = parseFloat(card.delta);
@@ -781,7 +783,11 @@
             }
             
             const provText = this.provenanceText(card);
-            document.getElementById('ki-modal-formula').textContent = card.formula || 'Показатель из годовой отчетности 1С';
+            document.getElementById('ki-modal-formula').textContent = [
+                card.formula || 'Показатель из годовой отчетности 1С',
+                card.calculation_note,
+                card.correction_note
+            ].filter(Boolean).join('. ');
             document.getElementById('ki-modal-source').textContent = provText;
             
             document.getElementById('ki-modal-breakdown-title').style.display = 'none';

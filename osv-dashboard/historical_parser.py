@@ -220,6 +220,7 @@ _MONEY_SECTIONS = {
     "assets", "liabilities", "net_assets", "working_capital",
     "asset_liability", "financial_results",
 }
+_EBIT_LABEL = "EBIT (прибыль до % и налогов)"
 
 
 def _raw(value):
@@ -355,7 +356,20 @@ def _header(ws):
 def _unit(label, header, section_key, raw_value):
     combined = (normalize_name(label) + " " + normalize_name(header)).strip()
     raw_text = _raw(raw_value).strip()
-    if "%" in raw_text or "%" in combined:
+    # The confirmed EBIT label itself contains a percent sign as shorthand for
+    # "проценты".  It is a money row, not a percentage series.  Explicit
+    # percent evidence in the value or annual-column header still wins; this
+    # narrow exception must not relax unit validation for any other label.
+    if "%" in raw_text or "%" in normalize_name(header):
+        return "percent", 1.0
+    if (
+        section_key == "financial_results"
+        and normalize_name(label) == normalize_name(_EBIT_LABEL)
+    ):
+        # Ignore only the abbreviation in the label, not explicit money units
+        # in the header (millions/rubles must retain their scaling).
+        combined = normalize_name(header)
+    if "%" in combined:
         return "percent", 1.0
     if re.search(r"\bмлн(?:\.| )*\s*руб", combined):
         return "thousand_rubles", 1000.0
