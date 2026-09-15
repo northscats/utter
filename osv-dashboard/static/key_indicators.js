@@ -4296,11 +4296,11 @@
                 <div style="display:flex; justify-content:flex-end; margin-bottom:8px; gap:16px;">
                     <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
                         <input type="radio" name="gapMode" value="1" ${gapMode1 ? 'checked' : ''} style="margin:0;">
-                        Соединять пропуски (пунктир)
+                        Соединить
                     </label>
                     <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
                         <input type="radio" name="gapMode" value="2" ${gapMode2 ? 'checked' : ''} style="margin:0;">
-                        Продлевать последнее значение
+                        Продлить
                     </label>
                 </div>
                 <div class="cash-line-chart ki-metric-modal-svg" style="height:280px; position:relative;"></div>
