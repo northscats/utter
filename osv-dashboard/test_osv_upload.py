@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import tempfile
+from openpyxl import Workbook
 
 _TMP = tempfile.mkdtemp(prefix='osv_upload_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
@@ -23,6 +24,8 @@ from app import (
     init_db,
 )
 from database import Company, Upload, User, db
+from jobs import create_job, finish_job
+from osvparser import parse_many
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
 init_db()
@@ -50,6 +53,7 @@ app_module._durable_backup = lambda *args, **kwargs: backup_calls.append(
 
 with app.app_context():
     admin = User.query.filter_by(role='admin').first()
+    admin.password_change_required = False
     company = Company(name='Тест загрузки ОСВ', created_by=admin.id)
     db.session.add(company)
     db.session.commit()
@@ -88,6 +92,43 @@ check('форма обновляет токен перед загрузкой',
       "cache:'no-store'" in page
       and 'form.requestSubmit()' in page
       and 'Загрузка не началась:' in page)
+check('завершённая загрузка переносит протокол на обновлённую страницу',
+      "params.set('completed_job', jobId)" in page)
+
+contradictory_path = os.path.join(
+    _TMP, 'ОСВ 51 с противоречивым итогом.xlsx')
+book = Workbook()
+sheet = book.active
+sheet.append([
+    'Оборотно-сальдовая ведомость по счету 51 '
+    'за 01.07.2026 - 03.07.2026'
+])
+sheet.append(['Счет'])
+sheet.append(['Итого', 100, 0, 0, 0, 100, 0])
+book.save(contradictory_path)
+book.close()
+
+_data, contradictory_audit = parse_many([contradictory_path])
+completed_job_id = create_job(company_id)
+finish_job(completed_job_id, {
+    'audit': contradictory_audit,
+    'discrepancy': [],
+    'period_label': '01.07.2026–03.07.2026',
+})
+result_page = client.get(
+    f'/company/{company_id}?completed_job={completed_job_id}'
+).get_data(as_text=True)
+check(
+    'противоречивый итог виден в протоколе завершённой загрузки',
+    'противоречивая пустая ОСВ' in result_page
+    and '«Итого» содержит ненулевые значения' in result_page,
+)
+check(
+    'противоречивый файл не показан успешно прошедшим контроль',
+    contradictory_audit[0]['ok'] is False
+    and '<td class="st-bad">' in result_page
+    and 'контрольное равенство НЕ сходится' in result_page,
+)
 
 check('список счетов берётся из фактического dataset',
       _dataset_accounts({

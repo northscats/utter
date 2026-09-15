@@ -1189,6 +1189,7 @@ document.getElementById('frm').addEventListener('submit',function(event){
           '<span style="color:#3a7a57;font-weight:600">✓ Готово' + lbl + '</span>' +
           '<span style="color:#666"> — обновляем страницу…</span>';
         params.delete('job');
+        params.set('completed_job', jobId);
         var newUrl = location.pathname + (params.toString() ? '?' + params.toString() : '');
         setTimeout(function(){ location.replace(newUrl); }, 1500);
       } else if (d.status === 'error') {

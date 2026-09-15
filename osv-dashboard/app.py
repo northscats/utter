@@ -2270,6 +2270,13 @@ def company_detail(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
+    completed_job_id = request.args.get('completed_job', '').strip()
+    completed_job = get_job(completed_job_id) if completed_job_id else None
+    if (not completed_job
+            or completed_job.get('company_id') != company_id
+            or completed_job.get('status') != 'done'):
+        completed_job = None
+    completed_result = completed_job.get('result') or {} if completed_job else {}
     year = request.args.get('year', None, type=int)
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
@@ -2314,7 +2321,9 @@ def company_detail(company_id):
 
     return render_template('company.html', company=company, uploads=uploads,
                            upload_history_rows=upload_history_rows,
-                           audit=None, error=None, discrepancy=[],
+                           audit=completed_result.get('audit'),
+                           error=None,
+                           discrepancy=completed_result.get('discrepancy', []),
                            annual_coverage=_annual_coverage(company_id, year),
                            ai_summary=ai_summary,
                            ai_provider_configured=ai_provider_configured,
