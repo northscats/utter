@@ -2072,184 +2072,109 @@
         renderCollectionModal(card) {
             const container = document.getElementById('ki-collection-modal-content');
             if (!container) return;
-            const required = this.collectionRequirements();
-            const arCard = state.data.cards.find(item => item.id === 'ar') || {};
-            const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
-            const availableAr = (arCard.series || []).filter(item =>
-                hasNumericValue(item.value));
-            const currentAr = availableAr.length ? availableAr[availableAr.length - 1] : null;
-            const previousAr = availableAr.length > 1 ? availableAr[availableAr.length - 2] : null;
-            const arChange = currentAr && previousAr ? currentAr.value - previousAr.value : null;
-            const revenueIsNet = revenueCard.value && !String(revenueCard.title || '').includes('брутто');
-            const arRevenueRatio = arCard.value !== null && arCard.value !== undefined &&
-                revenueIsNet ? arCard.value / revenueCard.value * 100 : null;
-            const turnover = card.value;
+
             const components = card.components || card.collection_components || [];
-            const rub = value => value === null || value === undefined
-                ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
-            const pct = value => value === null || value === undefined
-                ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const turnover = card.value;
+            const rub = value => value === null || value === undefined ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const pct = value => value === null || value === undefined ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
 
-            const factTip = this.collectionTooltip({
-                fact: pct(turnover),
-                required: turnover === null || turnover === undefined
-                    ? required.fact : null,
-                deviation: turnover === null || turnover === undefined
-                    ? (card.reason || 'Н/Д') : 'Рассчитано по четырём явным компонентам ОСВ',
-                deviationClass: turnover === null || turnover === undefined ? 'missing' : 'neutral',
-                source: card.source
-            });
-            const turnoverTip = this.collectionTooltip({
-                title: 'Компоненты собираемости по ОСВ',
-                description: 'Проверка четырёх обязательных оборотов явных субсчетов.',
-                formula: card.formula,
-                detail: 'Корень 62 и отсутствующие компоненты не заменяют явные 62.01/62.02.',
-                required: required.fact, norm: 'Не применяется', fact: pct(turnover),
-                deviation: turnover === null || turnover === undefined
-                    ? (card.reason || 'Н/Д') : 'Компоненты известны',
-                deviationClass: turnover === null || turnover === undefined ? 'missing' : 'neutral',
-                source: card.source
-            });
-            const arChangeTip = this.collectionTooltip({
-                title: 'Изменение дебиторской задолженности',
-                description: 'Изменение конечного дебетового сальдо 62.01 между двумя доступными точными снимками.',
-                formula: 'Δ ДЗ = ДЗ на текущую дату − ДЗ на предыдущую доступную дату',
-                detail: arChange === null ? 'Нет двух сопоставимых конечных сальдо 62.01.' : 'Рост ДЗ является косвенным сигналом ухудшения расчётов, но не заменяет собираемость.',
-                required: arChange === null ? 'ОСВ счёта 62 с конечным сальдо 62.01 на две сопоставимые даты.' : null,
-                norm: 'Индивидуальный норматив не задан',
-                fact: arChange === null ? 'Н/Д' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`,
-                deviation: arChange === null ? 'Недостаточно снимков' : (arChange > 0 ? 'Задолженность выросла' : 'Задолженность снизилась'),
-                deviationClass: arChange === null ? 'missing' : (arChange > 0 ? 'bad' : 'good'),
-                source: 'конечные сальдо ОСВ 62.01'
-            });
-            const ratioTip = this.collectionTooltip({
-                title: 'Дебиторская задолженность к выручке',
-                description: 'Отношение конечной ДЗ покупателей к выручке за выбранный период.',
-                formula: 'ДЗ / Выручка = СКд(62.01) / [ОбК(90.01) − ОбД(90.03)] × 100%',
-                detail: 'Показатель характеризует объём средств в задолженности, но не показывает распределение оплат по начислениям.',
-                required: arRevenueRatio === null ? 'ОСВ 62.01 с конечным дебетовым сальдо и ОСВ 90.01/90.03 за один сопоставимый период.' : null,
-                norm: 'Индивидуальный норматив не задан', fact: pct(arRevenueRatio),
-                deviation: arRevenueRatio === null ? 'Недостаточно данных' : 'Фактическое соотношение',
-                deviationClass: arRevenueRatio === null ? 'missing' : 'neutral',
-                source: 'ОСВ 62.01, 90.01 и 90.03'
-            });
+            const getComp = (acc, side) => components.find(c =>
+                (String(c.account || '').includes(acc) || String(c.label || '').includes(acc)) && c.side === side
+            );
 
-            const analytics = components.length ? components : (card.analytics || []);
-            const analyticRows = analytics.length ? analytics.map(row => {
-                const analyticBase = `${row.label}.`;
-                const debitTip = this.collectionTooltip({
-                    title: `Дебетовый оборот 62 — ${row.label}`,
-                    description: `Явный дебетовый оборот субсчёта ${row.account || '62'}.`,
-                    formula: `ОбД(${row.account || '62'})`,
-                    detail: `${analyticBase} Оборот может включать начисления, корректировки и другие операции.`,
-                    required: null, norm: 'Не применяется', fact: rub(row.debit),
-                    deviation: 'Факт ОСВ, не подтверждённые начисления', deviationClass: 'neutral',
-                    source: `ОСВ ${row.account || '62'}`
-                });
-                const creditTip = this.collectionTooltip({
-                    title: `Кредитовый оборот 62 — ${row.label}`,
-                    description: `Явный кредитовый оборот субсчёта ${row.account || '62'}.`,
-                    formula: `ОбК(${row.account || '62'})`,
-                    detail: `${analyticBase} Оборот может включать оплаты, зачёты, авансы, корректировки и сторно.`,
-                    required: null, norm: 'Не применяется', fact: rub(row.credit),
-                    deviation: 'Факт ОСВ, не подтверждённые оплаты', deviationClass: 'neutral',
-                    source: `ОСВ ${row.account || '62'}`
-                });
-                const rowTurnoverTip = this.collectionTooltip({
-                    title: `Компонент — ${row.label}`,
-                    description: 'Компонент строгого расчёта собираемости по ОСВ.',
-                    formula: `ОбД/ОбК(${row.account || '62'})`,
-                    detail: analyticBase,
-                    required: required.fact,
-                    norm: 'Норматив не применяется', fact: rub(row.value),
-                    deviation: row.value === null ? 'Компонент Н/Д' : 'Компонент известен',
-                    deviationClass: row.value === null ? 'missing' : 'neutral',
-                    source: `ОСВ ${row.account || '62'}`
-                });
-                const segmentFactTip = this.collectionTooltip({
-                    title: `Фактическая собираемость — ${row.label}`,
-                    detail: `${analyticBase} Для расчёта требуется связать оплаты с начислениями этой аналитики.`,
-                    required: `${required.fact} ${required.segments}`
-                });
-                const planTip = this.collectionTooltip({
-                    title: `План собираемости — ${row.label}`,
-                    description: 'Утверждённое целевое значение для сегмента и месяца.',
-                    formula: 'План берётся из утверждённой версии бюджета, а не выводится из ОСВ.',
-                    detail: analyticBase, required: `${required.plan} ${required.segments}`,
-                    source: 'требуется план из 1С или системы бюджетирования'
-                });
-                const apgTip = this.collectionTooltip({
-                    title: `Изменение к АПГ — ${row.label}`,
-                    description: 'Разница собираемости с тем же календарным периодом прошлого года.',
-                    formula: 'Δ АПГ = Собираемость текущего периода − Собираемость аналогичного периода прошлого года',
-                    detail: analyticBase, required: `${required.previousYear} ${required.segments}`,
-                    source: 'требуются сопоставимые регистры за два года'
-                });
-                const planDeltaTip = this.collectionTooltip({
-                    title: `Отклонение от плана — ${row.label}`,
-                    description: 'Разница фактической собираемости и утверждённого плана сегмента.',
-                    formula: 'Δ к плану = Фактическая собираемость − План собираемости',
-                    detail: analyticBase, required: `${required.fact} ${required.plan} ${required.segments}`,
-                    source: 'требуются регистр оплат и утверждённый план'
-                });
-                const statusTip = this.collectionTooltip({
-                    title: `Статус — ${row.label}`,
-                    description: 'Оценка выполнения утверждённого плана собираемости.',
-                    formula: 'Статус определяется по отклонению факта от утверждённого плана и согласованным порогам.',
-                    detail: 'Статус не назначается по справочному отношению оборотов счёта 62.',
-                    required: `${required.fact} ${required.plan} Справочник порогов статусов из 1С: сегмент, допустимое отклонение, уровень «Норма / Внимание / Критично», дата начала действия.`,
-                    source: 'требуются факт, план и утверждённые пороги'
-                });
-                return `<tr>
-                    ${this.collectionCell(`<strong>${esc(row.label)}</strong>`, this.collectionTooltip({
-                        title: `Аналитика счёта 62 — ${row.label}`, description: 'Фактическая аналитика из загруженной ОСВ.',
-                        formula: 'Группа определяется полным путём аналитики 1С.', detail: 'Автоматическое отнесение к категории потребителя не выполняется.',
-                        required: required.segments, norm: 'Не применяется', fact: 'Есть в ОСВ',
-                        deviation: 'Категория потребителя не подтверждена', deviationClass: 'missing', source: 'ОСВ счёта 62'
-                    }))}
-                    ${this.collectionCell(esc(rub(row.side === 'debit' ? row.value : row.debit)), debitTip)}
-                    ${this.collectionCell(esc(rub(row.side === 'credit' ? row.value : row.credit)), creditTip)}
-                    ${this.collectionCell(esc(row.side ? (row.side === 'debit' ? 'Знаменатель' : 'Числитель') : pct(row.turnover_ratio)), rowTurnoverTip)}
-                    ${this.collectionCell('Нужны данные', segmentFactTip, 'cash-value-missing')}
-                    ${this.collectionCell('Нужны данные', planTip, 'cash-value-missing')}
-                    ${this.collectionCell('Нужны данные', planDeltaTip, 'cash-value-missing')}
-                    ${this.collectionCell('Нужны данные', apgTip, 'cash-value-missing')}
-                    ${this.collectionCell('Недостаточно данных', statusTip, 'cash-value-missing')}
-                </tr>`;
-            }).join('') : `<tr><td colspan="9" class="chart-empty">В ОСВ счёта 62 нет доступной аналитической детализации. ${esc(required.segments)}</td></tr>`;
+            const getVal = c => c ? (c.value !== undefined && c.value !== null ? c.value : (c.side === 'debit' ? c.debit : c.credit)) : null;
 
-            container.innerHTML = `
-                <div class="modal-info-banner"><strong>Собираемость по ОСВ рассчитана как бухгалтерский прокси.</strong>
-                    Нужны все четыре явных компонента 62.01/62.02; корень 62 не подставляется, а связанные оплаты по начислениям ОСВ не подтверждает.</div>
-                <div class="modal-summary collection-summary">
-                    ${this.cashMetricCard('Собираемость по ОСВ', pct(turnover), 'бухгалтерский прокси', factTip, turnover === null, '__main__')}
-                    ${this.cashMetricCard('Связанные оплаты', 'Н/Д', 'нужен регистр распределения', this.collectionTooltip({
-                        title: 'Оплаты, связанные с начислениями',
-                        description: 'Самостоятельная метрика по платежным документам и регистру начислений.',
-                        formula: 'Распределённые оплаты / начисления × 100%',
-                        detail: required.linked,
-                        required: required.linked,
-                        source: 'регистр начислений и платежей из 1С'
-                    }), true)}
-                    ${this.cashMetricCard('Изменение ДЗ', arChange === null ? 'Нужны данные' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`, 'к предыдущему доступному месяцу', arChangeTip, arChange === null)}
-                    ${this.cashMetricCard('ДЗ / Выручка', pct(arRevenueRatio), 'бухгалтерский индикатор', ratioTip, arRevenueRatio === null)}
-                </div>
-                <div class="modal-section-title">Обязательные компоненты расчёта</div>
-                <div class="revenue-classification-note">Показываются только явные субсчета 62.01 и 62.02; итоговый корень 62 не используется как замена.</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table">
-                    <thead><tr><th>Компонент</th><th>ОбД</th><th>ОбК</th><th>Роль в формуле</th><th>Факт оплаты</th><th>План</th><th>Δ к плану</th><th>Δ к АПГ</th><th>Статус</th></tr></thead>
-                    <tbody>${analyticRows}</tbody>
-                </table></div>
-                <div class="modal-section-title">Какие данные нужны для полного окна</div>
-                <div class="revenue-missing-grid collection-missing-grid">
-                    ${this.cashMetricCard('Собираемость и Δ к плану', 'Нужны данные', 'начисления и распределённые оплаты', this.collectionTooltip({required: `${required.fact} ${required.plan}`}), true)}
-                    ${this.cashMetricCard('Сравнение с АПГ', 'Нужны данные', 'полный сопоставимый период', this.collectionTooltip({title:'Сравнение собираемости с АПГ', required: required.previousYear}), true)}
-                    ${this.cashMetricCard('Сегменты потребителей', 'Нужны данные', 'справочник категорий', this.collectionTooltip({title:'Собираемость по сегментам', required: required.segments}), true)}
-                    ${this.cashMetricCard('Субсидии и компенсации', 'Нужны данные', 'отдельный регистр поступлений', this.collectionTooltip({title:'Собираемость субсидий и компенсаций', required: required.subsidy}), true)}
+            const obd6201 = getVal(getComp('62.01', 'debit'));
+            const obk6201 = getVal(getComp('62.01', 'credit'));
+            const obd6202 = getVal(getComp('62.02', 'debit'));
+            const obk6202 = getVal(getComp('62.02', 'credit'));
+
+            const net6202 = (obd6202 !== null && obk6202 !== null && obd6202 !== undefined && obk6202 !== undefined)
+                ? (obk6202 - obd6202)
+                : null;
+
+            const bannerHtml = `
+                <div class="ki-modal-info-banner" style="background: #F8FAFC; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #E5E7EB;">
+                    <div style="font-size: 13px; color: #1E3A5F; font-weight: 500; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 8px;">
+                        <svg style="flex-shrink: 0; color: #3B82F6; margin-top: 2px;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                        <div>
+                            Собираемость по ОСВ рассчитана как бухгалтерский прокси. <span style="color: #64748B;">Нужны явные компоненты 62.01/62.02. Формула:</span>
+                            <span style="background: #EFF6FF; color: #1D4ED8; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-left: 4px;">${esc(card.formula || '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%')}</span>
+                        </div>
+                    </div>
+                    <div class="collection-summary">
+                        ${this.cashMetricCard('ОБЩИЙ СБОР ПО ОСВ', pct(turnover), 'из компонентов', this.collectionTooltip({title: 'Общий сбор', fact: pct(turnover)}), turnover === null, '__main__')}
+                        ${this.cashMetricCard('ОбД 62.01', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'ОбД 62.01', fact: rub(obd6201)}), obd6201 === null)}
+                        ${this.cashMetricCard('ОбК 62.01', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'ОбК 62.01', fact: rub(obk6201)}), obk6201 === null)}
+                        ${this.cashMetricCard('Эффект 62.02', rub(net6202), 'ОбК 62.02 − ОбД 62.02', this.collectionTooltip({title: 'Сальдо оборотов 62.02', fact: rub(net6202)}), net6202 === null)}
+                    </div>
                 </div>`;
 
-        },
+            const segmentNoticeHtml = `
+                <div style="background: #F9FAFB; border-left: 4px solid #9CA3AF; border-radius: 4px; padding: 12px 16px; margin-bottom: 24px; font-size: 12px; color: #4B5563; display: flex; align-items: center; gap: 8px;">
+                    <svg style="flex-shrink: 0;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+                    Детализация по сегментам потребителей недоступна: отсутствуют регистры начислений и распределения оплат.
+                </div>`;
 
+            const chartHtml = `
+                <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика" style="margin-bottom: 24px;">
+                    <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; margin-top: 0; border-bottom: none; padding-bottom: 0;">
+                        <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-4"/></svg>
+                        </div>
+                        ДИНАМИКА СОБИРАЕМОСТИ
+                    </div>
+                    <div class="modal-chart-wrap" style="height: 320px; background: #fff; border: 1px solid #F3F4F6; padding: 20px 10px 10px; margin-top: 10px;">
+                        <div class="cash-modal-chart-plot" style="height: 100%;"></div>
+                    </div>
+                </div>`;
+
+            const componentRows = components.length ? components.map(row => {
+                let role = 'Н/Д';
+                const accountStr = String(row.account || row.label || '');
+                if (accountStr.includes('62.01') && row.side === 'debit') role = 'Знаменатель';
+                else if (accountStr.includes('62.01') && row.side === 'credit') role = 'Числитель';
+                else if (accountStr.includes('62.02') && row.side === 'credit') role = 'Числитель';
+                else if (accountStr.includes('62.02') && row.side === 'debit') role = 'Вычитается из числителя';
+                else if (row.side === 'debit') role = 'Знаменатель';
+                else if (row.side === 'credit') role = 'Числитель';
+
+                const val = getVal(row);
+                return `<tr>
+                    <td style="text-align: left; font-weight: 600; color: #1F2937;">сч. ${esc(row.account || '62')}</td>
+                    <td style="text-align: left; color: #4B5563;">${esc(row.label)}</td>
+                    <td style="color: #6B7280; text-align: center;">${esc(role)}</td>
+                    <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(rub(val))}</td>
+                </tr>`;
+            }).join('') : `<tr><td colspan="4" style="text-align: center; color: #6B7280; padding: 16px;">Компоненты собираемости отсутствуют</td></tr>`;
+
+            const tableHtml = `
+                <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
+                    <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
+                    </div>
+                    КОМПОНЕНТЫ РАСЧЁТА (ОСВ)
+                </div>
+                <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
+                    <table class="collection-detail-table collection-audit-table" style="min-width: 100%; border: none;">
+                        <thead style="background: #1E3A8A;">
+                            <tr>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 20%;">СЧЁТ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left;">КОМПОНЕНТ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: center; width: 25%;">РОЛЬ В ФОРМУЛЕ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ЗНАЧЕНИЕ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${componentRows}
+                        </tbody>
+                    </table>
+                </div>`;
+
+            container.innerHTML = bannerHtml + chartHtml + segmentNoticeHtml + tableHtml;
+
+            this.mountSharedDynamics(card, container);
+        },
         arRequirements() {
             return {
                 fullDebt: 'Остатки из 1С по счетам 62 и 76: предприятие, контрагент, ИНН/КПП, договор, лицевой счёт, документ расчётов, субсчёт, аналитика, дебетовое и кредитовое сальдо, дата снимка и признак включения в дебиторскую задолженность.',

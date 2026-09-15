@@ -714,3 +714,68 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   transition: background 0.15s;
 }
 .btn-import:hover { background: #2563EB; }
+.collection-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 16px;
+  margin: 0;
+}
+.collection-summary .cash-analysis-card {
+  border-top: none;
+  background: #fff;
+  border: 1px solid #F3F4F6;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100px;
+}
+.collection-summary .cash-analysis-label {
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748B;
+  margin-bottom: 8px;
+}
+.collection-summary .cash-analysis-value {
+  font-size: 28px;
+  color: #1F2937;
+  margin-bottom: 6px;
+}
+.collection-summary .cash-analysis-sub {
+  font-size: 11px;
+  justify-content: center;
+}
+
+#ki-collection-modal-content {
+    background: #F8FAFC;
+    padding: 0;
+}
+
+.collection-detail-table th {
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    border-right: none !important;
+    border-left: none !important;
+}
+
+.collection-detail-table td {
+    font-size: 13px;
+    border-right: none !important;
+    border-left: none !important;
+}
+
+.collection-detail-table.collection-audit-table {
+    min-width: 720px;
+}
+
+.collection-detail-table.collection-audit-table th {
+    background: #1E3A8A;
+    color: #fff;
+}
