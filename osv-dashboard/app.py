@@ -2198,6 +2198,10 @@ def _upload_history_rows(uploads, company_id):
             return name
         return f'{name[:head]}…{name[-tail:]}'
 
+    def _short_text(value, limit=28):
+        text = str(value or '').strip() or '—'
+        return text if len(text) <= limit else f'{text[:limit - 1]}…'
+
     def _bounds(item, fallback_label=''):
         start = end = None
         try:
@@ -2297,7 +2301,12 @@ def _upload_history_rows(uploads, company_id):
             'full_file_label': (
                 file_rows[0]['filename'] if len(file_rows) == 1 else ''
             ),
-            'account_label': ', '.join(sorted(accounts)) if accounts else '—',
+            'full_account_label': (
+                ', '.join(sorted(accounts)) if accounts else '—'
+            ),
+            'account_label': _short_text(
+                ', '.join(sorted(accounts)) if accounts else '—', 18),
+            'period_display': _short_text(upload.period_label or '—', 32),
             'period_type': _period_type(start, end),
             'coverage_label': _coverage(start, end, accounts),
         })

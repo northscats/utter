@@ -329,13 +329,19 @@ tr:last-child td{border-bottom:0}
   margin-bottom:12px;font-size:12.5px;color:var(--ink)}
 .comp-summary b{color:var(--ink)}
 /* ── Компактная история загрузок ── */
-.upload-history-table{table-layout:auto}
+.upload-history-table{table-layout:fixed;width:100%}
 .upload-history-table th,.upload-history-table td{
-  padding:5px 8px;line-height:1.2;white-space:nowrap;vertical-align:middle}
-.upload-history-table .upload-file-col{width:190px}
-.upload-history-table .upload-period-col{min-width:210px;width:28%}
+  padding:5px 6px;line-height:1.2;white-space:nowrap;vertical-align:middle;
+  overflow:hidden;text-overflow:ellipsis}
+.upload-history-table .upload-date-col{width:125px}
+.upload-history-table .upload-source-col{width:74px}
+.upload-history-table .upload-file-col{width:21%}
+.upload-history-table .upload-period-col{width:25%}
+.upload-history-table .upload-account-col{width:12%}
+.upload-history-table .upload-type-col{width:70px}
+.upload-history-table .upload-coverage-col{width:78px}
 .upload-package-details summary{cursor:pointer;color:#1f6680;font-weight:600;
-  list-style-position:inside}
+  list-style-position:inside;overflow:hidden;text-overflow:ellipsis}
 .upload-package-files{margin-top:7px;min-width:720px;background:#fbfcfd}
 .upload-package-files th,.upload-package-files td{
   padding:4px 7px;font-size:11.5px;white-space:nowrap}
@@ -1035,26 +1041,26 @@ tr:last-child td{border-bottom:0}
     {% if uploads %}
     <table class="upload-history-table">
       <tr>
-        <th>Дата загрузки</th>
-        <th>Источник</th>
+        <th class="upload-date-col">Дата</th>
+        <th class="upload-source-col">Источник</th>
         <th class="upload-file-col">Файл / пакет</th>
         <th class="upload-period-col">Период</th>
-        <th>Номер счета</th>
-        <th>Тип</th>
-        <th>Покрытие дней</th>
+        <th class="upload-account-col">Счет</th>
+        <th class="upload-type-col">Тип</th>
+        <th class="upload-coverage-col" title="Покрытие дней">Дней</th>
       </tr>
       {% for row in upload_history_rows|default([]) %}
       {% set u = row.upload %}
       <tr>
-        <td>{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
-        <td>
+        <td class="upload-date-col" title="{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">{{ u.uploaded_at.strftime('%d.%m.%y %H:%M') }}</td>
+        <td class="upload-source-col">
           {% if u.source == 'auto_imap' %}
             <span class="src-auto">📧 Авто</span>
           {% else %}
             <span class="src-manual">👤 Вручную</span>
           {% endif %}
         </td>
-        <td>
+        <td class="upload-file-col">
           {% if row.file_rows|length > 1 %}
           <details class="upload-package-details">
             <summary>{{ row.file_label }}</summary>
@@ -1081,10 +1087,10 @@ tr:last-child td{border-bottom:0}
           <span title="{{ row.full_file_label }}">{{ row.file_label }}</span>
           {% endif %}
         </td>
-        <td>{{ u.period_label or '—' }}</td>
-        <td>{{ row.account_label }}</td>
-        <td>{{ row.period_type }}</td>
-        <td>{{ row.coverage_label }}</td>
+        <td class="upload-period-col" title="{{ u.period_label or '—' }}">{{ row.period_display }}</td>
+        <td class="upload-account-col" title="{{ row.full_account_label }}">{{ row.account_label }}</td>
+        <td class="upload-type-col" title="{{ row.period_type }}">{{ row.period_type }}</td>
+        <td class="upload-coverage-col" title="Покрытие дней: {{ row.coverage_label }}">{{ row.coverage_label|replace(' из ', '/') }}</td>
       </tr>
       {% endfor %}
     </table>
