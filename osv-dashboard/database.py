@@ -1153,6 +1153,9 @@ class AnalogPassport(db.Model):
     object_type = db.Column(db.String(32), nullable=False, default='котельная')
     climate_zone = db.Column(db.String(32), default='')
     climate_subzone = db.Column(db.String(32), default='')
+    climate_source = db.Column(db.Text, default='')
+    climate_reference_version = db.Column(db.String(80), default='')
+    climate_reference_date = db.Column(db.Date, nullable=True)
     cadastral_number = db.Column(db.String(64), default='')
     natural_conditions = db.Column(db.Text, default='')
     construction_object = db.Column(db.Text, default='')
@@ -1213,6 +1216,10 @@ class AnalogPassportVersion(db.Model):
     adjusted_cost = db.Column(db.Numeric(20, 6), nullable=True)
     adjustment_factor = db.Column(db.Numeric(18, 8), nullable=True)
     adjustment_provenance = db.Column(db.Text, default='')
+    adjustment_reference_version = db.Column(db.String(80), default='')
+    adjustment_reference_date = db.Column(db.Date, nullable=True)
+    adjustment_source = db.Column(db.Text, default='')
+    adjustment_price_level = db.Column(db.String(120), default='')
     payload_json = db.Column(db.Text, default='{}')
     imported_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
@@ -1227,6 +1234,43 @@ class AnalogPassportVersion(db.Model):
                                   cascade='all, delete-orphan')
     signatures = db.relationship('AnalogSSRSignature', backref='version', lazy=True,
                                  cascade='all, delete-orphan')
+
+
+class AnalogClimateReference(db.Model):
+    """Версионное адресное правило согласованного климатического справочника."""
+    __tablename__ = 'analog_climate_references'
+    __table_args__ = (
+        db.Index('ix_analog_climate_lookup', 'active', 'address_pattern'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    address_pattern = db.Column(db.String(500), nullable=False)
+    climate_zone = db.Column(db.String(32), nullable=False)
+    climate_subzone = db.Column(db.String(32), default='')
+    source = db.Column(db.Text, nullable=False)
+    reference_version = db.Column(db.String(80), nullable=False)
+    reference_date = db.Column(db.Date, nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AnalogCostIndexReference(db.Model):
+    """Версионный коэффициент для даты расчёта и исходного уровня цен."""
+    __tablename__ = 'analog_cost_index_references'
+    __table_args__ = (
+        db.UniqueConstraint('effective_date', 'price_level', 'reference_version',
+                            name='uq_analog_cost_index_version'),
+        db.Index('ix_analog_cost_index_lookup', 'active', 'price_level',
+                 'effective_date'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    effective_date = db.Column(db.Date, nullable=False)
+    price_level = db.Column(db.String(120), nullable=False)
+    factor = db.Column(db.Numeric(18, 8), nullable=False)
+    source = db.Column(db.Text, nullable=False)
+    reference_version = db.Column(db.String(80), nullable=False)
+    reference_date = db.Column(db.Date, nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class AnalogSource(db.Model):

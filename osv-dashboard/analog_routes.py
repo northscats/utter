@@ -14,7 +14,8 @@ from sqlalchemy import case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from analog_parser import AnalogParseError, parse_pair
-from database import (AnalogCostRow, AnalogDiagnostic, AnalogDocument,
+from database import (AnalogClimateReference, AnalogCostIndexReference,
+                       AnalogCostRow, AnalogDiagnostic, AnalogDocument,
                       AnalogImport, AnalogNetworkAttribute, AnalogOrganizationRole,
                       AnalogPassport, AnalogPassportVersion, AnalogSource,
                       AnalogSSRChapter, AnalogSSRItem, AnalogSSRSignature, AnalogTep, AuditLog, db,
@@ -50,7 +51,8 @@ def _db_date(value):
     except ValueError:
         return None
 
-
+def _normalized_address(value):
+    return ' '.join(str(value or '').lower().replace('ё', 'е').split())
 def _hash_upload(upload):
     if upload is None or not upload.filename:
         raise AnalogParseError('Необходимо передать оба XML-файла', 'missing_file')
@@ -543,7 +545,11 @@ def passport_detail(passport_id):
                  'conclusion_number': item.conclusion_number,
                  'total_cost': str(item.total_cost or ''),
                  'adjusted_cost': str(item.adjusted_cost or ''),
-                 'adjustment_provenance': item.adjustment_provenance}
+                  'adjustment_provenance': item.adjustment_provenance,
+                  'adjustment_reference_version': item.adjustment_reference_version,
+                  'adjustment_reference_date': item.adjustment_reference_date,
+                  'adjustment_source': item.adjustment_source,
+                  'adjustment_price_level': item.adjustment_price_level}
                 for item in passport.versions],
             'current_version': {
                 'organizations': [x.name for x in passport.organizations
@@ -713,7 +719,19 @@ def edit(passport_id):
     return jsonify(status='updated', passport_id=passport.id) if request.is_json else redirect(
         url_for('analog.passport_detail', passport_id=passport.id))
 
-
+@analog_bp.get('/api/climate-suggestion')
+@login_required
+def climate_suggestion():
+    address = (request.args.get('address') or '').strip()
+    item = _climate_suggestion(address)
+    if item is None:
+        return jsonify(status='missing', message=(
+            'В согласованном справочнике нет значения для этого адреса; '
+            'климатический район не подставлен.'))
+    return jsonify(status='suggested', climate_zone=item.climate_zone,
+                   climate_subzone=item.climate_subzone, source=item.source,
+                   reference_version=item.reference_version,
+                   reference_date=item.reference_date.isoformat())
 @analog_bp.post('/advanced/search')
 @login_required
 def advanced_search():
@@ -819,9 +837,18 @@ def adjust_cost(passport_id, version_id):
     version = db.session.get(AnalogPassportVersion, version_id) or abort(404)
     if version.passport_id != passport_id:
         abort(404)
+    values = request.form.to_dict() or (request.get_json(silent=True) or {})
+    suggestion = None
+    if values.get('reference_version'):
+        calculation_date = _db_date(values.get('calculation_date'))
+        suggestion = _cost_index_suggestion(values.get('price_level', '').strip(),
+                                            calculation_date)
+        if str(values.get('confirmed', '')).lower() not in ('1', 'true', 'yes', 'on'):
+            abort(400, description='Предложенный коэффициент нужно явно подтвердить')
+        if suggestion is None or suggestion.reference_version != values.get('reference_version'):
+            abort(409, description='Предложение изменилось; запросите его заново')
     try:
-        factor = Decimal(str(request.form.get('factor') or
-                             (request.get_json(silent=True) or {}).get('factor')))
+        factor = suggestion.factor if suggestion else Decimal(str(values.get('factor')))
     except (InvalidOperation, TypeError, ValueError):
         abort(400, description='Коэффициент должен быть десятичным числом')
     if factor <= 0 or factor > Decimal('1000'):
@@ -829,9 +856,14 @@ def adjust_cost(passport_id, version_id):
     version.adjustment_factor = factor
     version.adjusted_cost = (Decimal(str(version.total_cost)) * factor
                              if version.total_cost is not None else None)
-    version.adjustment_provenance = request.form.get('provenance') or (
-        (request.get_json(silent=True) or {}).get('provenance') or
-        'Коэффициент задан администратором')
+    version.adjustment_provenance = (suggestion.source if suggestion else
+                                     values.get('provenance') or
+                                     'Коэффициент задан администратором')
+    version.adjustment_reference_version = suggestion.reference_version if suggestion else ''
+    version.adjustment_reference_date = suggestion.reference_date if suggestion else None
+    version.adjustment_source = suggestion.source if suggestion else version.adjustment_provenance
+    version.adjustment_price_level = suggestion.price_level if suggestion else (
+        values.get('price_level') or '')
     db.session.add(AuditLog(user_id=current_user.id, action='analog_cost_adjusted',
                             details=_json({'passport_id': passport_id,
                                            'version_id': version_id,
@@ -859,3 +891,109 @@ def migrate_json_v4():
     if request.accept_mimetypes.best == 'text/html':
         return render_template('analog_migration_report.html', report=report)
     return jsonify(status='ok', report=report)
+
+@analog_bp.get('/api/cost-index-suggestion')
+@login_required
+def cost_index_suggestion():
+    price_level = (request.args.get('price_level') or '').strip()
+    calculation_date = _db_date(request.args.get('date'))
+    if not calculation_date:
+        abort(400, description='Укажите дату расчёта')
+    item = _cost_index_suggestion(price_level, calculation_date)
+    if item is None:
+        return jsonify(status='missing', message=(
+            'В версионном справочнике нет коэффициента для этой даты и уровня цен; '
+            'стоимость не рассчитана.'))
+    return jsonify(status='suggested', factor=str(item.factor),
+                   price_level=item.price_level, effective_date=item.effective_date.isoformat(),
+                   source=item.source, reference_version=item.reference_version,
+                   reference_date=item.reference_date.isoformat())
+
+def _climate_suggestion(address):
+    normalized = _normalized_address(address)
+    if not normalized:
+        return None
+    candidates = AnalogClimateReference.query.filter_by(active=True).all()
+    matches = [item for item in candidates
+               if _normalized_address(item.address_pattern) in normalized]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (
+        item.reference_date, len(_normalized_address(item.address_pattern)), item.id))
+
+@analog_bp.post('/admin/cost-index-references')
+@_admin_only
+def create_cost_index_reference():
+    values = request.get_json(silent=True) or request.form
+    effective_date = _db_date(values.get('effective_date'))
+    reference_date = _db_date(values.get('reference_date'))
+    try:
+        factor = Decimal(str(values.get('factor')))
+    except (InvalidOperation, TypeError, ValueError):
+        abort(400, description='Коэффициент должен быть числом')
+    required = ('price_level', 'source', 'reference_version')
+    if (not effective_date or not reference_date or factor <= 0 or
+            any(not str(values.get(key, '')).strip() for key in required)):
+        abort(400, description='Заполните даты, уровень цен, коэффициент, источник и версию')
+    item = AnalogCostIndexReference(
+        effective_date=effective_date, price_level=str(values['price_level']).strip(),
+        factor=factor, source=str(values['source']).strip(),
+        reference_version=str(values['reference_version']).strip(),
+        reference_date=reference_date)
+    db.session.add(item)
+    db.session.commit()
+    return jsonify(status='created', id=item.id), 201
+
+@analog_bp.post('/admin/climate-references')
+@_admin_only
+def create_climate_reference():
+    values = request.get_json(silent=True) or request.form
+    reference_date = _db_date(values.get('reference_date'))
+    required = ('address_pattern', 'climate_zone', 'source', 'reference_version')
+    if not reference_date or any(not str(values.get(key, '')).strip() for key in required):
+        abort(400, description='Заполните правило, район, источник, версию и дату')
+    item = AnalogClimateReference(
+        address_pattern=str(values['address_pattern']).strip(),
+        climate_zone=str(values['climate_zone']).strip(),
+        climate_subzone=str(values.get('climate_subzone', '')).strip(),
+        source=str(values['source']).strip(),
+        reference_version=str(values['reference_version']).strip(),
+        reference_date=reference_date)
+    db.session.add(item)
+    db.session.commit()
+    return jsonify(status='created', id=item.id), 201
+
+def _cost_index_suggestion(price_level, calculation_date):
+    if not price_level or not calculation_date:
+        return None
+    return (AnalogCostIndexReference.query
+            .filter_by(active=True, price_level=price_level)
+            .filter(AnalogCostIndexReference.effective_date <= calculation_date)
+            .order_by(AnalogCostIndexReference.effective_date.desc(),
+                      AnalogCostIndexReference.reference_date.desc(),
+                      AnalogCostIndexReference.id.desc()).first())
+
+@analog_bp.post('/passports/<int:passport_id>/climate/confirm')
+@_admin_only
+def confirm_climate(passport_id):
+    passport = db.session.get(AnalogPassport, passport_id) or abort(404)
+    values = request.get_json(silent=True) or request.form
+    if str(values.get('confirmed', '')).lower() not in ('1', 'true', 'yes', 'on'):
+        abort(400, description='Предложение нужно явно подтвердить')
+    item = _climate_suggestion(passport.address)
+    if item is None:
+        abort(409, description='Для адреса больше нет актуального предложения')
+    if values.get('reference_version') != item.reference_version:
+        abort(409, description='Версия предложения изменилась; запросите его заново')
+    passport.climate_zone = item.climate_zone
+    passport.climate_subzone = item.climate_subzone
+    passport.climate_source = item.source
+    passport.climate_reference_version = item.reference_version
+    passport.climate_reference_date = item.reference_date
+    db.session.add(AuditLog(user_id=current_user.id, action='analog_climate_confirmed',
+                            details=_json({'passport_id': passport.id,
+                                           'reference_version': item.reference_version}),
+                            ip=request.remote_addr))
+    db.session.commit()
+    return jsonify(status='confirmed', climate_zone=item.climate_zone,
+                   climate_subzone=item.climate_subzone)

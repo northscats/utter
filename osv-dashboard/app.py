@@ -5630,11 +5630,18 @@ def init_db(perform_durable=True):
                 ('cadastral_number', "VARCHAR(64) DEFAULT ''"),
                 ('natural_conditions', "TEXT DEFAULT ''"),
                 ('construction_object', "TEXT DEFAULT ''"),
+                ('climate_source', "TEXT DEFAULT ''"),
+                ('climate_reference_version', "VARCHAR(80) DEFAULT ''"),
+                ('climate_reference_date', "DATE"),
             ],
             'analog_passport_versions': [
                 ('cadastral_number', "VARCHAR(64) DEFAULT ''"),
                 ('natural_conditions', "TEXT DEFAULT ''"),
                 ('construction_object', "TEXT DEFAULT ''"),
+                ('adjustment_reference_version', "VARCHAR(80) DEFAULT ''"),
+                ('adjustment_reference_date', "DATE"),
+                ('adjustment_source', "TEXT DEFAULT ''"),
+                ('adjustment_price_level', "VARCHAR(120) DEFAULT ''"),
             ],
             'analog_sources': [
                 ('raw_conclusion_path', "VARCHAR(1000) NOT NULL DEFAULT ''"),

@@ -33,7 +33,9 @@
   <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Архивировать</button></form>{% endif %}
   <dl><dt>Адрес</dt><dd>{{ passport.address or '—' }}</dd>
   <dt>Тип</dt><dd>{{ passport.object_type }}</dd>
-  <dt>Климат</dt><dd>{{ passport.climate_zone or '—' }} {{ passport.climate_subzone }}</dd>
+  <dt>Климат</dt><dd><span id="climate-value">{{ passport.climate_zone or '—' }} {{ passport.climate_subzone }}</span>
+    {% if passport.climate_source %}<br><small>{{ passport.climate_source }} · версия {{ passport.climate_reference_version }} от {{ passport.climate_reference_date }}</small>{% endif %}
+    {% if current_user.is_admin %}<br><button type="button" class="btn" id="suggest-climate">Предложить по адресу</button><span id="climate-suggestion"></span>{% endif %}</dd>
   <dt>Мощность</dt><dd>{{ passport.capacity_kw or '—' }} кВт</dd>
    <dt>Вид работ</dt><dd>{{ passport.work_type or '—' }}</dd>
    <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
@@ -41,12 +43,43 @@
    <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd></dl>
   <h2>Версии и происхождение</h2>
   <table><tr><th>Версия</th><th>Номер заключения</th><th>Итог ССР</th><th>С коэффициентом</th><th>Происхождение</th></tr>
-  {% for item in passport.versions %}<tr><td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}">{{ item.version_no }}</a></td><td>{{ item.conclusion_number }}</td><td>{{ item.total_cost or '—' }}</td><td>{{ item.adjusted_cost or '—' }}</td><td>{{ item.adjustment_provenance or '—' }}</td></tr>{% endfor %}
+  {% for item in passport.versions %}<tr><td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}">{{ item.version_no }}</a></td><td>{{ item.conclusion_number }}</td><td>{{ item.total_cost or '—' }}</td><td>{{ item.adjusted_cost or '—' }}</td><td>{{ item.adjustment_provenance or '—' }}{% if item.adjustment_reference_version %}<br><small>версия {{ item.adjustment_reference_version }} от {{ item.adjustment_reference_date }} · уровень {{ item.adjustment_price_level }}</small>{% endif %}</td></tr>{% endfor %}
   </table>
-  {% if current_user.is_admin and version %}<form method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}">
+  {% if current_user.is_admin and version %}<form id="cost-adjust-form" method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Коэффициент <input name="factor" type="number" step="any" value="1"></label>
-    <label>Происхождение <input name="provenance" value="Введено администратором"></label><button class="btn">Рассчитать скорректированную стоимость</button>
-  </form>{% endif %}
+    <label>Уровень цен <input name="price_level" value="{% if version.price_year %}{{ version.price_year }}/Q{{ version.price_quarter or '' }}{% endif %}"></label>
+    <label>Дата расчёта <input name="calculation_date" type="date"></label>
+    <label>Происхождение <input name="provenance" value="Введено администратором"></label>
+    <input type="hidden" name="reference_version"><input type="hidden" name="confirmed">
+    <button type="button" class="btn" id="suggest-factor">Предложить из справочника</button>
+    <button class="btn">Рассчитать скорректированную стоимость</button><span id="factor-suggestion"></span>
+  </form>
+  <script>
+  (() => {
+    const csrf = {{ csrf_token()|tojson }};
+    const climateButton = document.getElementById('suggest-climate');
+    if (climateButton) climateButton.onclick = async () => {
+      const box = document.getElementById('climate-suggestion');
+      const suggestion = await (await fetch({{ url_for('analog.climate_suggestion')|tojson }} + '?address=' + encodeURIComponent({{ passport.address|tojson }}))).json();
+      if (suggestion.status !== 'suggested') { box.textContent = ' ' + suggestion.message; return; }
+      box.innerHTML = ` ${suggestion.climate_zone} ${suggestion.climate_subzone} (${suggestion.source}, ${suggestion.reference_version}) <button type="button">Подтвердить</button>`;
+      box.querySelector('button').onclick = async () => {
+        const result = await fetch({{ url_for('analog.confirm_climate', passport_id=passport.id)|tojson }}, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify({confirmed:true, reference_version:suggestion.reference_version})});
+        if (result.ok) location.reload(); else box.textContent = ' Предложение не сохранено';
+      };
+    };
+    const form = document.getElementById('cost-adjust-form');
+    document.getElementById('suggest-factor').onclick = async () => {
+      const params = new URLSearchParams({price_level: form.price_level.value, date: form.calculation_date.value});
+      const suggestion = await (await fetch({{ url_for('analog.cost_index_suggestion')|tojson }} + '?' + params)).json();
+      const box = document.getElementById('factor-suggestion');
+      if (suggestion.status !== 'suggested') { box.textContent = ' ' + suggestion.message; return; }
+      form.factor.value = suggestion.factor; form.reference_version.value = suggestion.reference_version;
+      form.confirmed.value = ''; box.innerHTML = ` ${suggestion.factor} (${suggestion.source}, ${suggestion.reference_version}) <button type="button">Подтвердить</button>`;
+      box.querySelector('button').onclick = () => { form.confirmed.value = 'true'; box.textContent += ' — подтверждено'; };
+    };
+  })();
+  </script>{% endif %}
   <h2>Организации</h2>
   <table><tr><th>Роль</th><th>Наименование</th><th>ИНН/ОГРН</th></tr>
   {% for item in organizations %}<tr><td>{{ item.role }}</td><td>{{ item.name }}</td><td>ИНН {{ item.inn }} / ОГРН {{ item.ogrn }} / КПП {{ item.kpp }}<br>{{ item.email }}<br>{{ item.address }}</td></tr>{% else %}<tr><td colspan="3">Нет данных</td></tr>{% endfor %}</table>

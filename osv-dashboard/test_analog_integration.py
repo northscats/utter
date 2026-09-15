@@ -7,6 +7,7 @@ import unittest
 import json
 import zipfile
 from io import BytesIO
+from datetime import date
 
 _tmp = tempfile.mkdtemp(prefix='analog_route_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_tmp}/analog.db'
@@ -16,8 +17,9 @@ os.environ.setdefault('ENCRYPTION_KEY',
 os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 
 from app import app, init_db  # noqa: E402
-from database import (AnalogDocument, AnalogImport, AnalogNetworkAttribute,
-                      AnalogPassport, User, db)  # noqa: E402
+from database import (AnalogClimateReference, AnalogCostIndexReference,
+                      AnalogDocument, AnalogImport, AnalogNetworkAttribute,
+                      AnalogPassport, AnalogPassportVersion, User, db)  # noqa: E402
 from analog_migration import import_json_v4  # noqa: E402
 
 
@@ -85,6 +87,7 @@ class AnalogRoutesTest(unittest.TestCase):
 
     def test_global_abs_boundary_and_pagination(self):
         with app.app_context():
+            before = AnalogPassport.query.filter_by(archived=False).count()
             for number, capacity in enumerate((90, 110, 89, 111), 1):
                 db.session.add(AnalogPassport(
                     title=f'boundary-{number}', capacity_kw=capacity,
@@ -93,7 +96,7 @@ class AnalogRoutesTest(unittest.TestCase):
         response = self.client.get('/analog-search/api/search?capacity_kw=100&per_page=2')
         payload = response.get_json()
         self.assertEqual(payload['good'], 2)
-        self.assertEqual(payload['total'], 4)
+        self.assertEqual(payload['total'], before + 4)
         self.assertEqual(len(payload['items']), 2)
         self.assertTrue(all(item['good'] for item in payload['items']))
 
@@ -223,6 +226,89 @@ class AnalogRoutesTest(unittest.TestCase):
         denied = self.client.post(f'/analog-search/import/{import_id}/confirm',
                                   json={})
         self.assertEqual(denied.status_code, 403)
+
+    def test_climate_suggestion_requires_explicit_confirmation(self):
+        with app.app_context():
+            db.session.add_all([
+                AnalogClimateReference(
+                    address_pattern='Омская область', climate_zone='IВ',
+                    climate_subzone='', source='СП 131.13330',
+                    reference_version='2025-general', reference_date=date(2025, 1, 1)),
+                AnalogClimateReference(
+                    address_pattern='город Омск', climate_zone='IВ',
+                    climate_subzone='IВ-2', source='СП 131.13330, приложение А',
+                    reference_version='2025-omsk', reference_date=date(2025, 2, 1)),
+            ])
+            passport = AnalogPassport(
+                title='Климатический тест', address='Омская область, город Омск',
+                object_type='котельная', work_type='строительство', capacity_kw=10,
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.commit()
+            passport_id = passport.id
+        proposal = self.client.get(
+            '/analog-search/api/climate-suggestion',
+            query_string={'address': 'Омская область, город Омск'}).get_json()
+        self.assertEqual(proposal['reference_version'], '2025-omsk')
+        rejected = self.client.post(
+            f'/analog-search/passports/{passport_id}/climate/confirm',
+            json={'reference_version': '2025-omsk'})
+        self.assertEqual(rejected.status_code, 400)
+        confirmed = self.client.post(
+            f'/analog-search/passports/{passport_id}/climate/confirm',
+            json={'confirmed': True, 'reference_version': '2025-omsk'})
+        self.assertEqual(confirmed.status_code, 200)
+        with app.app_context():
+            saved = db.session.get(AnalogPassport, passport_id)
+            self.assertEqual(saved.climate_subzone, 'IВ-2')
+            self.assertEqual(saved.climate_reference_version, '2025-omsk')
+            self.assertEqual(saved.climate_reference_date, date(2025, 2, 1))
+
+    def test_versioned_cost_index_is_selected_and_saved_with_passport_version(self):
+        with app.app_context():
+            db.session.add_all([
+                AnalogCostIndexReference(
+                    effective_date=date(2025, 1, 1), price_level='2020/Q1',
+                    factor='1.25', source='Согласованный индекс Минстроя',
+                    reference_version='indices-2025-q1', reference_date=date(2025, 1, 10)),
+                AnalogCostIndexReference(
+                    effective_date=date(2025, 7, 1), price_level='2020/Q1',
+                    factor='1.40', source='Согласованный индекс Минстроя',
+                    reference_version='indices-2025-q3', reference_date=date(2025, 7, 10)),
+            ])
+            passport = AnalogPassport(
+                title='Индексный тест', object_type='котельная',
+                work_type='строительство', capacity_kw=10, created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1, conclusion_number='cost-test',
+                examination_result='positive', source_hash='cost-source',
+                ssr_hash='cost-ssr', total_cost=100, imported_by=self.admin_id)
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.commit()
+            passport_id, version_id = passport.id, version.id
+        missing = self.client.get('/analog-search/api/cost-index-suggestion',
+                                  query_string={'price_level': 'unknown',
+                                                'date': '2025-08-01'}).get_json()
+        self.assertEqual(missing['status'], 'missing')
+        rejected = self.client.post(
+            f'/analog-search/passports/{passport_id}/versions/{version_id}/adjust',
+            json={'price_level': '2020/Q1', 'calculation_date': '2025-08-01',
+                  'reference_version': 'indices-2025-q3'})
+        self.assertEqual(rejected.status_code, 400)
+        saved = self.client.post(
+            f'/analog-search/passports/{passport_id}/versions/{version_id}/adjust',
+            json={'price_level': '2020/Q1', 'calculation_date': '2025-08-01',
+                  'reference_version': 'indices-2025-q3', 'confirmed': True})
+        self.assertEqual(saved.status_code, 200)
+        with app.app_context():
+            version = db.session.get(AnalogPassportVersion, version_id)
+            self.assertEqual(str(version.adjusted_cost), '140.000000')
+            self.assertEqual(version.adjustment_reference_version, 'indices-2025-q3')
+            self.assertEqual(version.adjustment_reference_date, date(2025, 7, 10))
 
 
 if __name__ == '__main__':
