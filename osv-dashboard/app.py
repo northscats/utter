@@ -2221,7 +2221,13 @@ def _upload_history_rows(uploads, company_id):
                 start, end = None, None
         return start, end
 
-    def _period_type(start, end):
+    def _period_type(start, end, granularity=None):
+        if granularity == 'day':
+            return 'День'
+        if granularity == 'year':
+            return 'Год'
+        if granularity == 'month':
+            return 'Месяц'
         if start is None or end is None or end < start:
             return '—'
         if start == end:
@@ -2257,13 +2263,23 @@ def _upload_history_rows(uploads, company_id):
             start, end = _bounds(item)
             relative_path = str(item.get('relative_path') or '').strip()
             filename = os.path.basename(relative_path) or 'Файл'
+            observed_dates = {
+                str(value) for value in (item.get('observed_dates') or [])
+                if value
+            }
             file_rows.append({
                 'filename': filename,
                 'display_filename': _short_filename(filename),
                 'account_label': account or '—',
                 'period_label': item.get('period') or '—',
-                'period_type': _period_type(start, end),
-                'coverage_label': _coverage(start, end, item_accounts),
+                'period_type': _period_type(
+                    start, end, item.get('granularity')),
+                'coverage_label': (
+                    f'{len(observed_dates)} из {(end - start).days + 1}'
+                    if observed_dates and start is not None and end is not None
+                    else '—' if item.get('granularity') == 'month'
+                    else _coverage(start, end, item_accounts)
+                ),
             })
 
         accounts = {
@@ -2287,6 +2303,19 @@ def _upload_history_rows(uploads, company_id):
             start, end = min(starts), max(ends)
         else:
             start, end = _bounds({}, upload.period_label or '')
+        granularities = {
+            item.get('granularity') for item in manifest_items
+            if item.get('granularity')
+        }
+        aggregate_granularity = (
+            next(iter(granularities)) if len(granularities) == 1 else None
+        )
+        observed_dates = {
+            str(value)
+            for item in manifest_items
+            for value in (item.get('observed_dates') or [])
+            if value
+        }
 
         rows.append({
             'upload': upload,
@@ -2307,8 +2336,16 @@ def _upload_history_rows(uploads, company_id):
             'account_label': _short_text(
                 ', '.join(sorted(accounts)) if accounts else '—', 18),
             'period_display': _short_text(upload.period_label or '—', 32),
-            'period_type': _period_type(start, end),
-            'coverage_label': _coverage(start, end, accounts),
+            'period_type': (
+                'Смешанный' if len(granularities) > 1
+                else _period_type(start, end, aggregate_granularity)
+            ),
+            'coverage_label': (
+                f'{len(observed_dates)} из {(end - start).days + 1}'
+                if observed_dates and start is not None and end is not None
+                else '—' if aggregate_granularity == 'month'
+                else _coverage(start, end, accounts)
+            ),
         })
     return rows
 

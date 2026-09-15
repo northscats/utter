@@ -51,6 +51,39 @@ class SourceManifestTests(unittest.TestCase):
     def test_manifest_is_explicit_empty_array_when_no_monthly_file_was_accepted(self):
         self.assertEqual(dump_manifest([]), "[]")
 
+    def test_manifest_distinguishes_dated_rows_from_monthly_analytics(self):
+        with tempfile.TemporaryDirectory() as root:
+            monthly_path = os.path.join(root, "monthly.xls")
+            daily_path = os.path.join(root, "daily.xls")
+            for path in (monthly_path, daily_path):
+                with open(path, "wb") as stream:
+                    stream.write(path.encode())
+            records = build_manifest([
+                (monthly_path, {
+                    "acc": "08",
+                    "period": "Январь–Июнь 2026",
+                    "daily": [],
+                }),
+                (daily_path, {
+                    "acc": "08",
+                    "period": "Январь–Июнь 2026",
+                    "daily": [
+                        {"date": "2026-02-07"},
+                        {"date": "2026-02-07"},
+                        {"date": "2026-03-02"},
+                    ],
+                }),
+            ], root)
+
+        self.assertEqual(records[0]["granularity"], "month")
+        self.assertNotIn("observed_dates", records[0])
+        self.assertEqual(records[1]["granularity"], "day")
+        self.assertEqual(
+            records[1]["observed_dates"], ["2026-02-07", "2026-03-02"])
+        self.assertEqual(records[1]["observed_days"], 2)
+        self.assertEqual(records[1]["observed_start"], "2026-02-07")
+        self.assertEqual(records[1]["observed_end"], "2026-03-02")
+
     def test_only_parse_many_acceptances_enter_the_manifest(self):
         with tempfile.TemporaryDirectory() as root:
             accepted = os.path.join(root, "accepted.xls")

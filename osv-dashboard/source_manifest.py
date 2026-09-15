@@ -151,6 +151,17 @@ def build_manifest(
             "account": account,
             "period": period,
         }
+        observed_dates = sorted({
+            str(item.get("date") or "")
+            for item in (parsed.get("daily") or [])
+            if isinstance(item, dict) and item.get("date")
+        })
+        record["granularity"] = "day" if observed_dates else "month"
+        if observed_dates:
+            record["observed_dates"] = observed_dates
+            record["observed_days"] = len(observed_dates)
+            record["observed_start"] = observed_dates[0]
+            record["observed_end"] = observed_dates[-1]
         if report_start is not None:
             record["report_start"] = report_start
         if report_end is not None:
