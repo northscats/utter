@@ -1,0 +1,95 @@
+{% extends "modules.html" %}
+{% block title %}Поиск объектов-аналогов{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+<div class="eyebrow">Теплоснабжение</div>
+<h1>Поиск объектов-аналогов</h1>
+<p class="lead">Индексированный поиск по подтверждённым паспортам и стоимости ССР.</p>
+<section class="panel">
+  <form method="get" class="filters">
+    <label>Тип объекта
+      <select name="object_type"><option value="">Все</option>{% for value in object_types %}
+        <option value="{{ value }}" {% if request.args.get('object_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
+      {% endfor %}</select>
+    </label>
+    <label>Климатический район <input name="climate_zone" value="{{ request.args.get('climate_zone','') }}" title="Районы IА–IVГ"></label>
+    <label>Вид работ <select name="work_type"><option value="">Все</option>{% for value in work_types %}
+      <option value="{{ value }}" {% if request.args.get('work_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
+    {% endfor %}</select></label>
+    <label>Мощность, кВт <input name="capacity_kw" type="number" step="any" value="{{ request.args.get('capacity_kw','') }}"></label>
+    <label>Название или адрес <input name="q" value="{{ request.args.get('q','') }}"></label>
+    <button class="btn" type="submit">Найти</button>
+  </form>
+</section>
+{% if current_user.is_authenticated %}
+<section class="panel">
+  <h2>Импорт заключения и ССР</h2>
+  <form method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>XML заключения <input type="file" name="conclusion" accept=".xml" required></label>
+    <label>ССР 3.01 (.gge) <input type="file" name="ssr" accept=".gge,.xml" required></label>
+    <button class="btn" type="submit">Предварительный просмотр</button>
+  </form>
+</section>
+{% endif %}
+{% if current_user.is_admin %}
+<section class="panel"><h2>Администрирование</h2>
+  <form method="post" action="{{ url_for('analog.create_passport') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="title" placeholder="Новый объект" required><input name="address" placeholder="Адрес">
+    <select id="create-object-type" name="object_type">{% for value in object_types %}<option>{{ value }}</option>{% endfor %}</select>
+    <select name="work_type">{% for value in work_types %}<option>{{ value }}</option>{% endfor %}</select>
+    <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт">
+    <div class="create-network-fields" hidden>
+      <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м">
+      <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм">
+    </div>
+    <button class="btn" type="submit">Создать паспорт</button>
+  </form>
+  <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="file" name="file" accept=".json" required>
+    <button class="btn" type="submit">Импорт JSON v4</button>
+  </form>
+</section>
+<script>
+(() => {
+  const type = document.getElementById('create-object-type');
+  const fields = document.querySelector('.create-network-fields');
+  const inputs = fields ? fields.querySelectorAll('input') : [];
+  function toggleNetwork() {
+    const network = (type.value || '').toLowerCase().includes('сеть');
+    if (fields) fields.hidden = !network;
+    inputs.forEach(input => { input.required = network; });
+  }
+  if (type) { type.addEventListener('change', toggleNetwork); toggleNetwork(); }
+})();
+</script>
+{% endif %}
+<section class="panel">
+  <p class="result-groups"><strong>Хорошие аналоги: {{ good_count }}</strong> · <strong>Плохие аналоги: {{ pagination.total - good_count }}</strong></p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>№</th><th>Объект</th><th>Адрес</th><th>Работы</th><th>Мощность</th><th>Стоимость с коэффициентом</th><th>Аналогичность</th></tr></thead>
+    <tbody><tr><th colspan="7">Хорошие аналоги (отклонение мощности ABS ≤ 10%)</th></tr>
+    {% for row in good_rows %}
+      <tr class="{% if row.good %}good{% else %}poor{% endif %}">
+        <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+        <td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td>
+        <td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td>
+        <td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td>
+        <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+      </tr>
+    {% endfor %}
+    <tr><th colspan="7">Плохие аналоги (отклонение мощности ABS &gt; 10%)</th></tr>
+    {% for row in poor_rows %}
+      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td></tr>
+    {% endfor %}
+    {% if not rows %}<tr><td colspan="7">Подтверждённых паспортов пока нет.</td></tr>{% endif %}</tbody>
+  </table></div>
+  {% if pagination.pages > 1 %}<nav class="pagination">
+    {% for page in pagination.iter_pages() %}{% if page %}
+      {% set params = request.args.to_dict(flat=True) %}{% set _ = params.update({'page': page}) %}
+      <a href="{{ url_for('analog.index', **params) }}">{{ page }}</a>
+    {% else %}…{% endif %}{% endfor %}
+  </nav>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "modules.html" %}
+{% block title %}{{ passport.title }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
+<h1>{{ passport.title }}</h1>
+<section class="panel passport">
+  {% if current_user.is_admin %}<form method="post" action="{{ url_for('analog.edit', passport_id=passport.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="title" value="{{ passport.title }}"><input name="address" value="{{ passport.address }}">
+    <select id="edit-object-type" name="object_type">{% for value in ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть') %}<option {% if passport.object_type == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select>
+    <input name="climate_zone" value="{{ passport.climate_zone }}" placeholder="Климатическая зона">
+    <input name="climate_subzone" value="{{ passport.climate_subzone }}" placeholder="Климатический подрайон">
+    <input name="cadastral_number" value="{{ passport.cadastral_number }}" placeholder="Кадастровый номер">
+    <input name="natural_conditions" value="{{ passport.natural_conditions }}" placeholder="Природные условия">
+    <input name="construction_object" value="{{ passport.construction_object }}" placeholder="Объект строительства">
+    <input name="work_type" value="{{ passport.work_type }}" placeholder="Вид работ">
+    <input name="capacity_kw" value="{{ passport.capacity_kw or '' }}" placeholder="Мощность, кВт">
+    <div id="edit-network-fields" hidden><input name="network_length_m" placeholder="Длина сети, м"><input name="network_diameter_mm" placeholder="Диаметр, мм"></div>
+    <button class="btn" type="submit">Сохранить изменения</button>
+  </form>
+  <script>
+  (() => { const type = document.getElementById('edit-object-type');
+    const group = document.getElementById('edit-network-fields');
+    const toggle = () => { group.hidden = !(type.value || '').toLowerCase().includes('сеть'); };
+    type.addEventListener('change', toggle); toggle();
+  })();
+  </script>
+  <form method="post" enctype="multipart/form-data" action="{{ url_for('analog.reimport', passport_id=passport.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="passport_id" value="{{ passport.id }}">
+    <input type="file" name="conclusion" accept=".xml" required><input type="file" name="ssr" accept=".gge,.xml" required>
+    <button class="btn" type="submit">Переимпортировать новую версию</button>
+  </form>
+  <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Архивировать</button></form>{% endif %}
+  <dl><dt>Адрес</dt><dd>{{ passport.address or '—' }}</dd>
+  <dt>Тип</dt><dd>{{ passport.object_type }}</dd>
+  <dt>Климат</dt><dd>{{ passport.climate_zone or '—' }} {{ passport.climate_subzone }}</dd>
+  <dt>Мощность</dt><dd>{{ passport.capacity_kw or '—' }} кВт</dd>
+   <dt>Вид работ</dt><dd>{{ passport.work_type or '—' }}</dd>
+   <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
+   <dt>Природные условия</dt><dd>{{ passport.natural_conditions or '—' }}</dd>
+   <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd></dl>
+  <h2>Версии и происхождение</h2>
+  <table><tr><th>Версия</th><th>Номер заключения</th><th>Итог ССР</th><th>С коэффициентом</th><th>Происхождение</th></tr>
+  {% for item in passport.versions %}<tr><td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}">{{ item.version_no }}</a></td><td>{{ item.conclusion_number }}</td><td>{{ item.total_cost or '—' }}</td><td>{{ item.adjusted_cost or '—' }}</td><td>{{ item.adjustment_provenance or '—' }}</td></tr>{% endfor %}
+  </table>
+  {% if current_user.is_admin and version %}<form method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Коэффициент <input name="factor" type="number" step="any" value="1"></label>
+    <label>Происхождение <input name="provenance" value="Введено администратором"></label><button class="btn">Рассчитать скорректированную стоимость</button>
+  </form>{% endif %}
+  <h2>Организации</h2>
+  <table><tr><th>Роль</th><th>Наименование</th><th>ИНН/ОГРН</th></tr>
+  {% for item in organizations %}<tr><td>{{ item.role }}</td><td>{{ item.name }}</td><td>ИНН {{ item.inn }} / ОГРН {{ item.ogrn }} / КПП {{ item.kpp }}<br>{{ item.email }}<br>{{ item.address }}</td></tr>{% else %}<tr><td colspan="3">Нет данных</td></tr>{% endfor %}</table>
+  <h2>Технико-экономические показатели</h2>
+  <table><tr><th>Показатель</th><th>Значение</th><th>Источник</th></tr>
+  {% for item in teps %}<tr><td>{{ item.name }}</td><td>{{ item.value }} {{ item.unit }}{% if item.normalized_value %} ({{ item.normalized_value }} {{ item.normalized_unit }}){% endif %}</td><td>{{ item.provenance }}</td></tr>{% else %}<tr><td colspan="3">Нет данных</td></tr>{% endfor %}</table>
+  <h2>Документация 3.1.1</h2>
+  <table><tr><th>Раздел</th><th>Наименование</th><th>Формат</th><th>Контрольная сумма</th><th>Подпись</th></tr>
+  {% for item in documents %}<tr class="{{ item.node_kind }}"><td style="padding-left:{{ 12 + (item.parent_ordinal.count('.') + 1 if item.parent_ordinal else 0) * 18 }}px">{{ item.ordinal }}{% if item.parent_ordinal %} (раздел {{ item.parent_ordinal }}){% endif %}</td><td>{% if item.node_kind == 'section' %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}<br>{{ item.note }}</td><td>{{ item.file_format }}</td><td>{{ item.checksum }}</td><td>{{ item.signature_name }}<br>{{ item.signature_checksum }}</td></tr>{% else %}<tr><td colspan="5">Нет данных</td></tr>{% endfor %}</table>
+  <h2>Таблица 3.2.1</h2>
+  <table><tr><th>Строка</th><th>Наименование</th><th>Представление</th><th>Утверждение</th><th>Изменение</th><th>Причина</th></tr>
+  {% for item in costs %}<tr><td>{{ item.ordinal }}</td><td>{{ item.name }}</td><td>{{ item.submitted_cost }}</td><td>{{ item.approved_cost }}</td><td>{{ item.change_cost }}</td><td>{{ item.price_level }} / НДС {{ item.vat }}<br>{{ item.footnote }}<br>{{ item.change_reason }}</td></tr>{% else %}<tr><td colspan="6">Нет данных</td></tr>{% endfor %}</table>
+  <h2>ССР: главы, позиции и подписи</h2>
+  {% if version %}<table><tr><th>Глава</th><th>Наименование</th><th>Итог</th></tr>{% for item in version.chapters %}<tr><td>{{ item.number }}</td><td>{{ item.name }}</td><td>{{ item.total }}</td></tr>{% endfor %}</table>
+  <ul>{% for item in version.items %}<li>{{ item.chapter_number }} / {{ item.ordinal }} — {{ item.name }}: {{ item.total }}</li>{% endfor %}</ul>
+  <ul>{% for item in signatures %}<li>{{ item.role }}: {{ item.name }}, {{ item.position }} {{ item.department }}</li>{% endfor %}</ul>{% endif %}
+  <h2>Диагностика и происхождение</h2>
+  {% for item in diagnostics %}<p class="alert {{ item.severity }}">{{ item.code }}: {{ item.message }}</p>{% endfor %}
+  {% if source %}<p>Источники: {{ source.source_filename }} ({{ source.source_hash }}), {{ source.ssr_filename }} ({{ source.ssr_hash }}). Сырые байты сохранены по защищённым путям.</p>{% endif %}
+</section>
+{% endblock %}

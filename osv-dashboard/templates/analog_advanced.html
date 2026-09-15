@@ -1,0 +1,48 @@
+{% extends "modules.html" %}
+{% block title %}Расширенный подбор аналогов{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
+<h1>Расширенный подбор</h1>
+<form class="panel filters" method="post" action="{{ url_for('analog.advanced_search') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <fieldset><legend>Идентификация</legend>
+    <label>Тип <input id="object-type" name="object_type" value="{{ criteria.get('object_type','') }}"></label>
+    <label><input type="checkbox" name="object_type_required" value="1"> обязательно</label>
+    <label>Вид работ <input name="work_type" value="{{ criteria.get('work_type','') }}"></label>
+  </fieldset>
+  <fieldset><legend>Природные условия</legend>
+    <label>Климатический район <input name="climate_zone" value="{{ criteria.get('climate_zone','') }}"></label>
+    <label>Подрайон <input name="climate_subzone" value="{{ criteria.get('climate_subzone','') }}"></label>
+  </fieldset>
+  <fieldset><legend>Мощность и тепловые сети</legend>
+    <label class="area-field">Мощность, кВт <input name="capacity_kw" type="number" step="any"></label>
+    <label class="area-field"><input type="checkbox" name="capacity_kw_required" value="1"> мощность обязательна</label>
+    <div id="network-fields"><label>Диаметр, мм <input name="pipe_diameter_mm"></label>
+    <label><input type="checkbox" name="pipe_diameter_mm_required" value="1"> обязательно</label>
+    <label>Прокладка <input name="laying_method"></label>
+    <label><input type="checkbox" name="laying_method_required" value="1"> обязательно</label>
+    <label>Система труб <input name="pipe_system"></label></div>
+  </fieldset>
+  <button class="btn" type="submit">Подобрать и объяснить</button>
+</form>
+<section class="panel"><h2>Результаты (пригодность отдельно от близости)</h2>
+{% for row in rows %}<article class="result"><h3>{{ row.title }} — близость {{ '%.2f'|format(row.similarity_percent) }}%</h3>
+  <p>Пригодность: {% if row.suitable %}<strong>подходит</strong>{% else %}<strong>не подходит</strong>{% endif %}</p>
+  {% if row.suitability_reasons %}<p>Причины проверки: {{ row.suitability_reasons|join('; ') }}</p>{% endif %}
+  <ul>{% for item in row.details %}<li>{{ item.field }}: {{ item.reason }} ({{ item.points }}/{{ item.weight }})</li>{% endfor %}</ul>
+</article>{% else %}<p>Задайте критерии.</p>{% endfor %}
+</section>
+<script>
+(() => {
+  const type = document.getElementById('object-type');
+  const network = document.getElementById('network-fields');
+  const area = document.querySelectorAll('.area-field');
+  function toggle() {
+    const isNetwork = (type.value || '').toLowerCase().includes('сеть');
+    network.hidden = !isNetwork;
+    area.forEach(node => { node.hidden = isNetwork; });
+  }
+  type.addEventListener('input', toggle); toggle();
+})();
+</script>
+{% endblock %}

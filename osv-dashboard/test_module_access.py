@@ -226,11 +226,21 @@ for key in new_modules:
     module = MODULES[key]
     path = module['exact_paths'][0]
     start = client.get(path)
-    check(f'карточка и стартовая страница: {key}',
-          module['name'] in body and start.status_code == 200
-          and module['name'] in start.get_data(as_text=True)
-          and 'пока не подключены' in start.get_data(as_text=True)
-          and 'href="/modules"' in start.get_data(as_text=True))
+    start_body = start.get_data(as_text=True)
+    if key == 'analog_search':
+        # Task 117 is a working module, unlike the two intentionally retained
+        # placeholders below.
+        check(f'полноценная страница аналогов: {key}',
+              module['name'] in body and start.status_code == 200
+              and 'Поиск объектов-аналогов' in start_body
+              and 'Предварительный просмотр' in start_body
+              and 'href="/modules"' in start_body)
+    else:
+        check(f'карточка и стартовая страница: {key}',
+              module['name'] in body and start.status_code == 200
+              and module['name'] in start_body
+              and 'пока не подключены' in start_body
+              and 'href="/modules"' in start_body)
 
 # Пустое состояние не выдаёт права неявно.
 with app.app_context():

@@ -1,0 +1,27 @@
+{% extends "modules.html" %}
+{% block title %}Предварительный просмотр импорта{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
+<h1>Проверка пары источников</h1>
+{% for item in diagnostics %}<div class="alert {{ item.severity }}">{{ item.message }}</div>{% endfor %}
+<section class="panel"><dl>
+  <dt>Объект</dt><dd>{{ pair.conclusion.expert_object_name }}</dd>
+  <dt>Номер заключения</dt><dd>{{ pair.conclusion.conclusion_number }}</dd>
+  <dt>Дата утверждения</dt><dd>{{ pair.conclusion.approval_date }}</dd>
+  <dt>Вид работ</dt><dd>{{ pair.conclusion.work_type }}</dd>
+  <dt>Итог ССР</dt><dd>{{ pair.ssr.summary.total }}</dd>
+  <dt>Уровень цен</dt><dd>{{ pair.ssr.price_year }} / квартал {{ pair.ssr.price_quarter }}</dd>
+</dl>
+{% if pair.can_confirm %}<form method="post" action="{{ url_for('analog.import_confirm', import_id=import_id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Объект <input name="title" value="{{ pair.conclusion.expert_object_name }}"></label>
+  <label>Адрес <input name="address" value="{{ pair.conclusion.address }}"></label>
+  <label>Тип объекта <select name="object_type"><option>котельная</option><option>БМК</option><option>ЦТП</option><option>ТП</option><option>тепловая сеть</option></select></label>
+  <label>Вид работ <input name="work_type" value="{{ pair.conclusion.work_type }}"></label>
+  <label>Климатические условия <input name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}"></label>
+  <label>Кадастровый номер <input name="cadastral_number" value="{{ pair.conclusion.cadastral_number }}"></label>
+  <p>Результат заключения фиксирован: {{ pair.conclusion.examination_result }}</p>
+  <button class="btn" type="submit">Подтвердить импорт</button>
+</form>{% else %}<strong>Импорт заблокирован до исправления ошибок.</strong>{% endif %}
+</section>
+{% endblock %}

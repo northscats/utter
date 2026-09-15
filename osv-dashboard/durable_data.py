@@ -25,6 +25,8 @@ COUNT_TABLES = (
     "historical_year_versions", "historical_metric_values",
     "historical_raw_values", "historical_mappings",
     "debtor_analytic_mappings",
+    "analog_passports", "analog_passport_versions", "analog_sources",
+    "analog_imports",
 )
 _BACKUP_LOCK = threading.Lock()
 

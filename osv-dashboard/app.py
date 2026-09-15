@@ -43,7 +43,11 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        MetricLayout,
                        Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
-                       OneCIdempotency, db, utcnow)
+                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
+                        AnalogSource, AnalogOrganizationRole, AnalogTep,
+                        AnalogDocument, AnalogCostRow, AnalogSSRChapter,
+                        AnalogSSRItem, AnalogSSRSignature, AnalogDiagnostic, AnalogNetworkAttribute,
+                        AnalogImport, db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
                                 duplicate_companies,
@@ -98,6 +102,10 @@ _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
     RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
+    AnalogPassport, AnalogPassportVersion, AnalogSource,
+    AnalogOrganizationRole, AnalogTep, AnalogDocument, AnalogCostRow,
+    AnalogSSRChapter, AnalogSSRItem, AnalogDiagnostic,
+    AnalogSSRSignature, AnalogNetworkAttribute, AnalogImport,
 )
 
 
@@ -265,6 +273,8 @@ _LOGIN_CSRF = URLSafeTimedSerializer(
 app.config['DOCS_STORAGE'] = DOCS_STORAGE
 from docs_routes import docs_bp
 app.register_blueprint(docs_bp)
+from analog_routes import analog_bp
+app.register_blueprint(analog_bp)
 
 # ---------------------------------------------------------------------------
 # Шифрование значений в БД (Fernet / AES-128-CBC)
@@ -1659,7 +1669,6 @@ def modules_dashboard():
     ]
     return render_template('modules.html', modules=modules)
 
-@app.route('/analog-search', endpoint='analog_search')
 @app.route('/limit-notifications', endpoint='limit_notifications')
 @app.route('/investment-reconciliation', endpoint='investment_reconciliation')
 @login_required
@@ -5608,6 +5617,182 @@ def init_db(perform_durable=True):
                         f'ALTER TABLE {table} ADD COLUMN {_col} {_def}'))
                     app.logger.info('migration: %s.%s added', table, _col)
                 _cd.commit()
+
+        # Task 117 is additive for deployed installations which already have
+        # the analogue tables.  Columns carrying historical children remain
+        # nullable during the upgrade; new imports always fill their version.
+        _analog_columns = {
+            'analog_passports': [
+                ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('overrides_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('provenance_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('legacy_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('cadastral_number', "VARCHAR(64) DEFAULT ''"),
+                ('natural_conditions', "TEXT DEFAULT ''"),
+                ('construction_object', "TEXT DEFAULT ''"),
+            ],
+            'analog_passport_versions': [
+                ('cadastral_number', "VARCHAR(64) DEFAULT ''"),
+                ('natural_conditions', "TEXT DEFAULT ''"),
+                ('construction_object', "TEXT DEFAULT ''"),
+            ],
+            'analog_sources': [
+                ('raw_conclusion_path', "VARCHAR(1000) NOT NULL DEFAULT ''"),
+                ('raw_ssr_path', "VARCHAR(1000) NOT NULL DEFAULT ''"),
+            ],
+            'analog_imports': [
+                ('raw_conclusion_path', "VARCHAR(1000) DEFAULT ''"),
+                ('raw_ssr_path', "VARCHAR(1000) DEFAULT ''"),
+                ('target_passport_id', 'INTEGER'),
+            ],
+            'analog_network_attributes': [
+                ('version_id', 'INTEGER'),
+            ],
+            'analog_organization_roles': [
+                ('version_id', 'INTEGER'), ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('provenance', "TEXT DEFAULT 'conclusionRaw'"),
+            ],
+            'analog_teps': [
+                ('version_id', 'INTEGER'), ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('normalized_value', 'NUMERIC'), ('normalized_unit', "VARCHAR(80) DEFAULT ''"),
+            ],
+            'analog_documents': [
+                ('node_kind', "VARCHAR(16) NOT NULL DEFAULT 'document'"),
+                ('parent_ordinal', "VARCHAR(40) DEFAULT ''"), ('version_id', 'INTEGER'),
+                ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('provenance', "TEXT DEFAULT 'conclusionRaw/Documents'"),
+            ],
+            'analog_cost_rows': [
+                ('version_id', 'INTEGER'), ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+            ],
+            'analog_ssr_chapters': [
+                ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+            ],
+            'analog_ssr_items': [
+                ('extracted_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('override_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('effective_json', "TEXT NOT NULL DEFAULT '{}'"),
+                ('provenance', "TEXT DEFAULT 'ССР 3.01'"),
+            ],
+            'analog_ssr_signatures': [],
+        }
+        for _analog_table, _analog_defs in _analog_columns.items():
+            if _analog_table in _insp.get_table_names():
+                _add_missing(_analog_table, _analog_defs)
+        if all(_table in _insp.get_table_names() for _table in (
+                'analog_network_attributes', 'analog_passports')):
+            try:
+                with db.engine.begin() as _analog_backfill:
+                    for _child_table in (
+                            'analog_network_attributes', 'analog_organization_roles',
+                            'analog_teps', 'analog_documents', 'analog_cost_rows'):
+                        if _child_table not in _insp.get_table_names():
+                            continue
+                        _analog_backfill.execute(_text_docs(
+                            f'UPDATE {_child_table} SET version_id = '
+                            f'(SELECT current_version_id FROM analog_passports '
+                            f'WHERE analog_passports.id = {_child_table}.passport_id) '
+                            'WHERE version_id IS NULL'))
+            except Exception as _analog_backfill_exc:
+                app.logger.warning('analog network version backfill failed: %s',
+                                   _analog_backfill_exc)
+        if 'analog_organization_roles' in _insp.get_table_names():
+            try:
+                with db.engine.begin() as _analog_role_conn:
+                    if db.engine.dialect.name == 'postgresql':
+                        _analog_role_conn.execute(_text_docs(
+                            'ALTER TABLE analog_organization_roles '
+                            'DROP CONSTRAINT IF EXISTS uq_analog_organization_role'))
+                    _analog_role_conn.execute(_text_docs(
+                        'CREATE UNIQUE INDEX IF NOT EXISTS '
+                        'uq_analog_organization_role_version '
+                        'ON analog_organization_roles(passport_id, version_id, role)'))
+            except Exception as _analog_role_exc:
+                app.logger.warning('analog role index migration failed: %s',
+                                   _analog_role_exc)
+        if db.engine.dialect.name == 'postgresql':
+            try:
+                with db.engine.begin() as _backfill_conn:
+                    for _child_table in (
+                            'analog_network_attributes', 'analog_organization_roles',
+                            'analog_teps', 'analog_documents', 'analog_cost_rows'):
+                        _backfill_conn.execute(_text_docs(
+                            f'UPDATE {_child_table} a SET version_id = '
+                            'p.current_version_id FROM analog_passports p '
+                            'WHERE a.passport_id = p.id AND a.version_id IS NULL'))
+                    for _child_table in (
+                            'analog_network_attributes', 'analog_organization_roles',
+                            'analog_teps', 'analog_documents', 'analog_cost_rows'):
+                        _backfill_conn.execute(_text_docs(
+                            f'ALTER TABLE {_child_table} ALTER COLUMN version_id SET NOT NULL'))
+            except Exception as _backfill_exc:
+                app.logger.warning('analog network version backfill deferred: %s',
+                                   _backfill_exc)
+            try:
+                with db.engine.begin() as _network_unique:
+                    _network_unique.execute(_text_docs(
+                        'ALTER TABLE analog_network_attributes DROP CONSTRAINT IF EXISTS '
+                        'uq_analog_network_attribute'))
+                    _network_unique.execute(_text_docs(
+                        'DROP INDEX IF EXISTS uq_analog_network_attribute'))
+                    _network_unique.execute(_text_docs(
+                        'CREATE UNIQUE INDEX IF NOT EXISTS '
+                        'uq_analog_network_attribute_version '
+                        'ON analog_network_attributes(passport_id, version_id, key)'))
+            except Exception as _network_unique_exc:
+                app.logger.warning('analog network uniqueness migration failed: %s',
+                                   _network_unique_exc)
+            for _table, _constraint, _column, _target in (
+                ('analog_imports', 'fk_analog_import_target', 'target_passport_id',
+                 'analog_passports(id)'),
+                ('analog_network_attributes', 'fk_analog_network_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_organization_roles', 'fk_analog_role_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_teps', 'fk_analog_tep_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_cost_rows', 'fk_analog_cost_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_documents', 'fk_analog_document_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_ssr_chapters', 'fk_analog_chapter_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_ssr_items', 'fk_analog_item_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_ssr_signatures', 'fk_analog_signature_version', 'version_id',
+                 'analog_passport_versions(id)'),
+                ('analog_documents', 'fk_analog_document_parent', 'parent_id',
+                 'analog_documents(id)'),
+            ):
+                try:
+                    with db.engine.begin() as _fk_conn:
+                        _fk_conn.execute(_text_docs(
+                            f'ALTER TABLE {_table} ADD CONSTRAINT {_constraint} '
+                            f'FOREIGN KEY ({_column}) REFERENCES {_target}'))
+                except Exception:
+                    # Existing deployments may already carry the equivalent
+                    # constraint; the additive upgrade remains idempotent.
+                    pass
+            try:
+                with db.engine.begin() as _analog_index_conn:
+                    _analog_index_conn.execute(_text_docs(
+                        'CREATE INDEX IF NOT EXISTS ix_analog_network_version_key '
+                        'ON analog_network_attributes(version_id, key)'))
+                    _analog_index_conn.execute(_text_docs(
+                        'CREATE INDEX IF NOT EXISTS ix_analog_document_parent '
+                        'ON analog_documents(parent_id)'))
+            except Exception:
+                pass
 
         _add_missing('users', [
             ('password_changed_at', "TIMESTAMP WITH TIME ZONE"),

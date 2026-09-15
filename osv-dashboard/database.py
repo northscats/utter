@@ -1129,3 +1129,342 @@ class DailyRow(db.Model):
     skk = db.Column(db.Float, default=0.0)
 
     uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+# ---------------------------------------------------------------------------
+# База объектов-аналогов теплоснабжения
+# ---------------------------------------------------------------------------
+class AnalogPassport(db.Model):
+    """Версионный паспорт объекта, собранный из заключения и ССР.
+
+    Денежные значения намеренно имеют Numeric, а не Float: стоимость и
+    коэффициенты участвуют в юридически значимых сверках.
+    """
+    __tablename__ = 'analog_passports'
+    __table_args__ = (
+        db.Index('ix_analog_passport_search', 'object_type', 'climate_zone',
+                 'work_type', 'capacity_kw'),
+        db.Index('ix_analog_passport_active', 'archived', 'updated_at'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(1000), nullable=False)
+    address = db.Column(db.Text, default='')
+    object_type = db.Column(db.String(32), nullable=False, default='котельная')
+    climate_zone = db.Column(db.String(32), default='')
+    climate_subzone = db.Column(db.String(32), default='')
+    cadastral_number = db.Column(db.String(64), default='')
+    natural_conditions = db.Column(db.Text, default='')
+    construction_object = db.Column(db.Text, default='')
+    capacity_kw = db.Column(db.Numeric(18, 6), nullable=True)
+    work_type = db.Column(db.String(32), default='')
+    archived = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    current_version_id = db.Column(db.Integer, nullable=True)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
+
+    versions = db.relationship('AnalogPassportVersion', backref='passport',
+                               lazy=True, cascade='all, delete-orphan',
+                               foreign_keys='AnalogPassportVersion.passport_id')
+    organizations = db.relationship('AnalogOrganizationRole', backref='passport',
+                                    lazy=True, cascade='all, delete-orphan')
+    teps = db.relationship('AnalogTep', backref='passport', lazy=True,
+                           cascade='all, delete-orphan')
+    documents = db.relationship('AnalogDocument', backref='passport', lazy=True,
+                                cascade='all, delete-orphan')
+    costs = db.relationship('AnalogCostRow', backref='passport', lazy=True,
+                            cascade='all, delete-orphan')
+    network_attributes = db.relationship(
+        'AnalogNetworkAttribute', backref='passport', lazy=True,
+        cascade='all, delete-orphan')
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    overrides_json = db.Column(db.Text, nullable=False, default='{}')
+    provenance_json = db.Column(db.Text, nullable=False, default='{}')
+    legacy_json = db.Column(db.Text, nullable=False, default='{}')
+
+
+class AnalogPassportVersion(db.Model):
+    __tablename__ = 'analog_passport_versions'
+    __table_args__ = (
+        db.UniqueConstraint('passport_id', 'version_no',
+                            name='uq_analog_passport_version'),
+        db.Index('ix_analog_version_conclusion', 'conclusion_number'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False)
+    version_no = db.Column(db.Integer, nullable=False)
+    conclusion_number = db.Column(db.String(255), nullable=False)
+    approval_date = db.Column(db.Date, nullable=True)
+    examination_result = db.Column(db.String(24), nullable=False)
+    expert_object_name = db.Column(db.Text, default='')
+    cadastral_number = db.Column(db.String(64), default='')
+    natural_conditions = db.Column(db.Text, default='')
+    construction_object = db.Column(db.Text, default='')
+    source_hash = db.Column(db.String(64), nullable=False, index=True)
+    ssr_hash = db.Column(db.String(64), nullable=False, index=True)
+    schema_version = db.Column(db.String(40), default='')
+    price_year = db.Column(db.Integer, nullable=True)
+    price_quarter = db.Column(db.Integer, nullable=True)
+    total_cost = db.Column(db.Numeric(20, 6), nullable=True)
+    adjusted_cost = db.Column(db.Numeric(20, 6), nullable=True)
+    adjustment_factor = db.Column(db.Numeric(18, 8), nullable=True)
+    adjustment_provenance = db.Column(db.Text, default='')
+    payload_json = db.Column(db.Text, default='{}')
+    imported_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+    source = db.relationship('AnalogSource', backref='version', uselist=False,
+                             cascade='all, delete-orphan', lazy=True)
+    chapters = db.relationship('AnalogSSRChapter', backref='version', lazy=True,
+                               cascade='all, delete-orphan')
+    items = db.relationship('AnalogSSRItem', backref='version', lazy=True,
+                            cascade='all, delete-orphan')
+    diagnostics = db.relationship('AnalogDiagnostic', backref='version', lazy=True,
+                                  cascade='all, delete-orphan')
+    signatures = db.relationship('AnalogSSRSignature', backref='version', lazy=True,
+                                 cascade='all, delete-orphan')
+
+
+class AnalogSource(db.Model):
+    __tablename__ = 'analog_sources'
+    __table_args__ = (
+        db.UniqueConstraint('source_hash', 'ssr_hash',
+                            name='uq_analog_source_pair'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        unique=True)
+    source_hash = db.Column(db.String(64), nullable=False, index=True)
+    ssr_hash = db.Column(db.String(64), nullable=False, index=True)
+    source_filename = db.Column(db.String(500), default='')
+    ssr_filename = db.Column(db.String(500), default='')
+    source_size = db.Column(db.BigInteger, nullable=False, default=0)
+    ssr_size = db.Column(db.BigInteger, nullable=False, default=0)
+    raw_conclusion_path = db.Column(db.String(1000), nullable=False, default='')
+    raw_ssr_path = db.Column(db.String(1000), nullable=False, default='')
+    parser_version = db.Column(db.String(40), default='1')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+
+
+class AnalogOrganizationRole(db.Model):
+    __tablename__ = 'analog_organization_roles'
+    __table_args__ = (
+        db.UniqueConstraint('passport_id', 'version_id', 'role',
+                            name='uq_analog_organization_role'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False)
+    role = db.Column(db.String(32), nullable=False)  # applicant/developer/customer
+    name = db.Column(db.String(1000), nullable=False, default='')
+    ogrn = db.Column(db.String(32), default='')
+    inn = db.Column(db.String(32), default='')
+    kpp = db.Column(db.String(32), default='')
+    email = db.Column(db.String(320), default='')
+    address = db.Column(db.Text, default='')
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+    provenance = db.Column(db.Text, default='conclusionRaw')
+
+
+class AnalogTep(db.Model):
+    __tablename__ = 'analog_teps'
+    __table_args__ = (db.Index('ix_analog_tep_name_value', 'name', 'value'),)
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(255), nullable=False)
+    unit = db.Column(db.String(80), default='')
+    value = db.Column(db.Numeric(24, 8), nullable=True)
+    normalized_value = db.Column(db.Numeric(24, 8), nullable=True)
+    normalized_unit = db.Column(db.String(80), default='')
+    value_text = db.Column(db.Text, default='')
+    provenance = db.Column(db.String(500), default='')
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+
+
+class AnalogDocument(db.Model):
+    __tablename__ = 'analog_documents'
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False, index=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('analog_documents.id'))
+    ordinal = db.Column(db.String(40), default='')
+    parent_ordinal = db.Column(db.String(40), default='')
+    node_kind = db.Column(db.String(16), nullable=False, default='document')
+    name = db.Column(db.String(1000), nullable=False, default='')
+    file_format = db.Column(db.String(80), default='')
+    checksum = db.Column(db.String(255), default='')
+    note = db.Column(db.Text, default='')
+    signature_name = db.Column(db.String(1000), default='')
+    signature_checksum = db.Column(db.String(255), default='')
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+    provenance = db.Column(db.Text, default='conclusionRaw/Documents')
+    parent = db.relationship('AnalogDocument', remote_side=[id],
+                             back_populates='children', lazy=True)
+    children = db.relationship('AnalogDocument', back_populates='parent',
+                                lazy=True, cascade='all, delete-orphan')
+
+
+class AnalogCostRow(db.Model):
+    __tablename__ = 'analog_cost_rows'
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False, index=True)
+    ordinal = db.Column(db.String(40), default='')
+    name = db.Column(db.String(1000), nullable=False, default='')
+    submitted_cost = db.Column(db.Numeric(20, 6), nullable=True)
+    approved_cost = db.Column(db.Numeric(20, 6), nullable=True)
+    change_cost = db.Column(db.Numeric(20, 6), nullable=True)
+    price_level = db.Column(db.String(120), default='')
+    vat = db.Column(db.String(80), default='')
+    footnote = db.Column(db.Text, default='')
+    change_reason = db.Column(db.Text, default='')
+    provenance = db.Column(db.Text, default='')
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+
+
+class AnalogSSRChapter(db.Model):
+    __tablename__ = 'analog_ssr_chapters'
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    number = db.Column(db.Integer, nullable=False)
+    name = db.Column(db.Text, default='')
+    building = db.Column(db.Numeric(20, 6), default=0)
+    mounting = db.Column(db.Numeric(20, 6), default=0)
+    equipment = db.Column(db.Numeric(20, 6), default=0)
+    other = db.Column(db.Numeric(20, 6), default=0)
+    total = db.Column(db.Numeric(20, 6), default=0)
+    provenance = db.Column(db.Text, default='')
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+
+
+class AnalogSSRItem(db.Model):
+    __tablename__ = 'analog_ssr_items'
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    chapter_number = db.Column(db.Integer, nullable=False)
+    item_type = db.Column(db.String(32), default='')
+    ordinal = db.Column(db.String(40), default='')
+    name = db.Column(db.Text, default='')
+    reason = db.Column(db.Text, default='')
+    total = db.Column(db.Numeric(20, 6), default=0)
+    details_json = db.Column(db.Text, default='{}')
+    signature_name = db.Column(db.String(1000), default='')
+    extracted_json = db.Column(db.Text, nullable=False, default='{}')
+    override_json = db.Column(db.Text, nullable=False, default='{}')
+    effective_json = db.Column(db.Text, nullable=False, default='{}')
+    provenance = db.Column(db.Text, default='ССР 3.01')
+
+
+class AnalogSSRSignature(db.Model):
+    __tablename__ = 'analog_ssr_signatures'
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    role = db.Column(db.String(120), default='')
+    name = db.Column(db.String(1000), default='')
+    position = db.Column(db.String(500), default='')
+    department = db.Column(db.String(500), default='')
+    provenance = db.Column(db.Text, default='ССР 3.01/Signatures')
+
+
+class AnalogDiagnostic(db.Model):
+    __tablename__ = 'analog_diagnostics'
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=True,
+        index=True)
+    import_id = db.Column(db.Integer, nullable=True, index=True)
+    severity = db.Column(db.String(16), nullable=False, default='warning')
+    code = db.Column(db.String(80), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    path = db.Column(db.String(500), default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class AnalogNetworkAttribute(db.Model):
+    __tablename__ = 'analog_network_attributes'
+    __table_args__ = (
+        db.UniqueConstraint('passport_id', 'version_id', 'key',
+                            name='uq_analog_network_attribute_version'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='CASCADE'), nullable=False, index=True)
+    version_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passport_versions.id', ondelete='CASCADE'), nullable=False,
+        index=True)
+    key = db.Column(db.String(120), nullable=False)
+    value = db.Column(db.Text, default='')
+    value_number = db.Column(db.Numeric(24, 8), nullable=True)
+    unit = db.Column(db.String(80), default='')
+    provenance = db.Column(db.String(500), default='JSON v4')
+
+
+class AnalogImport(db.Model):
+    __tablename__ = 'analog_imports'
+    __table_args__ = (
+        db.Index('ix_analog_import_status_created', 'status', 'created_at'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    source_hash = db.Column(db.String(64), nullable=False, index=True)
+    ssr_hash = db.Column(db.String(64), nullable=False, index=True)
+    source_filename = db.Column(db.String(500), default='')
+    ssr_filename = db.Column(db.String(500), default='')
+    raw_conclusion_path = db.Column(db.String(1000), default='')
+    raw_ssr_path = db.Column(db.String(1000), default='')
+    target_passport_id = db.Column(db.Integer, db.ForeignKey(
+        'analog_passports.id', ondelete='SET NULL'), nullable=True, index=True)
+    status = db.Column(db.String(24), nullable=False, default='preview')
+    preview_json = db.Column(db.Text, nullable=False, default='{}')
+    diagnostics_json = db.Column(db.Text, nullable=False, default='[]')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    confirmed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    @property
+    def preview(self):
+        try:
+            return json.loads(self.preview_json or '{}')
+        except (TypeError, ValueError):
+            return {}
+
+    @property
+    def diagnostics(self):
+        try:
+            return json.loads(self.diagnostics_json or '[]')
+        except (TypeError, ValueError):
+            return []

@@ -34,7 +34,7 @@ MODULES = {
         'name': 'Поиск объектов аналогов',
         'description': 'Поиск в базе данных объектов-аналогов теплоснабжения, прошедших экспертизу.',
         'icon': 'search',
-        'endpoint': 'analog_search',
+        'endpoint': 'analog.index',
         'exact_paths': ('/analog-search',),
         'path_prefixes': ('/analog-search/',),
     },
