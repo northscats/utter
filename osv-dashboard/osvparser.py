@@ -313,8 +313,12 @@ def parse_osv(path):
         if not check_ok:
             warnings.append(f'сч.{acc}: контрольное равенство СН+Об=СК '
                             f'не сходится на {diff:,.2f}')
-    elif period and empty_totals is not None and all(
-            value == 0 for value in empty_totals):
+    elif empty_totals is not None and any(value != 0 for value in empty_totals):
+        check_ok = False
+        warnings.append(
+            f'сч.{acc}: противоречивая пустая ОСВ — строк с движениями и '
+            'остатками нет, но строка «Итого» содержит ненулевые значения')
+    elif period and empty_totals is not None:
         check_ok = True
 
     return dict(acc=acc, period=period, dims=dims, rows=rows, daily=daily,

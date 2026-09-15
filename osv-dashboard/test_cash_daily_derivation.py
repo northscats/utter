@@ -59,6 +59,30 @@ class CashDailyDerivationTests(unittest.TestCase):
 
         self.assertIsNone(parse_osv(path)['check_ok'])
 
+    def test_empty_report_with_nonzero_totals_warns_and_fails_reconciliation(self):
+        from openpyxl import Workbook
+
+        path = os.path.join(_TMP, 'ОСВ 51 с противоречивым итогом.xlsx')
+        book = Workbook()
+        sheet = book.active
+        sheet.append([
+            'Оборотно-сальдовая ведомость по счету 51 '
+            'за 01.07.2026 - 03.07.2026'
+        ])
+        sheet.append(['Счет'])
+        sheet.append(['Итого', 100, 0, 0, 0, 100, 0])
+        book.save(path)
+        book.close()
+
+        parsed = parse_osv(path)
+
+        self.assertIs(parsed['check_ok'], False)
+        self.assertTrue(any(
+            'противоречивая пустая ОСВ' in warning
+            and '«Итого» содержит ненулевые значения' in warning
+            for warning in parsed['warnings']
+        ))
+
     def test_preserves_movements_and_carries_verified_balance(self):
         derived = _derive_cash_daily_rows({
             'acc': '51',
