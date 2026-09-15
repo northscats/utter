@@ -104,7 +104,7 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
 .h-splitter:hover::after,.h-splitter.active::after{background:#fff}
 
 /* Bottom section: navigation */
-.sl-bot-section{display:flex;flex-direction:column;overflow:hidden;min-height:60px;flex:0 1 45%}
+.sl-bot-section{display:flex;flex-direction:column;overflow:hidden;min-height:340px;flex:0 1 45%}
 .sl-nav-list{flex:1;overflow-y:auto}
 .sl-nav-group-hdr{padding-top:8px;padding-bottom:8px}
 .sl-nav-group-hdr:not(:first-child){border-top:1px solid var(--line)}
@@ -664,7 +664,9 @@ function initVSplitter() {
 function initHSplitter() {
   var hs = document.getElementById('h-splitter');
   var top = document.getElementById('sl-top-section');
-  if (!hs || !top) return;
+  var bottom = document.getElementById('sl-bot-section');
+  var sidebar = document.getElementById('sl-sidebar');
+  if (!hs || !top || !bottom || !sidebar) return;
   var pointerId = null, lastY = 0;
   function stopDragging(e) {
     if (pointerId === null) return;
@@ -691,7 +693,9 @@ function initHSplitter() {
     if (e.pointerType === 'mouse' && !(e.buttons & 1)) {
       stopDragging(e); return;
     }
-    var h = Math.max(60, top.offsetHeight + e.clientY - lastY);
+    var bottomMinHeight = parseFloat(getComputedStyle(bottom).minHeight) || 340;
+    var maxTopHeight = Math.max(60, sidebar.clientHeight - hs.offsetHeight - bottomMinHeight);
+    var h = Math.max(60, Math.min(maxTopHeight, top.offsetHeight + e.clientY - lastY));
     lastY = e.clientY;
     top.style.flex = '0 0 ' + h + 'px';
   });
