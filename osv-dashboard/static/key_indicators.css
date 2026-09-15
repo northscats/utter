@@ -400,6 +400,10 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-analysis-card { cursor:help; border-left:4px solid #10B981; }
 .cash-analysis-card.needs-data { border-left-color:#F59E0B; background:#FFFBEB; }
 .cash-analysis-card:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
+.ki-metric-tile-active {
+  outline:3px solid var(--ki-selected-series-color, #2563EB);
+  outline-offset:2px;
+}
 .cash-tooltip-host { position:relative; cursor:help; }
 .metric-rich-tooltip {
   display:none; width:min(470px,calc(100vw - 16px));

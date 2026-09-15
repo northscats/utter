@@ -43,6 +43,7 @@ function element(id) {
                         let handlers = {};
                         this.__cache[id] = {
                             dataset: { seriesId: id },
+                            style: {},
                             addEventListener: (evt, fn) => { handlers[evt] = fn; },
                             closest: (sel) => null,
                             setAttribute: () => {},
@@ -164,6 +165,8 @@ let sub1Row = rows.find(r => r.dataset.seriesId === '0');
 sub1Row.dispatchEvent('click', { detail: 1, target: { closest: () => null } });
 flushTimers();
 assert.equal(app.state.modalChart.activeId, '0');
+assert.ok(sub1Row.style['--ki-selected-series-color'],
+    'Selected metric tile receives the same stable color as its chart line');
 
 sub1Row.dispatchEvent('dblclick', { target: { closest: () => null } });
 assert.ok(app.state.modalChart.pinnedIds.has('0'), 'Pinned sub 1');
@@ -181,7 +184,13 @@ assert.ok(activeAndPinnedDrawCount > 1, 'Multiple series are drawn');
 
 app.state.modalChart.gapMode = 1;
 app.drawMetricModalSvg(card);
-assert.ok(nodes.get('ki-metric-modal-svg').innerHTML.includes('stroke-dasharray="4,4"'), 'Dashed line rendered for gap');
+const connectedGenericSvg = nodes.get('ki-metric-modal-svg').innerHTML;
+assert.ok(connectedGenericSvg.includes('stroke-dasharray="4,4"'), 'Dashed line rendered for gap');
+assert.match(connectedGenericSvg, /class="metric-date-tick"/,
+    'General metric chart renders a horizontal calendar scale');
+assert.match(connectedGenericSvg,
+    /<path d="[^"]*L[^"]*"[^>]*stroke-dasharray="4,4"/,
+    'Connect mode renders a non-empty line between general metric points');
 
 app.state.modalChart.gapMode = 2;
 app.drawMetricModalSvg(card);
@@ -193,7 +202,8 @@ assert.ok(svg2.includes('gap-transform-rect'), 'Hit area for gap transform rende
 app.state.modalChart.pinnedIds.clear(); app.state.modalChart.activeId = '2'; // sub 3 (monthly)
 app.drawMetricModalSvg(card);
 let svg3 = nodes.get('ki-metric-modal-svg').innerHTML;
-assert.ok(!svg3.includes('gap-transform-rect'), 'Monthly granularity refused gap transform carry');
+assert.ok(svg3.includes('gap-transform-rect'),
+    'Extend mode works for sparse points shown on the selected calendar scale');
 
 const analyticRow = bdCont.querySelectorAll('[data-series-id]')
     .find(row => row.dataset.seriesId === 'analytics:0');

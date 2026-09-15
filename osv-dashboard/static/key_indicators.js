@@ -21,6 +21,17 @@
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'day' },
         modalCharts: {}
     };
+
+    const metricChartColor = id => {
+        if (id === '__main__') return '#2563EB';
+        const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6',
+            '#EC4899', '#06B6D4', '#F43F5E'];
+        let hash = 0;
+        String(id).split('').forEach(char => {
+            hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+        });
+        return colors[Math.abs(hash) % colors.length];
+    };
     
     const svgIcon = (path) => `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="${path}"/></svg>`;
 
@@ -4084,6 +4095,14 @@
                     tile.classList.toggle('ki-metric-tile-active', active);
                     tile.classList.toggle('ki-metric-tile-pinned', pinned);
                 }
+                if (tile.style) {
+                    const color = metricChartColor(id);
+                    if (tile.style.setProperty) {
+                        tile.style.setProperty('--ki-selected-series-color', color);
+                    } else {
+                        tile.style['--ki-selected-series-color'] = color;
+                    }
+                }
                 if (tile.setAttribute) {
                     tile.setAttribute('aria-pressed', active ? 'true' : 'false');
                 }
@@ -4657,9 +4676,6 @@
                 return;
             }
 
-            const baseSeries = seriesToDraw.find(s => s.isActive) || seriesToDraw[0];
-            const timeline = chartTimeline(baseSeries.data);
-
             let allDates = [];
             compatible.forEach(s => {
                 s.data.forEach(item => {
@@ -4669,17 +4685,58 @@
             });
             let minDate = Math.min(...allDates);
             let maxDate = Math.max(...allDates);
-            let span = Math.max(1, Math.round((maxDate - minDate) / 86400000));
-
-            let masterTimeline = timeline;
-            if (timeline.calendar && allDates.length > 0) {
-                masterTimeline = {
-                    calendar: true,
-                    day: index => Math.round((chartDate(baseSeries.data[index]) - minDate) / 86400000),
-                    x: (dateMs) => Math.round((dateMs - minDate) / 86400000) / span,
-                    rawX: timeline.x
-                };
-            }
+            const dayMs = 86400000;
+            const timelineMode = state.modalChart.timelineMode || 'day';
+            const bucketStart = value => {
+                const date = new Date(value);
+                let result = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+                if (timelineMode === 'week') {
+                    result -= ((new Date(result).getUTCDay() + 6) % 7) * dayMs;
+                } else if (timelineMode === 'month') {
+                    result = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+                }
+                return result;
+            };
+            const nextBucket = value => {
+                if (timelineMode === 'week') return value + 7 * dayMs;
+                if (timelineMode === 'month') {
+                    const date = new Date(value);
+                    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+                }
+                return value + dayMs;
+            };
+            minDate = bucketStart(minDate);
+            maxDate = bucketStart(maxDate);
+            const aggregateSeries = data => {
+                const buckets = new Map();
+                (data || []).forEach(point => {
+                    const timestamp = chartDate(point);
+                    if (timestamp === null || !hasNumericValue(point.value)) return;
+                    const key = bucketStart(timestamp);
+                    const previous = buckets.get(key);
+                    if (!previous || timestamp >= previous.timestamp) {
+                        buckets.set(key, {timestamp, point});
+                    }
+                });
+                const result = [];
+                for (let cursor = minDate; cursor <= maxDate; cursor = nextBucket(cursor)) {
+                    const known = buckets.get(cursor);
+                    result.push(known
+                        ? {...known.point, date: new Date(cursor).toISOString().slice(0, 10)}
+                        : {date: new Date(cursor).toISOString().slice(0, 10),
+                            label: '', value: null, granularity: timelineMode});
+                }
+                return result;
+            };
+            const displaySeries = seriesToDraw.map(series => ({
+                ...series, data: aggregateSeries(series.data)
+            }));
+            const baseSeries = displaySeries.find(s => s.isActive) || displaySeries[0];
+            const span = Math.max(1, (maxDate - minDate) / dayMs);
+            const masterTimeline = {
+                calendar: true,
+                x: dateMs => (dateMs - minDate) / dayMs / span
+            };
 
             let min = 0, max = 0;
             compatible.forEach(s => {
@@ -4729,21 +4786,13 @@
 
             let htmlOverlay = '<div style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;">';
 
-            seriesToDraw.forEach(s => {
-                const color = stableColor(s.id);
+            displaySeries.forEach(s => {
+                const color = metricChartColor(s.id);
                 const strokeWidth = s.isActive ? 3 : 2;
                 const opacity = s.isActive ? 1 : 0.6;
 
                 let pathSolid = '';
                 let pathDashed = '';
-
-                // Granularity is a server contract; point spacing is not a
-                // reliable way to distinguish sparse daily data from reports.
-                const granularity = (state.data && state.data.period &&
-                    state.data.period.series_kind) ||
-                    (s.data[0] && s.data[0].granularity) ||
-                    card.granularity || 'day';
-                const isMonthlyData = granularity !== 'day';
 
                 const validPoints = [];
                 s.data.forEach((p, i) => {
@@ -4763,14 +4812,11 @@
                         const px = getX(prev, prev.index, s.data);
                         const py = getY(prev.v);
 
-                        const isConsecutive = masterTimeline.calendar
-                            ? Math.round((chartDate(curr) - chartDate(prev)) / 86400000) === 1
-                            : (curr.index - prev.index === 1);
-                        const comparable = curr.comparison && curr.comparison.comparable === true;
-                        if (isConsecutive || comparable) {
+                        const isConsecutive = nextBucket(chartDate(prev)) === chartDate(curr);
+                        if (isConsecutive) {
                             pathSolid += ` L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
                         } else {
-                            if (gapMode === 2 && masterTimeline.calendar && !isMonthlyData) {
+                            if (gapMode === 2) {
                                 pathSolid += ` L ${cx.toFixed(1)} ${py.toFixed(1)} L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
 
                                 const tooltipData = this.metricTooltipData(card, {
@@ -4793,9 +4839,7 @@
                                 </div>`;
                             } else {
                                 pathSolid += ` M ${cx.toFixed(1)} ${cy.toFixed(1)}`;
-                                if (!isMonthlyData) {
-                                    pathDashed += ` M ${px.toFixed(1)} ${py.toFixed(1)} L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
-                                }
+                                pathDashed += ` M ${px.toFixed(1)} ${py.toFixed(1)} L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
                             }
                         }
                     }
@@ -4830,6 +4874,23 @@
                         ${tooltip}
                     </div>`;
                 });
+            });
+
+            const tickStep = Math.max(1, Math.ceil(baseSeries.data.length / 8));
+            const dateFormatter = new Intl.DateTimeFormat('ru-RU',
+                timelineMode === 'month'
+                    ? {month: 'short', year: '2-digit'}
+                    : {day: 'numeric', month: 'short'});
+            baseSeries.data.forEach((point, index) => {
+                if (index % tickStep !== 0 && index !== baseSeries.data.length - 1) return;
+                const dateMs = chartDate(point);
+                if (dateMs === null) return;
+                const cx = getX(point, index, baseSeries.data);
+                const label = dateFormatter.format(new Date(dateMs)).replace(/\s*г\.$/, '');
+                svg += `<line x1="${cx.toFixed(1)}" y1="${height - bottom}" `
+                    + `x2="${cx.toFixed(1)}" y2="${height - bottom + 4}" stroke="#94A3B8"/>`;
+                svg += `<text class="metric-date-tick" x="${cx.toFixed(1)}" y="${height - 10}" `
+                    + `text-anchor="middle" font-size="10" fill="#475569">${esc(label)}</text>`;
             });
 
             svg += '</svg>';
