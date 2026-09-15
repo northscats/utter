@@ -10,69 +10,6 @@ env = { "CI" = "true" }
 
 [workflows]
 
-[[workflows.workflow]]
-name = "artifacts/mockup-sandbox: Component Preview Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "XegfDyZt7HqfW2Bb8Ghoy"
-isCanvasWorkflow = true
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/mockup-sandbox run dev"
-cwd = "./artifacts/mockup-sandbox"
-waitForPort = 8081
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "8081"
-BASE_PATH = "/__mockup"
-
-[[workflows.workflow]]
-name = "artifacts/osv-app: web"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "artifacts/osv-app"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd /home/runner/workspace/osv-dashboard && python3 -m gunicorn -c gunicorn.conf.py app:app"
-cwd = "./artifacts/osv-app"
-waitForPort = 21844
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "21844"
-BASE_PATH = "/"
-
-[[workflows.workflow]]
-name = "artifacts/api-server: API Server"
-author = "agent"
-mode = "sequential"
-
-[workflows.workflow.metadata]
-outputType = "webview"
-artifactId = "3B4_FFSkEVBkAeYMFRJ2e"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-cwd = "./artifacts/api-server"
-waitForPort = 8080
-ensurePreviewReachable = "/"
-router = "path"
-
-[workflows.workflow.tasks.env]
-PORT = "8080"
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -99,15 +36,3 @@ ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
 ONE_C_ENV = "production"
 ONE_C_PUBLIC_BASE_URL = "https://gisuzter.replit.app"
 ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 21844
-externalPort = 80
