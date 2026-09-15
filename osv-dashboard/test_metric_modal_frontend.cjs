@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
+
+const modalCss = fs.readFileSync('static/key_indicators.css', 'utf8');
+assert.match(modalCss,
+    /\.ki-modal-dynamics-block \.modal-chart-wrap\s*\{[^}]*height:auto;[^}]*padding:0;[^}]*border:0;/s,
+    'Shared dynamics wrapper must grow with the chart and not draw a second layer');
+
 const nodes = new Map();
 const timers = [];
 let nextTimerId = 1;
