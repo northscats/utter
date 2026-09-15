@@ -494,6 +494,7 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
         observation = {
             'date': day, 'month': day[:7], 'path1': '', 'path2': '', 'path3': '',
             **{key: get(key) for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
+            'source_type': get('source_type') or 'unknown',
         }
         uploaded_at = row.get('uploaded_at') if isinstance(row, dict) else row.uploaded_at
         if uploaded_at is not None:

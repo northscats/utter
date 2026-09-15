@@ -902,6 +902,34 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(points['2026-01-02']['missing_accounts'], ['52', '55'])
         self.assertEqual(points['2026-01-02']['coverage'], 'partial')
 
+    def test_cash_daily_series_preserves_account_provenance_without_filling_gaps(self):
+        src = build_indicator_source({
+            '50': account('50', [], period=''),
+            '51': account('51', [], period=''),
+        })
+        src['accounts']['50']['balance_observations'] = [{
+            'date': '2026-01-01', 'skd': 0, 'skk': 0,
+            'source_type': 'confirmed_zero',
+        }]
+        src['accounts']['51']['balance_observations'] = [{
+            'date': '2026-01-02', 'skd': 15, 'skk': 0,
+            'source_type': 'reconciled_turnovers',
+        }]
+        src['dates'] = ['2026-01-01', '2026-01-02']
+
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-01-02')['cards']}['cash']
+        points = {point['date']: point for point in cash['series']}
+        account_50 = next(
+            item for item in cash['breakdown'] if item['label'] == 'Счёт 50')
+
+        self.assertEqual(points['2026-01-01']['value'], 0)
+        self.assertEqual(points['2026-01-01']['sources']['50'], 'confirmed_zero')
+        self.assertEqual(
+            points['2026-01-02']['sources']['51'], 'reconciled_turnovers')
+        self.assertIsNone(account_50['series'][1]['value'])
+        self.assertIsNone(account_50['series'][1]['source_type'])
+
     def test_cash_quarter_series_uses_daily_slots_without_spreading_balances(self):
         src = build_indicator_source({
             '51': account('51', [

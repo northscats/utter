@@ -281,6 +281,7 @@ def build_indicator_source(parsed_data):
                 'path1': str(item.get('path1') or ''),
                 'path2': str(item.get('path2') or ''),
                 'path3': str(item.get('path3') or ''),
+                'source_type': str(item.get('source_type') or 'unknown'),
             }
             for key in ('snd', 'snk', 'skd', 'skk'):
                 if item.get(key) is not None:
@@ -1194,7 +1195,7 @@ def _cash_observation_snapshot(source, end):
     used for daily chart slots so a monthly/period report cannot masquerade
     as a daily observation at its endpoint.
     """
-    parts, reasons = [], []
+    parts, reasons, sources = [], [], {}
     date_text = end.isoformat()
     index = source.get('_top_balance_index') or {}
     for account in _CASH_ACCOUNTS:
@@ -1202,6 +1203,7 @@ def _cash_observation_snapshot(source, end):
         if row is not None:
             value = round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2)
             parts.append((account, value))
+            sources[account] = row.get('source_type') or 'unknown'
         elif account in source['accounts']:
             reasons.append(f'{account}: Нет точного суточного остатка')
     accounts = [account for account, _ in parts]
@@ -1217,6 +1219,7 @@ def _cash_observation_snapshot(source, end):
         'missing_accounts': missing_accounts,
         'coverage': coverage,
         'parts': parts,
+        'sources': sources,
         'reasons': reasons,
     }
 
@@ -2620,6 +2623,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'accounts': list(cash_point['accounts']),
             'missing_accounts': list(cash_point['missing_accounts']),
             'coverage': cash_point['coverage'],
+            'sources': dict(cash_point['sources']),
             'granularity': 'day',
             'synthetic': False,
         })
@@ -2629,6 +2633,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'label': point_label,
                 'date': point_date,
                 'value': values.get(account),
+                'source_type': cash_point['sources'].get(account),
                 'unit': 'RUB',
                 'granularity': 'day',
                 'synthetic': False,

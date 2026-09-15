@@ -817,8 +817,12 @@ def _upsert_daily_rows(company_id, paths):
         top = parsed['top']
         observations = ([{
             'date': dt,
+            'source_type': 'direct_daily_osv',
             **{key: top[key] for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
-        }] if dt is not None else _derive_cash_daily_rows(parsed))
+        }] if dt is not None else [
+            {**observation, 'source_type': 'reconciled_turnovers'}
+            for observation in _derive_cash_daily_rows(parsed)
+        ])
         if not observations:
             continue
         for observation in observations:
@@ -830,6 +834,7 @@ def _upsert_daily_rows(company_id, paths):
                 db.session.add(row)
             for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk'):
                 setattr(row, key, observation[key])
+            row.source_type = observation['source_type']
             row.uploaded_at = utcnow()
         count += 1
     return count
@@ -1407,6 +1412,8 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                     row.snd = top['snd']; row.snk = top['snk']
                     row.obd = top['obd']; row.obk = top['obk']
                     row.skd = top['skd']; row.skk = top['skk']
+                    row.source_type = 'direct_daily_osv'
+                    row.uploaded_at = utcnow()
                     zip_dates.append(dt)
 
             # Cleanup staging dir
@@ -3495,6 +3502,7 @@ def _rebuild_dashboard_with_daily(company_id, company_name=''):
             snd=dr.snd, snk=dr.snk,
             obd=dr.obd, obk=dr.obk,
             skd=dr.skd, skk=dr.skk,
+            source_type=dr.source_type or 'unknown',
         )
 
     monthly_paths = _find_monthly_xls(company_id)
@@ -3598,6 +3606,8 @@ def company_upload_zip(company_id):
         row.snd = top['snd']; row.snk = top['snk']
         row.obd = top['obd']; row.obk = top['obk']
         row.skd = top['skd']; row.skk = top['skk']
+        row.source_type = 'direct_daily_osv'
+        row.uploaded_at = utcnow()
         upserted += 1
     db.session.commit()
     _durable_backup('суточные строки ZIP ОСВ')
@@ -5813,6 +5823,10 @@ def init_db(perform_durable=True):
                         f'ALTER TABLE {table} ADD COLUMN {_col} {_def}'))
                     app.logger.info('migration: %s.%s added', table, _col)
                 _cd.commit()
+
+        _add_missing('daily_rows', [
+            ('source_type', "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),
+        ])
 
         # Task 117 is additive for deployed installations which already have
         # the analogue tables.  Columns carrying historical children remain

@@ -1147,6 +1147,9 @@ class DailyRow(db.Model):
     skd = db.Column(db.Float, default=0.0)
     skk = db.Column(db.Float, default=0.0)
 
+    # Provenance is explicit metadata, never inferred from a zero balance.
+    # Existing rows predate provenance tracking and remain honestly unknown.
+    source_type = db.Column(db.String(40), nullable=False, default='unknown')
     uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
 

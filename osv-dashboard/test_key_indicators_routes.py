@@ -114,6 +114,7 @@ class SourceAssemblyTests(unittest.TestCase):
         daily = {
             'acc': '51', 'date': date(2026, 6, 21), 'snd': 0, 'snk': 0,
             'obd': 100, 'obk': 0, 'skd': 100, 'skk': 0,
+            'source_type': 'direct_daily_osv',
         }
         with patch.object(service, 'parse_osv', side_effect=lambda p: copy.deepcopy(reports[p])):
             source = service.assemble_source([first, latest], [daily])
@@ -125,6 +126,7 @@ class SourceAssemblyTests(unittest.TestCase):
         balances = source['accounts']['51'].get('balance_observations', [])
         self.assertEqual(len(balances), 1)
         self.assertEqual(balances[0]['date'], '2026-06-21')
+        self.assertEqual(balances[0]['source_type'], 'direct_daily_osv')
 
     def test_unreadable_source_is_explicit_error(self):
         path = os.path.join(_TMP.name, 'broken.xls')

@@ -97,10 +97,29 @@ class CashDailyDerivationTests(unittest.TestCase):
                 (rows[0].snd, rows[0].snk, rows[0].obd, rows[0].obk,
                  rows[0].skd, rows[0].skk),
                 (10, 1, 2, 3, 8, 0))
+            self.assertEqual(rows[0].source_type, 'direct_daily_osv')
             stored_time = rows[0].uploaded_at
             if stored_time.tzinfo is None:
                 stored_time = stored_time.replace(tzinfo=timezone.utc)
             self.assertGreater(stored_time, original_time)
+
+    def test_derived_rows_store_reconciled_turnover_provenance(self):
+        parsed = {
+            'acc': '51',
+            'period': 'за 01.07.2026 - 01.07.2026',
+            'top': {'snd': 10, 'snk': 0, 'obd': 2, 'obk': 0,
+                    'skd': 12, 'skk': 0},
+            'daily': [{'date': '2026-07-01', 'obd': 2, 'obk': 0}],
+        }
+        with app.app_context():
+            db.drop_all()
+            db.create_all()
+            with patch('osvparser.extract_daily_date', return_value=None), \
+                    patch('osvparser.parse_osv', return_value=parsed):
+                self.assertEqual(_upsert_daily_rows(1, ['report.xls']), 1)
+            db.session.commit()
+            row = DailyRow.query.one()
+            self.assertEqual(row.source_type, 'reconciled_turnovers')
 
 
 if __name__ == '__main__':

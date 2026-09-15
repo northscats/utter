@@ -4857,10 +4857,28 @@
                         + `cy="${cy.toFixed(1)}" r="${s.isActive ? 4 : 3}" `
                         + `fill="${s.isActive ? color : '#fff'}" stroke="${color}" stroke-width="2"/>`;
 
+                    const sourceLabels = {
+                        direct_daily_osv: 'Прямая суточная ОСВ',
+                        reconciled_turnovers: 'Восстановлено из сверенных датированных оборотов',
+                        confirmed_zero: 'Подтверждённый нулевой источник',
+                        unknown: 'Происхождение старой точки не определено'
+                    };
+                    let provenance = curr.source_type
+                        ? sourceLabels[curr.source_type]
+                        : '';
+                    if (!provenance && curr.sources) {
+                        provenance = Object.entries(curr.sources)
+                            .map(([account, sourceType]) =>
+                                `счёт ${account}: ${sourceLabels[sourceType] || sourceLabels.unknown}`)
+                            .join('; ');
+                    }
+                    const pointDetail = provenance
+                        ? `Источник: ${provenance}`
+                        : (curr.reason || 'Фактическое значение');
                     const tooltipData = this.metricTooltipData(card, {
                         title: `${s.label}: ${curr.label || curr.date}`,
                         fact: `${this.formatValue(curr.v, chartUnit).val} ${chartUnit || ''}`,
-                        detail: curr.reason || 'Фактическое значение',
+                        detail: pointDetail,
                         deviation: (curr.comparison && curr.comparison.comparable && curr.comparison.value) ?
                             (curr.comparison.value > 0 ? '+' : '') + this.formatValue(curr.comparison.value, chartUnit).val : ''
                     });
