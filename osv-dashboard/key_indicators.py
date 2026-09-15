@@ -1160,6 +1160,41 @@ def _cash_snapshot(source, end):
     }
 
 
+def _cash_observation_snapshot(source, end):
+    """Return cash only from exact daily/balance observations.
+
+    Unlike ``_cash_snapshot``, this deliberately does not consult
+    ``balance_reports`` or an account's report-level ``top`` value.  It is
+    used for daily chart slots so a monthly/period report cannot masquerade
+    as a daily observation at its endpoint.
+    """
+    parts, reasons = [], []
+    date_text = end.isoformat()
+    index = source.get('_top_balance_index') or {}
+    for account in _CASH_ACCOUNTS:
+        row = index.get(account, {}).get(date_text)
+        if row is not None:
+            value = round(max(0.0, row.get('skd', 0) - row.get('skk', 0)), 2)
+            parts.append((account, value))
+        elif account in source['accounts']:
+            reasons.append(f'{account}: Нет точного суточного остатка')
+    accounts = [account for account, _ in parts]
+    missing_accounts = [account for account in _CASH_ACCOUNTS
+                        if account not in accounts]
+    value = round(sum(amount for _, amount in parts), 2) if parts else None
+    coverage = ('complete' if len(accounts) == len(_CASH_ACCOUNTS)
+                else 'partial' if accounts else 'missing')
+    return {
+        'date': date_text,
+        'value': value,
+        'accounts': accounts,
+        'missing_accounts': missing_accounts,
+        'coverage': coverage,
+        'parts': parts,
+        'reasons': reasons,
+    }
+
+
 def _previous_cash_endpoint(period, end):
     """Return the exact calendar endpoint immediately before ``end``."""
     if period == 'day':
@@ -2540,6 +2575,46 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                  source, '08', month_end)[0]},
             'RUB')
 
+    # Cash is a balance snapshot, not a period movement. Keep its modal
+    # series on the real calendar even when another account has only monthly
+    # period reports. A period aggregate may contribute an authentic
+    # month-end observation, but it must never be copied to every day (or
+    # used to imply a daily fluctuation).
+    cash_daily_series = []
+    cash_daily_values = {account: [] for account in _CASH_ACCOUNTS}
+    cash_cursor = start
+    while cash_cursor <= end:
+        cash_point = _cash_observation_snapshot(source, cash_cursor)
+        point_date = cash_cursor.isoformat()
+        point_label = _options([cash_cursor], 'day')[0]['label']
+        cash_daily_series.append({
+            'label': point_label,
+            'date': point_date,
+            'value': cash_point['value'],
+            'accounts': list(cash_point['accounts']),
+            'missing_accounts': list(cash_point['missing_accounts']),
+            'coverage': cash_point['coverage'],
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        values = dict(cash_point['parts'])
+        for account in _CASH_ACCOUNTS:
+            cash_daily_values[account].append({
+                'label': point_label,
+                'date': point_date,
+                'value': values.get(account),
+                'unit': 'RUB',
+                'granularity': 'day',
+                'synthetic': False,
+            })
+        cash_cursor += timedelta(days=1)
+    card_map['cash']['series'] = cash_daily_series
+    for item in card_map['cash'].get('breakdown') or []:
+        match = re.search(r'(\d{2})', str(item.get('label') or ''))
+        account = match.group(1) if match else None
+        if account in cash_daily_values:
+            item['series'] = cash_daily_values[account]
+
     series_accounts = {
         'cash': {'series': value_accounts['cash']},
         'revenue': {'series': ('90',)},
@@ -2567,6 +2642,10 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         },
     }
     for card_id, fields in series_accounts.items():
+        # Cash points are always exact calendar-day snapshots. They must not
+        # be paired with the period aggregate slots used by other cards.
+        if card_id == 'cash':
+            continue
         for field, accounts_for_point in fields.items():
             points = card_map[card_id].get(field) or []
             for option, point in zip(month_options, points):
@@ -2707,21 +2786,25 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # an ОСВ period report remains a monthly aggregate and must not be treated
     # as a missing daily observation by the renderer.
     for card in cards:
-        card['granularity'] = series_kind
+        card['granularity'] = 'day' if card['id'] == 'cash' else series_kind
         for field in (
                 'series', 'turnover_series', 'gross_series',
                 'sales_profit_series', 'other_result_series', 'pretax_series',
                 'accrual_series', 'insurance_series', 'credit_series',
                 'balance_series'):
             for point in card.get(field) or []:
-                point.setdefault('granularity', series_kind)
+                point.setdefault(
+                    'granularity',
+                    'day' if card['id'] == 'cash' else series_kind)
                 point.setdefault('synthetic', False)
         for collection in (
                 card.get('breakdown') or [], card.get('details') or [],
                 card.get('analytics') or [], card.get('components') or []):
             for item in collection:
                 for point in item.get('series') or []:
-                    point.setdefault('granularity', series_kind)
+                    point.setdefault(
+                        'granularity',
+                        'day' if card['id'] == 'cash' else series_kind)
                     point.setdefault('synthetic', False)
 
     # Object table uses one and the same path1 dimension for both sides.

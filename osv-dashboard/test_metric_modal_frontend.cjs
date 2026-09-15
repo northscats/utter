@@ -39,6 +39,8 @@ function element(id) {
                             dataset: { seriesId: id },
                             addEventListener: (evt, fn) => { handlers[evt] = fn; },
                             closest: (sel) => null,
+                            setAttribute: () => {},
+                            getAttribute: () => null,
                             dispatchEvent: (evt, data) => {
                                 if (handlers[evt]) handlers[evt](data);
                             },
@@ -197,6 +199,64 @@ const firstComponent = componentRows.find(row => row.dataset.seriesId === 'compo
 firstComponent.dispatchEvent('dblclick', {target: {closest: () => null}});
 assert.ok(app.state.modalChart.pinnedIds.has('component:0'),
     'A duplicated JSON component has one stable pin target');
+
+// Cash __main__ uses the actual daily balance series in the shared renderer.
+// A missing calendar day remains a gap rather than a carried-forward value.
+const cashSeries = [
+    snapshot('2026-01-01', 100),
+    {...snapshot('2026-01-02', null), value: null},
+    {...snapshot('2026-01-03', 130), comparison: {comparable: false}}
+].map(point => ({...point, granularity: 'day'}));
+const cashCard = {
+    id: 'cash', title: 'Денежные средства', unit: 'RUB', value: 130,
+    series: cashSeries,
+    breakdown: [{label: 'Счёт 51', value: 130, unit: 'RUB',
+        series: cashSeries.map(point => ({...point,
+            value: point.value === null ? null : point.value - 10}))}],
+    details: []
+};
+app.state.modalCharts.cash = {activeId: null, pinnedIds: new Set(), gapMode: 1};
+app.state.modalChart = app.state.modalCharts.cash;
+app.state.data = {cards: [cashCard]};
+app.renderCashModal(cashCard);
+const cashContent = nodes.get('ki-cash-modal-content');
+app.bindMetricTiles(cashCard, cashContent);
+const cashMainTile = cashContent.querySelectorAll('[data-series-id]')
+    .find(tile => tile.dataset.seriesId === '__main__');
+assert.ok(cashMainTile, 'Cash headline tile is the shared __main__ target');
+cashMainTile.dispatchEvent('click', {detail: 1, target: {closest: () => null}});
+flushTimers();
+assert.equal(app.state.modalChart.activeId, '__main__',
+    'Cash headline click selects __main__');
+app.drawMetricModalSvg(cashCard, nodes.get('ki-metric-modal-svg'));
+const cashSvg = nodes.get('ki-metric-modal-svg').innerHTML;
+assert.equal((cashSvg.match(/cash-modal-point/g) || []).length, 2,
+    'Only real daily cash values receive point markers');
+assert.ok(cashSvg.includes('cash-modal-area'), 'Cash main has a baseline area fill');
+assert.ok(cashSvg.includes('Денежные средства (сч. 50, 51, 52, 55)'),
+    'Cash chart has the account legend');
+assert.ok(cashSvg.includes('cash-date-tick'), 'Cash chart has readable date ticks');
+assert.ok(!cashSvg.includes('NCF') && !cashSvg.includes('Норматив'),
+    'Cash chart has no NCF or norm line labels');
+assert.ok((cashSvg.match(/cash-modal-line-gap/g) || []).length > 0,
+    'Null daily cash point remains a visual gap');
+assert.match(cashContent.innerHTML, /data-series-id="0"/,
+    'Cash account row has a stable breakdown series id');
+const cashAccountTile = cashContent.querySelectorAll('[data-series-id]')
+    .find(tile => tile.dataset.seriesId === '0');
+cashAccountTile.dispatchEvent('dblclick', {target: {closest: () => null}});
+assert.ok(app.state.modalChart.pinnedIds.has('0'),
+    'Cash account series can remain pinned');
+cashAccountTile.dispatchEvent('click', {detail: 1, target: {closest: () => null}});
+flushTimers();
+assert.equal(app.state.modalChart.activeId, '0',
+    'Cash account selection stays in the specialised renderer');
+app.drawMetricModalSvg(cashCard, nodes.get('ki-metric-modal-svg'));
+assert.ok(!nodes.get('ki-metric-modal-svg').innerHTML.includes('cash-modal-area'),
+    'Area fill is reserved for the selected cash main series');
+assert.ok(!nodes.get('ki-metric-modal-svg').innerHTML.includes(
+    'Денежные средства (сч. 50, 51, 52, 55)'),
+    'Legend does not claim that the total is plotted after selecting one account');
 
 // A single click waits; a subsequent double click cancels that pending click.
 app.state.modalChart.activeId = '__main__';

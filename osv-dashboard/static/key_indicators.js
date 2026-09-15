@@ -4307,7 +4307,7 @@
                     Режим 2 показывает синтетическое продолжение только на графике;
                     суммы и фактические значения не изменяются.
                 </div>
-                <div class="cash-line-chart ki-metric-modal-svg" style="height:220px; position:relative;"></div>
+                <div class="cash-line-chart ki-metric-modal-svg" style="height:280px; position:relative;"></div>
             `;
             chCont.innerHTML = chartHtml;
             const chartContainer = chCont.querySelector
@@ -4325,10 +4325,197 @@
             this.scheduleMetricModalChart(card, chartContainer, 50);
         },
 
+        drawCashMetricModalSvg(card, chartContainer) {
+            const container = chartContainer || state.modalChart.chartContainer ||
+                document.getElementById('ki-metric-modal-svg');
+            if (!container) return;
+
+            const metricItems = metricSeriesItems(card);
+            const active = metricItems.find(item =>
+                item.id === state.modalChart.activeId) || metricItems[0];
+            if (!active) {
+                container.innerHTML = '<div class="chart-empty">Нет данных для отображения</div>';
+                return;
+            }
+            const selectedUnit = (active.item && active.item.unit) ||
+                ((active.data || []).find(point => point && point.unit) || {}).unit ||
+                card.unit;
+            const selected = metricItems.filter(item => {
+                const unit = (item.item && item.item.unit) ||
+                    ((item.data || []).find(point => point && point.unit) || {}).unit ||
+                    card.unit;
+                return (item.id === active.id ||
+                    state.modalChart.pinnedIds.has(item.id)) && unit === selectedUnit;
+            });
+            if (!selected.length) {
+                container.innerHTML = '<div class="chart-empty">Нет данных для отображения</div>';
+                return;
+            }
+
+            const allDates = selected.flatMap(item => (item.data || [])
+                .map(point => chartDate(point)).filter(value => value !== null));
+            if (!allDates.length) {
+                container.innerHTML = '<div class="chart-empty">Нет дат для отображения</div>';
+                return;
+            }
+            const minDate = Math.min(...allDates);
+            const maxDate = Math.max(...allDates);
+            const span = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+            const width = 900, height = 270, left = 52, right = 18,
+                top = 38, bottom = 48;
+            const plotWidth = width - left - right;
+            const plotHeight = height - top - bottom;
+            const x = item => left + Math.round(
+                (chartDate(item) - minDate) / 86400000) / span * plotWidth;
+            let max = 0;
+            selected.forEach(series => (series.data || []).forEach(point => {
+                if (hasNumericValue(point.value)) max = Math.max(max, Number(point.value));
+            }));
+            if (max <= 0) max = 1;
+            const y = value => top + plotHeight - (Number(value) / max) * plotHeight;
+            const baseline = y(0);
+            const gapMode = state.modalChart.gapMode;
+            const formatDate = value => {
+                const date = new Date(value);
+                const options = span > 365
+                    ? {day: 'numeric', month: 'short', year: 'numeric'}
+                    : {day: 'numeric', month: 'short'};
+                return new Intl.DateTimeFormat('ru-RU', options).format(date)
+                    .replace(/\s*г\.$/, '');
+            };
+            const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6',
+                '#EC4899', '#06B6D4', '#F43F5E'];
+            const stableColor = id => {
+                if (id === '__main__') return '#2563EB';
+                let hash = 0;
+                String(id).split('').forEach(char => {
+                    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+                });
+                return colors[Math.abs(hash) % colors.length];
+            };
+            const pathsFor = series => {
+                const known = (series.data || []).map((point, index) =>
+                    hasNumericValue(point.value)
+                        ? {point, index, value: Number(point.value)} : null)
+                    .filter(Boolean);
+                let solid = '', dashed = '', area = '';
+                let areaSegment = [];
+                const flushArea = () => {
+                    if (!areaSegment.length) return;
+                    const first = areaSegment[0];
+                    const last = areaSegment[areaSegment.length - 1];
+                    area += ` M ${x(first.point).toFixed(1)} ${baseline.toFixed(1)}`;
+                    areaSegment.forEach(item => {
+                        area += ` L ${x(item.point).toFixed(1)} ${y(item.value).toFixed(1)}`;
+                    });
+                    area += ` L ${x(last.point).toFixed(1)} ${baseline.toFixed(1)} Z`;
+                    areaSegment = [];
+                };
+                known.forEach((current, index) => {
+                    if (!index) {
+                        solid += ` M ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        areaSegment.push(current);
+                        return;
+                    }
+                    const previous = known[index - 1];
+                    const consecutive = Math.round(
+                        (chartDate(current.point) - chartDate(previous.point)) / 86400000) === 1;
+                    const comparable = current.point.comparison &&
+                        current.point.comparison.comparable === true;
+                    if (consecutive || comparable) {
+                        solid += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        areaSegment.push(current);
+                    } else if (gapMode === 2) {
+                        solid += ` L ${x(current.point).toFixed(1)} ${y(previous.value).toFixed(1)}`;
+                        solid += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        areaSegment.push(current);
+                    } else {
+                        dashed += ` M ${x(previous.point).toFixed(1)} ${y(previous.value).toFixed(1)}`;
+                        dashed += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        flushArea();
+                        solid += ` M ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        areaSegment.push(current);
+                    }
+                });
+                flushArea();
+                return {solid, dashed, area, known};
+            };
+
+            let svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" `
+                + `role="img" aria-label="Динамика денежных средств">`;
+            [0, 0.25, 0.5, 0.75, 1].forEach(tick => {
+                const py = top + plotHeight * tick;
+                const value = max * (1 - tick);
+                svg += `<line x1="${left}" y1="${py}" x2="${width - right}" y2="${py}" `
+                    + `stroke="#E5E7EB" stroke-width="1"/>`;
+                svg += `<text x="${left - 7}" y="${py + 4}" fill="#6B7280" `
+                    + `font-size="10" text-anchor="end">${esc(this.formatValue(value, selectedUnit).val)}</text>`;
+            });
+
+            const overlays = [];
+            selected.forEach(series => {
+                const paths = pathsFor(series);
+                const color = stableColor(series.id);
+                const isActive = series.id === active.id;
+                const widthPx = isActive ? 3.5 : 2;
+                if (series.id === '__main__' && isActive && paths.area) {
+                    svg += `<path d="${paths.area}" fill="#3B82F6" opacity="0.12" `
+                        + `stroke="none" class="cash-modal-area"/>`;
+                }
+                svg += `<path d="${paths.solid}" fill="none" stroke="${color}" `
+                    + `stroke-width="${widthPx}" stroke-linejoin="round" `
+                    + `opacity="${isActive ? 1 : 0.65}" class="cash-modal-line"/>`;
+                if (paths.dashed) {
+                    svg += `<path d="${paths.dashed}" fill="none" stroke="${color}" `
+                        + `stroke-width="${widthPx}" stroke-dasharray="5 4" `
+                        + `stroke-linecap="round" class="cash-modal-line-gap"/>`;
+                }
+                paths.known.forEach(item => {
+                    const cx = x(item.point);
+                    const cy = y(item.value);
+                    svg += `<circle class="cash-modal-point" data-series-id="${esc(series.id)}" `
+                        + `cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${isActive ? 4 : 3}" `
+                        + `fill="${isActive ? color : '#fff'}" stroke="${color}" stroke-width="2"/>`;
+                    overlays.push(`<div class="cash-chart-point-overlay" tabindex="0" `
+                        + `style="left:${((cx - 8) / width) * 100}%;top:${((cy - 8) / height) * 100}%;"`
+                        + ` aria-label="${esc(`${series.label} — ${item.point.date || item.point.label}: ${this.formatValue(item.value, selectedUnit).val}`)}">`
+                        + `${esc(series.label)} · ${esc(item.point.date || item.point.label)}: `
+                        + `${esc(this.formatValue(item.value, selectedUnit).val)}</div>`);
+                });
+            });
+            const tickSeries = active.data || [];
+            const tickStep = Math.max(1, Math.ceil(tickSeries.length / 8));
+            tickSeries.forEach((point, index) => {
+                if (!chartDate(point) ||
+                    (index % tickStep !== 0 && index !== tickSeries.length - 1)) return;
+                const cx = x(point);
+                svg += `<text class="cash-date-tick" x="${cx.toFixed(1)}" y="${height - 13}" `
+                    + `text-anchor="middle" font-size="10" fill="#4B5563">${esc(formatDate(chartDate(point)))}</text>`;
+            });
+            svg += '</svg>';
+            const mainLegend = selected.some(series => series.id === '__main__')
+                ? '<span class="cash-modal-chart-legend-main"><i></i>Денежные средства '
+                    + '(сч. 50, 51, 52, 55)</span>'
+                : '';
+            const legend = '<div class="cash-modal-chart-legend" role="group" '
+                + 'aria-label="Легенда графика">'
+                + mainLegend
+                + selected.filter(series => series.id !== '__main__').map(series =>
+                    `<span><i style="background:${stableColor(series.id)}"></i>${esc(series.label)}</span>`
+                ).join('')
+                + '</div>';
+            container.innerHTML = legend + svg
+                + `<div class="cash-chart-point-overlays">${overlays.join('')}</div>`;
+        },
+
         drawMetricModalSvg(card, chartContainer) {
             const container = chartContainer || state.modalChart.chartContainer ||
                 document.getElementById('ki-metric-modal-svg');
             if (!container) return;
+            if (card.id === 'cash') {
+                this.drawCashMetricModalSvg(card, container);
+                return;
+            }
 
             const unitFor = (item, data) => (item && item.unit) ||
                 ((data || []).find(point => point && point.unit) || {}).unit ||
@@ -4610,9 +4797,14 @@ renderCashModal(card) {
                 '55': 'Аккредитивы, депозиты, чековые книжки и специальные счета. Часть средств может быть ограничена или иметь целевое назначение.'
             };
             const parts = {};
+            const breakdownSeriesIds = {};
             (card.breakdown || []).forEach(item => {
                 const match = String(item.label || '').match(/(\d{2})/);
-                if (match) parts[match[1]] = item.value;
+                if (match) {
+                    parts[match[1]] = item.value;
+                    breakdownSeriesIds[match[1]] = metricSeriesId(
+                        item, 'breakdown', (card.breakdown || []).indexOf(item));
+                }
             });
             const cashFormatted = this.formatValue(card.value, card.unit);
             const delta = card.comparison && card.comparison.comparable && Number.isFinite(card.comparison.value)
@@ -4643,7 +4835,8 @@ renderCashModal(card) {
                     deviation: required ? 'Расчёт невозможен' : 'Оценивается после задания норматива',
                     source: required ? `требуется ОСВ по счёту ${account}` : `ОСВ по счёту ${account}`
                 });
-                rows += `<tr class="cash-tooltip-host" tabindex="0">
+                rows += `<tr class="cash-tooltip-host" tabindex="0"${breakdownSeriesIds[account]
+                    ? ` data-series-id="${esc(breakdownSeriesIds[account])}"` : ''}>
                     <td><div><strong>Счёт ${account}</strong> — ${esc(names[account])}${rowTooltip}</div></td>
                     <td>${esc(formatted.val)} ${esc(formatted.u)}</td>
                     <td>${esc(share)}</td>
@@ -4949,6 +5142,10 @@ renderCashModal(card) {
                 creditsContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
+                // The cash headline tile is the shared chart's __main__
+                // series. Mount it after the specialised cash content so the
+                // existing account summary remains the source of selection.
+                this.mountSharedDynamics(card, cashContent);
             } else if (cardId === 'revenue') {
                 genericContent.style.display = 'none';
                 cashContent.style.display = 'none';

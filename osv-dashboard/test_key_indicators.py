@@ -18,7 +18,7 @@ def day(dt, p3='', p1='', obd=0, obk=0, **balance):
     return dict(date=dt, month=dt[:7], path1=p1, path2='', path3=p3,
                 obd=obd, obk=obk, **balance)
 
-class CashSalaryKeyIndicatorTests(unittest.TestCase):
+class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
     def test_quality_missing_accounts_use_account_numbers_not_metric_ids(self):
         result = build_key_indicators(build_indicator_source({
             '90': account('90', [day('2026-01-31', '90.01', obk=100)]),
@@ -842,6 +842,42 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cash['series'][0]['accounts'], ['51'])
         self.assertEqual(cash['series'][1]['coverage'], 'missing')
         self.assertFalse(cash['series'][2]['comparison']['comparable'])
+
+    def test_cash_daily_series_rejects_period_only_endpoint(self):
+        src = build_indicator_source({
+            '51': account(
+                '51', [], top=dict(snd=0, snk=0, obd=0, obk=0, skd=500, skk=0),
+                period='за январь 2026 г.'),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-01-31')['cards']}['cash']
+        # The headline may use the authentic report boundary, but the daily
+        # chart must not relabel that period aggregate as a daily point.
+        self.assertEqual(cash['value'], 500)
+        self.assertTrue(all(point['value'] is None for point in cash['series']))
+        self.assertIsNone(cash['series'][-1]['value'])
+        self.assertEqual(cash['series'][-1]['granularity'], 'day')
+
+    def test_cash_daily_series_uses_exact_rows_inclusive_and_keeps_zero(self):
+        rows = [
+            day('2026-01-01', skd=10),
+            day('2026-01-03', skd=30),
+        ]
+        src = build_indicator_source({
+            '51': account('51', rows, period=''),
+            '50': account('50', [day('2026-01-01', skd=0, skk=0),
+                                 day('2026-01-03', skd=0, skk=0)], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-01-03')['cards']}['cash']
+        points = {point['date']: point for point in cash['series']}
+        self.assertEqual(
+            [point['date'] for point in cash['series']],
+            ['2026-01-01', '2026-01-02', '2026-01-03'])
+        self.assertEqual(points['2026-01-01']['value'], 10)
+        self.assertIsNone(points['2026-01-02']['value'])
+        self.assertEqual(points['2026-01-03']['value'], 30)
+        self.assertEqual(points['2026-01-01']['accounts'], ['50', '51'])
 
     def test_cash_quarter_series_uses_daily_slots_without_spreading_balances(self):
         src = build_indicator_source({

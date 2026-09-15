@@ -443,6 +443,21 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-line-chart { height:250px; border:1px solid #E5E7EB; border-radius:8px; background:#FAFBFC; padding:10px; }
 .cash-line-chart svg { width:100%; height:100%; overflow:visible; }
 .cash-line-chart { position:relative; }
+.ki-modal-dynamics-block .modal-chart-wrap { width:100%; box-sizing:border-box; }
+.cash-modal-chart-legend {
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px;
+  margin:0 0 8px; color:#374151; font-size:11px; font-weight:600;
+}
+.cash-modal-chart-legend span { display:inline-flex; align-items:center; gap:5px; }
+.cash-modal-chart-legend i { width:9px; height:9px; display:inline-block; border-radius:50%; background:#2563EB; }
+.cash-modal-chart-legend-main { color:#1E3A8A; }
+.cash-modal-chart-legend-main i { background:#2563EB; }
+.cash-modal-point { pointer-events:none; }
+.cash-chart-point-overlays { position:absolute; inset:0; pointer-events:none; }
+.cash-chart-point-overlay {
+  position:absolute; width:16px; height:16px; border-radius:50%;
+  pointer-events:auto; cursor:help; overflow:hidden; text-indent:-9999px;
+}
 .cash-chart-point { cursor:help; outline:none; }
 .cash-chart-point:hover, .cash-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .metric-chart-point { cursor:help; outline:none; }
