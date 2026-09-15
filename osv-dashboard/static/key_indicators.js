@@ -4314,7 +4314,7 @@
             Array.from(chCont.querySelectorAll('input[name="gapMode"]')).forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     state.modalChart.gapMode = Number(e.target.value);
-                    this.scheduleMetricModalChart(card, chartContainer);
+                    this.drawMetricModalSvg(card, chartContainer);
                 });
             });
 
@@ -4409,27 +4409,28 @@
                 };
                 known.forEach((current, index) => {
                     if (!index) {
-                        solid += ` M ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
                         areaSegment.push(current);
                         return;
                     }
                     const previous = known[index - 1];
+                    const previousX = x(previous.point).toFixed(1);
+                    const previousY = y(previous.value).toFixed(1);
+                    const currentX = x(current.point).toFixed(1);
+                    const currentY = y(current.value).toFixed(1);
                     const consecutive = Math.round(
                         (chartDate(current.point) - chartDate(previous.point)) / 86400000) === 1;
                     const comparable = current.point.comparison &&
                         current.point.comparison.comparable === true;
                     if (consecutive || comparable) {
-                        solid += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        solid += ` M ${previousX} ${previousY} L ${currentX} ${currentY}`;
                         areaSegment.push(current);
                     } else if (gapMode === 2) {
-                        solid += ` L ${x(current.point).toFixed(1)} ${y(previous.value).toFixed(1)}`;
-                        solid += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        solid += ` M ${previousX} ${previousY} L ${currentX} ${previousY}`;
+                        solid += ` L ${currentX} ${currentY}`;
                         areaSegment.push(current);
                     } else {
-                        dashed += ` M ${x(previous.point).toFixed(1)} ${y(previous.value).toFixed(1)}`;
-                        dashed += ` L ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
+                        dashed += ` M ${previousX} ${previousY} L ${currentX} ${currentY}`;
                         flushArea();
-                        solid += ` M ${x(current.point).toFixed(1)} ${y(current.value).toFixed(1)}`;
                         areaSegment.push(current);
                     }
                 });

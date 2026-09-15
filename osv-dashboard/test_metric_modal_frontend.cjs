@@ -248,6 +248,20 @@ assert.ok(!cashSvg.includes('NCF') && !cashSvg.includes('Норматив'),
     'Cash chart has no NCF or norm line labels');
 assert.ok((cashSvg.match(/cash-modal-line-gap/g) || []).length > 0,
     'Null daily cash point remains a visual gap');
+const connectedCashPath = cashSvg.match(
+    /<path d="([^"]*L[^"]*)"[^>]*class="cash-modal-line-gap"/);
+assert.ok(connectedCashPath && connectedCashPath[1].trim(),
+    'Connect mode renders a non-empty dashed segment between known cash points');
+app.state.modalChart.gapMode = 2;
+app.drawMetricModalSvg(cashCard, nodes.get('ki-metric-modal-svg'));
+const extendedCashSvg = nodes.get('ki-metric-modal-svg').innerHTML;
+const extendedCashPath = extendedCashSvg.match(
+    /<path d="([^"]*L[^"]*)"[^>]*class="cash-modal-line"/);
+assert.ok(extendedCashPath && extendedCashPath[1].trim(),
+    'Extend mode renders a non-empty stepped segment between known cash points');
+assert.notEqual(extendedCashPath[1], connectedCashPath[1],
+    'Connect and extend modes render different line geometry');
+app.state.modalChart.gapMode = 1;
 assert.match(cashContent.innerHTML, /data-series-id="0"/,
     'Cash account row has a stable breakdown series id');
 const cashAccountTile = cashContent.querySelectorAll('[data-series-id]')
