@@ -801,6 +801,100 @@ def _derive_cash_daily_rows(parsed, through_date=None):
     if abs(running - closing) > 0.01:
         return []
     return result
+
+
+_BUNDLED_MUP_KGH_ACCOUNT55 = os.path.join(
+    BASE, 'data',
+    'mup-kgh-account-55-2026-07-01_2026-09-15.xls')
+
+
+def _import_bundled_mup_kgh_account55():
+    """Idempotently install the accepted account-55 ОСВ for МУП КГХ.
+
+    The source is bundled because database-only imports disappear on a clean
+    deployment.  It is still registered through the normal immutable source
+    manifest and converted to DailyRow observations by the regular importer.
+    """
+    from osvparser import parse_osv
+    from source_manifest import sha256_file
+
+    if not os.path.isfile(_BUNDLED_MUP_KGH_ACCOUNT55):
+        raise RuntimeError('Не найден поставляемый файл ОСВ счёта 55 МУП КГХ')
+    companies = [
+        company for company in Company.query.all()
+        if re.sub(r'\s+', ' ', company.name or '').strip().upper() == 'МУП КГХ'
+    ]
+    if not companies:
+        return False
+    if len(companies) != 1:
+        raise RuntimeError('Нельзя однозначно выбрать предприятие МУП КГХ')
+    company = companies[0]
+    parsed = parse_osv(_BUNDLED_MUP_KGH_ACCOUNT55)
+    observations = _derive_cash_daily_rows(parsed)
+    if (
+        str(parsed.get('acc')) != '55'
+        or len(observations) != 77
+        or observations[0]['date'].isoformat() != '2026-07-01'
+        or observations[-1]['date'].isoformat() != '2026-09-15'
+    ):
+        raise RuntimeError('Поставляемая ОСВ счёта 55 не прошла контроль периода')
+
+    digest = sha256_file(_BUNDLED_MUP_KGH_ACCOUNT55)
+    batch = f'bundled_account55_{digest[:12]}'
+    company_root = os.path.join(UPLOADS, str(company.id))
+    batch_dir = os.path.join(company_root, batch)
+    os.makedirs(batch_dir, exist_ok=True)
+    destination = os.path.join(
+        batch_dir, os.path.basename(_BUNDLED_MUP_KGH_ACCOUNT55))
+    if not os.path.isfile(destination) or sha256_file(destination) != digest:
+        shutil.copy2(_BUNDLED_MUP_KGH_ACCOUNT55, destination)
+
+    manifests = [
+        upload.source_manifest for upload in Upload.query.filter_by(
+            company_id=company.id).all()
+        if isinstance(upload.source_manifest, list)
+    ]
+    already_registered = any(
+        item.get('sha256') == digest
+        for manifest in manifests for item in manifest
+        if isinstance(item, dict)
+    )
+    if not already_registered:
+        uploader = User.query.filter_by(role='admin').order_by(User.id).first()
+        if uploader is None:
+            raise RuntimeError('Нет администратора для регистрации ОСВ счёта 55')
+        manifest = build_manifest([(destination, parsed)], company_root)
+        db.session.add(Upload(
+            company_id=company.id,
+            uploaded_by=uploader.id,
+            period_label='01.07.2026–15.09.2026',
+            accounts_loaded=json.dumps(['55']),
+            files_count=1,
+            source='manual',
+            dashboard_file='',
+            metrics_json='{}',
+            source_manifest_json=dump_manifest(manifest),
+        ))
+    existing_rows = {
+        row.date: row for row in DailyRow.query.filter_by(
+            company_id=company.id, acc='55').all()
+    }
+    balance_keys = ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')
+    rows_match = len(existing_rows) == len(observations) and all(
+        observation['date'] in existing_rows
+        and all(
+            abs(float(getattr(existing_rows[observation['date']], key) or 0)
+                - float(observation[key])) <= 0.01
+            for key in balance_keys
+        )
+        for observation in observations
+    )
+    if not rows_match and _upsert_daily_rows(company.id, [destination]) != 1:
+        raise RuntimeError('Не удалось построить дневные остатки счёта 55')
+    db.session.commit()
+    return True
+
+
 def _upsert_daily_rows(company_id, paths):
     """Если XLS-файл является суточным ОСВ (дата извлекается из шапки),
     записывает/обновляет строку DailyRow для этого дня и счёта.
@@ -6323,6 +6417,7 @@ def _finish_durable_startup(restore=False):
                 raise RuntimeError(
                     'Durable restore failed; bootstrap was not attempted')
             _ensure_initial_admin_after_restore()
+        _import_bundled_mup_kgh_account55()
         if not app.config.get('TESTING'):
             from durable_data import has_snapshot
             _durable_backup(
