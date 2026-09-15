@@ -340,11 +340,24 @@ tr:last-child td{border-bottom:0}
 .upload-history-table .upload-account-col{width:12%}
 .upload-history-table .upload-type-col{width:70px}
 .upload-history-table .upload-coverage-col{width:78px}
+.upload-history-table td.upload-package-cell{padding:0;overflow:visible}
 .upload-package-details summary{cursor:pointer;color:#1f6680;font-weight:600;
-  list-style-position:inside;overflow:hidden;text-overflow:ellipsis}
-.upload-package-files{margin-top:7px;min-width:720px;background:#fbfcfd}
+  list-style-position:inside;padding:7px 8px}
+.upload-package-summary{
+  display:inline-grid;width:calc(100% - 24px);
+  grid-template-columns:125px 74px 21fr 25fr 12fr 70px 78px;
+  color:var(--ink);font-weight:400;vertical-align:middle}
+.upload-package-summary>span{padding:0 6px;overflow:hidden;text-overflow:ellipsis}
+.upload-package-summary .package-name{color:#1f6680;font-weight:600}
+.upload-package-files{width:calc(100% - 16px);margin:0 8px 8px;
+  table-layout:fixed;background:#fbfcfd}
 .upload-package-files th,.upload-package-files td{
   padding:4px 7px;font-size:11.5px;white-space:nowrap}
+.upload-package-files th:first-child{width:34%}
+.upload-package-files th:nth-child(2){width:27%}
+.upload-package-files th:nth-child(3){width:12%}
+.upload-package-files th:nth-child(4){width:11%}
+.upload-package-files th:nth-child(5){width:16%}
 /* ── Историческая аналитика ── */
 .hist-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:22px 24px;margin-bottom:20px}
@@ -1051,19 +1064,27 @@ tr:last-child td{border-bottom:0}
       </tr>
       {% for row in upload_history_rows|default([]) %}
       {% set u = row.upload %}
+      {% if row.file_rows|length > 1 %}
       <tr>
-        <td class="upload-date-col" title="{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">{{ u.uploaded_at.strftime('%d.%m.%y %H:%M') }}</td>
-        <td class="upload-source-col">
-          {% if u.source == 'auto_imap' %}
-            <span class="src-auto">📧 Авто</span>
-          {% else %}
-            <span class="src-manual">👤 Вручную</span>
-          {% endif %}
-        </td>
-        <td class="upload-file-col">
-          {% if row.file_rows|length > 1 %}
+        <td colspan="7" class="upload-package-cell">
           <details class="upload-package-details">
-            <summary>{{ row.file_label }}</summary>
+            <summary>
+              <span class="upload-package-summary">
+                <span title="{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">{{ u.uploaded_at.strftime('%d.%m.%y %H:%M') }}</span>
+                <span>
+                  {% if u.source == 'auto_imap' %}
+                    <span class="src-auto">📧 Авто</span>
+                  {% else %}
+                    <span class="src-manual">👤 Вручную</span>
+                  {% endif %}
+                </span>
+                <span class="package-name">{{ row.file_label }}</span>
+                <span title="{{ u.period_label or '—' }}">{{ row.period_display }}</span>
+                <span title="{{ row.full_account_label }}">{{ row.account_label }}</span>
+                <span title="{{ row.period_type }}">{{ row.period_type }}</span>
+                <span title="Покрытие дней: {{ row.coverage_label }}">{{ row.coverage_label|replace(' из ', '/') }}</span>
+              </span>
+            </summary>
             <table class="upload-package-files">
               <tr>
                 <th>Файл</th>
@@ -1083,15 +1104,27 @@ tr:last-child td{border-bottom:0}
               {% endfor %}
             </table>
           </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td class="upload-date-col" title="{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}">{{ u.uploaded_at.strftime('%d.%m.%y %H:%M') }}</td>
+        <td class="upload-source-col">
+          {% if u.source == 'auto_imap' %}
+            <span class="src-auto">📧 Авто</span>
           {% else %}
-          <span title="{{ row.full_file_label }}">{{ row.file_label }}</span>
+            <span class="src-manual">👤 Вручную</span>
           {% endif %}
+        </td>
+        <td class="upload-file-col">
+          <span title="{{ row.full_file_label }}">{{ row.file_label }}</span>
         </td>
         <td class="upload-period-col" title="{{ u.period_label or '—' }}">{{ row.period_display }}</td>
         <td class="upload-account-col" title="{{ row.full_account_label }}">{{ row.account_label }}</td>
         <td class="upload-type-col" title="{{ row.period_type }}">{{ row.period_type }}</td>
         <td class="upload-coverage-col" title="Покрытие дней: {{ row.coverage_label }}">{{ row.coverage_label|replace(' из ', '/') }}</td>
       </tr>
+      {% endif %}
       {% endfor %}
     </table>
     {% else %}
