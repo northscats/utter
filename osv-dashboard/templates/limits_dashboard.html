@@ -1,0 +1,274 @@
+{% extends "modules.html" %}
+{% block title %}Оповещение о лимитах{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+<div class="eyebrow">ГИС РЭБ · Версии XLSX</div>
+<h1>Оповещение о лимитах</h1>
+<p class="lead">История хранит 10 последних принятых версий.</p>
+{% include "limits_nav.html" %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="stats">
+  <div>
+    <b>{{ changes }}</b>
+    <span>изменений в истории</span>
+  </div>
+  <div>
+    <b>{{ queued }}</b>
+    <span>ожидают отправки</span>
+  </div>
+  <div>
+    <b>{{ max_errors }}</b>
+    <span>ошибок очереди</span>
+  </div>
+  <div>
+    <b>
+      {% if max_enabled %}
+        MAX активен
+      {% elif max_connected %}
+        MAX настроен <small style="font-weight: normal; font-size: 13px;">(выключен)</small>
+      {% else %}
+        MAX не подключён
+      {% endif %}
+    </b>
+    <span>статус платформы MAX</span>
+  </div>
+</div>
+
+{% if current_user.is_admin %}
+<p><a class="btn-outline" href="{{ url_for('limit_max_journal') }}">Очередь бота и ошибки модерации MAX</a></p>
+<section class="panel">
+  <h2>Новый набор отчётности</h2>
+  <form class="flex-form" method="post" action="{{ url_for('limit_dataset_create') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input name="name" placeholder="Название набора" required>
+    <input name="scope" placeholder="Охват / комментарий">
+    <button class="btn-primary">Создать</button>
+  </form>
+</section>
+
+{% endif %}
+
+{% if dataset %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2 style="margin:0">{{ dataset.name }}</h2>
+      <p class="text-mut" style="margin:4px 0 0 0">{{ dataset.scope or 'Охват не указан' }} · Актуальная версия: {% if dataset.current_version_id %}#{{ dataset.current_version_id }} · {{ current_objects }} объектов в текущем срезе{% else %}нет{% endif %}</p>
+      <p class="text-mut">Реестр также сохраняет отсутствующие объекты; используйте фильтр присутствия, чтобы увидеть только текущий срез.</p>
+    </div>
+    <div class="panel-actions">
+      <a class="btn btn-outline" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Реестр объектов</a>
+      {% if current_user.is_admin %}
+      <a class="btn btn-outline" href="{{ url_for('limit_delivery_journal', dataset_id=dataset.id) }}">Журнал уведомлений</a>
+      <a class="btn btn-outline" href="{{ url_for('limit_subscribers', dataset_id=dataset.id) }}">Подписчики</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set accepted_versions = versions | selectattr('status', 'equalto', 'accepted') | list %}
+  {% if accepted_versions and current_user.is_admin %}
+  <div class="compare-box" style="background: #fafbfc; border-radius: 12px; padding: 20px; margin-bottom: 24px; border: 1px solid var(--line);">
+    <h3 style="margin: 0 0 16px; font-size: 15px;">Сравнение принятых версий</h3>
+    <form method="post" action="{{ url_for('limit_compare', version_id=dataset.current_version_id or accepted_versions[0].id) }}" class="flex-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <select name="new_version_id" style="min-width: 200px;">
+        {% for v in accepted_versions %}
+          <option value="{{ v.id }}" {% if v.id == dataset.current_version_id %}selected{% endif %}>
+            Версия #{{ v.id }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
+          </option>
+        {% endfor %}
+      </select>
+      <span class="text-mut" style="font-size: 14px; font-weight: 600;">со старой версией</span>
+      <select name="old_version_id" style="min-width: 200px;">
+        {% for v in accepted_versions %}
+          <option value="{{ v.id }}" {% if loop.index0 == 1 or (loop.length == 1 and loop.index0 == 0) %}selected{% endif %}>
+            Версия #{{ v.id }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
+          </option>
+        {% endfor %}
+      </select>
+      <button class="btn-primary" style="padding: 10px 20px;">Построить отчёт</button>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if current_user.is_admin %}
+  <div class="upload-box">
+    <h3>Загрузка нового среза</h3>
+    <form class="flex-form" method="post" enctype="multipart/form-data" action="{{ url_for('limit_upload', dataset_id=dataset.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="inline-label">
+        Дата среза 
+        <input name="source_date" type="date" value="{{ default_source_date }}" required>
+      </label>
+      <input name="file" type="file" accept=".xlsx" required>
+      <button class="btn-primary">Загрузить XLSX</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Дата среза</th>
+          <th>Файл</th>
+          <th>Статус</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for version in versions %}
+        <tr>
+          <td class="text-mut">#{{ version.id }}</td>
+          <td>{{ version.source_date.strftime('%d.%m.%Y') if version.source_date else '—' }}</td>
+          <td>
+            {{ version.source_name }}<br>
+            <a href="{{ url_for('limit_version_source', version_id=version.id) }}" class="text-link text-sm">Скачать исходник</a>
+          </td>
+          <td>
+            {% if version.status == 'accepted' %}
+              <span class="badge success">Принята</span>
+            {% elif version.status == 'review' %}
+              <span class="badge warning">На проверке</span>
+            {% elif version.status == 'error' %}
+              <span class="badge danger">Ошибка</span>
+            {% elif version.status == 'rejected' %}
+              <span class="badge neutral">Отклонена</span>
+            {% else %}
+              <span class="badge neutral">{{ version.status }}</span>
+            {% endif %}
+            
+            {% if version.error_text %}
+              <div class="text-danger text-sm mt-1" style="max-width: 250px; line-height:1.3">{{ version.error_text }}</div>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            <div class="btn-group-actions">
+              <a href="{{ url_for('limit_version_source', version_id=version.id) }}" class="btn-sm btn-outline" style="border-color:transparent; background: #f4f7fa;">Исходник</a>
+              
+              {% if current_user.is_admin and version.status == 'review' %}
+                {% if dataset.current_version_id %}
+                  <form method="post" action="{{ url_for('limit_compare', version_id=version.id) }}">
+                    <input type="hidden" name="old_version_id" value="{{ dataset.current_version_id }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn-sm btn-outline">Сравнение</button>
+                  </form>
+                {% endif %}
+                <a class="btn-sm btn-primary" href="{{ url_for('limit_version_review', version_id=version.id) }}">Проверить и принять</a>
+                <form method="post" action="{{ url_for('limit_version_reject', version_id=version.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn-sm btn-outline text-danger">Отклонить</button>
+                </form>
+              {% endif %}
+              
+              {% if current_user.is_admin and version.status == 'accepted' and version.previous_version_id %}
+                <form method="post" action="{{ url_for('limit_compare', version_id=version.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="old_version_id" value="{{ version.previous_version_id }}">
+                  <button class="btn-sm btn-outline" style="border-color:transparent; background: #f4f7fa;">Отчёт с предыдущей</button>
+                </form>
+              {% endif %}
+              {% if current_user.is_admin and version.status == 'accepted' %}
+                <a class="text-link text-sm" href="{{ url_for('limit_version_review', version_id=version.id) }}">Контрольные количества и исходник</a>
+              {% endif %}
+              {% if current_user.is_admin and version.status in ('accepted','review','error','rejected') %}
+                <a class="btn-sm btn-outline text-danger" href="{{ url_for('limit_version_delete', version_id=version.id) }}">Удалить загрузку</a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-mut" style="padding: 40px;">Загрузок пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% else %}
+<section class="empty-state">
+  <h2>Создайте набор отчётности</h2>
+  <p>Затем загрузите полный перечень с введённой оператором датой среза.</p>
+</section>
+{% endif %}
+
+<style>
+.flash-messages { margin-bottom: 24px; }
+.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; font-size: 14px; }
+.notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
+.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
+.notice.warning, .notice.info { background: #fff8e1; border-left-color: #fbc02d; color: #f57f17; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }
+.stats div { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+.stats b { display: block; font-size: 24px; color: var(--ink); line-height: 1.2; margin-bottom: 4px; }
+.stats span { font-size: 13px; color: var(--mut); display: block; }
+
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 24px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); }
+.panel h2 { margin: 0 0 16px; font-size: 18px; }
+.panel-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.panel-body { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+.flex-form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.flex-form input { flex: 1; min-width: 200px; }
+.flex-form-col { display: flex; flex-direction: column; gap: 20px; max-width: 600px; }
+.label-text { display: block; font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+
+input, select, button { font: inherit; outline: none; }
+input:not([type="checkbox"]):not([type="radio"]), select { padding: 10px 14px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; transition: 0.2s; }
+input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 122, 156, 0.1); }
+
+.cb-label { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.cb-label input { margin-top: 4px; width: 18px; height: 18px; cursor: pointer; }
+
+.inline-label { display: flex; align-items: center; gap: 12px; font-weight: 600; color: var(--mut); }
+.upload-box { background: var(--paper); border: 1px dashed #cdd7e0; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+.upload-box h3 { margin: 0 0 12px; font-size: 15px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 8px; font-weight: 600; text-decoration: none; cursor: pointer; transition: 0.2s; border: 1px solid transparent; font-size: 14px; }
+.btn-primary { background: var(--blue); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; }
+.btn-primary:hover { background: #16607a; }
+.btn-outline { background: #fff; border-color: #cdd7e0; color: var(--ink); }
+.btn-outline:hover { background: var(--paper); border-color: #b0c0cd; }
+.btn-sm { padding: 7px 12px; font-size: 13px; }
+
+.table-wrap { overflow-x: auto; margin: 0 -24px -24px; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th { padding: 12px 24px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }
+td { padding: 16px 24px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+
+.actions-cell form { display: inline-block; margin: 0; }
+.btn-group-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.badge.success { background: #e8f5e9; color: #2e7d32; }
+.badge.warning { background: #fff8e1; color: #f57f17; }
+.badge.danger { background: #ffebee; color: #c62828; }
+.badge.neutral { background: var(--line); color: var(--ink); }
+
+.text-mut { color: var(--mut); }
+.text-danger { color: #d32f2f !important; }
+.text-danger:hover { background: #ffebee !important; border-color: #ffcdd2 !important; }
+.text-sm { font-size: 13px; }
+.text-center { text-align: center; }
+.text-link { color: var(--blue); text-decoration: none; font-weight: 600; }
+.text-link:hover { text-decoration: underline; }
+.mt-1 { margin-top: 8px; }
+
+.empty-state { text-align: center; padding: 60px 20px; background: #fff; border-radius: 16px; border: 1px dashed #cdd7e0; color: var(--mut); }
+.empty-state h2 { color: var(--ink); margin: 0 0 8px; }
+
+summary { cursor: pointer; font-weight: 600; font-size: 15px; outline: none; border-radius: 8px; padding: 8px 0; }
+</style>
+{% endblock %}

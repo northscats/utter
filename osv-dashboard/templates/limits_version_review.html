@@ -1,0 +1,46 @@
+{% extends "modules.html" %}
+{% block title %}Проверка версии лимитов #{{ version.id }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('limit_notifications',dataset=dataset.id) }}">← {{ dataset.name }}</a>
+<h1>Проверка версии #{{ version.id }}</h1>
+<p>Срез {{ version.source_date }} · {{ 'Уже принят' if version.status=='accepted' else 'Ещё не принят: текущий реестр не изменён' }}</p>
+<section style="display:flex;gap:40px;padding:24px;background:white;border:1px solid #dce3eb;border-radius:14px">
+  <div><strong style="font-size:30px">{{ row_count }}</strong><br>Строк мероприятий</div>
+  <div><strong style="font-size:30px">{{ object_count }}</strong><br>Уникальных УИН</div>
+  <div><strong style="font-size:30px">{{ row_count-object_count }}</strong><br>Дополнительных строк повторяющихся УИН</div>
+</section>
+<h2>Исходник</h2>
+<p>{{ version.source_name }} · Загружен {{ version.uploaded_at }}{% if version.uploader %} · {{ version.uploader.username }}{% endif %}</p>
+<p style="overflow-wrap:anywhere">SHA-256: <code>{{ version.sha256 }}</code></p>
+<a href="{{ url_for('limit_version_source',version_id=version.id) }}">Скачать исходный XLSX</a>
+<h2>Предварительное сравнение</h2>
+{% if comparison %}
+<p>Версия #{{ comparison.old_version_id }} → #{{ version.id }}:
+  новых объектов {{ summary.get('new_objects',0) }},
+  отсутствующих {{ summary.get('absent_objects',0) }},
+  изменённых ячеек {{ summary.get('changed_cells',0) }},
+  переносов кодов {{ summary.get('transfers',0) }}.</p>
+<p><a href="{{ url_for('limit_comparison_view',comparison_id=comparison.id) }}">Проверить «было / стало», исходные ячейки и неоднозначности</a></p>
+{% if comparison.status!='ready' %}<p style="color:#a52626">Есть неразрешённые неоднозначности. Принятие заблокировано.</p>{% endif %}
+{% elif not dataset.current_version_id or dataset.current_version_id==version.id %}
+<p>Первоначальная база сравнения. Массовых уведомлений о новых объектах не будет.</p>
+{% else %}
+<p>Сначала сравните эту загрузку с актуальной версией.</p>
+<form method="post" action="{{ url_for('limit_compare',version_id=version.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="old_version_id" value="{{ dataset.current_version_id }}">
+  <button>Построить сравнение с актуальной версией</button>
+</form>
+{% endif %}
+<h2>Проблемы данных</h2>
+{% for warning in warnings %}<p>{{ warning.get('cell','') }} {{ warning.get('message',warning) }}</p>{% else %}<p>Предупреждений парсера нет.</p>{% endfor %}
+<p>Деньги — тыс. руб. Пустота и прочерк не равны нулю. Предельная стоимость, годовое финансирование и срезы «на 01.01» не суммируются между собой. Отсутствие в выгрузке не доказывает отмену объекта.</p>
+{% if version.status=='review' %}
+<form method="post" action="{{ url_for('limit_version_accept',version_id=version.id) }}" style="margin-top:24px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label><input type="checkbox" name="confirm" value="1" required> Проверил количества, область охвата и изменения. Подтверждаю принятие версии.</label>
+  <p>Принятие обновит реестр и поставит уведомления подписчикам в очередь. Без подключения MAX отправки не выполняются.</p>
+  <button {% if comparison and comparison.status!='ready' or not comparison and dataset.current_version_id %}disabled{% endif %}>Подтвердить принятие</button>
+</form>
+{% endif %}
+{% endblock %}

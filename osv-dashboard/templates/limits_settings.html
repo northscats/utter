@@ -1,0 +1,53 @@
+{% extends "modules.html" %}
+{% block title %}Настройки — Оповещение о лимитах{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+<div class="eyebrow">Оповещение о лимитах</div>
+<h1>Настройки</h1>
+{% include "limits_nav.html" %}
+{% for category,message in get_flashed_messages(with_categories=true) %}
+<p class="settings-notice {{ category }}">{{ message }}</p>
+{% endfor %}
+<section class="settings-panel">
+<h2>Управление интеграцией MAX</h2>
+<p>{{ 'MAX активен' if max_enabled else ('MAX настроен (выключен)' if max_connected else 'MAX не подключён') }}</p>
+<p>Настройки MAX общие для модуля.</p>
+{% if max_connection_error %}<p class="settings-warning" role="alert">{{ max_connection_error }}</p>{% endif %}
+<p>Для запуска нужны токен, ID админ-группы и выбранный набор данных. Защита входящих команд настраивается автоматически.</p>
+<p>Подключайте бота из опубликованного приложения после обновления публикации. Адрес приёмника: <code style="overflow-wrap:anywhere">{{ max_webhook_url }}</code></p>
+<form method="post" action="{{ url_for('limit_max_settings') }}" class="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="context_dataset" value="{{ dataset.id if dataset else '' }}">
+  <label class="settings-check"><input type="checkbox" name="enabled" value="1" {% if max_enabled %}checked{% endif %}> Включить отправку и приём команд</label>
+  <p class="settings-warning">При включении приложение проверит приёмник и зарегистрирует webhook в MAX. После подтверждения начнутся реальные отправки накопленной очереди и обработка команд. Другой обработчик событий этого же бота может перестать получать события.</p>
+  <label>Реестр объектов для подписок бота
+    <select name="bot_dataset_id">
+      <option value="">Не выбран (бот не сможет оформлять подписки)</option>
+      {% for ds in datasets %}<option value="{{ ds.id }}" {% if ds.id|string==bot_dataset_id|string %}selected{% endif %}>{{ ds.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <p class="credential-help" style="margin-top:-12px">Выберите набор загруженных срезов ГИС РЭБ. Бот будет искать введённый пользователем УИН именно в этом реестре и хранить подписку в нём. Это не отдельный файл и не группа MAX. Если набор один — выберите его.</p>
+  <label>ID админ-группы MAX<input name="group_chat_id" value="{{ max_group_id }}" placeholder="Например, -100123456789"></label>
+  <label>Токен MAX
+    <span class="credential-status">{{ 'Токен сохранён' if max_connected else 'Токен не указан' }}</span>
+    <input name="token" type="password" autocomplete="new-password" placeholder="{{ '•••••••• — сохранён. Введите новый для замены' if max_connected else 'Введите токен MAX' }}" aria-describedby="token-help">
+  </label>
+  <p id="token-help" class="credential-help">Сохранённый токен скрыт из соображений безопасности. Пустое поле при повторном сохранении не удаляет токен.</p>
+  <button type="submit">Сохранить настройки</button>
+</form>
+<p><a href="{{ url_for('limit_max_journal') }}">Очередь бота и ошибки модерации MAX →</a></p>
+</section>
+<style>
+.settings-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px}
+.settings-panel h2{margin-top:0}.settings-panel a{color:var(--blue)}
+.settings-form{display:flex;flex-direction:column;gap:20px;max-width:620px}
+.settings-form label{display:flex;flex-direction:column;gap:8px;font-weight:600}
+.settings-form input:not([type=checkbox]),.settings-form select{width:100%;padding:11px 14px;border:1px solid #cdd7e0;border-radius:8px;font:inherit}
+.settings-form .settings-check{flex-direction:row;align-items:center}
+.settings-form button{align-self:flex-start;background:var(--blue);color:#fff;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}
+.settings-warning{margin:0;padding:14px;background:#fff4df;border-radius:8px}
+.settings-notice{padding:14px;background:#eaf5f8;border-radius:8px}
+.credential-status{font-size:13px;color:var(--blue)}
+.credential-help{font-size:13px;color:var(--mut);margin:-12px 0 0}
+</style>
+{% endblock %}

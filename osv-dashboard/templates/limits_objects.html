@@ -1,0 +1,197 @@
+{% extends "modules.html" %}
+{% block title %}Реестр лимитов — {{ dataset.name }}{% endblock %}
+{% block content %}
+{% include "limits_nav.html" %}
+<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">← К набору отчётности</a>
+<div class="eyebrow">Реестр объектов</div>
+<h1>{{ dataset.name }}</h1>
+<p class="lead">Всего найдено объектов: <b>{{ total }}</b>. Отсутствие в выгрузке не означает отмену объекта.</p>
+{% if not dataset.current_version_id %}
+<div class="notice warning" style="margin-bottom:24px;">
+  В реестре нет актуального принятого среза. Сохранены только минимальные сведения
+  об объектах и действующие подписки. Загрузите и примите новую версию, чтобы снова
+  видеть строки мероприятий и финансирование.
+</div>
+{% endif %}
+
+<section class="panel filters-panel">
+  <form class="filters-form" method="get">
+    <div class="search-bar">
+      <input type="text" name="q" value="{{ request.args.get('q', '') }}" placeholder="Поиск по УИН, названию или адресу..." class="search-input">
+      <button class="btn-primary">Найти</button>
+    </div>
+    
+    <div class="filters-grid">
+      <div class="filter-group">
+        <label>Программный код</label>
+        <input name="program" value="{{ request.args.get('program', '') }}" placeholder="Любой код">
+      </div>
+      
+      <div class="filter-group">
+        <label>Вид работ</label>
+        <select name="work_type">
+          <option value="">Все виды</option>
+          {% for wt in filter_options.work_types %}
+            <option value="{{ wt }}" {% if request.args.get('work_type') == wt %}selected{% endif %}>{{ wt }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Год финансирования</label>
+        <select name="year">
+          <option value="">Все годы</option>
+          {% for y in filter_options.years %}
+            <option value="{{ y }}" {% if request.args.get('year') == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Источник финансирования</label>
+        <select name="source">
+          <option value="">Все источники</option>
+          {% for src in filter_options.sources %}
+            <option value="{{ src.value }}" {% if request.args.get('source') == src.value %}selected{% endif %}>{{ src.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      
+      <div class="filter-group">
+        <label>Код ГП</label>
+        <input name="gp_code" value="{{ request.args.get('gp_code', '') }}" placeholder="ГП">
+      </div>
+      
+      <div class="filter-group">
+        <label>Код ПП</label>
+        <input name="pp_code" value="{{ request.args.get('pp_code', '') }}" placeholder="ПП">
+      </div>
+      
+      <div class="filter-group">
+        <label>Код ОМ</label>
+        <input name="om_code" value="{{ request.args.get('om_code', '') }}" placeholder="ОМ">
+      </div>
+      
+      <div class="filter-group">
+        <label>Код ДМ</label>
+        <input name="dm_code" value="{{ request.args.get('dm_code', '') }}" placeholder="ДМ">
+      </div>
+
+      <div class="filter-group">
+        <label>Состояние в текущем срезе</label>
+        <select name="present">
+          <option value="">Любое состояние</option>
+          <option value="1" {% if request.args.get('present') == '1' %}selected{% endif %}>Присутствует</option>
+          <option value="0" {% if request.args.get('present') == '0' %}selected{% endif %}>Отсутствует</option>
+        </select>
+      </div>
+    </div>
+    
+    <div class="checkbox-filters">
+      <label class="cb-label">
+        <input type="checkbox" name="subscribers" value="1" {% if request.args.get('subscribers') == '1' %}checked{% endif %}>
+        Только с активными подписчиками
+      </label>
+      <label class="cb-label">
+        <input type="checkbox" name="changed" value="1" {% if request.args.get('changed') == '1' %}checked{% endif %}>
+        Только с изменениями в актуальной версии
+      </label>
+    </div>
+  </form>
+</section>
+
+<div class="table-wrap panel" style="padding: 0; overflow: hidden;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>УИН</th>
+        <th>Объект</th>
+        <th>Адрес</th>
+        <th>Статус</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for object in objects %}
+      <tr class="clickable-row" onclick="window.location='{{ url_for('limit_object_card', object_id=object.id) }}'">
+        <td class="font-mono text-blue"><b>{{ object.uin }}</b></td>
+        <td><div class="truncate-2-lines">{{ object.title or '—' }}</div></td>
+        <td><div class="truncate-2-lines text-mut">{{ object.address or '—' }}</div></td>
+        <td>
+          {% if object.is_present %}
+            <span class="badge success">В срезе</span>
+          {% else %}
+            <span class="badge neutral">Отсутствует</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="text-center text-mut" style="padding: 40px;">
+          По вашему запросу не найдено ни одного объекта.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_objects', **dict(request.args, dataset_id=dataset.id, page=page-1)) }}">← Туда</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">← Туда</span>
+  {% endif %}
+  <span class="page-info">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_objects', **dict(request.args, dataset_id=dataset.id, page=page+1)) }}">Сюда →</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">Сюда →</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<style>
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); }
+.filters-panel { padding: 24px; }
+.search-bar { display: flex; gap: 12px; margin-bottom: 20px; }
+.search-input { flex: 1; font-size: 16px; padding: 12px 16px; border: 1px solid #cdd7e0; border-radius: 10px; }
+.search-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 122, 156, 0.1); outline: none; }
+
+.filters-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.filter-group label { display: block; font-size: 12px; font-weight: 700; color: var(--mut); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.filter-group input, .filter-group select { width: 100%; padding: 10px; border: 1px solid #cdd7e0; border-radius: 8px; font-size: 14px; background: #fff; }
+.filter-group input:focus, .filter-group select:focus { border-color: var(--blue); outline: none; }
+
+.checkbox-filters { display: flex; gap: 24px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); }
+.cb-label { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer; user-select: none; }
+.cb-label input { width: 18px; height: 18px; cursor: pointer; }
+
+.data-table { width: 100%; border-collapse: collapse; text-align: left; }
+.data-table th { padding: 14px 20px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }
+.data-table td { padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.clickable-row { cursor: pointer; transition: 0.15s; }
+.clickable-row:hover { background: #f8fafc; }
+.clickable-row:hover td:first-child b { text-decoration: underline; }
+
+.truncate-2-lines { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.text-blue { color: var(--blue); }
+.text-mut { color: var(--mut); }
+.text-center { text-align: center; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.badge.success { background: #e8f5e9; color: #2e7d32; }
+.badge.neutral { background: var(--line); color: var(--ink); }
+
+.btn-primary { background: var(--blue); color: #fff; border: none; padding: 10px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 15px; }
+.btn-primary:hover { background: #16607a; }
+.btn-outline { display: inline-block; padding: 8px 16px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; transition: 0.2s; }
+.btn-outline:hover:not(.disabled) { background: var(--paper); border-color: #b0c0cd; }
+.btn-outline.disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 32px 0; }
+.page-info { font-weight: 600; color: var(--mut); font-size: 14px; }
+</style>
+{% endblock %}

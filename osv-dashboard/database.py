@@ -1152,6 +1152,19 @@ class DailyRow(db.Model):
     source_type = db.Column(db.String(40), nullable=False, default='unknown')
     uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
+class LimitDataset(db.Model):
+    __tablename__ = 'limit_datasets'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    scope = db.Column(db.Text, default='')
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    current_version_id = db.Column(db.Integer, nullable=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    owner = db.relationship('User', foreign_keys=[owner_id], lazy=True)
+
 
 # ---------------------------------------------------------------------------
 # База объектов-аналогов теплоснабжения
@@ -1534,3 +1547,306 @@ class AnalogImport(db.Model):
             return json.loads(self.diagnostics_json or '[]')
         except (TypeError, ValueError):
             return []
+
+class LimitDeliveryAttempt(db.Model):
+    __tablename__ = 'limit_delivery_attempts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    delivery_id = db.Column(db.Integer, db.ForeignKey('limit_deliveries.id', ondelete='CASCADE'),
+                            nullable=False, index=True)
+    attempt_no = db.Column(db.Integer, nullable=False)
+    status = db.Column(db.String(24), nullable=False)
+    response_ref = db.Column(db.String(255), default='')
+    error_text = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+class LimitModerationRequest(db.Model):
+    __tablename__ = 'limit_moderation_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('limit_recipients.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('limit_datasets.id'), nullable=False)
+    initial_uin = db.Column(db.String(120), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='pending', index=True)
+    group_chat_id = db.Column(db.String(120), default='')
+    moderation_message_id = db.Column(db.String(120), default='')
+    decided_by_max_user_id = db.Column(db.String(120), default='')
+    decided_at = db.Column(db.DateTime(timezone=True))
+    decision_reason = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    recipient = db.relationship('LimitRecipient', lazy=True)
+    dataset = db.relationship('LimitDataset', lazy=True)
+
+class LimitComparison(db.Model):
+    __tablename__ = 'limit_comparisons'
+    __table_args__ = (
+        db.UniqueConstraint('old_version_id', 'new_version_id', name='uq_limit_comparison_pair'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    old_version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id', ondelete='CASCADE'),
+                               nullable=False)
+    new_version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id', ondelete='CASCADE'),
+                               nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='review')
+    summary_json = db.Column(db.Text, default='{}')
+    issues_json = db.Column(db.Text, default='[]')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    old_version = db.relationship('LimitVersion', foreign_keys=[old_version_id], lazy=True)
+    new_version = db.relationship('LimitVersion', foreign_keys=[new_version_id], lazy=True)
+
+class LimitRecipient(db.Model):
+    __tablename__ = 'limit_recipients'
+    __table_args__ = (
+        db.UniqueConstraint('max_user_id', name='uq_limit_recipient_max_user'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    max_user_id = db.Column(db.String(120), nullable=False)
+    organization_inn = db.Column(db.String(12), default='')
+    surname_initials = db.Column(db.String(255), default='')
+    phone = db.Column(db.String(40), default='')
+    phone_verified = db.Column(db.Boolean, nullable=False, default=False)
+    consent_granted_at = db.Column(db.DateTime(timezone=True))
+    access_status = db.Column(db.String(24), nullable=False, default='pending', index=True)
+    stopped_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    approved_at = db.Column(db.DateTime(timezone=True))
+
+class LimitDeliveryPart(db.Model):
+    """Lossless multipart content with independent durable MAX outcomes."""
+    __tablename__ = 'limit_delivery_parts'
+    __table_args__ = (db.UniqueConstraint('delivery_id', 'part_no',
+                                         name='uq_limit_delivery_part'),)
+    id = db.Column(db.Integer, primary_key=True)
+    delivery_id = db.Column(db.Integer, db.ForeignKey('limit_deliveries.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    part_no = db.Column(db.Integer, nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='queued', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    next_attempt_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    accepted_at = db.Column(db.DateTime(timezone=True))
+    last_error = db.Column(db.Text, default='')
+    provider_message_id = db.Column(db.String(255), default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    delivery = db.relationship('LimitDelivery', lazy=True)
+
+class LimitBotOutbound(db.Model):
+    """Provider-agnostic durable replies/moderation cards, separate from alerts."""
+    __tablename__ = 'limit_bot_outbound'
+
+    id = db.Column(db.Integer, primary_key=True)
+    target_id = db.Column(db.String(120), nullable=False, index=True)
+    content = db.Column(db.Text, nullable=False)
+    keyboard_json = db.Column(db.Text, default='[]')
+    status = db.Column(db.String(24), nullable=False, default='queued', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    next_attempt_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    last_error = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    moderation_request_id = db.Column(db.Integer, db.ForeignKey(
+        'limit_moderation_requests.id', ondelete='SET NULL'), index=True)
+    provider_message_id = db.Column(db.String(255), default='')
+    accepted_at = db.Column(db.DateTime(timezone=True))
+
+class LimitChange(db.Model):
+    __tablename__ = 'limit_changes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    comparison_id = db.Column(db.Integer, db.ForeignKey('limit_comparisons.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    object_id = db.Column(db.Integer, db.ForeignKey('limit_objects.id'), nullable=True,
+                          index=True)
+    uin = db.Column(db.String(120), nullable=False, index=True)
+    category = db.Column(db.String(80), nullable=False, index=True)
+    field_key = db.Column(db.String(255), nullable=False)
+    field_label = db.Column(db.Text, default='')
+    old_json = db.Column(db.Text, default='{}')
+    new_json = db.Column(db.Text, default='{}')
+    absolute_delta = db.Column(db.Numeric(24, 6))
+    relative_delta = db.Column(db.Numeric(24, 8))
+    source_json = db.Column(db.Text, default='{}')
+
+    comparison = db.relationship('LimitComparison', lazy=True)
+    object = db.relationship('LimitObject', lazy=True)
+
+class LimitBotDialog(db.Model):
+    """Durable, minimal state machine for a MAX recipient registration."""
+    __tablename__ = 'limit_bot_dialogs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('limit_recipients.id', ondelete='CASCADE'),
+                             nullable=False, unique=True)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('limit_datasets.id'), nullable=True)
+    step = db.Column(db.String(32), nullable=False, default='idle')
+    values_json = db.Column(db.Text, nullable=False, default='{}')
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class LimitComparisonResolution(db.Model):
+    __tablename__ = 'limit_comparison_resolutions'
+    __table_args__ = (
+        db.UniqueConstraint('comparison_id', 'issue_key', name='uq_limit_resolution_issue'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    comparison_id = db.Column(db.Integer, db.ForeignKey('limit_comparisons.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    issue_key = db.Column(db.String(255), nullable=False)
+    resolution_json = db.Column(db.Text, nullable=False, default='{}')
+    resolved_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    resolved_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+class LimitRowSnapshot(db.Model):
+    __tablename__ = 'limit_row_snapshots'
+    __table_args__ = (
+        db.UniqueConstraint('version_id', 'source_row', name='uq_limit_snapshot_row'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    object_id = db.Column(db.Integer, db.ForeignKey('limit_objects.id'), nullable=True,
+                          index=True)
+    source_row = db.Column(db.Integer, nullable=False)
+    stable_key = db.Column(db.String(500), default='', index=True)
+    cells_json = db.Column(db.Text, nullable=False, default='{}')
+
+    version = db.relationship('LimitVersion', lazy=True)
+    object = db.relationship('LimitObject', lazy=True)
+
+class LimitObject(db.Model):
+    __tablename__ = 'limit_objects'
+    __table_args__ = (
+        db.UniqueConstraint('dataset_id', 'uin', name='uq_limit_object_dataset_uin'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('limit_datasets.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    uin = db.Column(db.String(120), nullable=False, index=True)
+    title = db.Column(db.Text, default='')
+    address = db.Column(db.Text, default='')
+    last_seen_version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id'))
+    is_present = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    dataset = db.relationship('LimitDataset', lazy=True)
+    last_seen_version = db.relationship('LimitVersion', lazy=True)
+
+class LimitVersion(db.Model):
+    __tablename__ = 'limit_versions'
+    __table_args__ = (
+        db.UniqueConstraint('dataset_id', 'sha256', name='uq_limit_version_dataset_sha'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('limit_datasets.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    previous_version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id', ondelete='SET NULL'),
+                                    nullable=True)
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    source_date = db.Column(db.Date, nullable=False)
+    uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    accepted_at = db.Column(db.DateTime(timezone=True))
+    accepted_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    # queued | parsing | review | accepted | rejected | error | duplicate | purged
+    status = db.Column(db.String(24), nullable=False, default='queued', index=True)
+    source_name = db.Column(db.String(500), nullable=False)
+    source_path = db.Column(db.String(1000), nullable=False)
+    sha256 = db.Column(db.String(64), nullable=False)
+    parser_version = db.Column(db.String(80), default='')
+    snapshot_json = db.Column(db.Text, default='{}')
+    warnings_json = db.Column(db.Text, default='[]')
+    error_text = db.Column(db.Text, default='')
+    is_unchanged = db.Column(db.Boolean, nullable=False, default=False)
+
+    dataset = db.relationship('LimitDataset', foreign_keys=[dataset_id], lazy=True)
+    previous_version = db.relationship('LimitVersion', remote_side=[id], lazy=True)
+    uploader = db.relationship('User', foreign_keys=[uploaded_by], lazy=True)
+    accepter = db.relationship('User', foreign_keys=[accepted_by], lazy=True)
+
+class LimitVersionTombstone(db.Model):
+    """A durable deletion marker that intentionally outlives a version row.
+
+    This table has no foreign keys to the deleted version or dataset.  A
+    manual purge writes the marker in the same transaction as the purge so an
+    older additive backup cannot recreate the version while a replacement
+    snapshot is still being promoted.
+    """
+    __tablename__ = 'limit_version_tombstones'
+    __table_args__ = (
+        db.UniqueConstraint('version_id', name='uq_limit_version_tombstone_version'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, nullable=False, index=True)
+    dataset_id = db.Column(db.Integer, nullable=False, index=True)
+    source_path = db.Column(db.String(1000), nullable=False, default='')
+    source_sha256 = db.Column(db.String(64), nullable=False, default='')
+    deleted_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+class LimitSubscription(db.Model):
+    __tablename__ = 'limit_subscriptions'
+    __table_args__ = (
+        db.UniqueConstraint('recipient_id', 'dataset_id', 'uin',
+                            name='uq_limit_subscription_recipient_dataset_uin'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('limit_recipients.id', ondelete='CASCADE'),
+                             nullable=False, index=True)
+    dataset_id = db.Column(db.Integer, db.ForeignKey('limit_datasets.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    uin = db.Column(db.String(120), nullable=False, index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    revoked_at = db.Column(db.DateTime(timezone=True))
+
+    recipient = db.relationship('LimitRecipient', lazy=True)
+    dataset = db.relationship('LimitDataset', lazy=True)
+
+class LimitMaxEvent(db.Model):
+    __tablename__ = 'limit_max_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.String(160), nullable=False, unique=True)
+    payload_json = db.Column(db.Text, nullable=False, default='{}')
+    status = db.Column(db.String(24), nullable=False, default='received')
+    received_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    processed_at = db.Column(db.DateTime(timezone=True))
+    last_error = db.Column(db.Text, default='')
+    processing_started_at = db.Column(db.DateTime(timezone=True))
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    next_attempt_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+class LimitDelivery(db.Model):
+    __tablename__ = 'limit_deliveries'
+    __table_args__ = (
+        db.UniqueConstraint('version_id', 'object_id', 'recipient_id', 'campaign_key',
+                            name='uq_limit_delivery_campaign'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    version_id = db.Column(db.Integer, db.ForeignKey('limit_versions.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    object_id = db.Column(db.Integer, db.ForeignKey('limit_objects.id'), nullable=False,
+                          index=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey('limit_recipients.id'), nullable=False,
+                             index=True)
+    status = db.Column(db.String(24), nullable=False, default='queued', index=True)
+    content = db.Column(db.Text, nullable=False)
+    campaign_key = db.Column(db.String(80), nullable=False, default='automatic')
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    next_attempt_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    accepted_at = db.Column(db.DateTime(timezone=True))
+    last_error = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    version = db.relationship('LimitVersion', lazy=True)
+    object = db.relationship('LimitObject', lazy=True)
+    recipient = db.relationship('LimitRecipient', lazy=True)

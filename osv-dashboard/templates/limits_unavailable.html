@@ -1,0 +1,32 @@
+{% extends "modules.html" %}
+{% block title %}Оповещение о лимитах недоступно{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+<div class="empty">
+  <div class="ico" style="background: #ffebee; color: #c62828;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+  </div>
+  <h2>Сервис временно недоступен</h2>
+  <p>{{ detail }}</p>
+  
+  <div style="display: flex; gap: 12px; justify-content: center; margin-top: 24px;">
+    <a class="btn btn-secondary" href="javascript:location.reload()">Обновить страницу</a>
+    
+    {% if current_user.is_admin %}
+      <a class="btn text-danger" style="background: #fffafb; border: 1px solid #ffcdd2;" href="{{ url_for('limit_history_recovery') }}">
+        Открыть панель восстановления
+      </a>
+    {% endif %}
+  </div>
+</div>
+<style>
+.btn-secondary {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+.btn-secondary:hover { background: var(--paper); }
+.text-danger { color: #d32f2f !important; }
+.text-danger:hover { background: #ffebee !important; }
+</style>
+{% endblock %}

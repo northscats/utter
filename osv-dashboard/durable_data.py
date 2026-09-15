@@ -9,6 +9,7 @@ import tempfile
 import threading
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
 from sqlalchemy import text
@@ -27,10 +28,15 @@ COUNT_TABLES = (
     "debtor_analytic_mappings",
     "analog_passports", "analog_passport_versions", "analog_sources",
     "analog_imports",
+    "limit_datasets", "limit_versions", "limit_objects", "limit_row_snapshots",
+    "limit_version_tombstones",
+    "limit_comparisons", "limit_changes", "limit_recipients",
+    "limit_subscriptions", "limit_moderation_requests", "limit_bot_outbound",
+    "limit_deliveries",
 )
 _BACKUP_LOCK = threading.Lock()
-
-
+_LIMIT_TOMBSTONE_LOCK = threading.Lock()
+LIMIT_TOMBSTONES_KEY = f"{ROOT}/limit-version-tombstones.json"
 class DurableDataError(RuntimeError):
     """The durable store or PostgreSQL backup utility failed."""
 
@@ -222,9 +228,19 @@ def has_snapshot():
     pointer, _ = _store().get_json_versioned(LATEST_KEY)
     return bool(pointer and pointer.get("manifest"))
 
-
+def _limit_path(path):
+    """Return the manifest-relative path for a limits source file."""
+    value = str(path or "").replace("\\", "/")
+    marker = "/uploads/"
+    if marker in value:
+        value = value.rsplit(marker, 1)[1]
+    elif value.startswith("uploads/"):
+        value = value[len("uploads/"):]
+    return value.lstrip("/")
 def _encoded(value):
-    return value.isoformat() if isinstance(value, (datetime, date)) else value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value) if isinstance(value, Decimal) else value
 
 
 def _snapshot_rows(models):
@@ -281,6 +297,27 @@ def _backup_files(store, uploads_root, output_root):
                 uploaded.add(digest)
             item["sha256"] = digest
             files.append(item)
+    # Limit source XLSX files are independent of an ОСВ company and live below
+    # uploads/limits/<dataset-id>.  They must be backed up just like numeric
+    # company uploads, but are deliberately not exposed as a public file area.
+    limits_root = Path(uploads_root) / "limits"
+    if limits_root.is_dir():
+        from database import LimitVersion
+        # Files without a live import record (including post-commit purge
+        # leftovers) must not leak back into the next immutable manifest.
+        for version in LimitVersion.query.filter(LimitVersion.status != 'purged').all():
+            path = Path(version.source_path)
+            if not path.is_relative_to(limits_root) or not path.is_file():
+                continue
+            digest = _sha256(path)
+            if digest not in uploaded:
+                store.put_file(f"{BLOBS_PREFIX}/{digest}", str(path))
+                uploaded.add(digest)
+            files.append({
+                "area": "uploads",
+                "path": path.relative_to(Path(uploads_root)).as_posix(),
+                "sha256": digest,
+            })
     return files
 
 
@@ -437,6 +474,8 @@ def _decoded(column, value):
         return datetime.fromisoformat(value)
     if python_type is date:
         return date.fromisoformat(value)
+    if python_type is Decimal:
+        return Decimal(str(value))
     return value
 
 
@@ -514,10 +553,44 @@ def _references_blocked_parent(model, values, blocked_users, blocked_companies):
                 return True
     return False
 
-
-def _restore_json(db, manifest, models, include_parents=True):
+def _database_limit_tombstones(db):
+    """Read live deletion markers without requiring them in a model tuple."""
+    from database import LimitVersionTombstone
+    inspector = __import__("sqlalchemy").inspect(db.engine)
+    if LimitVersionTombstone.__tablename__ not in inspector.get_table_names():
+        return []
+    return [{
+        "version_id": row.version_id,
+        "dataset_id": row.dataset_id,
+        "source_path": row.source_path or "",
+        "path": _limit_path(row.source_path),
+        "source_sha256": row.source_sha256 or "",
+    } for row in LimitVersionTombstone.query.all()]
+def _restore_json(db, manifest, models, include_parents=True,
+                  external_tombstones=None):
     restored = skipped = conflicts = 0
+    deferred_limit_heads = []
+    tombstoned_object_ids = set()
     by_name = {model.__name__: model for model in models}
+    (tombstoned_versions, tombstoned_comparisons,
+     tombstoned_deliveries) = _limit_tombstone_sets(
+         manifest, db, external_tombstones)
+    # Persist sidecar markers into the recovered database as well.  Otherwise
+    # a later backup would lose the only evidence that an older manifest must
+    # continue to filter this version.
+    from database import LimitVersionTombstone
+    for item in _normalise_limit_tombstones(external_tombstones or []):
+        if LimitVersionTombstone.query.filter_by(
+                version_id=item["version_id"]).first() is not None:
+            continue
+        db.session.add(LimitVersionTombstone(
+            version_id=item["version_id"],
+            dataset_id=item.get("dataset_id") or 0,
+            source_path=item.get("source_path") or "",
+            source_sha256=item.get("source_sha256") or "",
+        ))
+        db.session.flush()
+        restored += 1
     blocked_users, blocked_companies = _parent_identity_conflicts(
         db, manifest, by_name)
     conflicts += len(blocked_users) + len(blocked_companies)
@@ -526,6 +599,15 @@ def _restore_json(db, manifest, models, include_parents=True):
             continue
         for values in manifest.get("tables", {}).get(model.__name__, []):
             row_id = values.get("id")
+            if (model.__name__ == "LimitObject"
+                    and values.get("last_seen_version_id") in tombstoned_versions
+                    and row_id is not None):
+                tombstoned_object_ids.add(row_id)
+            if _restore_row_blocked(
+                    model.__name__, values, tombstoned_versions,
+                    tombstoned_comparisons, tombstoned_deliveries):
+                skipped += 1
+                continue
             if row_id is None or db.session.get(model, row_id) is not None:
                 skipped += 1
                 continue
@@ -533,6 +615,22 @@ def _restore_json(db, manifest, models, include_parents=True):
                 column.name: _decoded(column, values.get(column.name))
                 for column in model.__table__.columns if column.name in values
             }
+            # Dataset -> current version -> dataset is a legitimate cycle.
+            # Defer only the pointer of a newly restored dataset; existing
+            # datasets and their current version must never be overwritten.
+            pending_head = None
+            if model.__name__ == 'LimitDataset':
+                pending_head = converted.get('current_version_id')
+                converted['current_version_id'] = None
+            elif (model.__name__ == 'LimitVersion'
+                  and converted.get('previous_version_id') in tombstoned_versions):
+                # The link is optional and the deleted version must not become
+                # a reason to skip a still valid historical version.
+                converted['previous_version_id'] = None
+            elif (model.__name__ == 'LimitObject'
+                  and converted.get('last_seen_version_id')
+                  in tombstoned_versions):
+                converted['last_seen_version_id'] = None
             if _references_blocked_parent(
                     model, converted, blocked_users, blocked_companies):
                 skipped += 1
@@ -547,10 +645,13 @@ def _restore_json(db, manifest, models, include_parents=True):
                     db.session.add(model(**converted))
                     db.session.flush()
                 restored += 1
+                if pending_head is not None:
+                    deferred_limit_heads.append((model, row_id, pending_head))
             except IntegrityError:
                 skipped += 1
                 conflicts += 1
-    if restored and db.engine.dialect.name == "postgresql":
+    has_limit_tombstones = bool(_database_limit_tombstones(db))
+    if (restored or has_limit_tombstones) and db.engine.dialect.name == "postgresql":
         # Explicit recovery IDs do not advance PostgreSQL sequences.
         for model in models:
             table_name = model.__tablename__
@@ -562,30 +663,98 @@ def _restore_json(db, manifest, models, include_parents=True):
                 continue
             maximum = db.session.execute(
                 text(f'SELECT MAX(id) FROM "{table_name}"')).scalar()
+            if model.__name__ == "LimitVersion":
+                # A deleted version ID remains reserved by its tombstone.
+                # Otherwise PostgreSQL could allocate that ID to a new upload,
+                # which an old manifest would then mistake for the deleted
+                # source during a later additive restore.
+                tombstone_maximum = db.session.execute(
+                    text("SELECT MAX(version_id) "
+                         "FROM limit_version_tombstones")).scalar()
+                if tombstone_maximum is not None:
+                    maximum = max(maximum or 0, tombstone_maximum)
             if maximum is not None:
                 db.session.execute(
                     text("SELECT setval(CAST(:sequence AS regclass), "
                          ":maximum, true)"),
                     {"sequence": sequence, "maximum": maximum},
                 )
+    version_model = by_name.get('LimitVersion')
+    for model, dataset_id, version_id in deferred_limit_heads:
+        dataset = db.session.get(model, dataset_id)
+        version = db.session.get(version_model, version_id) if version_model else None
+        if dataset and version and version.dataset_id == dataset_id and version.status == 'accepted':
+            dataset.current_version_id = version_id
+        elif dataset and version_model and version_id in tombstoned_versions:
+            fallback = _latest_limit_version(
+                db, version_model, dataset_id, tombstoned_versions)
+            dataset.current_version_id = fallback.id if fallback else None
+    # A partially lost dataset may retain a pointer to a manually deleted
+    # version.  Repair only invalid/tombstoned pointers; a deliberate NULL
+    # current pointer remains NULL.
+    dataset_model = by_name.get("LimitDataset")
+    if dataset_model and version_model:
+        for dataset in dataset_model.query.all():
+            if not dataset.current_version_id:
+                continue
+            current = db.session.get(version_model, dataset.current_version_id)
+            if (current is None or current.id in tombstoned_versions
+                    or current.dataset_id != dataset.id
+                    or current.status != "accepted"):
+                fallback = _latest_limit_version(
+                    db, version_model, dataset.id, tombstoned_versions)
+                dataset.current_version_id = fallback.id if fallback else None
+    object_model = by_name.get("LimitObject")
+    if object_model and version_model and tombstoned_object_ids:
+        for object_id in tombstoned_object_ids:
+            obj = db.session.get(object_model, object_id)
+            if not obj:
+                continue
+            dataset = db.session.get(dataset_model, obj.dataset_id) if dataset_model else None
+            head = (db.session.get(version_model, dataset.current_version_id)
+                    if dataset and dataset.current_version_id else None)
+            if head and head.status == "accepted":
+                _restore_limit_object_from_head(obj, head)
+            else:
+                obj.is_present = False
+                obj.last_seen_version_id = None
     db.session.commit()
     return restored, skipped, conflicts
 
 
 def _safe_destination(root, relative):
     parts = PurePosixPath(relative).parts
-    if (not parts or not parts[0].isdigit()
+    if (not parts or (not parts[0].isdigit() and parts[0] != "limits")
             or any(part in ("", ".", "..") for part in parts)):
         raise DurableDataError(f"Недопустимый путь в manifest: {relative}")
     return Path(root).joinpath(*parts)
 
 
-def _restore_files(store, manifest, uploads_root, output_root):
+def _restore_files(store, manifest, uploads_root, output_root,
+                   external_tombstones=None):
     roots = {"uploads": uploads_root, "output": output_root}
+    tombstoned_paths = {
+        item["path"] for item in _normalise_limit_tombstones(
+            external_tombstones or [])
+        if item.get("path")
+    }
+    # The DB and manifest copies are needed when the sidecar was not yet
+    # written or when this is a direct recovery call in an existing database.
+    from database import db as application_db
+    for item in _database_limit_tombstones(application_db):
+        if item.get("path"):
+            tombstoned_paths.add(item["path"])
+    for item in _normalise_limit_tombstones(
+            manifest.get("tables", {}).get("LimitVersionTombstone", [])):
+        if item.get("path"):
+            tombstoned_paths.add(item["path"])
     restored = 0
     for item in manifest.get("files", []):
         if item.get("area") not in roots:
             raise DurableDataError("Неизвестная файловая область в manifest.")
+        if (item.get("area") == "uploads"
+                and _limit_path(item.get("path", "")) in tombstoned_paths):
+            continue
         destination = _safe_destination(roots[item["area"]], item.get("path", ""))
         if destination.exists():
             continue
@@ -609,12 +778,201 @@ def restore(db, uploads_root, output_root, models):
     manifest = store.get_json(pointer["manifest"])
     if not manifest:
         raise DurableDataError("Latest manifest отсутствует.")
+    external_tombstones = _read_limit_tombstones(store)
     restored, skipped, conflicts = _restore_json(
-        db, manifest, models, include_parents=True)
+        db, manifest, models, include_parents=True,
+        external_tombstones=external_tombstones)
     recovery_needed = restored > 0 or conflicts > 0
-    files = _restore_files(store, manifest, uploads_root, output_root)
+    files = _restore_files(
+        store, manifest, uploads_root, output_root,
+        external_tombstones=external_tombstones)
     return {
         "rows": restored, "files": files, "skipped": skipped,
         "conflicts": conflicts, "database_restored": False,
         "recovery_needed": recovery_needed,
     }
+
+def _restore_limit_object_from_head(obj, version):
+    """Rebuild object display fields from the surviving accepted snapshot."""
+    try:
+        snapshot = json.loads(version.snapshot_json or "{}")
+    except (TypeError, ValueError):
+        snapshot = {}
+    rows = [
+        row for row in snapshot.get("rows", [])
+        if isinstance(row, dict) and row.get("uin") == obj.uin
+    ]
+    obj.is_present = bool(rows)
+    if not rows:
+        obj.last_seen_version_id = None
+        return
+    obj.last_seen_version_id = version.id
+    cells_by_row = [
+        row.get("cells", {}) if isinstance(row.get("cells", {}), dict) else {}
+        for row in rows
+    ]
+    titles = sorted({
+        str(_limit_snapshot_value(cells.get("object_name")) or "")
+        for cells in cells_by_row
+    } - {""})
+    addresses = sorted({
+        str(_limit_snapshot_value(cells.get("address")) or "")
+        for cells in cells_by_row
+    } - {""})
+    obj.title = " / ".join(titles)
+    obj.address = " / ".join(addresses)
+
+def _restore_row_blocked(model_name, values, version_ids,
+                         comparison_ids, delivery_ids):
+    """Keep all materialisations whose required version was deleted."""
+    if model_name == "LimitVersion" and values.get("id") in version_ids:
+        return True
+    if model_name == "LimitVersionTombstone":
+        return False
+    if values.get("version_id") in version_ids:
+        return True
+    if (values.get("old_version_id") in version_ids
+            or values.get("new_version_id") in version_ids):
+        return True
+    if values.get("comparison_id") in comparison_ids:
+        return True
+    if values.get("delivery_id") in delivery_ids:
+        return True
+    return False
+
+def _read_limit_tombstones(store=None):
+    """Read the tiny external deletion sidecar, if one exists."""
+    store = store or _store()
+    value = store.get_json(LIMIT_TOMBSTONES_KEY)
+    return _normalise_limit_tombstones(value or [])
+
+def _normalise_limit_tombstones(value):
+    """Accept the current sidecar format and the original list shape."""
+    if isinstance(value, dict):
+        value = value.get("tombstones", [])
+    if not isinstance(value, list):
+        raise DurableDataError("Недопустимый формат sidecar tombstones.")
+    result = []
+    for item in value:
+        if not isinstance(item, dict) or item.get("version_id") is None:
+            continue
+        try:
+            version_id = int(item["version_id"])
+        except (TypeError, ValueError):
+            continue
+        result.append({
+            "version_id": version_id,
+            "dataset_id": item.get("dataset_id"),
+            "source_path": str(item.get("source_path") or ""),
+            "path": _limit_path(item.get("path") or item.get("source_path") or ""),
+            "source_sha256": str(item.get("source_sha256") or ""),
+        })
+    return result
+
+def _limit_tombstone_sets(manifest, db, external_tombstones=None):
+    """Combine current DB, manifest, and external deletion knowledge."""
+    records = {}
+    for item in _database_limit_tombstones(db):
+        records[int(item["version_id"])] = item
+    for item in _normalise_limit_tombstones(external_tombstones or []):
+        records[int(item["version_id"])] = item
+    for item in _normalise_limit_tombstones(
+            manifest.get("tables", {}).get("LimitVersionTombstone", [])):
+        records[int(item["version_id"])] = item
+    version_ids = set(records)
+    # SQLite may reuse a deleted integer primary key.  A marker must block
+    # the old manifest row, but not a newer upload that legitimately reused
+    # that ID with a different immutable source.
+    for row in manifest.get("tables", {}).get("LimitVersion", []):
+        version_id = row.get("id")
+        try:
+            version_id = int(version_id)
+        except (TypeError, ValueError):
+            continue
+        marker = records.get(version_id)
+        if marker and not _limit_version_matches_tombstone(row, marker):
+            version_ids.discard(version_id)
+    tables = manifest.get("tables", {})
+    comparison_ids = {
+        row.get("id") for row in tables.get("LimitComparison", [])
+        if row.get("id") is not None and (
+            row.get("old_version_id") in version_ids
+            or row.get("new_version_id") in version_ids)
+    }
+    delivery_ids = {
+        row.get("id") for row in tables.get("LimitDelivery", [])
+        if row.get("id") is not None and row.get("version_id") in version_ids
+    }
+    return version_ids, comparison_ids, delivery_ids
+
+def _limit_version_matches_tombstone(values, marker):
+    marker_sha = str(marker.get("source_sha256") or "")
+    source_sha = str(values.get("sha256") or "")
+    if marker_sha and source_sha and marker_sha != source_sha:
+        return False
+    marker_path = _limit_path(
+        marker.get("path") or marker.get("source_path") or "")
+    source_path = _limit_path(values.get("source_path") or "")
+    if marker_path and source_path and marker_path != source_path:
+        return False
+    return True
+
+def _latest_limit_version(db, version_model, dataset_id, blocked_ids):
+    """Find a safe accepted fallback after a tombstoned current pointer."""
+    return version_model.query.filter(
+        version_model.dataset_id == dataset_id,
+        version_model.status == "accepted",
+        ~version_model.id.in_(blocked_ids),
+    ).order_by(
+        version_model.accepted_at.desc(), version_model.id.desc()).first()
+
+def _limit_snapshot_value(cell):
+    return cell.get("value") if isinstance(cell, dict) else cell
+
+def backup_limit_tombstones(db):
+    """Publish all database markers to the small external sidecar."""
+    from database import LimitVersionTombstone
+    rows = LimitVersionTombstone.query.order_by(
+        LimitVersionTombstone.version_id).all()
+    for row in rows:
+        record_limit_tombstone(
+            row.version_id, row.dataset_id, row.source_path, row.source_sha256)
+    return len(rows)
+
+def record_limit_tombstone(version_id, dataset_id, source_path="",
+                           source_sha256=""):
+    """Atomically add one deletion marker to the small durable sidecar.
+
+    The database tombstone is authoritative and is written by the caller in
+    its purge transaction.  This sidecar covers the narrower full-database
+    loss case where the latest manifest still predates that transaction.
+    Rewriting this small object is deliberately separate from a full backup.
+    """
+    record = {
+        "version_id": int(version_id),
+        "dataset_id": dataset_id,
+        "source_path": str(source_path or ""),
+        "path": _limit_path(source_path),
+        "source_sha256": str(source_sha256 or ""),
+    }
+    with _LIMIT_TOMBSTONE_LOCK:
+        store = _store()
+        for _attempt in range(5):
+            current, generation = store.get_json_versioned(LIMIT_TOMBSTONES_KEY)
+            records = _normalise_limit_tombstones(current or [])
+            by_version = {item["version_id"]: item for item in records}
+            by_version[record["version_id"]] = record
+            payload = {
+                "format": 1,
+                "tombstones": sorted(
+                    by_version.values(), key=lambda item: item["version_id"]),
+            }
+            try:
+                store.put_json(
+                    LIMIT_TOMBSTONES_KEY, payload,
+                    if_generation_match=generation)
+                return payload["tombstones"]
+            except ConcurrentPromotionError:
+                continue
+        raise ConcurrentPromotionError(
+            "Не удалось атомарно обновить sidecar tombstones после 5 попыток.")

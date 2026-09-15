@@ -1,0 +1,22 @@
+<nav class="limits-tabs" aria-label="Разделы модуля лимитов">
+  <a href="{{ url_for('limit_notifications', dataset=dataset.id if dataset else none) }}" {% if request.endpoint=='limit_notifications' %}aria-current="page"{% endif %}>Обзор и загрузки</a>
+  {% if dataset %}
+  <a href="{{ url_for('limit_objects', dataset_id=dataset.id) }}" {% if request.endpoint=='limit_objects' %}aria-current="page"{% endif %}>Объекты</a>
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('limit_subscribers', dataset_id=dataset.id) }}" {% if request.endpoint=='limit_subscribers' %}aria-current="page"{% endif %}>Подписчики</a>
+  {% endif %}
+  {% else %}
+  <span title="Сначала создайте набор отчётности">Объекты</span>
+  {% if current_user.is_admin %}<span title="Сначала создайте набор отчётности">Подписчики</span>{% endif %}
+  {% endif %}
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('limit_settings', dataset=dataset.id if dataset else none) }}" {% if request.endpoint=='limit_settings' %}aria-current="page"{% endif %}>Настройки</a>
+  {% endif %}
+</nav>
+<style>
+.limits-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 28px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.limits-tabs a,.limits-tabs span{padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:650;color:var(--mut)}
+.limits-tabs a:hover{background:#eaf5f8;color:var(--blue)}
+.limits-tabs a[aria-current="page"]{background:var(--blue);color:#fff}
+.limits-tabs span{opacity:.5}
+</style>

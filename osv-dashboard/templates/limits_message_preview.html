@@ -1,0 +1,125 @@
+{% extends "modules.html" %}
+{% block title %}Ручное сообщение — {{ object.uin }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('limit_object_card', object_id=object.id) }}">← Вернуться к объекту</a>
+<div class="eyebrow">Оповещение подписчикам объекта</div>
+<h1>Новое сообщение</h1>
+<p class="lead">Объект: <b class="font-mono">{{ object.uin }}</b> · Версия данных: <b>#{{ version.id }}</b></p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="layout-grid">
+  <div class="main-col">
+    <section class="panel">
+      {% if not preview_token %}
+        <form method="post" action="{{ url_for('limit_manual_message', object_id=object.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          
+          <div class="form-group">
+            <label for="content_field">Текст сообщения</label>
+            <textarea id="content_field" name="content" rows="12" placeholder="Введите текст, который будет отправлен всем активным подписчикам этого объекта..." required>{{ content or '' }}</textarea>
+            <div class="help-text">Сообщение будет отправлено от имени бота. Используйте понятные формулировки, так как получатели не видят интерфейс системы.</div>
+          </div>
+          
+          <div style="margin-top: 24px;">
+            <button type="submit" class="btn-primary">Предварительный просмотр</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="preview-box">
+          <div class="preview-header">Предпросмотр сообщения</div>
+          <div class="preview-content">{{ content }}</div>
+        </div>
+        
+        <form method="post" action="{{ url_for('limit_manual_message', object_id=object.id) }}" style="margin-top: 24px;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="preview_token" value="{{ preview_token }}">
+          <input type="hidden" name="content" value="{{ content }}">
+          <input type="hidden" name="confirm" value="1">
+          
+          <div class="action-buttons">
+            <button type="submit" class="btn-primary btn-lg">Отправить {{ recipients|length }} {{ recipients|length|pluralize('подписчику', 'подписчикам', 'подписчикам') }}</button>
+            <a href="{{ url_for('limit_manual_message', object_id=object.id) }}" class="btn-outline">Редактировать</a>
+          </div>
+        </form>
+      {% endif %}
+    </section>
+  </div>
+  
+  <div class="side-col">
+    <section class="panel" style="background: #fafbfc;">
+      <h2 style="margin-top:0; font-size: 16px;">Получатели ({{ recipients|length }})</h2>
+      
+      {% if recipients %}
+        <ul class="recipients-list">
+          {% for rec in recipients %}
+            <li>
+              <div class="rec-avatar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+              </div>
+              <div class="rec-info">
+                <b>{{ rec.surname_initials or ('ID: ' ~ rec.max_user_id) }}</b>
+                <span class="text-mut text-sm">{{ rec.organization_inn or 'Организация не указана' }}</span>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="notice warning" style="margin-bottom:0;">
+          У этого объекта нет активных подписчиков. Сообщение не будет никому отправлено.
+        </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+
+<style>
+.layout-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+@media (max-width: 900px) { .layout-grid { grid-template-columns: 1fr; } }
+
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); padding: 24px; }
+
+.form-group label { display: block; font-weight: 700; color: var(--ink); margin-bottom: 8px; font-size: 14px; }
+textarea { width: 100%; padding: 16px; border: 1px solid #cdd7e0; border-radius: 10px; font-family: inherit; font-size: 15px; line-height: 1.5; resize: vertical; outline: none; transition: 0.2s; }
+textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 122, 156, 0.1); }
+.help-text { font-size: 13px; color: var(--mut); margin-top: 8px; }
+
+.preview-box { border: 1px solid #b3e5fc; border-radius: 12px; overflow: hidden; }
+.preview-header { background: #e1f5fe; color: #0277bd; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 16px; border-bottom: 1px solid #b3e5fc; }
+.preview-content { padding: 20px; font-size: 15px; line-height: 1.6; white-space: pre-wrap; background: #fff; color: var(--ink); }
+
+.action-buttons { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+.recipients-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.recipients-list li { display: flex; gap: 12px; align-items: center; background: #fff; padding: 12px; border-radius: 10px; border: 1px solid var(--line); }
+.rec-avatar { width: 32px; height: 32px; border-radius: 8px; background: #eaf5f8; color: var(--blue); display: grid; place-items: center; flex-shrink: 0; }
+.rec-avatar svg { width: 16px; height: 16px; }
+.rec-info { display: flex; flex-direction: column; line-height: 1.4; }
+.rec-info b { font-size: 13px; }
+
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.text-blue { color: var(--blue); }
+.text-mut { color: var(--mut); }
+.text-sm { font-size: 12px; }
+
+.btn-primary { background: var(--blue); color: #fff; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 14px; }
+.btn-primary:hover { background: #16607a; }
+.btn-lg { padding: 14px 28px; font-size: 15px; border-radius: 10px; }
+.btn-outline { display: inline-flex; align-items: center; justify-content: center; padding: 10px 20px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; transition: 0.2s; font-size: 14px; }
+.btn-outline:hover { background: var(--paper); border-color: #b0c0cd; }
+
+.flash-messages { margin-bottom: 24px; }
+.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; font-size: 14px; }
+.notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
+.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
+.notice.warning, .notice.info { background: #fff8e1; border-left-color: #fbc02d; color: #f57f17; }
+</style>
+{% endblock %}

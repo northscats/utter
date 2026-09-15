@@ -1,0 +1,337 @@
+{% extends "modules.html" %}
+{% block title %}{{ object.uin }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('limit_objects', dataset_id=object.dataset_id) }}">← К реестру</a>
+<div class="eyebrow">Карточка объекта</div>
+<h1><span class="font-mono text-blue">{{ object.uin }}</span></h1>
+<p class="lead">{{ object.title or 'Название не указано' }}{% if object.address %} · {{ object.address }}{% endif %}</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="layout-grid">
+  <div class="main-col">
+    <section class="panel">
+      {% if selected_version %}
+      <div class="panel-header">
+        <h2 style="margin:0">Строки мероприятий (Версия #{{ selected_version.id }})</h2>
+        <form method="get" class="version-select-form">
+          <select name="version_id" onchange="this.form.submit()">
+            {% for v in versions %}
+              <option value="{{ v.id }}" {% if v.id == selected_version.id %}selected{% endif %}>
+                Версия #{{ v.id }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
+              </option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      
+      {% if not object.is_present and selected_version.id == object.dataset.current_version_id %}
+        <div class="notice warning" style="margin-bottom: 20px;">
+          Объект отсутствует в актуальном срезе. Ниже показаны данные последнего известного состояния.
+        </div>
+      {% endif %}
+      
+      {% if conflicts %}
+      <div class="conflicts-box">
+        <h3 class="text-danger" style="margin-top:0; margin-bottom: 12px; font-size: 15px;">Конфликтующие значения между строками</h3>
+        <ul style="margin:0; padding-left: 20px; font-size: 14px;">
+          {% for conflict in conflicts %}
+            <li><b>{{ conflict.label }}:</b> {{ conflict.values_list | join(' | ') }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% for row in current_rows %}
+      <div class="row-card">
+        <div class="row-header">
+          <div class="row-title">
+            <span class="badge neutral">Строка {{ row.source_row }}</span>
+            <div class="row-programs">
+              {% for p in row.programme %}
+                <span title="{{ p.label }} (Ячейка {{ p.cell }})">{{ p.value }}</span>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        
+        {% if row.dates or row.requisites %}
+        <div class="row-grid">
+          {% if row.dates %}
+          <div class="grid-section">
+            <h4>Сроки</h4>
+            <ul class="data-list">
+              {% for d in row.dates %}
+                <li>
+                  <span class="dl-label" title="Ячейка {{ d.cell }}">{{ d.label }}</span>
+                  <span class="dl-value">{{ d.value }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% if row.requisites %}
+          <div class="grid-section">
+            <h4>Реквизиты</h4>
+            <ul class="data-list">
+              {% for req in row.requisites %}
+                <li>
+                  <span class="dl-label" title="Ячейка {{ req.cell }}">{{ req.label }}</span>
+                  <span class="dl-value">{{ req.value }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if row.limit_cost %}
+        <div class="cost-box">
+          <h4>Предельная стоимость</h4>
+          <ul class="data-list">
+            {% for c in row.limit_cost %}
+              <li>
+                <span class="dl-label" title="Ячейка {{ c.cell }}">{{ c.label }}</span>
+                <span class="dl-value font-mono">{{ c.value }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+        {% if row.funding or row.funding_snapshot %}
+        <div class="funding-box">
+          <h4>Финансирование</h4>
+          <div class="funding-tables">
+            {% if row.funding_snapshot %}
+            <div class="ft-section">
+              <h5>Накопительные срезы</h5>
+              <table class="ftable">
+                {% for f in row.funding_snapshot %}
+                  <tr>
+                    <td title="Ячейка {{ f.cell }}">{{ f.label }}</td>
+                    <td class="text-right font-mono">{{ f.value }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+            {% endif %}
+            
+            {% if row.funding %}
+            <div class="ft-section">
+              <h5>Годовые лимиты</h5>
+              <table class="ftable">
+                {% for f in row.funding %}
+                  <tr>
+                    <td title="{{ f.source }} (Ячейка {{ f.cell }})"><b>{{ f.year }}</b> · {{ f.source }}</td>
+                    <td class="text-right font-mono">{{ f.value }}</td>
+                  </tr>
+                {% endfor %}
+              </table>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+        <p class="text-mut text-center" style="padding: 40px 0;">Данные строк отсутствуют в этой версии.</p>
+      {% endfor %}
+      {% else %}
+      <h2>Данные актуального среза отсутствуют</h2>
+      <div class="notice warning">
+        Принятых версий сейчас нет. Карточка сохраняет УИН и действующие подписки,
+        но строки мероприятий, финансирование и сроки станут доступны только после
+        загрузки и принятия нового среза.
+      </div>
+      {% endif %}
+    </section>
+
+    {% if history %}
+    <section class="panel">
+      <h2>История изменений</h2>
+      <div class="timeline">
+        {% for hist in history %}
+        <div class="tl-item">
+          <div class="tl-marker"></div>
+          <div class="tl-content">
+            <div class="tl-header">
+              <b>Версия #{{ hist.version.id }}</b>
+              <span class="text-mut text-sm">{{ hist.version.accepted_at.strftime('%d.%m.%Y %H:%M') if hist.version.accepted_at else '' }}</span>
+            </div>
+            <table class="history-table">
+              {% for change in hist.changes %}
+              <tr>
+                <td style="width:120px"><span class="badge neutral">{{ change.category }}</span></td>
+                <td>{{ change.field_label or change.field_key }}</td>
+                {% set old_val = change.old_json|limit_json %}
+                <td class="font-mono text-mut strike">{{ old_val|limit_value if old_val is not none else '—' }}</td>
+                {% set new_val = change.new_json|limit_json %}
+                <td class="font-mono text-success">{{ new_val|limit_value if new_val is not none else '—' }}</td>
+                <td class="text-right">
+                  {% if change.absolute_delta is not none %}
+                    <span class="badge {{ 'success' if change.absolute_delta > 0 else 'danger' }}">
+                      {{ '+' if change.absolute_delta > 0 else '' }}{{ change.absolute_delta|round(2) }}
+                    </span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <div class="side-col">
+    <section class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
+        <h2 style="margin:0">Подписчики ({{ subscriptions|length }})</h2>
+      </div>
+      <p class="text-sm text-mut" style="margin-top:-8px; margin-bottom: 16px;">Активные получатели уведомлений в MAX.</p>
+      
+      <ul class="subscribers-list">
+        {% for sub in subscriptions %}
+          <li>
+            <div class="sub-avatar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+            </div>
+            <div class="sub-info">
+              <b>{{ sub.recipient.surname_initials or ('ID: ' ~ sub.recipient.max_user_id) }}</b>
+              <span class="text-mut">{{ sub.recipient.organization_inn or 'Организация не указана' }}</span>
+              {% if current_user.is_admin and sub.recipient.phone %}
+                <span class="text-mut">{{ sub.recipient.phone }}</span>
+              {% endif %}
+            </div>
+          </li>
+        {% else %}
+          <li class="text-mut text-sm">Нет активных подписок.</li>
+        {% endfor %}
+      </ul>
+      
+      {% if current_user.is_admin and dataset.current_version_id %}
+      <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);">
+        <a class="btn-primary" style="width:100%; text-align:center" href="{{ url_for('limit_manual_message', object_id=object.id) }}">Создать ручное сообщение</a>
+      </div>
+      {% endif %}
+    </section>
+
+    {% if messages %}
+    <section class="panel">
+      <h2>Сообщения</h2>
+      <div class="messages-list">
+        {% for msg in messages %}
+          <div class="msg-card">
+            <div class="msg-header">
+              <span class="badge {{ 'success' if msg.status == 'accepted' else 'warning' if msg.status in ('queued','retry') else 'danger' }}">{{ msg.status }}</span>
+              <span class="text-mut text-sm">{{ msg.created_at.strftime('%d.%m.%Y %H:%M') if msg.created_at else '' }}</span>
+            </div>
+            <div class="msg-content">{{ msg.content|truncate(100) }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+.layout-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+@media (max-width: 900px) { .layout-grid { grid-template-columns: 1fr; } }
+
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); padding: 24px; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+.panel h2 { margin: 0 0 16px; font-size: 18px; }
+
+.version-select-form select { padding: 8px 12px; border: 1px solid #cdd7e0; border-radius: 8px; font-size: 14px; background: #fff; outline: none; cursor: pointer; }
+.version-select-form select:focus { border-color: var(--blue); }
+
+.conflicts-box { background: #fffafb; border: 1px solid #ffcdd2; border-radius: 12px; padding: 16px; margin-bottom: 24px; }
+
+.row-card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 20px; }
+.row-header { background: #fafbfc; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.row-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.row-programs { display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 600; color: var(--blue); }
+.row-programs span { background: #eaf5f8; padding: 4px 8px; border-radius: 6px; }
+
+.row-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0; }
+.grid-section { padding: 20px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); }
+.grid-section:last-child { border-right: none; }
+.grid-section h4, .cost-box h4, .funding-box h4 { margin: 0 0 16px; font-size: 14px; color: var(--ink); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.data-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.data-list li { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px dashed #e1e8ed; padding-bottom: 8px; }
+.data-list li:last-child { border-bottom: none; padding-bottom: 0; }
+.dl-label { font-size: 13px; color: var(--mut); }
+.dl-value { font-size: 14px; font-weight: 500; text-align: right; }
+
+.cost-box { padding: 20px; border-bottom: 1px solid var(--line); background: #fdfdfd; }
+.funding-box { padding: 20px; }
+.funding-tables { display: flex; flex-direction: column; gap: 24px; }
+.ft-section h5 { margin: 0 0 12px; font-size: 13px; color: var(--mut); }
+.ftable { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ftable td { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.ftable tr:last-child td { border-bottom: none; }
+
+.timeline { position: relative; padding-left: 20px; margin-top: 24px; }
+.timeline::before { content: ''; position: absolute; left: 6px; top: 6px; bottom: 0; width: 2px; background: var(--line); }
+.tl-item { position: relative; margin-bottom: 32px; }
+.tl-item:last-child { margin-bottom: 0; }
+.tl-marker { position: absolute; left: -20px; top: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--blue); border: 3px solid #fff; }
+.tl-content { background: #fafbfc; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.tl-header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+
+.history-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.history-table td { padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.history-table tr:last-child td { border-bottom: none; }
+.strike { text-decoration: line-through; }
+
+.subscribers-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.subscribers-list li { display: flex; gap: 12px; align-items: center; }
+.sub-avatar { width: 36px; height: 36px; border-radius: 10px; background: #eaf5f8; color: var(--blue); display: grid; place-items: center; flex-shrink: 0; }
+.sub-avatar svg { width: 20px; height: 20px; }
+.sub-info { display: flex; flex-direction: column; font-size: 13px; line-height: 1.4; }
+.sub-info b { font-size: 14px; }
+
+.messages-list { display: flex; flex-direction: column; gap: 12px; }
+.msg-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.msg-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.msg-content { font-size: 13px; color: var(--ink); line-height: 1.5; white-space: pre-wrap; }
+
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.text-blue { color: var(--blue); }
+.text-danger { color: #d32f2f; }
+.text-success { color: #2e7d32; }
+.text-mut { color: var(--mut); }
+.text-sm { font-size: 13px; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.badge.success { background: #e8f5e9; color: #2e7d32; }
+.badge.danger { background: #ffebee; color: #c62828; }
+.badge.warning { background: #fff8e1; color: #f57f17; }
+.badge.neutral { background: var(--line); color: var(--ink); }
+
+.btn-primary { display: inline-flex; align-items: center; justify-content: center; background: var(--blue); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 14px; text-decoration: none; }
+.btn-primary:hover { background: #16607a; }
+
+.flash-messages { margin-bottom: 24px; }
+.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; }
+.notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
+.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
+.notice.warning, .notice.info { background: #fff8e1; border-left-color: #fbc02d; color: #f57f17; }
+</style>
+{% endblock %}

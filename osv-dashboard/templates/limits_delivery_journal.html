@@ -1,0 +1,249 @@
+{% extends "modules.html" %}
+{% block title %}Журнал уведомлений — {{ dataset.name }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">← К набору отчётности</a>
+<div class="eyebrow">Оповещения MAX</div>
+<h1>Журнал уведомлений</h1>
+<p class="lead">Всего записей в очереди и истории для этого набора: <b>{{ total }}</b>.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<section class="panel filters-panel">
+  <form class="filters-form" method="get">
+    <div class="filters-grid" style="grid-template-columns: minmax(200px, 2fr) minmax(150px, 1fr) minmax(150px, 1fr) auto;">
+      <div class="filter-group">
+        <label>Поиск по УИН или тексту</label>
+        <input type="text" name="q" value="{{ request.args.get('q', '') }}" placeholder="Поиск...">
+      </div>
+      
+      <div class="filter-group">
+        <label>Статус доставки</label>
+        <select name="status">
+          <option value="">Все статусы</option>
+          <option value="queued" {% if selected_status == 'queued' %}selected{% endif %}>В очереди</option>
+          <option value="retry" {% if selected_status == 'retry' %}selected{% endif %}>Ожидает повтора</option>
+          <option value="sending" {% if selected_status == 'sending' %}selected{% endif %}>Отправляется</option>
+          <option value="accepted" {% if selected_status == 'accepted' %}selected{% endif %}>Принято MAX</option>
+          <option value="error" {% if selected_status == 'error' %}selected{% endif %}>Ошибка</option>
+          <option value="unknown" {% if selected_status == 'unknown' %}selected{% endif %}>Таймаут/неизвестно</option>
+          <option value="cancelled" {% if selected_status == 'cancelled' %}selected{% endif %}>Отменено</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label>Версия данных</label>
+        <select name="version_id">
+          <option value="">Все версии</option>
+          {% for v in versions %}
+            <option value="{{ v.id }}" {% if request.args.get('version_id')|string == v.id|string %}selected{% endif %}>
+              Версия #{{ v.id }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group" style="display:flex; align-items:flex-end;">
+        <button class="btn-primary" style="width:100%; padding:10px;">Фильтровать</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<div class="table-wrap panel" style="padding: 0; overflow: hidden;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 160px;">Создано / Статус</th>
+        <th>Объект и получатель</th>
+        <th>Текст уведомления</th>
+        <th>Лог и действия</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for delivery in deliveries %}
+      <tr>
+        <td>
+          <div style="font-weight: 600; margin-bottom: 8px;">{{ delivery.created_at.strftime('%d.%m.%y %H:%M') if delivery.created_at else '—' }}</div>
+          {% if delivery.status == 'accepted' %}
+            <span class="badge success">Принято MAX</span>
+          {% elif delivery.status in ('queued', 'retry') %}
+            <span class="badge warning">Очередь ({{ delivery.status }})</span>
+          {% elif delivery.status == 'sending' %}
+            <span class="badge warning">Отправка...</span>
+          {% elif delivery.status == 'error' %}
+            <span class="badge danger">Ошибка</span>
+          {% elif delivery.status == 'unknown' %}
+            <span class="badge danger" title="Таймаут или прерванное соединение">Неизвестно</span>
+          {% elif delivery.status == 'cancelled' %}
+            <span class="badge neutral">Отменено</span>
+          {% else %}
+            <span class="badge neutral">{{ delivery.status }}</span>
+          {% endif %}
+          
+          {% if delivery.status in ('queued', 'retry', 'error', 'unknown') and delivery.next_attempt_at %}
+            <div class="text-sm text-mut" style="margin-top: 8px;">
+              След. попытка:<br>{{ delivery.next_attempt_at.strftime('%d.%m %H:%M') }}
+            </div>
+          {% endif %}
+        </td>
+        
+        <td>
+          {% if delivery.object %}
+            <div>
+              <a href="{{ url_for('limit_object_card', object_id=delivery.object_id) }}" class="font-mono text-link text-sm">
+                <b>{{ delivery.object.uin }}</b>
+              </a>
+            </div>
+            <div class="text-mut text-sm truncate-2-lines" style="margin-top:4px; margin-bottom:12px;">{{ delivery.object.title }}</div>
+          {% else %}
+            <div class="text-mut text-sm" style="margin-bottom:12px;">Объект удалён</div>
+          {% endif %}
+          
+          <div style="background: #fafbfc; border-radius: 6px; padding: 8px; border: 1px solid var(--line);">
+            <div class="text-sm">
+              Получатель <b>#{{ delivery.recipient_id }}</b>
+            </div>
+            {% if delivery.recipient %}
+              <div class="text-sm text-mut mt-1">
+                {{ delivery.recipient.surname_initials or 'Без имени' }}
+                {% if delivery.recipient.organization_inn %} · ИНН: {{ delivery.recipient.organization_inn }}{% endif %}
+              </div>
+            {% endif %}
+          </div>
+          
+          {% if delivery.version_id %}
+            <div class="text-sm text-mut" style="margin-top:8px;">По версии #{{ delivery.version_id }}</div>
+          {% endif %}
+        </td>
+        
+        <td>
+          <div class="message-preview">
+            {{ delivery.content }}
+          </div>
+        </td>
+        
+        <td>
+          <div style="font-size:13px; color:var(--mut); margin-bottom: 8px;">
+            Попыток: <b>{{ delivery.attempts }}</b> / 5
+          </div>
+          
+          {% if delivery.last_error %}
+            <div class="error-box text-sm mb-2">
+              <b>Последняя ошибка:</b><br>{{ delivery.last_error }}
+            </div>
+          {% endif %}
+          
+          {% if delivery.accepted_at %}
+            <div class="text-success text-sm font-bold mb-2">Успешно: {{ delivery.accepted_at.strftime('%d.%m.%y %H:%M') }}</div>
+          {% endif %}
+          
+          <div class="btn-group-actions">
+            {% if delivery.status in ('error', 'unknown', 'cancelled') %}
+              <form method="post" action="{{ url_for('limit_delivery_retry', delivery_id=delivery.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if delivery.status == 'unknown' %}
+                  <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; font-size:12px; color:var(--mut);">
+                    <input type="checkbox" name="confirm_unknown" value="1" required style="width:14px; height:14px;">
+                    Подтверждаю риск дубликата (unknown исход)
+                  </label>
+                {% endif %}
+                <button class="btn-sm btn-outline">Повторить принудительно</button>
+              </form>
+            {% endif %}
+            
+            {% if delivery.status in ('queued', 'retry', 'sending', 'unknown', 'error') %}
+              <form method="post" action="{{ url_for('limit_delivery_cancel', delivery_id=delivery.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn-sm btn-outline text-danger">Отменить</button>
+              </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="4" class="text-center text-mut" style="padding: 40px;">
+          По вашему запросу не найдено ни одной записи в журнале.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_delivery_journal', **dict(request.args, dataset_id=dataset.id, page=page-1)) }}">← Туда</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">← Туда</span>
+  {% endif %}
+  <span class="page-info">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_delivery_journal', **dict(request.args, dataset_id=dataset.id, page=page+1)) }}">Сюда →</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">Сюда →</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<style>
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); }
+.filters-panel { padding: 24px; }
+.filters-grid { display: grid; gap: 16px; align-items: end; }
+.filter-group label { display: block; font-size: 12px; font-weight: 700; color: var(--mut); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.filter-group input, .filter-group select { width: 100%; padding: 10px; border: 1px solid #cdd7e0; border-radius: 8px; font-size: 14px; background: #fff; outline: none; }
+.filter-group input:focus, .filter-group select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 122, 156, 0.1); }
+
+.data-table { width: 100%; border-collapse: collapse; text-align: left; }
+.data-table th { padding: 14px 20px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }
+.data-table td { padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+.truncate-2-lines { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.message-preview { background: #fff; border: 1px dashed var(--line); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-family: ui-sans-serif, system-ui, sans-serif; max-height: 250px; overflow-y: auto; }
+.error-box { background: #fffafb; border: 1px solid #ffcdd2; color: #b71c1c; padding: 8px 12px; border-radius: 6px; }
+
+.btn-primary { background: var(--blue); color: #fff; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 14px; }
+.btn-primary:hover { background: #16607a; }
+.btn-outline { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; transition: 0.2s; font-size: 13px; cursor: pointer; }
+.btn-outline:hover:not(.disabled) { background: var(--paper); border-color: #b0c0cd; }
+.btn-outline.disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 6px 10px; font-size: 12px; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.badge.success { background: #e8f5e9; color: #2e7d32; }
+.badge.warning { background: #fff8e1; color: #f57f17; }
+.badge.danger { background: #ffebee; color: #c62828; }
+.badge.neutral { background: var(--line); color: var(--ink); }
+
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.font-bold { font-weight: 700; }
+.text-link { color: var(--blue); text-decoration: none; }
+.text-link:hover { text-decoration: underline; }
+.text-mut { color: var(--mut); }
+.text-danger { color: #d32f2f !important; }
+.text-danger:hover { background: #ffebee !important; border-color: #ffcdd2 !important; }
+.text-success { color: #2e7d32; }
+.text-sm { font-size: 13px; }
+.text-center { text-align: center; }
+.mt-1 { margin-top: 4px; }
+.mb-2 { margin-bottom: 8px; }
+
+.btn-group-actions form { display: inline-block; margin-right: 4px; margin-bottom: 4px; margin-top: 0; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 32px 0; }
+.page-info { font-weight: 600; color: var(--mut); font-size: 14px; }
+
+.flash-messages { margin-bottom: 24px; }
+.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; }
+.notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
+.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
+</style>
+{% endblock %}

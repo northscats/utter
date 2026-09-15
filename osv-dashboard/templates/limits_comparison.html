@@ -1,0 +1,281 @@
+{% extends "modules.html" %}
+{% block title %}Сравнение лимитов — {{ comparison.id }}{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id if dataset else comparison.new_version.dataset_id) }}">← К набору отчётности</a>
+<div class="eyebrow">Сравнение версий</div>
+<h1>Анализ изменений</h1>
+<p class="lead">
+  Старая версия: <b>#{{ comparison.old_version_id }}</b> 
+  <span class="text-mut">({{ comparison.old_version.source_date.strftime('%d.%m.%Y') if comparison.old_version.source_date else '—' }})</span>
+  → 
+  Новая версия: <b>#{{ comparison.new_version_id }}</b>
+  <span class="text-mut">({{ comparison.new_version.source_date.strftime('%d.%m.%Y') if comparison.new_version.source_date else '—' }})</span>
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-value">{{ (comparison.summary_json|limit_json).get('changed_cells', '0') }}</div>
+    <div class="stat-label">Всего изменений</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ (comparison.summary_json|limit_json).get('new_objects', '0') }}</div>
+    <div class="stat-label">Новых объектов</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ (comparison.summary_json|limit_json).get('absent_objects', '0') }}</div>
+    <div class="stat-label">Отсутствующих объектов</div>
+  </div>
+</div>
+
+<div class="panel actions-panel">
+  <div class="flex-spread">
+    <form class="filters-inline" method="get">
+      <input type="text" name="q" value="{{ search }}" placeholder="Поиск по УИН..." class="search-input">
+      <select name="category">
+        <option value="">Все категории изменений</option>
+        {% for cat in categories %}
+          <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn-primary">Применить</button>
+    </form>
+    
+    <a href="{{ url_for('limit_comparison_export', comparison_id=comparison.id) }}" class="btn-outline">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:text-bottom; margin-right:6px">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      Экспорт XLSX
+    </a>
+  </div>
+</div>
+
+{% if issues %}
+<section class="panel issue-panel">
+  <h2 class="text-danger">Неоднозначности сопоставления ({{ issues|length }})</h2>
+  <p class="text-mut" style="margin-top:-10px; margin-bottom: 20px;">Требуется ручное решение для корректной генерации уведомлений.</p>
+  
+  <div class="issues-list">
+    {% for issue in issues %}
+    <div class="issue-card">
+      <div class="issue-header">
+        <span class="badge danger">{{ issue.code }}</span>
+        <b>{{ issue.uin }}</b>
+        <span class="text-mut text-sm">{{ issue.message or issue.description or 'Требуется сопоставление' }}</span>
+      </div>
+      <form class="resolve-form" method="post" action="{{ url_for('limit_comparison_resolve', comparison_id=comparison.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="issue_key" value="{{ issue.key }}">
+        
+        <div class="resolve-grid">
+          <label>
+            <span class="text-sm font-bold">Действие</span>
+            <select name="action" required>
+              <option value="transfer">Сопоставить (перенос)</option>
+              <option value="added">Считать добавленным</option>
+              <option value="absent">Считать отсутствующим</option>
+            </select>
+          </label>
+
+          {% if issue.old_rows %}
+          <label>
+            <span class="text-sm font-bold">Старая строка</span>
+            <select name="old_row">
+              <option value="">(Не выбрана)</option>
+              {% for cand in issue.old_rows %}
+                <option value="{{ cand }}">{{ cand }} (Стр. {{ cand.rsplit('@', 1)[-1] }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% else %}
+          <label>
+            <span class="text-sm font-bold">Старая строка</span>
+            <input type="text" name="old_row" placeholder="UIN@row (Стр. в XLSX)">
+          </label>
+          {% endif %}
+          
+          {% if issue.new_rows %}
+          <label>
+            <span class="text-sm font-bold">Новая строка</span>
+            <select name="new_row">
+              <option value="">(Не выбрана)</option>
+              {% for cand in issue.new_rows %}
+                <option value="{{ cand }}">{{ cand }} (Стр. {{ cand.rsplit('@', 1)[-1] }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% else %}
+          <label>
+            <span class="text-sm font-bold">Новая строка</span>
+            <input type="text" name="new_row" placeholder="UIN@row (Стр. в XLSX)">
+          </label>
+          {% endif %}
+
+          <label>
+            <span class="text-sm font-bold">Комментарий</span>
+            <input type="text" name="note" placeholder="Опционально">
+          </label>
+          <div style="display:flex; align-items:flex-end;">
+            <button class="btn-primary" style="width:100%">Применить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<div class="table-wrap panel" style="padding: 0; overflow: hidden;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>УИН</th>
+        <th>Категория</th>
+        <th>Показатель</th>
+        <th>Было</th>
+        <th>Стало</th>
+        <th>Дельта</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for change in changes %}
+      <tr>
+        <td class="font-mono">
+          {% if change.object_id %}
+            <a href="{{ url_for('limit_object_card', object_id=change.object_id) }}" class="text-link" target="_blank">{{ change.uin }}</a>
+          {% else %}
+            <span>{{ change.uin }}</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge {{ 'success' if 'финанс' in change.category|lower or 'стоимост' in change.category|lower else 'neutral' }}">
+            {{ change.category }}
+          </span>
+        </td>
+        <td>{{ change.field_label or change.field_key }}</td>
+        <td class="val-cell">
+          {% set old_val = change.old_json|limit_json %}
+          <div class="val-text">{{ old_val|limit_value if old_val is not none else '—' }}</div>
+          {% set src_old = (change.source_json|limit_json).get('old_cell') or (old_val.get('cell') if old_val is mapping else None) %}
+          {% if src_old %}<div class="src-coord" title="Ячейка в старом файле">{{ src_old }}</div>{% endif %}
+        </td>
+        <td class="val-cell">
+          {% set new_val = change.new_json|limit_json %}
+          <div class="val-text">{{ new_val|limit_value if new_val is not none else '—' }}</div>
+          {% set src_new = (change.source_json|limit_json).get('new_cell') or (new_val.get('cell') if new_val is mapping else None) %}
+          {% if src_new %}<div class="src-coord" title="Ячейка в новом файле">{{ src_new }}</div>{% endif %}
+        </td>
+        <td>
+          {% if change.absolute_delta is not none %}
+            <span class="{{ 'text-success' if change.absolute_delta > 0 else 'text-danger' if change.absolute_delta < 0 else '' }}">
+              {{ '+' if change.absolute_delta > 0 else '' }}{{ change.absolute_delta|round(2) }}
+            </span>
+          {% else %}
+            <span class="text-mut">—</span>
+          {% endif %}
+          
+          {% if change.relative_delta is not none %}
+            <br>
+            <small class="text-mut">{{ '+' if change.relative_delta > 0 else '' }}{{ change.relative_delta|round(2) }}%</small>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6" class="text-center text-mut" style="padding: 40px;">
+          Изменений по заданным критериям не найдено.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if pages and pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page-1, q=search, category=selected_category) }}">← Туда</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">← Туда</span>
+  {% endif %}
+  <span class="page-info">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page+1, q=search, category=selected_category) }}">Сюда →</a>
+  {% else %}
+    <span class="btn-outline btn-sm disabled">Сюда →</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<style>
+.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); padding: 24px; }
+.flex-spread { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; text-align: center; }
+.stat-value { font-size: 32px; font-weight: 800; color: var(--ink); line-height: 1.1; margin-bottom: 4px; }
+.stat-label { font-size: 13px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.filters-inline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; flex: 1; }
+.filters-inline input, .filters-inline select { padding: 10px 14px; border: 1px solid #cdd7e0; border-radius: 8px; font-size: 14px; background: #fff; outline: none; transition: 0.2s; }
+.filters-inline input:focus, .filters-inline select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 122, 156, 0.1); }
+.search-input { min-width: 240px; }
+
+.issue-panel { border-color: #ffcdd2; background: #fffafb; }
+.issues-list { display: flex; flex-direction: column; gap: 16px; }
+.issue-card { background: #fff; border: 1px solid #ffcdd2; border-radius: 12px; padding: 16px; }
+.issue-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.resolve-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.resolve-grid label { display: flex; flex-direction: column; gap: 6px; }
+.resolve-grid input { padding: 8px 12px; border: 1px solid #cdd7e0; border-radius: 6px; font-size: 14px; outline: none; }
+.resolve-grid input:focus { border-color: var(--blue); }
+
+.data-table { width: 100%; border-collapse: collapse; text-align: left; }
+.data-table th { padding: 14px 20px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }
+.data-table td { padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+.val-cell { position: relative; }
+.val-text { font-size: 14px; word-break: break-word; }
+.src-coord { display: inline-block; font-size: 10px; font-family: monospace; color: #fff; background: #90a4ae; padding: 2px 6px; border-radius: 4px; margin-top: 6px; letter-spacing: 0.05em; }
+
+.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.badge.success { background: #e8f5e9; color: #2e7d32; }
+.badge.danger { background: #ffebee; color: #c62828; }
+.badge.neutral { background: var(--line); color: var(--ink); }
+
+.text-danger { color: #d32f2f; }
+.text-success { color: #2e7d32; }
+.text-mut { color: var(--mut); }
+.text-sm { font-size: 13px; }
+.font-bold { font-weight: 700; }
+.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.text-center { text-align: center; }
+.text-link { color: var(--blue); text-decoration: none; font-weight: 600; }
+.text-link:hover { text-decoration: underline; }
+
+.btn-primary { background: var(--blue); color: #fff; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 14px; }
+.btn-primary:hover { background: #16607a; }
+.btn-outline { display: inline-flex; align-items: center; justify-content: center; padding: 9px 16px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; transition: 0.2s; font-size: 14px; cursor: pointer; }
+.btn-outline:hover:not(.disabled) { background: var(--paper); border-color: #b0c0cd; }
+.btn-outline.disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 32px 0; }
+.page-info { font-weight: 600; color: var(--mut); font-size: 14px; }
+
+.flash-messages { margin-bottom: 24px; }
+.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; }
+.notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
+.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
+</style>
+{% endblock %}
