@@ -6,6 +6,8 @@ const modalCss = fs.readFileSync('static/key_indicators.css', 'utf8');
 assert.match(modalCss,
     /\.ki-modal-dynamics-block \.modal-chart-wrap\s*\{[^}]*height:auto;[^}]*padding:0;[^}]*border:0;/s,
     'Shared dynamics wrapper must grow with the chart and not draw a second layer');
+assert.match(modalCss, /\.ki-metric-tile-active,\s*\.ki-metric-tile-pinned\s*\{/,
+    'Pinned and active metric tiles keep the series-colored outline');
 
 const nodes = new Map();
 const timers = [];
@@ -188,6 +190,10 @@ const connectedGenericSvg = nodes.get('ki-metric-modal-svg').innerHTML;
 assert.ok(connectedGenericSvg.includes('stroke-dasharray="4,4"'), 'Dashed line rendered for gap');
 assert.match(connectedGenericSvg, /class="metric-date-tick"/,
     'General metric chart renders a horizontal calendar scale');
+assert.match(connectedGenericSvg, /class="metric-modal-chart-plot"/,
+    'General metric SVG and hit targets share one coordinate container');
+assert.match(connectedGenericSvg, /class="metric-chart-point-svg"/,
+    'Visible metric points are rendered inside the same SVG as their lines');
 assert.match(connectedGenericSvg,
     /<path d="[^"]*L[^"]*"[^>]*stroke-dasharray="4,4"/,
     'Connect mode renders a non-empty line between general metric points');

@@ -4853,6 +4853,9 @@
                 validPoints.forEach(curr => {
                     const cx = getX(curr, curr.index, s.data);
                     const cy = getY(curr.v);
+                    svg += `<circle class="metric-chart-point-svg" cx="${cx.toFixed(1)}" `
+                        + `cy="${cy.toFixed(1)}" r="${s.isActive ? 4 : 3}" `
+                        + `fill="${s.isActive ? color : '#fff'}" stroke="${color}" stroke-width="2"/>`;
 
                     const tooltipData = this.metricTooltipData(card, {
                         title: `${s.label}: ${curr.label || curr.date}`,
@@ -4870,7 +4873,6 @@
 
                     htmlOverlay += `
                     <div class="cash-tooltip-host chart-point-marker" tabindex="0" style="position:absolute; left:${leftPct}%; top:${topPct}%; width:${wPct}%; height:${hPct}%; border-radius:50%; background:transparent; pointer-events:auto; cursor:help; display:flex; align-items:center; justify-content:center;">
-                        <div style="width:6px; height:6px; background:${s.isActive ? color : '#fff'}; border:2px solid ${color}; border-radius:50%;"></div>
                         ${tooltip}
                     </div>`;
                 });
@@ -4899,7 +4901,8 @@
             const unitNotice = state.modalChart.unitNotice
                 ? `<div style="font-size:11px;color:#92400E;margin-bottom:6px;">${esc(state.modalChart.unitNotice)}</div>`
                 : '';
-            container.innerHTML = unitNotice + svg + htmlOverlay;
+            container.innerHTML = unitNotice
+                + `<div class="metric-modal-chart-plot">${svg}${htmlOverlay}</div>`;
         },
 renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
