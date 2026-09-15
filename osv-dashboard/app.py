@@ -2188,6 +2188,82 @@ def company_new():
 # ---------------------------------------------------------------------------
 # Страница предприятия
 # ---------------------------------------------------------------------------
+def _upload_history_rows(uploads, company_id):
+    """Build useful, provenance-aware labels for the upload history table."""
+    from key_indicators import _period_bounds
+
+    rows = []
+    for upload in uploads:
+        manifest = upload.source_manifest
+        manifest_items = manifest if isinstance(manifest, list) else []
+
+        accounts = {
+            str(item.get('account')).strip()
+            for item in manifest_items
+            if item.get('account') not in (None, '')
+        }
+        if manifest is None:
+            accounts.update(
+                str(account).strip()
+                for account in upload.accounts_list
+                if str(account).strip()
+            )
+
+        starts = []
+        ends = []
+        for item in manifest_items:
+            try:
+                if item.get('report_start'):
+                    starts.append(datetime.strptime(
+                        item['report_start'], '%Y-%m-%d').date())
+                if item.get('report_end'):
+                    ends.append(datetime.strptime(
+                        item['report_end'], '%Y-%m-%d').date())
+            except (TypeError, ValueError):
+                continue
+
+        start = min(starts) if starts else None
+        end = max(ends) if ends else None
+        if start is None or end is None:
+            try:
+                start, end = _period_bounds(upload.period_label or '')
+            except (TypeError, ValueError):
+                start, end = None, None
+
+        period_type = '—'
+        coverage_label = '—'
+        if start is not None and end is not None and end >= start:
+            total_days = (end - start).days + 1
+            if total_days == 1:
+                period_type = 'День'
+            elif (start.month, start.day, end.month, end.day) == (1, 1, 12, 31) \
+                    and start.year == end.year:
+                period_type = 'Год'
+            else:
+                period_type = 'Месяц'
+
+            coverage_query = db.session.query(
+                func.count(func.distinct(DailyRow.date))
+            ).filter(
+                DailyRow.company_id == company_id,
+                DailyRow.date >= start,
+                DailyRow.date <= end,
+            )
+            if accounts:
+                coverage_query = coverage_query.filter(
+                    DailyRow.acc.in_(sorted(accounts)))
+            covered_days = int(coverage_query.scalar() or 0)
+            coverage_label = f'{covered_days} из {total_days}'
+
+        rows.append({
+            'upload': upload,
+            'account_label': ', '.join(sorted(accounts)) if accounts else '—',
+            'period_type': period_type,
+            'coverage_label': coverage_label,
+        })
+    return rows
+
+
 @app.route('/company/<int:company_id>')
 @login_required
 def company_detail(company_id):
@@ -2198,25 +2274,7 @@ def company_detail(company_id):
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
 
-    # Комплектность счетов по каждой загрузке
-    uploads_with_completeness = [(u, _compute_completeness(u)) for u in uploads]
-
-    # Сводка по всем загрузкам
-    completeness_summary = None
-    if uploads:
-        full_count    = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'full')
-        partial_count = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'partial')
-        none_count    = sum(1 for _, c in uploads_with_completeness if c and c['status'] == 'none')
-        all_found     = [c['found'] for _, c in uploads_with_completeness if c]
-        avg_cov       = round(sum(all_found) / len(all_found), 1) if all_found else 0
-        completeness_summary = dict(
-            total=len(uploads),
-            full_count=full_count,
-            partial_count=partial_count,
-            none_count=none_count,
-            avg_coverage=avg_cov,
-            total_required=len(REQUIRED_ACCOUNTS),
-        )
+    upload_history_rows = _upload_history_rows(uploads, company_id)
 
     historical_imports = []
     historical_versions = []
@@ -2255,8 +2313,7 @@ def company_detail(company_id):
                 } for item in parsed_preview.get('unknown_metrics', []))
 
     return render_template('company.html', company=company, uploads=uploads,
-                           uploads_with_completeness=uploads_with_completeness,
-                           completeness_summary=completeness_summary,
+                           upload_history_rows=upload_history_rows,
                            audit=None, error=None, discrepancy=[],
                            annual_coverage=_annual_coverage(company_id, year),
                            ai_summary=ai_summary,
@@ -2811,6 +2868,8 @@ def company_upload_all(company_id):
         ups = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
         return render_template('company.html', company=company, uploads=ups,
+                               upload_history_rows=_upload_history_rows(
+                                   ups, company_id),
                                audit=None, error=msg, discrepancy=[],
                                annual_coverage=_annual_coverage(company_id))
 
@@ -2914,6 +2973,8 @@ def company_upload_all(company_id):
                           .order_by(Upload.uploaded_at.desc()).all()
     discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
     return render_template('company.html', company=company, uploads=uploads,
+                           upload_history_rows=_upload_history_rows(
+                               uploads, company_id),
                            audit=audit_out, error=None,
                            discrepancy=discrepancy,
                            annual_coverage=_annual_coverage(company_id))
@@ -3718,6 +3779,8 @@ def company_upload_zip(company_id):
         uploads = Upload.query.filter_by(company_id=company_id)\
                               .order_by(Upload.uploaded_at.desc()).all()
         return render_template('company.html', company=company, uploads=uploads,
+                               upload_history_rows=_upload_history_rows(
+                                   uploads, company_id),
                                audit=audit, error=error, discrepancy=[],
                                annual_coverage=_annual_coverage(company_id))
 
@@ -3816,6 +3879,8 @@ def company_upload_zip(company_id):
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
     return render_template('company.html', company=company, uploads=uploads,
+                           upload_history_rows=_upload_history_rows(
+                               uploads, company_id),
                            audit=audit_out, error=None, discrepancy=[],
                            annual_coverage=_annual_coverage(company_id))
 

@@ -1022,34 +1022,18 @@ tr:last-child td{border-bottom:0}
   <div class="card">
     <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
     {% if uploads %}
-
-    {# Сводка по комплектности #}
-    {% if completeness_summary %}
-    {% set cs = completeness_summary %}
-    <div class="comp-summary">
-      <span>Всего загрузок: <b>{{ cs.total }}</b></span>
-      <span style="color:#1a5c30">✓ Полных: <b>{{ cs.full_count }}</b></span>
-      {% if cs.partial_count > 0 %}
-      <span style="color:#7c3a00">⚠ Неполных: <b>{{ cs.partial_count }}</b></span>
-      {% endif %}
-      {% if cs.none_count > 0 %}
-      <span style="color:#7c2018">✗ Пустых: <b>{{ cs.none_count }}</b></span>
-      {% endif %}
-      <span style="color:var(--mut)">Среднее покрытие: <b>{{ cs.avg_coverage }}/{{ cs.total_required }}</b> счетов</span>
-    </div>
-    {% endif %}
-
     <table>
       <tr>
         <th>Дата загрузки</th>
         <th>Источник</th>
         <th>Период</th>
+        <th>Номер счета</th>
+        <th>Тип</th>
+        <th>Покрытие дней</th>
         <th>Файлов</th>
-        <th>Закрытие</th>
-        <th>Результат</th>
-        <th>Комплектность</th>
       </tr>
-      {% for u, comp in uploads_with_completeness %}
+      {% for row in upload_history_rows|default([]) %}
+      {% set u = row.upload %}
       <tr>
         <td>{{ u.uploaded_at.strftime('%d.%m.%Y %H:%M') }}</td>
         <td>
@@ -1060,39 +1044,10 @@ tr:last-child td{border-bottom:0}
           {% endif %}
         </td>
         <td>{{ u.period_label or '—' }}</td>
+        <td>{{ row.account_label }}</td>
+        <td>{{ row.period_type }}</td>
+        <td>{{ row.coverage_label }}</td>
         <td>{{ u.files_count }}</td>
-        <td>
-          {% if u.closure_status is none %}
-            <span class="badge badge-none">—</span>
-          {% elif u.closure_status %}
-            <span class="badge badge-ok">✓</span>
-          {% else %}
-            <span class="badge badge-bad">✗</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if u.profit_sign == 'profit' %}
-            <span class="badge badge-profit">Прибыль</span>
-          {% elif u.profit_sign == 'loss' %}
-            <span class="badge badge-loss">Убыток</span>
-          {% else %}
-            <span class="badge badge-neutral">—</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if comp %}
-            {% if comp.status == 'full' %}
-              <span class="comp-badge comp-full">✓ {{ comp.found }}/{{ comp.total }}</span>
-            {% elif comp.status == 'partial' %}
-              <span class="comp-badge comp-partial"
-                    title="Отсутствуют счета: {{ comp.missing|join(', ') }}">⚠ {{ comp.found }}/{{ comp.total }}</span>
-            {% else %}
-              <span class="comp-badge comp-none">✗ 0/{{ comp.total }}</span>
-            {% endif %}
-          {% else %}
-            <span class="comp-badge comp-na">—</span>
-          {% endif %}
-        </td>
       </tr>
       {% endfor %}
     </table>
