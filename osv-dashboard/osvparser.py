@@ -246,6 +246,7 @@ def parse_osv(path):
             break
         if s:
             dims.append(s)
+    empty_totals = None
     if acc is None:
         # A valid empty 1C report contains only its title and an "Итого" row,
         # without the usual standalone account row. Keep it as an explicit
@@ -259,6 +260,11 @@ def parse_osv(path):
         if match is None:
             raise ValueError(f'{os.path.basename(path)}: не удалось определить номер счета')
         acc = match.group(1)
+        empty_totals = next(
+            (vals for label, _, vals in raw[hdr + 1:]
+             if str(label or '').strip().startswith('Итого')),
+            None,
+        )
         data_start = len(raw)
         dims = [dim for dim in dims if not dim.startswith('Итого')]
         warnings.append(
@@ -307,6 +313,9 @@ def parse_osv(path):
         if not check_ok:
             warnings.append(f'сч.{acc}: контрольное равенство СН+Об=СК '
                             f'не сходится на {diff:,.2f}')
+    elif period and empty_totals is not None and all(
+            value == 0 for value in empty_totals):
+        check_ok = True
 
     return dict(acc=acc, period=period, dims=dims, rows=rows, daily=daily,
                 warnings=warnings, check_ok=check_ok,

@@ -15,9 +15,50 @@ os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
 
 from app import _derive_cash_daily_rows, _upsert_daily_rows, app
 from database import DailyRow, db
+import key_indicators_service as service
+from osvparser import parse_osv
 
 
 class CashDailyDerivationTests(unittest.TestCase):
+    def test_zero_cash_report_confirms_reconciliation_in_source_passport(self):
+        from openpyxl import Workbook
+
+        path = os.path.join(_TMP, 'ОСВ 51 за 01.07.2026 - 03.07.2026.xlsx')
+        book = Workbook()
+        sheet = book.active
+        sheet.append([
+            'Оборотно-сальдовая ведомость по счету 51 '
+            'за 01.07.2026 - 03.07.2026'
+        ])
+        sheet.append(['Счет'])
+        sheet.append(['Итого', 0, 0, 0, 0, 0, 0])
+        book.save(path)
+        book.close()
+
+        parsed = parse_osv(path)
+        source = service.assemble_source([path], [])
+
+        self.assertIs(parsed['check_ok'], True)
+        self.assertEqual(
+            [row['skd'] for row in _derive_cash_daily_rows(parsed)],
+            [0, 0, 0],
+        )
+        self.assertIs(source['_source_manifest'][0]['check_ok'], True)
+
+    def test_empty_report_without_period_does_not_confirm_reconciliation(self):
+        from openpyxl import Workbook
+
+        path = os.path.join(_TMP, 'ОСВ 51 без периода.xlsx')
+        book = Workbook()
+        sheet = book.active
+        sheet.append(['Оборотно-сальдовая ведомость по счету 51'])
+        sheet.append(['Счет'])
+        sheet.append(['Итого', 0, 0, 0, 0, 0, 0])
+        book.save(path)
+        book.close()
+
+        self.assertIsNone(parse_osv(path)['check_ok'])
+
     def test_preserves_movements_and_carries_verified_balance(self):
         derived = _derive_cash_daily_rows({
             'acc': '51',
