@@ -1473,18 +1473,6 @@
                 html += qHtml;
             }
             
-            if (state.data.methodology && state.data.methodology.length > 0) {
-                let mHtml = '<div class="quality-box"><div class="quality-title">Методология расчета</div>';
-                state.data.methodology.forEach(m => {
-                    mHtml += `<div style="margin-bottom:12px;">
-                        <div style="font-size:12px; font-weight:bold; margin-bottom:4px;">${esc(m.title)}</div>
-                        <div style="font-size:12px; color:#4B5563; line-height:1.4;">${esc(m.text)}</div>
-                    </div>`;
-                });
-                mHtml += '</div>';
-                html += mHtml;
-            }
-            
             container.innerHTML = html;
         },
         
