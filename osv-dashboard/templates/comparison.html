@@ -171,4 +171,6 @@ document.querySelectorAll('.chart').forEach(box=>{const data=JSON.parse(box.data
  l.points.forEach((pt,i)=>{if(Number.isFinite(pt.value)){let bounded=pt.quality==='Верхняя граница';s+=`<circle data-company="${Number(l.company_id)}" cx="${x(i)}" cy="${y(pt.value)}" r="${bounded?5:3.5}" fill="${bounded?'#fff':colors[li]}" stroke="${colors[li]}" stroke-width="${bounded?2:0}"><title>${htmlEscape(l.name)}, ${Number(pt.year)}: ${htmlEscape(pt.display)} · ${htmlEscape(pt.source)} · ${htmlEscape(pt.quality)}</title></circle>`}})});box.innerHTML=s+'</svg>';
  box.parentElement.querySelectorAll('.legend button').forEach((b,i)=>b.querySelector('i').style.background=colors[i])});
 document.querySelectorAll('.legend button').forEach(b=>b.onclick=()=>{let id=b.dataset.company,active=b.classList.toggle('active');document.querySelectorAll('[data-company]').forEach(e=>{if(e.closest('.filters'))return;e.classList.toggle('dim',active&&e.dataset.company!==id)})});
-</script></body></html>
+</script>
+<script src="{{ url_for('static', filename='upload_job_monitor.js', v='20260915-1') }}"></script>
+</body></html>

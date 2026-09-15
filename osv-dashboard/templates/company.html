@@ -1194,68 +1194,6 @@ document.getElementById('frm').addEventListener('submit',function(event){
   });
 });
 
-// --- Индикатор фонового задания ---
-(function(){
-  var params = new URLSearchParams(location.search);
-  var jobId = params.get('job');
-  if (!jobId) return;
-
-  var box = document.getElementById('job-progress');
-  box.style.cssText =
-    'display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #d3dade;' +
-    'border-radius:10px;padding:14px 18px;margin-bottom:16px;font-size:14px;';
-  box.innerHTML =
-    '<span style="display:inline-block;width:18px;height:18px;border:2px solid #d3dade;' +
-    'border-top-color:#4a9ab5;border-radius:50%;animation:_jspin .7s linear infinite;flex-shrink:0"></span>' +
-    '<span id="job-msg">Обрабатываем файлы — подождите…</span>';
-
-  if (!document.getElementById('_jspin-style')) {
-    var st = document.createElement('style');
-    st.id = '_jspin-style';
-    st.textContent = '@keyframes _jspin{to{transform:rotate(360deg)}}';
-    document.head.appendChild(st);
-  }
-
-  function poll() {
-    fetch('/company/{{ company.id }}/job/' + jobId, {
-      headers: { 'Accept': 'application/json' }
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d.status === 'processing') {
-        setTimeout(poll, 2000);
-      } else if (d.status === 'done') {
-        box.style.borderColor = '#b8dfc6';
-        box.style.background = '#eef6f0';
-        var lbl = (d.result && d.result.period_label) ? ' · ' + d.result.period_label : '';
-        box.innerHTML =
-          '<span style="color:#3a7a57;font-weight:600">✓ Готово' + lbl + '</span>' +
-          '<span style="color:#666"> — обновляем страницу…</span>';
-        params.delete('job');
-        params.set('completed_job', jobId);
-        var newUrl = location.pathname + (params.toString() ? '?' + params.toString() : '');
-        setTimeout(function(){ location.replace(newUrl); }, 1500);
-      } else if (d.status === 'error') {
-        box.style.borderColor = '#f0b8b3';
-        box.style.background = '#fdf0ee';
-        box.innerHTML =
-          '<span style="color:#c0392b;font-weight:600">✗ Ошибка:</span> ' +
-          '<span style="color:#555">' + (d.error || 'неизвестная ошибка') + '</span>';
-      } else {
-        // not_found — job expired, just reload clean
-        params.delete('job');
-        location.replace(location.pathname + (params.toString() ? '?' + params.toString() : ''));
-      }
-    })
-    .catch(function(){ setTimeout(poll, 3000); });
-  }
-
-  // Disable the upload button while job is running so user can't double-submit
-  if (go) { go.disabled = true; go.title = 'Дождитесь завершения текущей обработки'; }
-
-  setTimeout(poll, 800);
-})();
-
 // --- Состояния длительных операций годовой аналитики ---
 (function(){
   function bindHistoricalProgress(formId, buttonId, statusId, busyLabel) {
@@ -1786,5 +1724,6 @@ function handleDashClick(link, companyId) {
   return false;
 }
 </script>
+<script src="{{ url_for('static', filename='upload_job_monitor.js', v='20260915-1') }}"></script>
 </body>
 </html>

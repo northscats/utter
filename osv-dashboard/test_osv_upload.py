@@ -92,8 +92,19 @@ check('форма обновляет токен перед загрузкой',
       "cache:'no-store'" in page
       and 'form.requestSubmit()' in page
       and 'Загрузка не началась:' in page)
-check('завершённая загрузка переносит протокол на обновлённую страницу',
-      "params.set('completed_job', jobId)" in page)
+with open(os.path.join(
+        os.path.dirname(__file__), 'static', 'upload_job_monitor.js'),
+        encoding='utf-8') as stream:
+    upload_monitor = stream.read()
+check('статус загрузки сохраняется при переходе между страницами',
+      'brain4sales.activeUploadJobs' in upload_monitor
+      and 'localStorage.setItem' in upload_monitor
+      and 'setInterval(pollAll' in upload_monitor)
+check('завершение и ошибка показываются всплывающим уведомлением',
+      "data.status === 'done'" in upload_monitor
+      and "data.status === 'error'" in upload_monitor
+      and "toast('Загрузка завершена'" in upload_monitor
+      and "toast('Ошибка загрузки:" in upload_monitor)
 
 contradictory_path = os.path.join(
     _TMP, 'ОСВ 51 с противоречивым итогом.xlsx')

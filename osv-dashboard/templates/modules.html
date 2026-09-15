@@ -39,4 +39,6 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
 </div><h2>{{ module.name }}</h2><p>{{ module.description }}</p><span class="go">Открыть модуль →</span></a>
 {% endfor %}</div>{% else %}
 <div class="empty"><h2>Нет доступных модулей</h2><p>Администратор ещё не назначил вам доступ. Обратитесь к администратору системы или выйдите из учётной записи.</p><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Выйти из системы</button></form></div>
-{% endif %}{% endblock %}</main></body></html>
+{% endif %}{% endblock %}</main>
+<script src="{{ url_for('static', filename='upload_job_monitor.js', v='20260915-1') }}"></script>
+</body></html>
