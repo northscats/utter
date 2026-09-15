@@ -2192,10 +2192,67 @@ def _upload_history_rows(uploads, company_id):
     """Build useful, provenance-aware labels for the upload history table."""
     from key_indicators import _period_bounds
 
+    def _bounds(item, fallback_label=''):
+        start = end = None
+        try:
+            if item.get('report_start'):
+                start = datetime.strptime(
+                    item['report_start'], '%Y-%m-%d').date()
+            if item.get('report_end'):
+                end = datetime.strptime(
+                    item['report_end'], '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            start = end = None
+        if start is None or end is None:
+            try:
+                start, end = _period_bounds(
+                    item.get('period') or fallback_label or '')
+            except (TypeError, ValueError):
+                start, end = None, None
+        return start, end
+
+    def _period_type(start, end):
+        if start is None or end is None or end < start:
+            return '—'
+        if start == end:
+            return 'День'
+        if start.year == end.year and (
+                start.month, start.day, end.month, end.day) == (1, 1, 12, 31):
+            return 'Год'
+        return 'Месяц'
+
+    def _coverage(start, end, accounts):
+        if start is None or end is None or end < start:
+            return '—'
+        total_days = (end - start).days + 1
+        query = db.session.query(
+            func.count(func.distinct(DailyRow.date))
+        ).filter(
+            DailyRow.company_id == company_id,
+            DailyRow.date >= start,
+            DailyRow.date <= end,
+        )
+        if accounts:
+            query = query.filter(DailyRow.acc.in_(sorted(accounts)))
+        return f'{int(query.scalar() or 0)} из {total_days}'
+
     rows = []
     for upload in uploads:
         manifest = upload.source_manifest
         manifest_items = manifest if isinstance(manifest, list) else []
+        file_rows = []
+        for item in manifest_items:
+            account = str(item.get('account') or '').strip()
+            item_accounts = {account} if account else set()
+            start, end = _bounds(item)
+            relative_path = str(item.get('relative_path') or '').strip()
+            file_rows.append({
+                'filename': os.path.basename(relative_path) or 'Файл',
+                'account_label': account or '—',
+                'period_label': item.get('period') or '—',
+                'period_type': _period_type(start, end),
+                'coverage_label': _coverage(start, end, item_accounts),
+            })
 
         accounts = {
             str(item.get('account')).strip()
@@ -2209,57 +2266,29 @@ def _upload_history_rows(uploads, company_id):
                 if str(account).strip()
             )
 
-        starts = []
-        ends = []
-        for item in manifest_items:
-            try:
-                if item.get('report_start'):
-                    starts.append(datetime.strptime(
-                        item['report_start'], '%Y-%m-%d').date())
-                if item.get('report_end'):
-                    ends.append(datetime.strptime(
-                        item['report_end'], '%Y-%m-%d').date())
-            except (TypeError, ValueError):
-                continue
-
-        start = min(starts) if starts else None
-        end = max(ends) if ends else None
-        if start is None or end is None:
-            try:
-                start, end = _period_bounds(upload.period_label or '')
-            except (TypeError, ValueError):
-                start, end = None, None
-
-        period_type = '—'
-        coverage_label = '—'
-        if start is not None and end is not None and end >= start:
-            total_days = (end - start).days + 1
-            if total_days == 1:
-                period_type = 'День'
-            elif (start.month, start.day, end.month, end.day) == (1, 1, 12, 31) \
-                    and start.year == end.year:
-                period_type = 'Год'
-            else:
-                period_type = 'Месяц'
-
-            coverage_query = db.session.query(
-                func.count(func.distinct(DailyRow.date))
-            ).filter(
-                DailyRow.company_id == company_id,
-                DailyRow.date >= start,
-                DailyRow.date <= end,
-            )
-            if accounts:
-                coverage_query = coverage_query.filter(
-                    DailyRow.acc.in_(sorted(accounts)))
-            covered_days = int(coverage_query.scalar() or 0)
-            coverage_label = f'{covered_days} из {total_days}'
+        valid_starts_ends = [
+            _bounds(item) for item in manifest_items
+        ]
+        starts = [start for start, _ in valid_starts_ends if start is not None]
+        ends = [end for _, end in valid_starts_ends if end is not None]
+        if starts and ends:
+            start, end = min(starts), max(ends)
+        else:
+            start, end = _bounds({}, upload.period_label or '')
 
         rows.append({
             'upload': upload,
+            'file_rows': file_rows,
+            'file_label': (
+                file_rows[0]['filename'] if len(file_rows) == 1
+                else f'Пакет ({upload.files_count or len(file_rows)} файлов)'
+            ) if file_rows else (
+                f'Пакет ({upload.files_count} файлов)'
+                if (upload.files_count or 0) > 1 else 'Файл'
+            ),
             'account_label': ', '.join(sorted(accounts)) if accounts else '—',
-            'period_type': period_type,
-            'coverage_label': coverage_label,
+            'period_type': _period_type(start, end),
+            'coverage_label': _coverage(start, end, accounts),
         })
     return rows
 

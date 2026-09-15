@@ -1026,11 +1026,11 @@ tr:last-child td{border-bottom:0}
       <tr>
         <th>Дата загрузки</th>
         <th>Источник</th>
+        <th>Файл / пакет</th>
         <th>Период</th>
         <th>Номер счета</th>
         <th>Тип</th>
         <th>Покрытие дней</th>
-        <th>Файлов</th>
       </tr>
       {% for row in upload_history_rows|default([]) %}
       {% set u = row.upload %}
@@ -1043,11 +1043,37 @@ tr:last-child td{border-bottom:0}
             <span class="src-manual">👤 Вручную</span>
           {% endif %}
         </td>
+        <td>
+          {% if row.file_rows|length > 1 %}
+          <details class="upload-package-details">
+            <summary>{{ row.file_label }}</summary>
+            <table class="upload-package-files">
+              <tr>
+                <th>Файл</th>
+                <th>Период</th>
+                <th>Счет</th>
+                <th>Тип</th>
+                <th>Покрытие дней</th>
+              </tr>
+              {% for file in row.file_rows %}
+              <tr>
+                <td>{{ file.filename }}</td>
+                <td>{{ file.period_label }}</td>
+                <td>{{ file.account_label }}</td>
+                <td>{{ file.period_type }}</td>
+                <td>{{ file.coverage_label }}</td>
+              </tr>
+              {% endfor %}
+            </table>
+          </details>
+          {% else %}
+          {{ row.file_label }}
+          {% endif %}
+        </td>
         <td>{{ u.period_label or '—' }}</td>
         <td>{{ row.account_label }}</td>
         <td>{{ row.period_type }}</td>
         <td>{{ row.coverage_label }}</td>
-        <td>{{ u.files_count }}</td>
       </tr>
       {% endfor %}
     </table>
