@@ -4,6 +4,7 @@ This screen deliberately does not rewrite archived dashboards or rating
 snapshots. Every source revision invalidates the bounded in-process cache.
 """
 import copy
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,7 @@ from sqlalchemy import func
 from database import DailyRow, Upload, db
 from key_indicators import _period_bounds, build_indicator_source
 from osvparser import parse_osv
+from source_manifest import relative_upload_path, sha256_file
 from source_passport import (
     build_period_passport,
     build_source_passport,
@@ -63,6 +65,34 @@ def _upload_metadata(row):
     # source cache even when id/uploaded_at remain unchanged.
     accounts_json = raw_accounts if isinstance(raw_accounts, str) else json.dumps(
         raw_accounts, ensure_ascii=False, sort_keys=True)
+    raw_manifest_json = (
+        getattr(row, 'source_manifest_json', None)
+        if not isinstance(row, dict) else row.get('source_manifest_json')
+    )
+    supplied_manifest = (
+        getattr(row, 'source_manifest', None)
+        if not isinstance(row, dict) else row.get('source_manifest')
+    )
+    manifest = supplied_manifest
+    manifest_status = 'absent'
+    if raw_manifest_json not in (None, ''):
+        try:
+            decoded_manifest = json.loads(raw_manifest_json)
+        except (TypeError, ValueError):
+            decoded_manifest = None
+        if isinstance(decoded_manifest, list) and all(
+                isinstance(item, dict) for item in decoded_manifest):
+            manifest = decoded_manifest
+            manifest_status = 'valid'
+        else:
+            manifest = None
+            manifest_status = 'invalid'
+    elif isinstance(manifest, list):
+        manifest_status = (
+            'valid' if all(isinstance(item, dict) for item in manifest)
+            else 'invalid')
+    elif supplied_manifest is not None:
+        manifest_status = 'invalid'
     result = {
         'id': getattr(row, 'id', None) if not isinstance(row, dict)
         else row.get('id'),
@@ -78,8 +108,18 @@ def _upload_metadata(row):
         else row.get('dashboard_file', ''),
         'metrics_json': getattr(row, 'metrics_json', '') if not isinstance(row, dict)
         else row.get('metrics_json', ''),
+        # ``None`` is meaningful here: it distinguishes a legacy Upload from
+        # a persisted empty/invalid manifest.  The passport must never infer a
+        # file-to-upload relationship from the upload timestamp.
+        'source_manifest': manifest,
+        'source_manifest_status': manifest_status,
     }
     result['_accounts_json'] = accounts_json
+    result['_source_manifest_json'] = (
+        raw_manifest_json if raw_manifest_json is not None
+        else json.dumps(manifest, ensure_ascii=False, sort_keys=True)
+        if manifest is not None else None
+    )
     return result
 
 
@@ -103,9 +143,33 @@ def _upload_revision(metadata):
             item.get('source'),
             item.get('dashboard_file'),
             item.get('metrics_json'),
+            item.get('_source_manifest_json'),
         )
         for item in metadata
     )
+
+
+def _source_identity(relative_path, digest):
+    return hashlib.sha256(
+        f'{relative_path}\0{digest}'.encode('utf-8')).hexdigest()
+
+
+def _file_identity(path, company_upload_root):
+    """Return verifiable identity fields for an accepted source file."""
+    result = {}
+    try:
+        result['sha256'] = sha256_file(path)
+    except Exception as exc:
+        result['identity_error'] = str(exc)
+        return result
+    try:
+        relative = relative_upload_path(path, company_upload_root)
+    except Exception as exc:
+        result['identity_error'] = str(exc)
+        return result
+    result['relative_path'] = relative
+    result['source_id'] = _source_identity(relative, result['sha256'])
+    return result
 
 
 def _manifest_batch(path):
@@ -121,15 +185,30 @@ def _manifest_batch(path):
     return parent, batch.replace(tzinfo=timezone.utc)
 
 
-def monthly_files(root, company_id, accepted_before=None):
-    """Use only this company's accepted monthly directories, not staging."""
+def monthly_files(root, company_id, accepted_before=None, excluded_batches=()):
+    """Use legacy bare-timestamp monthly directories, not staging.
+
+    Persisted manifests are resolved separately by ``load_company_source``.
+    This discovery path is intentionally retained only for legacy uploads.
+    """
+    return _legacy_monthly_files(
+        root, company_id, accepted_before=accepted_before,
+        excluded_batches=excluded_batches)
+
+
+def _legacy_monthly_files(
+        root, company_id, accepted_before=None, excluded_batches=()):
+    """Discover files for uploads that predate persisted manifests."""
     directory = os.path.join(root, str(int(company_id)))
     if not os.path.isdir(directory):
         return []
+    excluded_batches = set(excluded_batches or ())
     paths = []
     for folder in sorted(os.listdir(directory)):
         if folder.startswith(('zip_', 'daily_', 'tmp_', 'stage_', 'failed_', '.')) or folder in (
                 'historical', 'tmp'):
+            continue
+        if folder in excluded_batches:
             continue
         if accepted_before is not None:
             # Current uploads are moved out of stage before their Upload record
@@ -147,6 +226,118 @@ def monthly_files(root, company_id, accepted_before=None):
             if filename.lower().endswith(('.xls', '.xlsx')):
                 paths.append(os.path.join(child, filename))
     return paths
+
+
+def _valid_manifest_relative_path(value):
+    """Validate a portable manifest path before joining it to company root."""
+    relative = str(value or "")
+    if not relative or relative.startswith("/") or "\\" in relative:
+        return False
+    if ":" in relative.split("/", 1)[0]:
+        return False
+    parts = [part for part in relative.split("/") if part not in ("", ".")]
+    return bool(parts) and ".." not in parts
+
+
+def _manifest_source_paths(uploads, company_upload_root):
+    """Resolve current files named by valid persisted manifest records.
+
+    A manifest is the acceptance-side allowlist.  We deliberately do not
+    parse a file until its current bytes match the persisted digest.  A
+    tampered file is returned as passport-only evidence instead of feeding
+    untrusted bytes into the KPI calculation.
+    """
+    paths = []
+    owned_batches = set()
+    tampered = []
+    candidates = []
+    root = os.path.realpath(company_upload_root)
+    for upload in uploads:
+        manifest = upload.get("source_manifest")
+        if not isinstance(manifest, list):
+            continue
+        manifest_status = upload.get("source_manifest_status")
+        manifest_valid = manifest_status in (None, "valid")
+        for record in manifest:
+            if not isinstance(record, dict):
+                continue
+            relative = record.get("relative_path")
+            if not _valid_manifest_relative_path(relative):
+                continue
+            relative = str(relative)
+            parts = [part for part in relative.split("/") if part not in ("", ".")]
+            if parts:
+                owned_batches.add(parts[0])
+            if not manifest_valid:
+                continue
+            digest = str(record.get("sha256") or "").lower()
+            source_id = str(record.get("source_id") or "")
+            if (
+                not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or source_id != _source_identity(relative, digest)
+                or not str(record.get("account") or "")
+            ):
+                continue
+            path = os.path.realpath(os.path.join(root, *parts))
+            if not (path == root or path.startswith(root + os.sep)):
+                continue
+            if path not in candidates:
+                candidates.append(path)
+            if not os.path.isfile(path) or not path.lower().endswith(
+                    (".xls", ".xlsx")):
+                continue
+            try:
+                actual_digest = sha256_file(path).lower()
+            except Exception:
+                continue
+            if actual_digest != digest:
+                try:
+                    actual_relative = relative_upload_path(
+                        path, company_upload_root)
+                except Exception:
+                    actual_relative = relative
+                try:
+                    stat = os.stat(path)
+                    source_updated_at = datetime.fromtimestamp(
+                        stat.st_mtime, timezone.utc).isoformat()
+                    source_size = stat.st_size
+                except OSError:
+                    source_updated_at = None
+                    source_size = None
+                tampered.append({
+                    "source_file": os.path.basename(path),
+                    "path": path,
+                    "batch": parts[0] if parts else None,
+                    "kind": "osv",
+                    "status": "tampered",
+                    "relative_path": actual_relative,
+                    "sha256": actual_digest,
+                    "source_id": _source_identity(
+                        actual_relative, actual_digest),
+                    "source_updated_at": source_updated_at,
+                    "source_size": source_size,
+                    "check_ok": None,
+                    "warnings": [
+                        "Содержимое файла не совпадает с сохранённым хешем."
+                    ],
+                })
+                continue
+            if path not in paths:
+                paths.append(path)
+    return paths, owned_batches, tampered, candidates
+
+
+def _path_signature(path):
+    """Return a cache revision for existing or currently missing files."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return path, None, None, None
+    try:
+        digest = sha256_file(path)
+    except Exception:
+        digest = None
+    return path, stat.st_mtime_ns, stat.st_size, digest
 
 
 def _covered(day, reports):
@@ -178,7 +369,7 @@ def _is_annual_analytics(path):
     )
 
 
-def assemble_source(paths, daily_rows):
+def assemble_source(paths, daily_rows, company_upload_root=None):
     """Latest report wins overlapping dates, including zero-transaction dates.
 
     Historical non-overlapping daily observations and report-boundary balance
@@ -193,6 +384,8 @@ def assemble_source(paths, daily_rows):
     for path in sorted(paths, key=lambda p: (os.stat(p).st_mtime_ns, p)):
         name = os.path.basename(path)
         batch, _batch_at = _manifest_batch(path)
+        identity = _file_identity(path, company_upload_root) \
+            if company_upload_root else {}
         if 'план' in name.lower() and 'счет' in name.lower():
             source_manifest.append({
                 'source_file': name,
@@ -200,6 +393,7 @@ def assemble_source(paths, daily_rows):
                 'batch': batch,
                 'kind': 'chart_of_accounts',
                 'status': 'excluded',
+                **identity,
             })
             continue
         try:
@@ -213,6 +407,7 @@ def assemble_source(paths, daily_rows):
                     'batch': batch,
                     'kind': 'annual_analytics',
                     'status': 'excluded',
+                    **identity,
                 })
             else:
                 failures.append(name)
@@ -222,6 +417,7 @@ def assemble_source(paths, daily_rows):
                     'batch': batch,
                     'kind': 'osv',
                     'status': 'failure',
+                    **identity,
                 })
             continue
         except Exception:
@@ -232,6 +428,7 @@ def assemble_source(paths, daily_rows):
                 'batch': batch,
                 'kind': 'osv',
                 'status': 'failure',
+                **identity,
             })
             continue
         parsed['source_file'] = name
@@ -243,6 +440,7 @@ def assemble_source(paths, daily_rows):
             'batch': batch,
             'kind': 'osv',
             'status': 'parsed',
+            **identity,
             'account': str(parsed.get('acc') or ''),
             'period': parsed.get('period', ''),
             'report_start': (
@@ -342,11 +540,41 @@ def load_company_source(company_id, uploads_root):
         for item in uploads if item.get('uploaded_at')
     ]
     accepted_before = max(upload_dates) if upload_dates else None
-    paths = monthly_files(
-        uploads_root, company_id, accepted_before=accepted_before
-    ) if uploads else []
+    # Acceptance stores manifest paths relative to the company directory
+    # (uploads/<company_id>), not relative to the shared uploads root.
+    company_upload_root = os.path.join(
+        uploads_root, str(int(company_id)))
+    (
+        manifest_paths,
+        owned_batches,
+        tampered_manifest_files,
+        manifest_candidates,
+    ) = _manifest_source_paths(uploads, company_upload_root)
+    has_legacy_uploads = any(
+        not isinstance(upload.get("source_manifest"), list)
+        and upload.get("source_manifest_status") in (None, "absent")
+        for upload in uploads
+    )
+    fallback_paths = (
+        monthly_files(
+            uploads_root,
+            company_id,
+            accepted_before=accepted_before,
+            excluded_batches=owned_batches,
+        )
+        if uploads and has_legacy_uploads else []
+    )
+    paths = list(manifest_paths)
+    for path in fallback_paths:
+        if path not in paths:
+            paths.append(path)
+    signature_paths = list(manifest_candidates)
+    for path in paths:
+        if path not in signature_paths:
+            signature_paths.append(path)
     file_signature = tuple(
-        (path, os.stat(path).st_mtime_ns, os.stat(path).st_size) for path in paths
+        _path_signature(path)
+        for path in signature_paths
     )
     daily_revision = db.session.query(
         func.count(DailyRow.id), func.max(DailyRow.id), func.max(DailyRow.uploaded_at)
@@ -369,7 +597,8 @@ def load_company_source(company_id, uploads_root):
                 return entry[1], entry[2]
         rows = DailyRow.query.filter_by(company_id=company_id).order_by(
             DailyRow.date, DailyRow.acc).all()
-        source = assemble_source(paths, rows)
+        source = assemble_source(paths, rows, company_upload_root)
+        source['_source_manifest'].extend(tampered_manifest_files)
         # assemble_source deliberately has a no-DB contract for pure tests;
         # runtime adds the immutable snapshot of Upload metadata here.
         source = enrich_source_passport(source, uploads)
@@ -388,7 +617,10 @@ def load_company_source(company_id, uploads_root):
         ]
         # File mtime is a fallback, not a fabricated refresh date.
         if not timestamps:
-            timestamps = [stat[1] / 1e9 for stat in file_signature]
+            timestamps = [
+                stat[1] / 1e9 for stat in file_signature
+                if stat[1] is not None
+            ]
         updated_at = datetime.fromtimestamp(
             max(timestamps), timezone.utc).isoformat() if timestamps else None
         with _cache_lock:

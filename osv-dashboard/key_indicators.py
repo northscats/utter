@@ -114,6 +114,32 @@ def _period_bounds(text):
                 Date(year, 6 if half == 1 else 12, 30 if half == 1 else 31))
     if re.search(r'\bгод\b|за\s+20\d{2}', text):
         return Date(year, 1, 1), Date(year, 12, 31)
+
+    # A report may cover several named months, for example
+    # ``за январь–июнь 2026 г.``.  Collect the month names in their textual
+    # order before falling back to the single-month parser below.  The
+    # ``ма`` stem also occurs inside ``март``/``марта``; prefer the longest
+    # stem at a given position so March is never mistaken for May.
+    month_hits = []
+    for stem, month in _RU_MONTH.items():
+        for match in re.finditer(re.escape(stem), text):
+            month_hits.append((match.start(), -len(stem), month))
+    month_hits.sort()
+    ordered_months = []
+    for position, _negative_length, month in month_hits:
+        if ordered_months and ordered_months[-1][0] == position:
+            continue
+        ordered_months.append((position, month))
+    if len(ordered_months) >= 2:
+        first_month = ordered_months[0][1]
+        last_month = ordered_months[-1][1]
+        if first_month > last_month:
+            first_month, last_month = last_month, first_month
+        return (
+            Date(year, first_month, 1),
+            Date(year, last_month, calendar.monthrange(year, last_month)[1]),
+        )
+
     for stem, month in _RU_MONTH.items():
         if stem in text:
             day_match = re.search(r'(?<!\d)([0-3]?\d)\s+[а-яё]*' +

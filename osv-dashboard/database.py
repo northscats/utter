@@ -457,6 +457,14 @@ class Upload(db.Model):
     # Неизменяемый снимок серверных KPI на момент загрузки. Общий рейтинг
     # никогда не читает изменяемый кэш текущего дашборда.
     metrics_json = db.Column(db.Text, default='{}')
+    # JSON-массив только принятых месячных исходных файлов.  Старые записи
+    # остаются NULL: связь с историческими каталогами задним числом не
+    # угадывается и не создаётся миграцией.
+    # New ORM-created uploads explicitly describe an empty accepted-source set
+    # as [] so it cannot be confused with historical NULL rows.  The additive
+    # migration intentionally adds this nullable column without a SQL default,
+    # leaving existing rows untouched.
+    source_manifest_json = db.Column(db.Text, nullable=True, default='[]')
 
     @property
     def accounts_list(self):
@@ -472,6 +480,17 @@ class Upload(db.Model):
             return value if isinstance(value, dict) else {}
         except (TypeError, ValueError):
             return {}
+
+    @property
+    def source_manifest(self):
+        """Return the accepted-file manifest, preserving NULL for old rows."""
+        if self.source_manifest_json in (None, ''):
+            return None
+        try:
+            value = json.loads(self.source_manifest_json)
+            return value if isinstance(value, list) else None
+        except (TypeError, ValueError):
+            return None
 
 class RatingProfile(db.Model):
     """Именованный пользовательский профиль общего рейтинга."""

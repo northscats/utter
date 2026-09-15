@@ -26,30 +26,16 @@ The public contract has two layers:
 
 from __future__ import annotations
 
-import calendar
 import copy
+import hashlib
 import heapq
 import json
+import os
 import re
 from datetime import date, datetime, timedelta, timezone
 
+from key_indicators import _period_bounds
 
-_PERIOD_DATE = re.compile(r"(?<!\d)(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)")
-_PERIOD_DMY = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})[./](20\d{2})(?!\d)")
-_RU_MONTHS = {
-    "январ": 1,
-    "феврал": 2,
-    "март": 3,
-    "апрел": 4,
-    "ма": 5,
-    "июн": 6,
-    "июл": 7,
-    "август": 8,
-    "сентябр": 9,
-    "октябр": 10,
-    "ноябр": 11,
-    "декабр": 12,
-}
 
 _CARD_ACCOUNTS = {
     "cash": ("50", "51", "52", "55"),
@@ -64,6 +50,28 @@ _CARD_ACCOUNTS = {
     "capex": ("08",),
 }
 _MAX_FINDING_FILES = 8
+
+
+def _source_identity(relative_path, digest):
+    """Return the deterministic identity used by accepted source manifests."""
+    return hashlib.sha256(
+        f"{relative_path}\0{digest}".encode("utf-8")).hexdigest()
+
+
+def _valid_relative_path(value):
+    """Validate the portable path stored by the acceptance-side manifest."""
+    text = _text(value).replace("\\", "/")
+    if not text or text.startswith("/") or ":" in text.split("/", 1)[0]:
+        return False
+    parts = [part for part in text.split("/") if part not in ("", ".")]
+    return bool(parts) and ".." not in parts
+
+
+def _manifest_records(upload):
+    value = upload.get("source_manifest")
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _mapping(value):
@@ -115,67 +123,6 @@ def _number(value):
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
-
-
-def _period_bounds(text):
-    """Conservatively parse a report label into actual calendar boundaries.
-
-    This intentionally mirrors the source parser's supported labels rather
-    than guessing from the upload timestamp.  An unparseable label remains an
-    explicit discrepancy in the passport.
-    """
-
-    text = _text(text).lower()
-    explicit = []
-    for year, month, day in _PERIOD_DATE.findall(text):
-        try:
-            explicit.append(date(int(year), int(month), int(day)))
-        except ValueError:
-            return None, None
-    if len(explicit) >= 2:
-        return min(explicit), max(explicit)
-    dmy = []
-    for day, month, year in _PERIOD_DMY.findall(text):
-        try:
-            dmy.append(date(int(year), int(month), int(day)))
-        except ValueError:
-            return None, None
-    if len(dmy) >= 2:
-        return min(dmy), max(dmy)
-
-    years = [int(item) for item in re.findall(r"(?<!\d)(20\d{2})(?!\d)", text)]
-    if not years:
-        return None, None
-    year = years[-1]
-    quarter = re.search(r"([1-4])\s*квартал", text)
-    if quarter:
-        value = int(quarter.group(1))
-        month = 3 * value - 2
-        return date(year, month, 1), date(
-            year, month + 2, calendar.monthrange(year, month + 2)[1])
-    if "полугод" in text:
-        second = bool(re.search(r"(?:2|ii|втор\w*)\s*(?:-е\s+)?полугод", text))
-        month = 7 if second else 1
-        end_month = 12 if second else 6
-        return date(year, month, 1), date(
-            year, end_month, calendar.monthrange(year, end_month)[1])
-    if re.search(r"\bгод\b|за\s+20\d{2}", text):
-        return date(year, 1, 1), date(year, 12, 31)
-    for stem, month in _RU_MONTHS.items():
-        if stem not in text:
-            continue
-        exact = re.search(
-            rf"(?<!\d)([0-3]?\d)\s+[а-яё]*{re.escape(stem)}[а-яё]*\s+{year}",
-            text)
-        if exact:
-            try:
-                point = date(year, month, int(exact.group(1)))
-            except ValueError:
-                return None, None
-            return point, point
-        return date(year, month, 1), date(
-            year, month, calendar.monthrange(year, month)[1])
-    return None, None
 
 
 def _period_from_values(value, start=None, end=None):
@@ -304,6 +251,36 @@ def _upload_record(row):
     accounts, accounts_valid = _serialise_accounts_loaded(row)
     uploaded_at = _iso_datetime(_upload_value(row, "uploaded_at"))
     metrics_raw = _upload_value(row, "metrics_json", "")
+    manifest_marker = object()
+    manifest = _upload_value(row, "source_manifest", manifest_marker)
+    raw_manifest_json = _upload_value(
+        row, "source_manifest_json", manifest_marker)
+    manifest_parse_invalid = False
+    if manifest is manifest_marker and raw_manifest_json is not manifest_marker:
+        if raw_manifest_json in (None, ""):
+            manifest = None
+        else:
+            try:
+                manifest = json.loads(raw_manifest_json)
+            except (TypeError, ValueError):
+                manifest = None
+                manifest_parse_invalid = True
+            if manifest is not None and not isinstance(manifest, list):
+                manifest = None
+                manifest_parse_invalid = True
+    if manifest is manifest_marker:
+        manifest = None
+    status = _upload_value(row, "source_manifest_status")
+    if status is None:
+        status = (
+            "invalid" if manifest_parse_invalid
+            else "absent" if manifest is None
+            else "valid" if isinstance(manifest, list) and all(
+                isinstance(item, dict) for item in manifest)
+            else "invalid"
+        )
+    if not isinstance(manifest, list):
+        manifest = None
     return {
         "id": _upload_value(row, "id"),
         "uploaded_at": uploaded_at.isoformat() if uploaded_at else None,
@@ -313,7 +290,15 @@ def _upload_record(row):
         "files_count": _upload_value(row, "files_count"),
         "source": _text(_upload_value(row, "source", "")),
         "dashboard_file": _text(_upload_value(row, "dashboard_file", "")),
+        "source_manifest": copy.deepcopy(manifest),
+        "source_manifest_status": _text(status) or "absent",
+        "source_manifest_valid": status == "valid",
         "_metrics_json": _text(metrics_raw),
+        "_source_manifest_json": (
+            raw_manifest_json if raw_manifest_json is not manifest_marker
+            else json.dumps(manifest, ensure_ascii=False, sort_keys=True)
+            if manifest is not None else None
+        ),
     }
 
 
@@ -380,9 +365,15 @@ def _source_file_record(item):
         "source_updated_at": _text(item.get("source_updated_at")) or None,
         "source_size": item.get("source_size"),
         "batch": _text(item.get("batch")) or None,
+        "relative_path": _text(item.get("relative_path")) or None,
+        "sha256": _text(item.get("sha256")) or None,
+        "source_id": _text(item.get("source_id")) or None,
         "upload_id": item.get("upload_id"),
+        "association_expected_upload_id": item.get(
+            "association_expected_upload_id"),
         "association_status": _text(item.get("association_status")) or None,
         "association_candidates": item.get("association_candidates"),
+        "association_mismatches": item.get("association_mismatches"),
         "check_ok": item.get("check_ok"),
         "warnings": [_text(value) for value in item.get("warnings", [])],
     }
@@ -390,51 +381,178 @@ def _source_file_record(item):
 
 
 def _associate_files(files, uploads):
-    """Attach files only with explicit or exact batch identity.
+    """Attach files only through the persisted source manifest.
 
-    There is no safe basis for assigning a file to the nearest Upload row:
-    users may upload several periods within a week.  A path carrying the
-    accepted ``YYYYmmdd_HHMMSS`` batch marker is matched only to an Upload
-    timestamp at that exact second.  Otherwise the file is explicitly
-    unmatched/ambiguous and must not influence metadata discrepancy claims.
+    Upload timestamps and the ``YYYYmmdd_HHMMSS`` directory name are useful
+    display metadata, but neither proves ownership of a file.  A file is
+    considered linked only when its source id, relative path and SHA-256 all
+    agree with one persisted manifest record.  A path/hash/account/period
+    disagreement remains visible as ``mismatch`` and is never downgraded to
+    a guessed association.
     """
 
-    by_id = {
-        _text(row.get("id")): row for row in uploads
-        if row.get("id") is not None
-    }
-    upload_times = []
-    for row in uploads:
-        parsed = _iso_datetime(row.get("uploaded_at"))
-        if parsed:
-            upload_times.append((parsed.replace(microsecond=0), row))
+    manifest_entries = []
+    by_source_id = {}
+    by_path = {}
+    duplicate_ids = set()
+    manifest_declared = any(
+        isinstance(upload.get("source_manifest"), list)
+        for upload in uploads
+    )
+    for upload in uploads:
+        upload_id = upload.get("id")
+        for manifest in _manifest_records(upload):
+            entry = copy.deepcopy(manifest)
+            entry["_upload_id"] = upload_id
+            entry["_manifest_valid"] = True
+            relative_path = _text(entry.get("relative_path"))
+            digest = _text(entry.get("sha256")).lower()
+            source_id = _text(entry.get("source_id"))
+            if not _valid_relative_path(relative_path):
+                entry["_manifest_valid"] = False
+                entry.setdefault("_manifest_errors", []).append("relative_path")
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                entry["_manifest_valid"] = False
+                entry.setdefault("_manifest_errors", []).append("sha256")
+            elif source_id != _source_identity(relative_path, digest):
+                entry["_manifest_valid"] = False
+                entry.setdefault("_manifest_errors", []).append("source_id")
+            if not _text(entry.get("account")):
+                entry["_manifest_valid"] = False
+                entry.setdefault("_manifest_errors", []).append("account")
+            if "period" not in entry:
+                entry["_manifest_valid"] = False
+                entry.setdefault("_manifest_errors", []).append("period")
+            if not source_id:
+                entry["_manifest_valid"] = False
+            if not entry["_manifest_valid"]:
+                upload.setdefault("_manifest_invalid_records", []).append(entry)
+            manifest_entries.append(entry)
+            if source_id:
+                if source_id in by_source_id:
+                    duplicate_ids.add(source_id)
+                by_source_id.setdefault(source_id, []).append(entry)
+            if relative_path:
+                by_path.setdefault(relative_path, []).append(entry)
+
     for item in files:
-        if not uploads:
-            item["association_status"] = "not_requested"
+        item.setdefault("association_mismatches", [])
+        if item.get("kind") != "osv":
+            # The persisted monthly manifest intentionally excludes chart-of-
+            # accounts and annual analytical workbooks.
+            item["upload_id"] = None
+            item["association_status"] = "not_applicable"
             continue
-        if item.get("upload_id") is not None and _text(item["upload_id"]) in by_id:
-            item["upload_id"] = by_id[_text(item["upload_id"])].get("id")
-            item["association_status"] = "explicit"
+        if item.get("is_manifest_placeholder"):
+            item["upload_id"] = item.get("_expected_upload_id")
+            item["association_status"] = "manifest_missing"
             continue
-        batch = item.get("batch_at")
-        if isinstance(batch, datetime):
-            batch = batch.replace(microsecond=0)
-            candidates = [
-                row for uploaded, row in upload_times
-                if uploaded == batch
-            ]
-            if len(candidates) == 1:
-                item["upload_id"] = candidates[0].get("id")
-                item["association_status"] = "exact_batch"
-                continue
-            if len(candidates) > 1:
+        if not manifest_entries:
+            item["upload_id"] = None
+            item["association_status"] = (
+                "unmatched" if manifest_declared else (
+                    "legacy_unlinked" if uploads else "unlinked"))
+            continue
+
+        source_id = _text(item.get("source_id"))
+        relative_path = _text(item.get("relative_path"))
+        digest = _text(item.get("sha256")).lower()
+        exact = [
+            entry for entry in by_source_id.get(source_id, [])
+            if entry.get("_manifest_valid")
+            and entry.get("relative_path") == relative_path
+            and _text(entry.get("sha256")).lower() == digest
+        ]
+        related = exact or by_path.get(relative_path, []) or (
+            by_source_id.get(source_id, []) if source_id else [])
+        if len(exact) == 1:
+            entry = exact[0]
+            expected_account = _text(entry.get("account"))
+            actual_account = _text(item.get("account"))
+            expected_period = _period_record(entry)
+            actual_period = _period_record(item)
+            mismatches = []
+            if expected_account and expected_account != actual_account:
+                mismatches.append({
+                    "field": "account",
+                    "expected": expected_account,
+                    "actual": actual_account or None,
+                })
+            if expected_period["period"] and (
+                    expected_period["period"] != actual_period["period"]):
+                mismatches.append({
+                    "field": "period",
+                    "expected": expected_period["period"],
+                    "actual": actual_period["period"],
+                })
+            for field in ("start", "end"):
+                expected = expected_period[field]
+                actual = actual_period[field]
+                if expected and expected != actual:
+                    mismatches.append({
+                        "field": "report_" + field,
+                        "expected": expected,
+                        "actual": actual,
+                    })
+            if mismatches:
                 item["upload_id"] = None
-                item["association_status"] = "ambiguous"
-                item["association_candidates"] = [
-                    row.get("id") for row in candidates]
-                continue
+                item["association_expected_upload_id"] = entry.get("_upload_id")
+                item["association_candidates"] = [entry.get("_upload_id")]
+                item["association_status"] = "mismatch"
+                item["association_mismatches"] = mismatches
+            else:
+                item["upload_id"] = entry.get("_upload_id")
+                item["association_status"] = "explicit"
+            entry["_matched"] = True
+            continue
+
         item["upload_id"] = None
-        item["association_status"] = "unmatched"
+        if len(related) > 1:
+            item["association_status"] = "ambiguous"
+            item["association_candidates"] = [
+                entry.get("_upload_id") for entry in related]
+        elif related:
+            entry = related[0]
+            item["upload_id"] = None
+            item["association_expected_upload_id"] = entry.get("_upload_id")
+            item["association_candidates"] = [entry.get("_upload_id")]
+            item["association_status"] = "mismatch"
+            mismatches = []
+            if entry.get("relative_path") != relative_path:
+                mismatches.append({
+                    "field": "relative_path",
+                    "expected": entry.get("relative_path"),
+                    "actual": relative_path or None,
+                })
+            if _text(entry.get("sha256")).lower() != digest:
+                mismatches.append({
+                    "field": "sha256",
+                    "expected": entry.get("sha256"),
+                    "actual": digest or None,
+                })
+            if _text(entry.get("source_id")) != source_id:
+                mismatches.append({
+                    "field": "source_id",
+                    "expected": entry.get("source_id"),
+                    "actual": source_id or None,
+                })
+            item["association_mismatches"] = mismatches or [{
+                "field": "manifest",
+                "expected": "exact source identity",
+                "actual": "different source identity",
+            }]
+            entry["_matched"] = True
+        else:
+            item["association_status"] = "unmatched"
+
+    # Keep this internal index available to discrepancy generation without
+    # exposing implementation details in the JSON response.
+    for upload in uploads:
+        upload["_manifest_entries"] = [
+            entry for entry in manifest_entries
+            if entry.get("_upload_id") == upload.get("id")
+        ]
+        upload["_manifest_duplicate_ids"] = sorted(duplicate_ids)
 
 
 def _balance_entry(date_value, debit, credit, source_file, kind):
@@ -452,7 +570,7 @@ def _account_passport(account, raw, account_files):
     raw = _mapping(raw)
     periods = []
     for item in account_files:
-        if item.get("kind") != "osv":
+        if item.get("kind") != "osv" or item.get("status") != "parsed":
             continue
         periods.append(_period_record(item, item.get("source_file")))
     for item in raw.get("coverage") or []:
@@ -624,7 +742,7 @@ def _account_passport(account, raw, account_files):
         "files": [
             _source_file_record(item)
             for item in account_files
-            if item.get("kind") == "osv"
+            if item.get("kind") == "osv" and item.get("status") == "parsed"
         ],
         "duplicates": [],
         "overlaps": [],
@@ -643,42 +761,166 @@ def _metadata_discrepancies(uploads, files):
                 "candidates": item.get("association_candidates") or [],
                 "message": (
                     "Файл нельзя надёжно связать с одной записью загрузки: "
-                    "совпало несколько точных batch-времён."),
+                    "несколько записей содержат подходящий источник."),
             })
         elif association_status == "unmatched" and uploads:
             discrepancies.append({
                 "type": "file_upload_association_unmatched",
                 "source_file": _text(item.get("source_file") or item.get("file")),
                 "message": (
-                    "Файл parsed, но точная запись загрузки не установлена; "
-                    "сверка её metadata не выполняется."),
+                    "Файл разобран, но в сохранённом манифесте источников нет "
+                    "точной связи с записью загрузки; проверка её метаданных "
+                    "не выполняется."),
+            })
+        elif association_status == "unlinked":
+            discrepancies.append({
+                "type": "file_upload_link_missing",
+                "source_file": _text(item.get("source_file") or item.get("file")),
+                "message": (
+                    "Для файла нет сохранённого манифеста источников и записи "
+                    "загрузки; принадлежность не установлена."),
+            })
+        elif association_status == "legacy_unlinked":
+            discrepancies.append({
+                "type": "file_upload_link_missing",
+                "source_file": _text(item.get("source_file") or item.get("file")),
+                "message": (
+                    "Для старой записи нет сохранённого манифеста источников; "
+                    "принадлежность файла загрузке не установлена. "
+                    "Близость дат не использовалась."),
+            })
+        elif association_status == "mismatch":
+            discrepancies.append({
+                "type": "source_manifest_mismatch",
+                "source_file": _text(item.get("source_file") or item.get("file")),
+                "upload_id": item.get(
+                    "association_expected_upload_id", item.get("upload_id")),
+                "fields": copy.deepcopy(item.get("association_mismatches") or []),
+                "message": (
+                    "Файл найден, но сохранённый манифест источников не "
+                    "подтверждает его "
+                    "идентичность: проверка пути, хеша, счёта или периода "
+                    "не прошла."),
+            })
+        elif association_status == "manifest_missing":
+            discrepancies.append({
+                "type": "source_manifest_file_missing",
+                "source_file": _text(item.get("source_file") or item.get("file")),
+                "upload_id": item.get("upload_id"),
+                "relative_path": item.get("relative_path"),
+                "message": (
+                    "Сохранённый манифест источников ссылается на принятый файл, "
+                    "но текущий файл не найден по сохранённому пути и хешу."),
             })
     for upload in uploads:
         upload_id = upload.get("id")
+        manifest_status = upload.get("source_manifest_status", "absent")
+        manifest = _manifest_records(upload)
+        if manifest_status == "invalid":
+            discrepancies.append({
+                "type": "invalid_source_manifest",
+                "upload_id": upload_id,
+                "message": (
+                    "Сохранённый манифест источников имеет неверный формат; "
+                    "связь с файлами не подтверждена."),
+            })
+        seen_ids = {}
+        for entry in manifest:
+            source_id = _text(entry.get("source_id"))
+            seen_ids.setdefault(source_id, []).append(entry)
+            errors = []
+            relative_path = _text(entry.get("relative_path"))
+            digest = _text(entry.get("sha256")).lower()
+            if not _valid_relative_path(relative_path):
+                errors.append("relative_path")
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
+                errors.append("sha256")
+            elif source_id != _source_identity(relative_path, digest):
+                errors.append("source_id")
+            if not _text(entry.get("account")):
+                errors.append("account")
+            if "period" not in entry:
+                errors.append("period")
+            if errors:
+                discrepancies.append({
+                    "type": "invalid_source_manifest_record",
+                    "upload_id": upload_id,
+                    "source_id": source_id or None,
+                    "fields": errors,
+                    "message": (
+                        "Запись в манифесте источников не прошла проверку "
+                        "идентичности."),
+                })
+        for source_id, records in seen_ids.items():
+            if source_id and len(records) > 1:
+                discrepancies.append({
+                    "type": "duplicate_source_id",
+                    "upload_id": upload_id,
+                    "source_id": source_id,
+                    "message": (
+                        "В манифесте источников повторяется идентификатор "
+                        "файла."),
+                })
         linked = [
             item for item in files
             if upload_id is not None and item.get("upload_id") == upload_id
+            and item.get("association_status") == "explicit"
         ]
         actual_accounts = sorted({
             _text(item.get("account"))
             for item in linked
-            if item.get("kind") == "osv" and item.get("account")
+            if item.get("kind") == "osv" and item.get("status") == "parsed"
+            and item.get("account")
         })
         declared_accounts = sorted(set(upload.get("accounts_loaded") or []))
         if not upload.get("accounts_loaded_valid", True):
             discrepancies.append({
                 "type": "invalid_accounts_loaded",
                 "upload_id": upload_id,
-                "message": "Метаданные accounts_loaded имеют неверный JSON.",
+                "message": "Метаданные загруженных счетов имеют неверный формат.",
             })
-        if not linked:
+        if not linked and not manifest and manifest_status == "absent":
             discrepancies.append({
                 "type": "upload_without_reliably_matched_files",
                 "upload_id": upload_id,
                 "message": (
-                    "Для записи загрузки не найдено файлов с надёжной exact "
-                    "batch-связью; metadata не считается доказательством parsed ОСВ."),
+                    "Для записи загрузки нет сохранённого манифеста источников; "
+                    "метаданные не считаются доказательством разобранной ОСВ."),
             })
+        elif manifest:
+            matched_entries = {
+                (
+                    _text(item.get("source_id")),
+                    _text(item.get("relative_path")),
+                    _text(item.get("sha256")).lower(),
+                )
+                for item in files
+                if (
+                    item.get("upload_id") == upload_id
+                    or item.get("association_expected_upload_id") == upload_id
+                )
+                and item.get("association_status") in (
+                    "explicit", "mismatch", "manifest_missing")
+            }
+            for entry in manifest:
+                identity = (
+                    _text(entry.get("source_id")),
+                    _text(entry.get("relative_path")),
+                    _text(entry.get("sha256")).lower(),
+                )
+                if identity not in matched_entries:
+                    discrepancies.append({
+                        "type": "source_manifest_file_missing",
+                        "upload_id": upload_id,
+                        "source_id": entry.get("source_id"),
+                        "relative_path": entry.get("relative_path"),
+                        "message": (
+                            "Принятый файл из манифеста источников не найден среди "
+                            "прочитанных файлов."),
+                    })
+        if not linked:
+            # No trustworthy account/period evidence exists for this Upload.
+            # In particular, do not compare its metadata to a guessed source.
             continue
         missing = sorted(set(declared_accounts) - set(actual_accounts))
         additional = sorted(set(actual_accounts) - set(declared_accounts))
@@ -687,14 +929,18 @@ def _metadata_discrepancies(uploads, files):
                 "type": "metadata_accounts_missing_in_source",
                 "upload_id": upload_id,
                 "accounts": missing,
-                "message": "Счета заявлены в accounts_loaded, но не найдены в parsed ОСВ.",
+                "message": (
+                    "Счета заявлены в метаданных загрузки, но не найдены в "
+                    "разобранной ОСВ."),
             })
         if additional:
             discrepancies.append({
                 "type": "source_accounts_missing_in_metadata",
                 "upload_id": upload_id,
                 "accounts": additional,
-                "message": "В parsed ОСВ есть счета, которых нет в accounts_loaded.",
+                "message": (
+                    "В разобранной ОСВ есть счета, которых нет в метаданных "
+                    "загрузки."),
             })
 
         files_count = upload.get("files_count")
@@ -710,7 +956,8 @@ def _metadata_discrepancies(uploads, files):
                     "declared": expected,
                     "parsed": len(linked),
                     "message": (
-                        "files_count не совпадает с количеством принятых файлов ОСВ; "
+                        "Количество файлов не совпадает с количеством принятых "
+                        "файлов ОСВ; "
                         "ZIP и план счетов могут быть записаны как отдельные файлы."),
                 })
 
@@ -720,7 +967,8 @@ def _metadata_discrepancies(uploads, files):
                 _iso_date(item.get("period_start") or item.get("report_start")),
                 _iso_date(item.get("period_end") or item.get("report_end")),
             )
-            for item in linked if item.get("kind") == "osv"
+            for item in linked
+            if item.get("kind") == "osv" and item.get("status") == "parsed"
         ]
         actual_intervals = [(start, end) for start, end in actual_intervals
                             if start and end]
@@ -747,8 +995,8 @@ def _metadata_discrepancies(uploads, files):
                         "end": actual_end.isoformat(),
                     },
                     "message": (
-                        "period_label не совпадает с фактическими границами "
-                        "периода parsed ОСВ."),
+                        "Метка периода загрузки не совпадает с фактическими "
+                        "границами периода разобранной ОСВ."),
                 })
     return discrepancies
 
@@ -778,7 +1026,7 @@ def _account_overlap_findings(account, account_files):
 
     groups = {}
     for item in account_files:
-        if item.get("kind") != "osv":
+        if item.get("kind") != "osv" or item.get("status") != "parsed":
             continue
         start, end = _period_from_values(
             item.get("period"), item.get("period_start"), item.get("period_end"))
@@ -903,6 +1151,46 @@ def build_source_passport(source, uploads=()):
                     "check_ok": raw.get("check_ok"),
                 })
 
+    # A persisted manifest is also evidence that a particular accepted file
+    # was expected.  If the current source walk cannot find that exact
+    # identity, retain a non-calculating row so the UI can explain the
+    # missing file rather than silently dropping it.
+    actual_identities = {
+        (
+            _text(item.get("source_id")),
+            _text(item.get("relative_path")),
+            _text(item.get("sha256")).lower(),
+        )
+        for item in files
+    }
+    for upload in upload_records:
+        for manifest in _manifest_records(upload):
+            relative_path = _text(manifest.get("relative_path"))
+            digest = _text(manifest.get("sha256")).lower()
+            identity = (
+                _text(manifest.get("source_id")),
+                relative_path,
+                digest,
+            )
+            if identity in actual_identities:
+                continue
+            period = _period_record(manifest)
+            files.append({
+                "source_file": os.path.basename(relative_path) or relative_path,
+                "relative_path": relative_path or None,
+                "sha256": digest or None,
+                "source_id": _text(manifest.get("source_id")) or None,
+                "kind": "osv",
+                "status": "missing",
+                "account": _text(manifest.get("account")) or None,
+                "period": period["period"],
+                "report_start": period["start"],
+                "report_end": period["end"],
+                "upload_id": upload.get("id"),
+                "_expected_upload_id": upload.get("id"),
+                "is_manifest_placeholder": True,
+            })
+
     # If a caller supplies only a manually built source snapshot, the account
     # list is still useful.  File-level duplicate evidence is available when
     # the service's manifest is present.
@@ -923,6 +1211,8 @@ def build_source_passport(source, uploads=()):
     files_by_account = {}
     for item in files:
         if item.get("kind") == "osv" and item.get("account"):
+            if item.get("status") != "parsed":
+                continue
             files_by_account.setdefault(_text(item["account"]), []).append(item)
     for account, account_files in sorted(files_by_account.items()):
         account_duplicates, account_overlaps = _account_overlap_findings(
@@ -1267,7 +1557,7 @@ def build_period_passport(source, payload):
         reason = card.get("reason")
         if not reason and card.get("value") is None:
             reason = (
-                "Счета не найдены в parsed ОСВ: " + ", ".join(missing)
+                "Счета не найдены в разобранной ОСВ: " + ", ".join(missing)
                 if missing else "Для карточки нет достаточных фактов на выбранный период.")
         cards.append({
             "id": card_id,

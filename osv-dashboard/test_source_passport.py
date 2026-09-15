@@ -5,6 +5,7 @@ Every source and Upload value is an in-memory fixture.
 """
 
 import copy
+import hashlib
 import json
 import unittest
 
@@ -46,6 +47,23 @@ def _report(period, source_file, amount, dates, top=None):
         "warnings": [],
         "check_ok": True,
     }
+
+
+def _manifest_record(relative_path, digest, account, period,
+                     report_start=None, report_end=None):
+    record = {
+        "source_id": hashlib.sha256(
+            f"{relative_path}\0{digest}".encode("utf-8")).hexdigest(),
+        "relative_path": relative_path,
+        "sha256": digest,
+        "account": account,
+        "period": period,
+    }
+    if report_start is not None:
+        record["report_start"] = report_start
+    if report_end is not None:
+        record["report_end"] = report_end
+    return record
 
 
 class SourcePassportTests(unittest.TestCase):
@@ -90,7 +108,6 @@ class SourcePassportTests(unittest.TestCase):
                 "report_start": "2026-01-01",
                 "report_end": "2026-01-31",
                 "daily_dates": ["2026-01-01", "2026-01-02"],
-                "upload_id": 7,
             }],
         )
         passport = build_source_passport(source, [{
@@ -107,10 +124,17 @@ class SourcePassportTests(unittest.TestCase):
             {"start": "2026-01-01", "end": "2026-01-31"},
         )
         self.assertEqual(passport["available_accounts"], ["51"])
-        self.assertFalse(passport["metadata_discrepancies"])
+        types = {item["type"] for item in passport["metadata_discrepancies"]}
+        self.assertIn("file_upload_link_missing", types)
+        self.assertIn("upload_without_reliably_matched_files", types)
         json.dumps(passport, ensure_ascii=False)
 
     def test_metadata_is_compared_with_parsed_files_not_used_as_source(self):
+        relative_path = "20260201_000000/actual.xls"
+        digest = "a" * 64
+        manifest_record = _manifest_record(
+            relative_path, digest, "51", "Январь 2026",
+            "2026-01-01", "2026-01-31")
         source = self.source(
             [_report("Январь 2026", "actual.xls", 10, ["2026-01-01"])],
             [{
@@ -121,7 +145,9 @@ class SourcePassportTests(unittest.TestCase):
                 "period": "Январь 2026",
                 "report_start": "2026-01-01",
                 "report_end": "2026-01-31",
-                "upload_id": 8,
+                "relative_path": relative_path,
+                "sha256": digest,
+                "source_id": manifest_record["source_id"],
             }],
         )
         passport = build_source_passport(source, [{
@@ -130,6 +156,8 @@ class SourcePassportTests(unittest.TestCase):
             "period_label": "Февраль 2026",
             "accounts_loaded": '["20", "51"]',
             "files_count": 9,
+            "source_manifest": [manifest_record],
+            "source_manifest_status": "valid",
         }])
 
         self.assertEqual(passport["available_accounts"], ["51"])
@@ -323,10 +351,10 @@ class SourcePassportTests(unittest.TestCase):
             "files_count": 1,
         }])
         file = passport["files"][0]
-        self.assertEqual(file["association_status"], "unmatched")
+        self.assertEqual(file["association_status"], "legacy_unlinked")
         self.assertIsNone(file.get("upload_id"))
         self.assertIn(
-            "file_upload_association_unmatched",
+            "file_upload_link_missing",
             {item["type"] for item in passport["metadata_discrepancies"]},
         )
         self.assertIn(

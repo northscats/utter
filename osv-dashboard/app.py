@@ -56,6 +56,7 @@ from company_creation import resolve_existing_company, serialized_company_creati
 from module_registry import (module_key_for_path, registered_modules,
                              valid_module_keys)
 from osvparser import extract_org_name, parse_many, parse_zip
+from source_manifest import accepted_parsed_files, build_manifest, dump_manifest
 from builder import build_dataset
 from dashboard_compat import (json_for_script,
                                upgrade_legacy_salary_daily_labels,
@@ -533,6 +534,17 @@ def _save_kpi_cache(dataset, out_dir):
 def _dataset_metrics_json(dataset):
     from builder import extract_kpis
     return json.dumps(extract_kpis(dataset)['metrics'], ensure_ascii=False)
+
+def _accepted_monthly_files(paths, parsed_data, audit):
+    """Return ``(path, parsed)`` only for files accepted by ``parse_many``.
+
+    ``parse_many`` deliberately keeps only the first file for a duplicate
+    account and reports parser failures/plans in its audit.  The persisted
+    source manifest must follow that acceptance decision exactly; in
+    particular, a file that merely exists on disk must not become provenance
+    evidence.
+    """
+    return accepted_parsed_files(paths, parsed_data, audit)
 _PASSWORD_HASH_PREFIX = 'bcrypt-sha256$1$'
 
 
@@ -737,7 +749,15 @@ def _upsert_daily_rows(company_id, paths):
 
 def _process_files(paths, company_id, ts, back_url, company_name=''):
     """Парсит файлы, строит дашборд, возвращает (upload_record_kwargs, audit)."""
-    data, audit = parse_many(paths)
+    # Суточные XLS хранятся рядом с месячными, но не являются входом
+    # parse_many.  Передача полного списка здесь особенно опасна для первого
+    # импорта предприятия: audit тогда ссылается на месячные файлы, которых
+    # нет в списке манифеста (или, наоборот, на суточный файл).
+    monthly_paths = [path for path in paths if not _is_daily_xls(path)]
+    if not monthly_paths:
+        return None, []
+
+    data, audit = parse_many(monthly_paths)
     if not data:
         return None, audit
 
@@ -778,6 +798,8 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
         profit_sign=profit_sign,
         files_count=len(paths),
         metrics_json=_dataset_metrics_json(dataset),
+        source_manifest_json=_monthly_manifest_json(
+            monthly_paths, data, audit, company_id),
     )
     return record_kwargs, audit
 
@@ -892,6 +914,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                 os.makedirs(msg_tmp, exist_ok=True)
 
                 attached_paths = []
+                attached_names = set()
                 for part in msg.walk():
                     fname_raw = part.get_filename()
                     if not fname_raw:
@@ -903,7 +926,8 @@ def _do_imap_sync(uploader_id: int) -> dict:
                     payload = part.get_payload(decode=True)
                     if not payload:
                         continue
-                    dest = os.path.join(msg_tmp, fname)
+                    safe_name = _unique_attachment_name(fname, attached_names)
+                    dest = os.path.join(msg_tmp, safe_name)
                     with open(dest, 'wb') as fh:
                         fh.write(payload)
                     attached_paths.append(dest)
@@ -916,7 +940,12 @@ def _do_imap_sync(uploader_id: int) -> dict:
                 company_id = matched_company_id
                 for path in attached_paths:
                     ext = os.path.splitext(path)[1].lower()
+                    attachment_output_snapshot = {}
+                    attachment_batch_dirs = []
+                    attachment_committed = False
                     try:
+                        attachment_output_snapshot = _snapshot_company_outputs(
+                            company_id)
                         if ext == '.zip':
                             ok, validation_error = _validate_upload(
                                 path, os.path.basename(path))
@@ -927,25 +956,39 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             # периодические ОСВ, в том числе во вложенных папках.
                             # После проверки безопасности извлекаем только XLS/XLSX.
                             import zipfile as _zipfile
+                            zip_dir = _reserve_upload_batch_dir(
+                                company_id, f'zip_{ts}')
+                            attachment_batch_dirs.append(zip_dir)
+                            archive_name = _unique_attachment_name(
+                                os.path.basename(path), set())
+                            archive_path = os.path.join(zip_dir, archive_name)
+                            _shutil.copy2(path, archive_path)
                             extracted_dir = os.path.join(
                                 msg_tmp, f'archive_{len(stats["errors"])}')
                             os.makedirs(extracted_dir, exist_ok=True)
                             extracted_xls = []
-                            with _zipfile.ZipFile(path, 'r') as zf:
+                            extracted_names = {}
+                            extracted_used_names = set()
+                            with _zipfile.ZipFile(archive_path, 'r') as zf:
                                 for index, info in enumerate(zf.infolist()):
                                     if info.is_dir():
                                         continue
                                     inner_name = info.filename.replace('\\', '/')
                                     if not inner_name.lower().endswith(('.xls', '.xlsx')):
                                         continue
-                                    # Имена выравниваем в один временный каталог:
-                                    # вложенная структура для разбора ОСВ не нужна.
-                                    base_name = os.path.basename(inner_name)
+                                    # The technical extraction index is kept
+                                    # only in msg_tmp; persisted names retain
+                                    # the archive basename and get a suffix
+                                    # for duplicate basenames.
+                                    base_name = _unique_attachment_name(
+                                        os.path.basename(inner_name),
+                                        extracted_used_names)
                                     target = os.path.join(
                                         extracted_dir, f'{index:04d}_{base_name}')
                                     with zf.open(info, 'r') as src, open(target, 'wb') as dst:
                                         _shutil.copyfileobj(src, dst)
                                     extracted_xls.append(target)
+                                    extracted_names[target] = base_name
 
                             if not extracted_xls:
                                 raise ValueError(
@@ -955,24 +998,29 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             monthly_xls = [p for p in extracted_xls
                                            if p not in daily_xls]
                             imported_count = 0
+                            monthly_manifest_files = []
 
                             if daily_xls:
                                 imported_count += _upsert_daily_rows(
                                     company_id, daily_xls)
 
                             if monthly_xls:
-                                save_dir = os.path.join(
-                                    UPLOADS, str(company_id), ts)
-                                os.makedirs(save_dir, exist_ok=True)
+                                save_dir = _reserve_upload_batch_dir(
+                                    company_id, f'imap_{ts}')
+                                attachment_batch_dirs.append(save_dir)
                                 saved_monthly = []
+                                saved_names = set()
                                 for source_path in monthly_xls:
-                                    # Убираем технический индекс из временного имени.
-                                    saved_name = os.path.basename(source_path).split(
-                                        '_', 1)[-1]
+                                    saved_name = _unique_attachment_name(
+                                        extracted_names[source_path],
+                                        saved_names)
                                     destination = os.path.join(save_dir, saved_name)
                                     _shutil.copy2(source_path, destination)
                                     saved_monthly.append(destination)
                                 parsed_monthly, parse_audit = parse_many(saved_monthly)
+                                monthly_manifest_files.extend(
+                                    _accepted_monthly_files(
+                                        saved_monthly, parsed_monthly, parse_audit))
                                 for audit_item in parse_audit:
                                     if not audit_item.get('ok'):
                                         stats['errors'].append(
@@ -981,7 +1029,6 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                             f'{audit_item.get("status", "ошибка разбора")}')
                                 imported_count += len(parsed_monthly)
 
-                            db.session.commit()
                             if imported_count == 0:
                                 raise ValueError(
                                     'ни один Excel-файл в архиве не удалось разобрать как ОСВ')
@@ -1023,20 +1070,26 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 dashboard_file='dashboard_current.html',
                                 source='auto_imap',
                                 metrics_json=_dataset_metrics_json(dataset),
+                                source_manifest_json=dump_manifest(build_manifest(
+                                    monthly_manifest_files,
+                                    os.path.join(UPLOADS, str(company_id)))),
                             )
                             db.session.add(_up)
                             db.session.commit()
+                            attachment_committed = True
                             _durable_backup('IMAP ZIP ОСВ')
                             stats['files_processed'] += len(extracted_xls)
                         else:  # XLS / XLSX
                             is_daily = _is_daily_xls(path)
-                            if is_daily:
-                                save_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
-                            else:
-                                save_dir = os.path.join(UPLOADS, str(company_id), ts)
-                            os.makedirs(save_dir, exist_ok=True)
-                            dest = os.path.join(save_dir, os.path.basename(path))
+                            save_dir = _reserve_upload_batch_dir(
+                                company_id,
+                                f'daily_imap_{ts}' if is_daily else f'imap_{ts}')
+                            attachment_batch_dirs.append(save_dir)
+                            dest_name = _unique_attachment_name(
+                                os.path.basename(path), set())
+                            dest = os.path.join(save_dir, dest_name)
                             _shutil.copy2(path, dest)
+                            monthly_manifest_files = []
 
                             if is_daily:
                                 imported = _upsert_daily_rows(company_id, [dest])
@@ -1054,8 +1107,10 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                     raise ValueError(
                                         f'не удалось разобрать ОСВ: {detail}')
                                 loaded_accounts = sorted(parsed_file.keys())
+                                monthly_manifest_files.extend(
+                                    _accepted_monthly_files(
+                                        [dest], parsed_file, parse_audit))
 
-                            db.session.commit()
                             _co = db.session.get(Company, company_id)
                             dataset, rebuild_audit = _rebuild_dashboard_with_daily(
                                 company_id,
@@ -1091,12 +1146,21 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 dashboard_file='dashboard_current.html',
                                 source='auto_imap',
                                 metrics_json=_dataset_metrics_json(dataset),
+                                source_manifest_json=dump_manifest(build_manifest(
+                                    monthly_manifest_files,
+                                    os.path.join(UPLOADS, str(company_id)))),
                             )
                             db.session.add(_up)
                             db.session.commit()
+                            attachment_committed = True
                             _durable_backup('IMAP ОСВ')
                             stats['files_processed'] += 1
                     except Exception as exc:
+                        db.session.rollback()
+                        if not attachment_committed:
+                            _remove_pending_batch_dirs(attachment_batch_dirs)
+                            _restore_company_outputs(
+                                attachment_output_snapshot)
                         stats['errors'].append(f"{os.path.basename(path)}: {exc}")
                         stats['files_skipped'] += 1
 
@@ -1158,18 +1222,31 @@ def _imap_loop() -> None:
             interval = 60
         _imap_stop.wait(interval)
 
-
-# ---------------------------------------------------------------------------
-# Background upload workers
-# ---------------------------------------------------------------------------
+def _snapshot_company_outputs(company_id):
+    """Capture replaceable dashboard outputs before a pending acceptance."""
+    out_dir = os.path.join(OUTPUT, str(company_id))
+    snapshot = {}
+    for name in _COMPANY_OUTPUT_NAMES:
+        path = os.path.join(out_dir, name)
+        if not os.path.isfile(path):
+            snapshot[path] = None
+            continue
+        with open(path, 'rb') as stream:
+            snapshot[path] = stream.read()
+    return snapshot
 def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                    stage_dir: str, ts: str, uploader_id: int) -> None:
     """Background thread: classify + parse all staged files, rebuild dashboard."""
     import shutil as _sh
     with app.app_context():
+        output_snapshot = {}
+        batch_dirs = []
+        committed = False
         try:
+            output_snapshot = _snapshot_company_outputs(company_id)
             audit_out = []
             zip_dates = []
+            monthly_manifest_files = []
             total_files = 0
 
             all_staged = [os.path.join(stage_dir, f)
@@ -1182,15 +1259,18 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             # — XLS: classify daily vs monthly, move to permanent dirs
             if xls_staged:
                 total_files += len(xls_staged)
-                ts_dir    = os.path.join(UPLOADS, str(company_id), ts)
-                daily_dir = os.path.join(UPLOADS, str(company_id), f'daily_{ts}')
-                os.makedirs(ts_dir, exist_ok=True)
+                ts_dir = _reserve_upload_batch_dir(company_id, ts)
+                batch_dirs.append(ts_dir)
+                daily_dir = None
                 full_xls, daily_xls = [], []
                 for path in xls_staged:
                     dest = os.path.join(ts_dir, os.path.basename(path))
                     _sh.move(path, dest)
                     if _is_daily_xls(dest):
-                        os.makedirs(daily_dir, exist_ok=True)
+                        if daily_dir is None:
+                            daily_dir = _reserve_upload_batch_dir(
+                                company_id, f'daily_{ts}')
+                            batch_dirs.append(daily_dir)
                         final = os.path.join(daily_dir, os.path.basename(dest))
                         os.rename(dest, final)
                         daily_xls.append(final)
@@ -1198,11 +1278,12 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                         full_xls.append(dest)
 
                 _upsert_daily_rows(company_id, full_xls + daily_xls)
-                db.session.commit()
-                _durable_backup('суточные строки background ОСВ')
 
                 if full_xls:
-                    data_check, _ = parse_many(full_xls)
+                    data_check, parse_audit = parse_many(full_xls)
+                    monthly_manifest_files.extend(
+                        _accepted_monthly_files(
+                            full_xls, data_check, parse_audit))
                     if data_check:
                         for disc in _compute_discrepancy(company_id, data_check):
                             audit_out.append(dict(
@@ -1220,8 +1301,8 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             # — ZIP: move and parse
             for zp in zip_staged:
                 total_files += 1
-                zip_dir = os.path.join(UPLOADS, str(company_id), f'zip_{ts}')
-                os.makedirs(zip_dir, exist_ok=True)
+                zip_dir = _reserve_upload_batch_dir(company_id, f'zip_{ts}')
+                batch_dirs.append(zip_dir)
                 dest = os.path.join(zip_dir, os.path.basename(zp))
                 _sh.move(zp, dest)
                 successes, errors = parse_zip(dest)
@@ -1239,15 +1320,13 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                     row.obd = top['obd']; row.obk = top['obk']
                     row.skd = top['skd']; row.skk = top['skk']
                     zip_dates.append(dt)
-                db.session.commit()
-                _durable_backup('суточные строки ZIP background ОСВ')
 
             # Cleanup staging dir
             _sh.rmtree(stage_dir, ignore_errors=True)
 
             if not xls_staged and not zip_staged:
-                fail_job(job_id, 'Среди загруженных нет файлов .xls, .xlsx или .zip.')
-                return
+                raise ValueError(
+                    'Среди загруженных нет файлов .xls, .xlsx или .zip.')
 
             # Rebuild dashboard
             co = db.session.get(Company, company_id)
@@ -1258,8 +1337,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
 
             if dataset is None:
                 msg = rebuild_audit[-1]['status'] if rebuild_audit else 'нет данных'
-                fail_job(job_id, f'Дашборд не построен: {msg}')
-                return
+                raise RuntimeError(f'Дашборд не построен: {msg}')
 
             html_content = render_dashboard(dataset, back_url=back_url)
             out_dir = os.path.join(OUTPUT, str(company_id))
@@ -1295,9 +1373,13 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                 dashboard_file='dashboard_current.html',
                 source='manual',
                 metrics_json=_dataset_metrics_json(dataset),
+                source_manifest_json=dump_manifest(build_manifest(
+                    monthly_manifest_files,
+                    os.path.join(UPLOADS, str(company_id)))),
             )
             db.session.add(upload)
             db.session.commit()
+            committed = True
             _durable_backup('ОСВ background upload')
 
             discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
@@ -1310,6 +1392,11 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                 period_label=period_lbl,
             ))
         except Exception as exc:
+            db.session.rollback()
+            if not committed:
+                _remove_pending_batch_dirs(batch_dirs)
+                _sh.rmtree(stage_dir, ignore_errors=True)
+                _restore_company_outputs(output_snapshot)
             traceback.print_exc()
             fail_job(job_id, str(exc))
 
@@ -1319,19 +1406,29 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
                     company_name: str, uploader_id: int) -> None:
     """Background thread: process new company files and create first Upload."""
     with app.app_context():
+        output_snapshot = {}
+        committed = False
+        owns_new_batch = False
         try:
+            output_snapshot = _snapshot_company_outputs(company_id)
+            # A first-import worker owns this directory.  If a caller ever
+            # retries against a company that already has an Upload, do not
+            # remove that company's historical source directory on failure.
+            owns_new_batch = (
+                Upload.query.filter_by(company_id=company_id).first() is None)
             record_kwargs, audit = _process_files(
                 final_paths, company_id, ts, back_url,
                 company_name=company_name)
             if record_kwargs is None:
-                fail_job(job_id, 'Ни один файл не удалось разобрать как ОСВ 1С')
-                return
+                raise ValueError(
+                    'Ни один файл не удалось разобрать как ОСВ 1С')
 
             _upsert_daily_rows(company_id, final_paths)
             upload = Upload(company_id=company_id, uploaded_by=uploader_id,
                             source='manual', **record_kwargs)
             db.session.add(upload)
             db.session.commit()
+            committed = True
             _durable_backup('первый ОСВ предприятия')
 
             log_event('company_created',
@@ -1343,6 +1440,11 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
                 period_label=record_kwargs.get('period_label', ''),
             ))
         except Exception as exc:
+            db.session.rollback()
+            if not committed:
+                if owns_new_batch:
+                    shutil.rmtree(final_dir, ignore_errors=True)
+                _restore_company_outputs(output_snapshot)
             traceback.print_exc()
             fail_job(job_id, str(exc))
 
@@ -1764,8 +1866,9 @@ def company_new():
         tmp_dir = os.path.join(UPLOADS, 'tmp', ts)
         os.makedirs(tmp_dir, exist_ok=True)
         tmp_paths = []
+        staged_names = set()
         for f in files:
-            name = os.path.basename(f.filename)
+            name = _unique_attachment_name(f.filename, staged_names)
             if not name.lower().endswith(('.xls', '.xlsx')):
                 continue
             dest = os.path.join(tmp_dir, name)
@@ -2478,13 +2581,15 @@ def company_upload_all(company_id):
     os.makedirs(stage_dir, exist_ok=True)
 
     saved = 0
+    staged_names = set()
     for f in all_files:
-        ext = os.path.splitext(f.filename)[1].lower()
+        name = _unique_attachment_name(f.filename, staged_names)
+        ext = os.path.splitext(name)[1].lower()
         if ext not in ('.xls', '.xlsx', '.zip'):
             continue
-        dest = os.path.join(stage_dir, os.path.basename(f.filename))
+        dest = os.path.join(stage_dir, name)
         f.save(dest)
-        ok, err = _validate_upload(dest, f.filename)
+        ok, err = _validate_upload(dest, name)
         if not ok:
             import shutil as _sh_v; _sh_v.rmtree(stage_dir, ignore_errors=True)
             return _err(err)
@@ -2556,6 +2661,7 @@ def company_upload_all(company_id):
         dashboard_file='dashboard_current.html',
         source='manual',
         metrics_json=_dataset_metrics_json(dataset),
+        source_manifest_json='[]',
     )
     db.session.add(upload)
     db.session.commit()
@@ -3272,7 +3378,8 @@ def _find_monthly_xls(company_id):
         return []
     paths = []
     for ts_dir in os.listdir(company_dir):
-        if ts_dir.startswith(('zip_', 'daily_', 'tmp_')):  # не базовые папки
+        if ts_dir.startswith(
+                ('zip_', 'daily_', 'tmp_', 'stage_')):  # не базовые папки
             continue
         full = os.path.join(company_dir, ts_dir)
         if not os.path.isdir(full):
@@ -3450,6 +3557,7 @@ def company_upload_zip(company_id):
         dashboard_file=out_name,
         source='manual',
         metrics_json=_dataset_metrics_json(dataset),
+        source_manifest_json='[]',
     )
     db.session.add(upload)
     db.session.commit()
@@ -5947,6 +6055,9 @@ def init_db(perform_durable=True):
         ])
         _add_missing('uploads', [
             ('metrics_json', "TEXT DEFAULT '{}'"),
+            # Nullable by contract: existing Upload rows must not receive a
+            # guessed file-to-upload association.
+            ('source_manifest_json', "TEXT"),
         ])
         if db.engine.dialect.name == 'postgresql':
             try:
@@ -6295,3 +6406,54 @@ if __name__ == '__main__':
     _ensure_imap_thread()
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
             debug=False, threaded=True)
+
+def _restore_company_outputs(snapshot):
+    """Restore outputs after a failed/cancelled filesystem transaction."""
+    for path, content in snapshot.items():
+        if content is None:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as stream:
+            stream.write(content)
+
+def _reserve_upload_batch_dir(company_id, prefix):
+    """Create a fresh batch directory without ever reusing an old one."""
+    company_root = os.path.join(UPLOADS, str(company_id))
+    os.makedirs(company_root, exist_ok=True)
+    candidate = os.path.join(company_root, prefix)
+    suffix = 0
+    while True:
+        try:
+            os.makedirs(candidate)
+            return candidate
+        except FileExistsError:
+            suffix += 1
+            candidate = os.path.join(
+                company_root, f'{prefix}_retry_{suffix}')
+
+def _monthly_manifest_json(paths, parsed_data, audit, company_id):
+    """Serialize accepted monthly files, including an explicit empty array."""
+    accepted = _accepted_monthly_files(paths, parsed_data, audit)
+    return dump_manifest(build_manifest(
+        accepted, os.path.join(UPLOADS, str(company_id))))
+
+def _remove_pending_batch_dirs(batch_dirs):
+    """Remove only directories reserved by the current worker invocation."""
+    for path in reversed(batch_dirs):
+        shutil.rmtree(path, ignore_errors=True)
+
+def _unique_attachment_name(name, used_names):
+    """Keep attachment/archive names while disambiguating duplicates."""
+    original = os.path.basename(name) or 'attachment'
+    stem, extension = os.path.splitext(original)
+    candidate = original
+    suffix = 1
+    while candidate in used_names:
+        suffix += 1
+        candidate = f'{stem}_{suffix}{extension}'
+    used_names.add(candidate)
+    return candidate
