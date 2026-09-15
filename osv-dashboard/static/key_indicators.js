@@ -97,8 +97,9 @@
     const metricSelectableIdentity = (item, category) => {
         const pointUnit = item && item.series && item.series.find(point =>
             point && point.unit);
-        const family = category === 'detail' || category === 'component'
-            ? 'collection-component' : category;
+        const family = category === 'detail' || category === 'details' ||
+            category === 'component' || category === 'components'
+            ? 'component' : category;
         return JSON.stringify([
             family,
             item && item.label,
@@ -107,6 +108,95 @@
             (item && item.unit) || (pointUnit && pointUnit.unit) || '',
             metricSeriesSignature(item)
         ]);
+    };
+
+    // Keep the ids used by the chart and by rendered tiles in one place.  The
+    // numeric fallback is retained for old API payloads and saved in-memory
+    // modal state; providers may supply series_id when they have a durable
+    // identifier for the component.
+    const metricSeriesId = (item, category, index) => {
+        if (category === 'main') return '__main__';
+        const prefix = category === 'details' ? 'detail' :
+            category === 'components' ? 'component' : category;
+        const explicit = item && (item.series_id !== undefined && item.series_id !== null
+            ? item.series_id : item.seriesId);
+        if (explicit !== null && explicit !== undefined && String(explicit)) {
+            return `${prefix}:${String(explicit)}`;
+        }
+        return prefix === 'breakdown' ? String(index) : `${prefix}:${index}`;
+    };
+
+    const metricSeriesItems = card => {
+        const result = [];
+        const seen = new Set();
+        const add = (item, category, index, isMain) => {
+            if (!item || !item.series || !item.series.length) return;
+            const identity = metricSelectableIdentity(item, category);
+            if (seen.has(identity)) return;
+            seen.add(identity);
+            result.push({
+                id: metricSeriesId(item, category, index),
+                label: isMain ? 'Итого' : item.label,
+                item: isMain ? card : item,
+                data: item.series,
+                isMain: !!isMain
+            });
+        };
+        add(card, 'main', 0, true);
+        (card.breakdown || []).forEach((item, index) =>
+            add(item, 'breakdown', index, false));
+        ['components', 'details', 'analytics'].forEach(category => {
+            (card[category] || []).forEach((item, index) =>
+                add(item, category === 'details' ? 'detail' :
+                    category === 'components' ? 'component' : category, index, false));
+        });
+        if (card.accrual_series && card.accrual_series.length) {
+            add({
+                label: 'Начисления работникам',
+                series: card.accrual_series,
+                series_id: 'credit-turnover'
+            }, 'salary', 0, false);
+        }
+        return result;
+    };
+
+    const metricTileItems = card => {
+        const result = [];
+        const seen = new Set();
+        const add = (item, category, index, isMain) => {
+            if (!item || (!isMain && !item.label)) return;
+            const identity = metricSelectableIdentity(item, category);
+            if (seen.has(identity)) return;
+            seen.add(identity);
+            result.push({
+                id: metricSeriesId(item, category, index),
+                label: isMain ? 'Итого' : item.label,
+                item: isMain ? card : item,
+                hasSeries: !!(item.series && item.series.length),
+                isMain: !!isMain
+            });
+        };
+        if (card.series && card.series.length) add(card, 'main', 0, true);
+        (card.breakdown || []).forEach((item, index) =>
+            add(item, 'breakdown', index, false));
+        ['components', 'details', 'analytics'].forEach(category => {
+            (card[category] || []).forEach((item, index) =>
+                add(item, category === 'details' ? 'detail' :
+                    category === 'components' ? 'component' : category, index, false));
+        });
+        return result;
+    };
+
+    const metricSeriesIdForItem = (card, item) => {
+        if (!item) return '';
+        const match = metricSeriesItems(card).find(series => series.item === item);
+        return match ? match.id : '';
+    };
+
+    const metricSeriesIdForLabel = (card, collection, label) => {
+        const item = (card[collection] || []).find(candidate =>
+            candidate && candidate.label === label);
+        return metricSeriesIdForItem(card, item);
     };
 
     const chartLinePaths = (points, x, y, valueOf, timeline, connection) => {
@@ -424,21 +514,32 @@
             return true;
         },
         scheduleChart(containerId, renderer, delay = 50) {
-            state.chartJobs[containerId] = renderer;
+            let key = containerId;
+            if (typeof containerId !== 'string') {
+                key = containerId && containerId.__kiChartJobKey;
+                if (!key && containerId) {
+                    key = `element:${state.reqId}:${Object.keys(state.chartJobs).length}`;
+                    try { containerId.__kiChartJobKey = key; } catch (error) { /* read-only host */ }
+                }
+            }
+            if (!key) return;
+            state.chartJobs[key] = {container: containerId, renderer};
             if (typeof setTimeout !== 'function') {
                 renderer();
                 return;
             }
             setTimeout(() => {
-                if (state.chartJobs[containerId] === renderer) renderer();
+                if (state.chartJobs[key] && state.chartJobs[key].renderer === renderer) renderer();
             }, delay);
         },
 
         rerenderVisibleCharts() {
-            Object.keys(state.chartJobs).forEach(containerId => {
-                const container = document.getElementById(containerId);
+            Object.keys(state.chartJobs).forEach(key => {
+                const job = state.chartJobs[key];
+                const container = typeof job.container === 'string'
+                    ? document.getElementById(job.container) : job.container;
                 if (container && this.isVisibleElement(container)) {
-                    state.chartJobs[containerId]();
+                    job.renderer();
                 }
             });
         },
@@ -1615,8 +1716,9 @@
             this._richTooltipHost = null;
         },
 
-        cashMetricCard(label, value, sub, tooltip, needsData) {
-            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0">
+        cashMetricCard(label, value, sub, tooltip, needsData, seriesId = '') {
+            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0"
+                    ${seriesId ? `data-series-id="${esc(seriesId)}"` : ''}>
                 <div class="cash-analysis-label">${esc(label)}</div>
                 <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : 'cash-value-ok'}">${esc(value)}</div>
                 <div class="cash-analysis-sub">${esc(sub)}</div>
@@ -1672,6 +1774,9 @@
             const vatDetail = (card.details || []).find(item => item.label === 'НДС');
             const gross = grossDetail && grossDetail.value !== null ? Number(grossDetail.value) : null;
             const vat = vatDetail && vatDetail.value !== null ? Number(vatDetail.value) : null;
+            const revenueMainId = metricSeriesIdForItem(card, card);
+            const grossSeriesId = metricSeriesIdForItem(card, grossDetail);
+            const vatSeriesId = metricSeriesIdForItem(card, vatDetail);
             const total = card.value !== null ? Number(card.value) : null;
             const totalFormatted = this.formatValue(total, 'RUB');
             const grossFormatted = this.formatValue(gross, 'RUB');
@@ -1757,11 +1862,11 @@
                 <div class="cash-info-banner"><strong>Фактическая выручка предприятия.</strong>
                     Выручка без НДС рассчитывается как ОбК(90.01*) − ОбД(90.03*). Если 90.03 отсутствует, факт показывается как брутто.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Выручка общая</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${revenueMainId ? `data-series-id="${esc(revenueMainId)}"` : ''}><div class="cash-summary-label">Выручка общая</div>
                         <div class="cash-summary-value cash-value-ok">${esc(totalFormatted.val)}</div><div class="cash-summary-sub">${esc(totalFormatted.u)} · ${vat === null ? 'брутто' : 'без НДС'}</div>${this.cashTooltip(totalTooltip)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Выручка брутто</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${grossSeriesId ? `data-series-id="${esc(grossSeriesId)}"` : ''}><div class="cash-summary-label">Выручка брутто</div>
                         <div class="cash-summary-value">${esc(grossFormatted.val)}</div><div class="cash-summary-sub">${esc(grossFormatted.u)} · ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">НДС</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${vatSeriesId ? `data-series-id="${esc(vatSeriesId)}"` : ''}><div class="cash-summary-label">НДС</div>
                         <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : esc(vatFormatted.val)}</div><div class="cash-summary-sub">${vat === null ? 'нет аналитики 90.03' : `${esc(vatFormatted.u)} · ОбД 90.03`}</div>${this.cashTooltip(vatTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
@@ -1797,12 +1902,7 @@
                         deviation: 'АПГ не рассчитан', deviationClass: 'missing', source: 'требуются сопоставимые периоды ОСВ счёта 90'
                     }, true)}
                 </div>
-                <div class="modal-section-title">Динамика выручки внутри выбранного периода</div>
-                <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#10B981"></i>Выручка общая</span></div>
-                <div class="cash-line-chart revenue-line-chart" id="ki-revenue-line-chart"></div>`;
-            this.renderRevenueLineChart(card);
-            this.scheduleChart('ki-revenue-line-chart',
-                () => this.renderRevenueLineChart(card), 0);
+                `;
         },
 
         renderRevenueMappingEditor(analytics, definitions) {
@@ -2123,7 +2223,7 @@
                 <div class="modal-info-banner"><strong>Собираемость по ОСВ рассчитана как бухгалтерский прокси.</strong>
                     Нужны все четыре явных компонента 62.01/62.02; корень 62 не подставляется, а связанные оплаты по начислениям ОСВ не подтверждает.</div>
                 <div class="modal-summary collection-summary">
-                    ${this.cashMetricCard('Собираемость по ОСВ', pct(turnover), 'бухгалтерский прокси', factTip, turnover === null)}
+                    ${this.cashMetricCard('Собираемость по ОСВ', pct(turnover), 'бухгалтерский прокси', factTip, turnover === null, '__main__')}
                     ${this.cashMetricCard('Связанные оплаты', 'Н/Д', 'нужен регистр распределения', this.collectionTooltip({
                         title: 'Оплаты, связанные с начислениями',
                         description: 'Самостоятельная метрика по платежным документам и регистру начислений.',
@@ -2134,11 +2234,6 @@
                     }), true)}
                     ${this.cashMetricCard('Изменение ДЗ', arChange === null ? 'Нужны данные' : `${arChange >= 0 ? '+' : ''}${rub(arChange)}`, 'к предыдущему доступному месяцу', arChangeTip, arChange === null)}
                     ${this.cashMetricCard('ДЗ / Выручка', pct(arRevenueRatio), 'бухгалтерский индикатор', ratioTip, arRevenueRatio === null)}
-                </div>
-                <div class="modal-section-title">Динамика прокси по явным оборотам ОСВ</div>
-                <div class="collection-chart-grid">
-                    <div><div class="collection-chart-title">Собираемость по ОСВ (прокси), %</div><div class="modal-chart-wrap" id="ki-collection-turnover-chart"></div></div>
-                    <div><div class="collection-chart-title">Дебиторская задолженность 62.01, млн ₽</div><div class="modal-chart-wrap" id="ki-collection-ar-chart"></div></div>
                 </div>
                 <div class="modal-section-title">Обязательные компоненты расчёта</div>
                 <div class="revenue-classification-note">Показываются только явные субсчета 62.01 и 62.02; итоговый корень 62 не используется как замена.</div>
@@ -2154,18 +2249,6 @@
                     ${this.cashMetricCard('Субсидии и компенсации', 'Нужны данные', 'отдельный регистр поступлений', this.collectionTooltip({title:'Собираемость субсидий и компенсаций', required: required.subsidy}), true)}
                 </div>`;
 
-            this.scheduleChart('ki-collection-turnover-chart', () => {
-                    this.renderBarChart(card.turnover_series || [], '%', 'ki-collection-turnover-chart', {
-                    id: 'collection',
-                        title: 'Собираемость по ОСВ (бухгалтерский прокси)',
-                        formula: card.formula,
-                        source: card.source,
-                        reason: card.reason || 'Все четыре компонента обязательны'
-                });
-                this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard);
-            });
-            this.scheduleChart('ki-collection-ar-chart', () =>
-                this.renderBarChart(arCard.series || [], 'RUB', 'ki-collection-ar-chart', arCard), 0);
         },
 
         arRequirements() {
@@ -2367,13 +2450,11 @@
                 <div class="cash-info-banner"><strong>В расчёт включена только подтверждённая ДЗ покупателей 62.01.</strong>
                     Дебетовое сальдо счёта 76 добавляется только после утверждённого сопоставления аналитик.</div>
                 <div class="collection-summary ar-summary">
-                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), '62.01 + разрешённые аналитики 76', totalTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), '62.01 + разрешённые аналитики 76', totalTip, current === null || current === undefined, '__main__')}
                     ${this.cashMetricCard('Изменение ДЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
                     ${this.cashMetricCard('Оценочный DSO', dso === null ? 'Нужны данные' : `${dso.toFixed(0)} дней`, 'бухгалтерская оценка', dsoTip, dso === null)}
                     ${this.cashMetricCard('ДЗ / Выручка', pct(ratio), period.label || 'выбранный период', ratioTip, ratio === null)}
                 </div>
-                <div class="modal-section-title">Динамика подтверждённой ДЗ 62.01</div>
-                <div class="modal-chart-wrap ar-line-chart" id="ki-ar-line-chart"></div>
                 <div class="modal-section-title">Категории и фактические аналитики 62.01 / 76</div>
                 <div class="revenue-classification-note">${esc(reconciliation)}</div>
                 <div class="collection-table-wrap"><table class="cash-table debtor-category-table">
@@ -2392,8 +2473,6 @@
                     ${this.cashMetricCard('ДЗ по сегментам', 'Нужны данные', 'категории должников', this.arTooltip({title:'ДЗ по сегментам потребителей', required: required.segments}), true)}
                     ${this.cashMetricCard('ДЗ по субсидиям', 'Нужны данные', 'отдельный регистр компенсаций', subsidyTip, true)}
                 </div>`;
-            this.scheduleChart('ki-ar-line-chart', () => this.renderBarChart(
-                card.series || [], 'RUB', 'ki-ar-line-chart', card), 50);
         },
 
         renderDebtorMappingEditor(analytics, debtor) {
@@ -2700,7 +2779,7 @@
                 <div class="cash-info-banner"><strong>Основной факт — задолженность поставщикам 60.01.</strong>
                     Суммы 68, 69 и 70 показаны отдельно. Счёт 76 не включён без утверждённого сопоставления аналитик.</div>
                 <div class="collection-summary ap-summary">
-                    ${this.cashMetricCard('КЗ поставщикам', rub(current), 'сальдо 60.01', supplierTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('КЗ поставщикам', rub(current), 'сальдо 60.01', supplierTip, current === null || current === undefined, '__main__')}
                     ${this.cashMetricCard('Изменение КЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
                     ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'узкий бухгалтерский охват', ratioTip, arApRatio === null)}
                     ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
@@ -2712,8 +2791,6 @@
                     <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Доля известной суммы</th><th>Срок оплаты</th><th>Просрочка</th><th>Статус</th></tr></thead>
                     <tbody>${componentRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Динамика задолженности поставщикам 60.01</div>
-                <div class="modal-chart-wrap ap-line-chart" id="ki-ap-line-chart"></div>
                 <div class="modal-section-title">Фактические аналитики 60.01</div>
                 <div class="revenue-classification-note">До загрузки справочника категории «Топливо», «Электроэнергия» и «Подрядчики» не назначаются автоматически.</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table ap-analytics-table">
@@ -2776,8 +2853,6 @@
                     <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Срочность</th><th>Риск неоплаты</th><th>Приоритет</th></tr></thead>
                     <tbody>${priorityRows}</tbody>
                 </table></div>`;
-            this.scheduleChart('ki-ap-line-chart', () => this.renderBarChart(
-                card.series || [], 'RUB', 'ki-ap-line-chart', card), 50);
         },
 
         cogsRequirements() {
@@ -3106,7 +3181,7 @@
                 <div class="cash-info-banner"><strong>Подтверждённый показатель — ОбД(90.02).</strong>
                     Обороты 20, 25, 26 и 44 показываются отдельно и не прибавляются к себестоимости продаж.</div>
                 <div class="collection-summary cogs-summary">
-                    ${this.cashMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', totalTip, current === null || current === undefined)}
+                    ${this.cashMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', totalTip, current === null || current === undefined, '__main__')}
                     ${this.cashMetricCard('Изменение', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимому периоду', changeTip, change === null)}
                     ${this.cashMetricCard('Себестоимость / Выручка', pct(costRatio), 'по нетто-выручке', ratioTip, costRatio === null)}
                     ${this.cashMetricCard('Валовая прибыль', rub(cogsGrossProfit), 'нетто-выручка − 90.02', profitTip, cogsGrossProfit === null || cogsGrossProfit === undefined)}
@@ -3116,8 +3191,6 @@
                     <thead><tr><th>Показатель</th><th>Сумма</th><th>Использование</th></tr></thead>
                     <tbody>${recognizedRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Динамика себестоимости продаж 90.02</div>
-                <div class="modal-chart-wrap cogs-line-chart" id="ki-cogs-line-chart"></div>
                 <div class="modal-section-title">Структура затрат по утверждённым статьям</div>
                 ${structureProblems.length ? `<div class="revenue-classification-note">${esc(structureProblems.join('; '))}.</div>` : ''}
                 <div class="cash-info-banner"><strong>Контроль без повторного учёта.</strong>
@@ -3147,8 +3220,6 @@
                 </table></div>
                 <div class="modal-section-title">Дополнительные тарифные показатели</div>
                 <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
-            this.scheduleChart('ki-cogs-line-chart', () => this.renderBarChart(
-                card.series || [], 'RUB', 'ki-cogs-line-chart', card), 50);
         },
 
         profitRequirements() {
@@ -3344,7 +3415,7 @@
                 <div class="cash-info-banner"><strong>Уровни результата разделены.</strong>
                     Валовая прибыль, прибыль от продаж и результат до налога не называются чистой прибылью.</div>
                 <div class="collection-summary profit-summary">
-                    ${this.cashMetricCard('Валовая прибыль', rub(card.gross_profit), `Рв = ${pct(margin(card.gross_profit))}`, grossTip, card.gross_profit === null || card.gross_profit === undefined)}
+                    ${this.cashMetricCard('Валовая прибыль', rub(card.gross_profit), `Рв = ${pct(margin(card.gross_profit))}`, grossTip, card.gross_profit === null || card.gross_profit === undefined, '__main__')}
                     ${this.cashMetricCard('Прибыль от продаж', rub(card.profit_from_sales), `Рп = ${pct(margin(card.profit_from_sales))}`, salesTip, card.profit_from_sales === null || card.profit_from_sales === undefined)}
                     ${this.cashMetricCard('Сальдо счёта 91', rub(card.other_result), '91.01 − 91.02', otherTip, card.other_result === null || card.other_result === undefined)}
                     ${this.cashMetricCard('Результат до налога', rub(card.profit_before_tax), 'не чистая прибыль', pretaxTip, card.profit_before_tax === null || card.profit_before_tax === undefined)}
@@ -3354,8 +3425,6 @@
                     <thead><tr><th>Уровень</th><th>Сумма</th><th>Комментарий</th></tr></thead>
                     <tbody>${decomposition}</tbody>
                 </table></div>
-                <div class="modal-section-title">Динамика валовой прибыли</div>
-                <div class="modal-chart-wrap profit-line-chart" id="ki-profit-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table profit-dynamics-table">
                     <thead><tr><th>Дата / период</th><th>Валовая прибыль</th><th>Прибыль от продаж</th><th>Сальдо 91</th><th>До налога</th></tr></thead>
                     <tbody>${dynamics}</tbody>
@@ -3373,9 +3442,6 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid profit-missing-grid">${unavailable}</div>`;
-            this.scheduleChart('ki-profit-line-chart', () => this.renderBarChart(
-                card.gross_series || [], 'RUB', 'ki-profit-line-chart',
-                Object.assign({}, card, {title: 'Валовая прибыль'})), 50);
         },
 
         creditsRequirements() {
@@ -3537,7 +3603,7 @@
                 <div class="cash-info-banner"><strong>Показан бухгалтерский долг.</strong>
                     Остаток 66/67 не считается автоматически телом долга и не подтверждает ставку, срок или просрочку.</div>
                 <div class="collection-summary credits-summary">
-                    ${this.cashMetricCard('Подтверждённый долг', rub(card.value), card.coverage && card.coverage.complete ? 'полный охват 66/67' : 'частичный охват', totalTip, card.value === null || card.value === undefined)}
+                    ${this.cashMetricCard('Подтверждённый долг', rub(card.value), card.coverage && card.coverage.complete ? 'полный охват 66/67' : 'частичный охват', totalTip, card.value === null || card.value === undefined, '__main__')}
                     ${this.cashMetricCard('Краткосрочный сч. 66', rub((byAccount['66'] || {}).value), `доля ${pct((byAccount['66'] || {}).share)}`, shortTip, (byAccount['66'] || {}).value === null || (byAccount['66'] || {}).value === undefined)}
                     ${this.cashMetricCard('Долгосрочный сч. 67', rub((byAccount['67'] || {}).value), `доля ${pct((byAccount['67'] || {}).share)}`, longTip, (byAccount['67'] || {}).value === null || (byAccount['67'] || {}).value === undefined)}
                     ${this.cashMetricCard('Изменение долга', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимой дате', changeTip, change === null)}
@@ -3547,8 +3613,6 @@
                     <thead><tr><th>Счёт</th><th>Сальдо</th><th>Доля</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Статус</th></tr></thead>
                     <tbody>${accountRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Динамика подтверждённого долга</div>
-                <div class="modal-chart-wrap credits-line-chart" id="ki-credits-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table credits-dynamics-table">
                     <thead><tr><th>Дата / период</th><th>Общий долг</th><th>Качество данных</th></tr></thead>
                     <tbody>${dynamics}</tbody>
@@ -3561,8 +3625,6 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие договорных данных 1С</div>
                 <div class="revenue-missing-grid credits-missing-grid">${unavailable}</div>`;
-            this.scheduleChart('ki-credits-line-chart', () => this.renderBarChart(
-                card.series || [], 'RUB', 'ki-credits-line-chart', card), 50);
         },
 
         salaryRequirements() {
@@ -3600,6 +3662,10 @@
             if (!container) return;
             const req = this.salaryRequirements();
             const ins = card.insurance || {};
+            const salaryMainId = metricSeriesIdForItem(card, card);
+            const salaryDebitId = metricSeriesIdForLabel(card, 'details', 'Дебетовое сальдо 70');
+            const salaryAccrualId = metricSeriesItems(card).find(item =>
+                item.data === card.accrual_series)?.id || '';
             const seriesKind = state.data?.period?.series_kind;
             const granularity = seriesKind === 'day' ? 'Дневная' : seriesKind === 'month' ? 'Месячная' : 'По периодам источника';
             const rub = value => value === null || value === undefined
@@ -3749,9 +3815,9 @@
                 <div class="cash-info-banner"><strong>Бухгалтерское сальдо не равно просроченной зарплате.</strong>
                     Обороты 70 и 69 показываются как движения ОСВ без неподтверждённых платёжных статусов.</div>
                 <div class="collection-summary salary-summary">
-                    ${this.cashMetricCard('Задолженность работникам', rub(card.value), 'кредитовое сальдо 70', debtTip, card.value == null)}
-                    ${this.cashMetricCard('Дебетовое сальдо 70', rub(card.debit_balance), 'переплаты и другие расчёты', debitTip, card.debit_balance == null)}
-                    ${this.cashMetricCard('Начисления работникам', rub(card.credit_turnover), 'ОбК 70 · не подтверждённый ФОТ', accrualTip, card.credit_turnover == null)}
+                    ${this.cashMetricCard('Задолженность работникам', rub(card.value), 'кредитовое сальдо 70', debtTip, card.value == null, salaryMainId)}
+                    ${this.cashMetricCard('Дебетовое сальдо 70', rub(card.debit_balance), 'переплаты и другие расчёты', debitTip, card.debit_balance == null, salaryDebitId)}
+                    ${this.cashMetricCard('Начисления работникам', rub(card.credit_turnover), 'ОбК 70 · не подтверждённый ФОТ', accrualTip, card.credit_turnover == null, salaryAccrualId)}
                     ${this.cashMetricCard('Сальдо счёта 69', rub(ins.credit_balance), 'не статус просрочки', insuranceDebtTip, ins.credit_balance == null)}
                 </div>
                 <div class="modal-section-title">Сальдо и бухгалтерские обороты</div>
@@ -3761,7 +3827,6 @@
                 </table></div>
                 <div class="modal-section-title">Динамика начислений и расчётных остатков</div>
                 <p class="ki-muted">${granularity} динамика. Единственная мера графика — ОбК70 (кредитовый оборот), млн ₽. Остатки и ОбК69 приведены только в таблице. Оборот не равен денежным выплатам или подтверждённому ФОТ.</p>
-                <div class="modal-chart-wrap salary-line-chart" id="ki-salary-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table salary-dynamics-table">
                     <thead><tr><th>Дата / период</th><th>ОбК 70</th><th>Кредитовое сальдо 70</th><th>ОбК 69</th><th>Средняя зарплата</th></tr></thead>
                     <tbody>${dynamics}</tbody>
@@ -3778,18 +3843,6 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid salary-missing-grid">${unavailable}</div>`;
-            this.scheduleChart('ki-salary-line-chart', () => this.renderBarChart(
-                card.accrual_series || [], 'RUB', 'ki-salary-line-chart',
-                {
-                    id: 'salary-credit-turnover',
-                    title: 'ОбК70 — кредитовый оборот',
-                    unit: 'RUB',
-                    value: card.credit_turnover,
-                    formula: 'ОбК(70) за период точки',
-                    source: 'ОСВ счёта 70: кредитовый оборот за период точки',
-                    description: `${granularity} динамика кредитового оборота счёта 70; единственная мера графика.`,
-                    notes: ['Бухгалтерские начисления не равны подтверждённому ФОТ или денежным выплатам. Пропуски не заменяются нулями.']
-                }), 50);
         },
 
         capexRequirements() {
@@ -3829,6 +3882,9 @@
             const container = document.getElementById('ki-capex-modal-content');
             if (!container) return;
             const req = this.capexRequirements();
+            const capexMainId = metricSeriesIdForItem(card, card);
+            const capexWipId = metricSeriesIdForLabel(card, 'details', 'Дебетовое сальдо 08');
+            const capexCreditId = metricSeriesIdForLabel(card, 'details', 'Кредитовый оборот 08');
             const rub = value => value === null || value === undefined
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
@@ -3975,9 +4031,9 @@
                 <div class="cash-info-banner"><strong>Бухгалтерские вложения отделены от исполнения инвестпрограммы.</strong>
                     Дебетовый оборот 08 не называется денежным CAPEX, а сальдо 08 не подтверждает просрочку объекта.</div>
                 <div class="collection-summary capex-summary">
-                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null)}
-                    ${this.cashMetricCard('Незавершёнка', rub(card.closing_balance), 'конечное дебетовое сальдо 08', wipTip, card.closing_balance == null)}
-                    ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null)}
+                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId)}
+                    ${this.cashMetricCard('Незавершёнка', rub(card.closing_balance), 'конечное дебетовое сальдо 08', wipTip, card.closing_balance == null, capexWipId)}
+                    ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
                     ${this.cashMetricCard('Изменение незавершёнки', balanceChange == null ? 'Нужны данные' : `${balanceChange >= 0 ? '+' : ''}${rub(balanceChange)}`, 'конец − начало периода', changeTip, balanceChange == null)}
                 </div>
                 <div class="modal-section-title">Сводные данные счёта 08</div>
@@ -3985,8 +4041,6 @@
                     <thead><tr><th>Счёт</th><th>Начальное сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Конечное сальдо</th></tr></thead>
                     <tbody>${accountRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Динамика бухгалтерских вложений</div>
-                <div class="modal-chart-wrap capex-line-chart" id="ki-capex-line-chart"></div>
                 <div class="collection-table-wrap"><table class="collection-detail-table capex-dynamics-table">
                     <thead><tr><th>Дата / период</th><th>ОбД 08</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
                     <tbody>${dynamics}</tbody>
@@ -3999,9 +4053,6 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
-            this.scheduleChart('ki-capex-line-chart', () => this.renderBarChart(
-                card.series || [], 'RUB', 'ki-capex-line-chart',
-                Object.assign({}, card, {title: 'Формирование капитальных вложений'})), 50);
         },
 
         cashCoverageText(item) {
@@ -4022,10 +4073,126 @@
         /* Legacy icon fragment removed; shared renderer follows.
                     : '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" style="color:#9CA3AF; margin-right:6px; opacity:0.3;"><path d="M21.1 3.9a3.5 3.5 0 0 0-4.95 0L14 6l-5.5-1.5L7 6l3.5 4.5L5 16l-3 3 3-3 5.5-5.5L18 17l1.5-1.5L18 10l2.1-2.15a3.5 3.5 0 0 0 0-4.95z"/></svg>';
         */
+        updateMetricTileStates(root) {
+            if (!root || !root.querySelectorAll) return;
+            root.querySelectorAll('[data-series-id]').forEach(tile => {
+                const id = tile.dataset && tile.dataset.seriesId;
+                if (!id) return;
+                const active = state.modalChart.activeId === id;
+                const pinned = state.modalChart.pinnedIds.has(id);
+                if (tile.classList) {
+                    tile.classList.toggle('ki-metric-tile-active', active);
+                    tile.classList.toggle('ki-metric-tile-pinned', pinned);
+                }
+                if (tile.setAttribute) {
+                    tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+                }
+            });
+        },
+
+        scheduleMetricModalChart(card, container, delay = 0) {
+            const target = container || state.modalChart.chartContainer;
+            if (!target) return;
+            this.scheduleChart(target, () => this.drawMetricModalSvg(card, target), delay);
+        },
+
+        bindMetricTiles(card, root) {
+            if (!root || !root.querySelectorAll) return;
+            const series = metricSeriesItems(card);
+            if (!series.length) return;
+            const validIds = new Set(series.map(item => item.id));
+            const tiles = root.querySelectorAll(
+                '[data-series-id]');
+            Array.from(tiles).forEach(tile => {
+                if (!tile.dataset) tile.dataset = {};
+                let id = tile.dataset.seriesId;
+                if (!id || !validIds.has(id) || tile.dataset.kiMetricBound === 'true') return;
+                tile.dataset.kiMetricBound = 'true';
+                tile.setAttribute('role', 'button');
+                tile.setAttribute('aria-pressed',
+                    state.modalChart.activeId === id ? 'true' : 'false');
+                if (!tile.getAttribute('tabindex')) tile.setAttribute('tabindex', '0');
+                let clickTimer = null;
+                const select = () => {
+                    state.modalChart.activeId = id;
+                    this.updateMetricTileStates(root);
+                    this.scheduleMetricModalChart(card);
+                };
+                const pin = () => {
+                    if (state.modalChart.pinnedIds.has(id)) {
+                        state.modalChart.pinnedIds.delete(id);
+                    } else {
+                        state.modalChart.pinnedIds.add(id);
+                    }
+                    this.updateMetricTileStates(root);
+                    this.scheduleMetricModalChart(card);
+                };
+                tile.addEventListener('click', event => {
+                    if (event.target && event.target.closest &&
+                        event.target.closest('.pin-btn')) {
+                        pin();
+                        return;
+                    }
+                    if (event.detail === 1) clickTimer = setTimeout(select, 200);
+                });
+                tile.addEventListener('dblclick', () => {
+                    clearTimeout(clickTimer);
+                    pin();
+                });
+                tile.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        select();
+                    } else if (event.key === ' ' || event.code === 'Space') {
+                        event.preventDefault();
+                        pin();
+                    }
+                });
+            });
+            this.updateMetricTileStates(root);
+        },
+
+        mountSharedDynamics(card, activeContainer) {
+            if (!activeContainer || !activeContainer.appendChild) return;
+            const metricItems = metricSeriesItems(card);
+            const validIds = new Set(metricItems.map(item => item.id));
+            if (!validIds.has(state.modalChart.activeId)) {
+                state.modalChart.activeId = metricItems.length ? metricItems[0].id : null;
+            }
+            state.modalChart.pinnedIds = new Set(
+                Array.from(state.modalChart.pinnedIds).filter(id => validIds.has(id)));
+            let block = activeContainer.querySelector &&
+                activeContainer.querySelector('[data-layout-key="dynamics"]');
+            if (!block && typeof document.createElement === 'function') {
+                block = document.createElement('div');
+                block.className = 'ki-modal-dynamics-block';
+                block.dataset.layoutKey = 'dynamics';
+                block.dataset.layoutTitle = 'Динамика';
+                block.innerHTML = `
+                    <div class="modal-section-title">Динамика</div>
+                    <div class="modal-chart-wrap"></div>`;
+                activeContainer.appendChild(block);
+            }
+            if (!block || !block.querySelector) return;
+            const chart = block.querySelector('.modal-chart-wrap');
+            const title = block.querySelector('.modal-section-title');
+            if (!chart || !title) return;
+            const holder = document.createElement('div');
+            const ignoredTitle = document.createElement('div');
+            holder.style.display = 'none';
+            this.renderMetricModalInteractive(card, holder, ignoredTitle, chart, title);
+            this.bindMetricTiles(card, activeContainer);
+        },
+
         renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle) {
             bdTitle.style.display = 'block';
+            bdTitle.textContent = 'Состав показателя';
             chTitle.style.display = 'block';
             chCont.style.display = 'block';
+            if (chTitle.parentElement && chTitle.parentElement.dataset &&
+                chTitle.parentElement.dataset.layoutKey === 'dynamics') {
+                chTitle.parentElement.style.display = 'block';
+            }
             bdCont.style.display = 'block';
 
             const baseTooltip = this.metricTooltipData(card);
@@ -4039,12 +4206,16 @@
                 } else {
                     state.modalChart.pinnedIds.add(id);
                 }
-                this.renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle);
+                this.updateMetricTileStates(bdCont);
+                this.updateMetricTileStates(chCont.parentElement);
+                this.scheduleMetricModalChart(card);
             };
 
             const setActive = (id) => {
                 state.modalChart.activeId = id;
-                this.renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle);
+                this.updateMetricTileStates(bdCont);
+                this.updateMetricTileStates(chCont.parentElement);
+                this.scheduleMetricModalChart(card);
             };
 
             const handleKey = (e, id) => {
@@ -4058,30 +4229,10 @@
                 }
             };
 
-            // Build table
-            let bdHtml = '<table class="collection-seg-table"><tbody>';
-            const rowById = new Map([['__main__', card]]);
-            const selectableRows = [];
-            const seenRows = new Set();
-            const addRows = (items, prefix) => {
-                (items || []).forEach((item, index) => {
-                    if (!item) return;
-                    const identity = metricSelectableIdentity(item, prefix);
-                    if (seenRows.has(identity)) return;
-                    seenRows.add(identity);
-                    const id = prefix === 'breakdown'
-                        ? String(index) : `${prefix}:${index}`;
-                    rowById.set(id, item);
-                    selectableRows.push({id, item});
-                });
-            };
-            addRows(card.breakdown, 'breakdown');
-            addRows(card.details, 'detail');
-            addRows(card.analytics, 'analytics');
-            addRows(card.components, 'component');
-
-            const renderRow = (id, label, value, hasSeries, isMain) => {
-                const row = rowById.get(id) || card;
+            // Metric components are cards, not a second metric table.
+            let bdHtml = '<div class="cash-analysis-grid ki-metric-tile-grid" role="list">';
+            const tileItems = metricTileItems(card);
+            const renderRow = (id, label, value, hasSeries, isMain, row) => {
                 const unit = rowUnit(row);
                 const f = this.formatValue(value, unit);
                 const isActive = state.modalChart.activeId === id;
@@ -4099,30 +4250,29 @@
                     deviation: isMain ? 'Итоговое значение' : 'Составная часть общего показателя'
                 }));
 
-                bdHtml += `<tr class="cash-tooltip-host ki-metric-interactive-row" style="${trStyle}" tabindex="${hasSeries ? '0' : '-1'}" data-series-id="${id}">
-                    <td style="display:flex;align-items:center;">
-                        <button type="button" class="pin-btn" aria-label="${isPinned ? 'Открепить' : 'Закрепить'}" title="${isPinned ? 'Открепить серию' : 'Закрепить серию'}" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;padding:0;" tabindex="-1">
-                            ${hasSeries ? pinIcon : ''}
-                        </button>
-                        ${esc(label)}${tooltip}
-                    </td>
-                    <td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td>
-                </tr>`;
+                bdHtml += `<div class="cash-analysis-card cash-tooltip-host ki-metric-interactive-tile"
+                    role="listitem" style="${trStyle}" tabindex="${hasSeries ? '0' : '-1'}"
+                    data-series-id="${hasSeries ? id : ''}" data-series-label="${esc(label)}">
+                    <div class="cash-analysis-label">${esc(label)}</div>
+                    <div class="cash-analysis-value">${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</div>
+                    ${isPinned ? '<span class="ki-metric-pinned">Закреплено</span>' : ''}
+                    ${tooltip}
+                </div>`;
             };
 
-            if (card.series && card.series.length > 0) {
-                renderRow('__main__', 'Итого', card.value, true, true);
-            }
-            selectableRows.forEach(({id, item}) => {
-                renderRow(id, item.label, item.value,
-                    !!(item.series && item.series.length > 0), false);
+            tileItems.forEach(series => {
+                const item = series.item;
+                renderRow(series.id, series.label, series.isMain ? card.value : item.value,
+                    series.hasSeries, series.isMain, item);
             });
-            bdHtml += '</tbody></table>';
+            if (!tileItems.length) bdHtml += '<div class="chart-empty">Нет доступных рядов для графика</div>';
+            bdHtml += '</div>';
             bdCont.innerHTML = bdHtml;
 
             // Attach events
-            Array.from(bdCont.querySelectorAll('tr[data-series-id]')).forEach(tr => {
+            Array.from(bdCont.querySelectorAll('tr[data-series-id], [data-series-id]')).forEach(tr => {
                 const id = tr.dataset.seriesId;
+                if (!id) return;
                 let clickTimer = null;
                 tr.addEventListener('click', (e) => {
                     if (e.target.closest('.pin-btn')) {
@@ -4157,22 +4307,27 @@
                     Режим 2 показывает синтетическое продолжение только на графике;
                     суммы и фактические значения не изменяются.
                 </div>
-                <div class="cash-line-chart" id="ki-metric-modal-svg" style="height:220px; position:relative;"></div>
+                <div class="cash-line-chart ki-metric-modal-svg" style="height:220px; position:relative;"></div>
             `;
             chCont.innerHTML = chartHtml;
+            const chartContainer = chCont.querySelector
+                ? chCont.querySelector('.ki-metric-modal-svg')
+                : document.getElementById('ki-metric-modal-svg');
+            state.modalChart.chartContainer = chartContainer;
 
             Array.from(chCont.querySelectorAll('input[name="gapMode"]')).forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     state.modalChart.gapMode = Number(e.target.value);
-                    this.scheduleChart('ki-metric-modal-svg', () => this.drawMetricModalSvg(card), 0);
+                    this.scheduleMetricModalChart(card, chartContainer);
                 });
             });
 
-            this.scheduleChart('ki-metric-modal-svg', () => this.drawMetricModalSvg(card), 50);
+            this.scheduleMetricModalChart(card, chartContainer, 50);
         },
 
-        drawMetricModalSvg(card) {
-            const container = document.getElementById('ki-metric-modal-svg');
+        drawMetricModalSvg(card, chartContainer) {
+            const container = chartContainer || state.modalChart.chartContainer ||
+                document.getElementById('ki-metric-modal-svg');
             if (!container) return;
 
             const unitFor = (item, data) => (item && item.unit) ||
@@ -4193,18 +4348,29 @@
                 '__main__', 'Итого', card.series, true, card, 'main');
             if (card.breakdown) {
                 card.breakdown.forEach((b, i) => {
-                    addSeries(String(i), b.label, b.series, false, b, 'breakdown');
+                    addSeries(metricSeriesId(b, 'breakdown', i), b.label,
+                        b.series, false, b, 'breakdown');
                 });
             }
             const addCollectionSeries = (items, prefix) => {
                 (items || []).forEach((item, i) => {
-                    addSeries(`${prefix}:${i}`, item && item.label,
+                    addSeries(metricSeriesId(item, prefix, i), item && item.label,
                         item && item.series, false, item, prefix);
                 });
             };
+            addCollectionSeries(card.components, 'component');
             addCollectionSeries(card.details, 'detail');
             addCollectionSeries(card.analytics, 'analytics');
-            addCollectionSeries(card.components, 'component');
+            if (card.accrual_series && card.accrual_series.length) {
+                const salarySeries = {
+                    label: 'Начисления работникам',
+                    series: card.accrual_series,
+                    series_id: 'credit-turnover'
+                };
+                addSeries(metricSeriesId(salarySeries, 'salary', 0),
+                    salarySeries.label, salarySeries.series, false,
+                    salarySeries, 'salary');
+            }
 
             const activeSeries = availableSeries.find(
                 series => series.id === state.modalChart.activeId);
@@ -4568,7 +4734,7 @@ renderCashModal(card) {
                     Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
                     Средства счёта 55 могут иметь ограничения по использованию.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Денежные средства</div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" data-series-id="__main__"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
                         <div class="cash-summary-sub">${esc(cashFormatted.u)} · ${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
@@ -4588,22 +4754,14 @@ renderCashModal(card) {
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
-                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null)}
+                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
                     ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null)}
                     ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityData, true)}
                     ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
                     ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
                     ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelData, true)}
                 </div>
-                <div class="modal-section-title">Динамика денежных средств</div>
-                <div class="cash-chart-legend"><span><i class="cash-chart-dot" style="background:#3B82F6"></i>Остаток</span>
-                    <span><i class="cash-chart-dot" style="background:#10B981"></i>Изменение между соседними известными днями</span>
-                    <span><i class="cash-chart-dot" style="background:#D97706"></i>Частичный охват счетов</span></div>
-                <div class="cash-summary-sub">Изменение рассчитывается только между соседними известными календарными днями. При смене состава счетов оно не рассчитывается; пунктир между известными точками — пропуск данных, не факт. Частичные остатки сравниваются только при одинаковом охвате. Даты и счета — в подсказках точек.</div>
-                <div class="cash-line-chart" id="ki-cash-line-chart"></div>`;
-            this.renderCashLineChart(card.series || []);
-            this.scheduleChart('ki-cash-line-chart',
-                () => this.renderCashLineChart(card.series || []), 0);
+                `;
         },
 
         renderCashLineChart(series) {
@@ -4733,13 +4891,18 @@ renderCashModal(card) {
                 state.data.cards.find(c => c.id === cardId) : null;
             if (!card) return;
 
+            // A modal can be reused without an intervening close (for example
+            // keyboard navigation between cards). Never let a delayed render
+            // target the next modal's chart container.
+            this.clearChartJobs();
             state.modalCardId = cardId;
             // Chart selection is local to the card.  Breakdown indexes are
             // intentionally reused by different cards, so a single global
             // pinned set would leak a pin from one modal into another.
             if (!state.modalCharts[cardId]) {
                 state.modalCharts[cardId] = {
-                    activeId: null, pinnedIds: new Set(), gapMode: 1
+                    activeId: null, pinnedIds: new Set(), gapMode: 1,
+                    chartContainer: null
                 };
             }
             state.modalChart = state.modalCharts[cardId];
@@ -4921,16 +5084,14 @@ renderCashModal(card) {
             const hasDetailsSeries = card.details && card.details.some(d => d.series && d.series.length > 0);
             const hasMainSeries = card.series && card.series.length > 0;
 
-            if (state.mode === 'operational' && (hasMainSeries || hasBreakdownSeries || hasDetailsSeries)) {
-                const validIds = new Set();
-                if (hasMainSeries) validIds.add('__main__');
-                if (card.breakdown) card.breakdown.forEach((b, i) => { if (b.series && b.series.length > 0) validIds.add(String(i)); });
-                if (card.details) card.details.forEach((d, i) => { if (d.series && d.series.length > 0) validIds.add(`detail:${i}`); });
+            if (state.mode === 'operational' && (hasMainSeries || hasBreakdownSeries ||
+                hasDetailsSeries || (card.analytics || []).some(item => item.series && item.series.length) ||
+                (card.components || []).some(item => item.series && item.series.length))) {
+                const metricItems = metricSeriesItems(card);
+                const validIds = new Set(metricItems.map(item => item.id));
 
                 if (!validIds.has(state.modalChart.activeId)) {
-                    state.modalChart.activeId = hasMainSeries ? '__main__' :
-                        (hasBreakdownSeries ? String(card.breakdown.findIndex(b => b.series && b.series.length > 0)) :
-                            (hasDetailsSeries ? `detail:${card.details.findIndex(d => d.series && d.series.length > 0)}` : null));
+                    state.modalChart.activeId = metricItems.length ? metricItems[0].id : null;
                 }
 
                 const newPinned = new Set();
@@ -4938,29 +5099,11 @@ renderCashModal(card) {
                     if (validIds.has(id)) newPinned.add(id);
                 });
                 state.modalChart.pinnedIds = newPinned;
+                this.renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle);
 
             } else {
-                if (card.breakdown && card.breakdown.length > 0) {
-                    bdTitle.style.display = 'block';
-                    let bdHtml = '<table class="collection-seg-table"><tbody>';
-                    card.breakdown.forEach(b => {
-                        const f = this.formatValue(b.value, card.unit);
-                        const tooltip = this.cashTooltip(this.metricTooltipData(card, {
-                            title: `${card.title}: ${b.label}`,
-                            fact: `${f.val} ${f.u}`,
-                            detail: `${baseTooltip.detail} Детализация: ${b.label}.`,
-                            deviation: 'Составная часть общего показателя'
-                        }));
-                        bdHtml += `<tr class="cash-tooltip-host" tabindex="0"><td>${esc(b.label)}${tooltip}</td><td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td></tr>`;
-                    });
-                    bdHtml += '</tbody></table>';
-                    bdCont.innerHTML = bdHtml;
-                    bdCont.style.display = 'block';
-                } else {
-                    bdTitle.style.display = 'none';
-                    bdCont.style.display = 'none';
-                }
-
+                bdTitle.style.display = 'none';
+                bdCont.style.display = 'none';
                 if (hasMainSeries) {
                     chTitle.style.display = 'block';
                     chCont.style.display = 'block';
@@ -5004,51 +5147,26 @@ renderCashModal(card) {
             }
             }
 
-            // Specialized content stays intact; the shared interactive
-            // surface is appended in the generic modal area for every card.
-            genericContent.style.display = 'block';
-            if (state.mode === 'operational' &&
-                (commonHasMainSeries || commonHasBreakdownSeries ||
-                 commonHasDetailsSeries || commonHasAnalyticsSeries ||
-                 commonHasComponentsSeries)) {
-                const validIds = new Set();
-                if (commonHasMainSeries) validIds.add('__main__');
-                const seenSelectable = new Set();
-                const addValidIds = (items, prefix) => {
-                    (items || []).forEach((item, index) => {
-                        if (!item || !item.series || !item.series.length) return;
-                        const identity = metricSelectableIdentity(item, prefix);
-                        if (seenSelectable.has(identity)) return;
-                        seenSelectable.add(identity);
-                        validIds.add(prefix === 'breakdown'
-                            ? String(index) : `${prefix}:${index}`);
-                    });
-                };
-                addValidIds(card.breakdown, 'breakdown');
-                addValidIds(card.details, 'detail');
-                addValidIds(card.analytics, 'analytics');
-                addValidIds(card.components, 'component');
+            const activeContainer = [
+                cashContent, revenueContent, collectionContent, arContent,
+                apContent, cogsContent, profitContent, creditsContent,
+                salaryContent, capexContent, genericContent
+            ].find(el => el.style.display === 'block');
+            if (activeContainer && state.mode === 'operational') {
+                const validIds = new Set(metricSeriesItems(card).map(item => item.id));
                 if (!validIds.has(state.modalChart.activeId)) {
-                    state.modalChart.activeId = commonHasMainSeries
-                        ? '__main__'
-                        : (validIds.values().next().value || null);
+                    state.modalChart.activeId = validIds.values().next().value || null;
                 }
                 state.modalChart.pinnedIds = new Set(
                     [...state.modalChart.pinnedIds].filter(id => validIds.has(id)));
-                this.renderMetricModalInteractive(
-                    card,
-                    document.getElementById('ki-modal-breakdown-container'),
-                    document.getElementById('ki-modal-breakdown-title'),
-                    document.getElementById('ki-modal-chart-container'),
-                    document.getElementById('ki-modal-chart-title'));
+                if (activeContainer === genericContent) {
+                    this.updateMetricTileStates(genericContent);
+                } else {
+                    this.mountSharedDynamics(card, activeContainer);
+                    this.bindMetricTiles(card, activeContainer);
+                }
             }
-            
             if (window.KI_Layout) {
-                const activeContainer = [
-                    cashContent, revenueContent, collectionContent, arContent,
-                    apContent, cogsContent, profitContent, creditsContent,
-                    salaryContent, capexContent, genericContent
-                ].find(el => el.style.display === 'block');
                 if (activeContainer) {
                     window.KI_Layout.onModalOpen(cardId, activeContainer, 'osv');
                 }
@@ -5092,6 +5210,8 @@ renderCashModal(card) {
                 window.KI_AnnualApp.state.modalCardId = null;
             }
             this.hideModalSwitchStatus();
+            this.clearChartJobs();
+            if (state.modalChart) state.modalChart.chartContainer = null;
             if (state.lastFocused) state.lastFocused.focus();
         },
         

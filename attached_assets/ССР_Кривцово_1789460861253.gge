@@ -1,0 +1,420 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Construction xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="SummaryEstimate-3_01.xsd">
+  <Meta>
+    <Soft>
+      <Name>ГРАНД-Смета</Name>
+      <Version>2026.1 Windows x64 (сборка 16.1.1)</Version>
+    </Soft>
+    <File>
+      <Type>ССР</Type>
+      <Version>3.01</Version>
+    </File>
+  </Meta>
+  <Num>ССРСС</Num>
+  <Name>Котельная Кривцово по адресу Московская область, Солнечногорский район, с.п. Кривцовское, д. Кривцово: Капитальный ремонт в части ревизии поверхностей нагрева котлов ВА-3000-2шт</Name>
+  <Customer>Солнечногорского филиал ООО "Газпром теплоэнерго"</Customer>
+  <Created>2025-05-01</Created>
+  <Approved>2025-05-01</Approved>
+  <PriceLevel>
+    <Year>2025</Year>
+    <Quarter>2</Quarter>
+    <BasicPrice>false</BasicPrice>
+  </PriceLevel>
+  <Summary>
+    <Building>38.62</Building>
+    <Mounting>1956.66</Mounting>
+    <Equipment>731.71</Equipment>
+    <Other>110.89</Other>
+    <Total>2837.88</Total>
+  </Summary>
+  <Chapter1>
+    <ChapterName>
+      <ConstantNameChapter>Подготовка территории строительства, реконструкции, капитального ремонта</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+  </Chapter1>
+  <Chapter2>
+    <ChapterName>
+      <ConstantNameChapter>Основные объекты строительства, реконструкции, капитального ремонта</ConstantNameChapter>
+    </ChapterName>
+    <LocalEstimate>
+      <Building>31.15</Building>
+      <Mounting>1578.33</Mounting>
+      <Equipment>592</Equipment>
+      <Total>2201.48</Total>
+      <Name>Котельная Кривцово по адресу Московская область, Солнечногорский район, с.п. Кривцовское, д. Кривцово: Капитальный ремонт в части ревизии поверхностей нагрева котлов ВА-3000-2шт</Name>
+      <Num>1</Num>
+      <Reason>ЛСР-02-01-01</Reason>
+      <Details>
+        <Building>
+          <Total>31.15</Total>
+          <WorkersSalary>490.44</WorkersSalary>
+          <LaborCosts>0.93237</LaborCosts>
+          <MachinistLaborCosts>0.03685</MachinistLaborCosts>
+          <Price>31.15</Price>
+        </Building>
+        <Mounting>
+          <Total>1578.33</Total>
+          <Price>1578.33</Price>
+        </Mounting>
+        <Equipment>
+          <Total>592</Total>
+          <Price>592</Price>
+        </Equipment>
+        <Total>2201.48</Total>
+        <Summary>2201.48</Summary>
+      </Details>
+      <Link>ЛСР 02-01-01_Капитальный ремонт в части ревизии поверхностей нагрева котлов ВА-3000-2шт.gsfx</Link>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </LocalEstimate>
+    <Summary>
+      <Building>31.15</Building>
+      <Mounting>1578.33</Mounting>
+      <Equipment>592</Equipment>
+      <Total>2201.48</Total>
+    </Summary>
+  </Chapter2>
+  <Chapter3>
+    <ChapterName>
+      <ConstantNameChapter>Объекты подсобного и обслуживающего назначения</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+  </Chapter3>
+  <Chapter4>
+    <ChapterName>
+      <ConstantNameChapter>Объекты энергетического хозяйства</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+  </Chapter4>
+  <Chapter5>
+    <ChapterName>
+      <ConstantNameChapter>Объекты транспортного хозяйства и связи</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+  </Chapter5>
+  <Chapter6>
+    <ChapterName>
+      <ConstantNameChapter>Наружные сети и сооружения водоснабжения, водоотведения, теплоснабжения и газоснабжения</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+  </Chapter6>
+  <Chapter7>
+    <ChapterName>
+      <ConstantNameChapter>Благоустройство и озеленение территории</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.15</Building>
+      <Mounting>1578.33</Mounting>
+      <Equipment>592</Equipment>
+      <Total>2201.48</Total>
+    </SubSummary>
+  </Chapter7>
+  <Chapter8>
+    <ChapterName>
+      <ConstantNameChapter>Временные здания и сооружения</ConstantNameChapter>
+    </ChapterName>
+    <Addition>
+      <Building>0.09</Building>
+      <Mounting>4.73</Mounting>
+      <Total>4.82</Total>
+      <Name>Временные здания и сооружения - Системы и сети инженерно-технического обеспечения - 0,3%</Name>
+      <Num>2</Num>
+      <Reason>Приказ Минстроя от
+19.06.2020 №332/пр
+прил.2, табл.б/н, п.2.4</Reason>
+    </Addition>
+    <Summary>
+      <Building>0.09</Building>
+      <Mounting>4.73</Mounting>
+      <Total>4.82</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.24</Building>
+      <Mounting>1583.06</Mounting>
+      <Equipment>592</Equipment>
+      <Total>2206.3</Total>
+    </SubSummary>
+  </Chapter8>
+  <Chapter9>
+    <ChapterName>
+      <ConstantNameChapter>Прочие работы и затраты</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.24</Building>
+      <Mounting>1583.06</Mounting>
+      <Equipment>592</Equipment>
+      <Total>2206.3</Total>
+    </SubSummary>
+  </Chapter9>
+  <Chapter10>
+    <ChapterName>
+      <ConstantNameChapter>Содержание службы заказчика. Строительный контроль</ConstantNameChapter>
+    </ChapterName>
+    <Addition>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>47.21</Other>
+      <Total>47.21</Total>
+      <Name>Строительный контроль (2,14%)</Name>
+      <Num>3</Num>
+      <Reason>Постановление Правительства Российской Федерации
+от 21.06.2010 № 468.</Reason>
+    </Addition>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>47.21</Other>
+      <Total>47.21</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.24</Building>
+      <Mounting>1583.06</Mounting>
+      <Equipment>592</Equipment>
+      <Other>47.21</Other>
+      <Total>2253.51</Total>
+    </SubSummary>
+  </Chapter10>
+  <Chapter11>
+    <ChapterName>
+      <ConstantNameChapter>Подготовка эксплуатационных кадров для строящегося объекта капитального строительства</ConstantNameChapter>
+    </ChapterName>
+    <Calculation>
+      <Total>0</Total>
+      <Name/>
+      <Num>1</Num>
+      <Reason/>
+      <Link/>
+      <StageID>0</StageID>
+      <StageName>Без этапа</StageName>
+    </Calculation>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Total>0</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.24</Building>
+      <Mounting>1583.06</Mounting>
+      <Equipment>592</Equipment>
+      <Other>47.21</Other>
+      <Total>2253.51</Total>
+    </SubSummary>
+  </Chapter11>
+  <Chapter12>
+    <ChapterName>
+      <ConstantNameChapter>Публичный технологический и ценовой аудит, подготовка обоснования инвестиций, осуществляемых в инвестиционный проект по созданию объекта капитального строительства, в отношении которого планируется заключение контракта, предметом которого является одновременно выполнение работ по проектированию, строительству и вводу в эксплуатацию объекта капитального строительства, технологический и ценовой аудит такого обоснования инвестиций, аудит проектной документации, проектные и изыскательские работы</ConstantNameChapter>
+    </ChapterName>
+    <Addition>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>21.92</Other>
+      <Total>21.92</Total>
+      <Name>Котельная Кривцово по адресу Московская область, Солнечногорский район, с.п. Кривцовское, д. Кривцово: Капитальный ремонт в части ревизии поверхностей нагрева котлов ВА-3000-2шт</Name>
+      <Num>4</Num>
+      <Reason>Смета ПС на проектные работы</Reason>
+    </Addition>
+    <Addition>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>20.86</Other>
+      <Total>20.86</Total>
+      <Name>Проведение государственной экспертизы проектной документации в части проверки 
+достоверности определения сметной стоимости по объекту: «Котельная Кривцово по адресу Московская область, Солнечногорский район, с.п. Кривцовское, д. Кривцово: Капитальный ремонт в части ревизии поверхностей нагрева котлов ВА-3000-2шт.»</Name>
+      <Num>5</Num>
+      <Reason>Договор № 570/Д-26
+«19» марта 2026 года</Reason>
+    </Addition>
+    <Summary>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>42.78</Other>
+      <Total>42.78</Total>
+    </Summary>
+    <SubSummary>
+      <Building>31.24</Building>
+      <Mounting>1583.06</Mounting>
+      <Equipment>592</Equipment>
+      <Other>89.99</Other>
+      <Total>2296.29</Total>
+    </SubSummary>
+  </Chapter12>
+  <Chapter13>
+    <ChapterName>
+      <ConstantNameChapter>Непредвиденные затраты</ConstantNameChapter>
+    </ChapterName>
+    <Addition>
+      <Building>0.94</Building>
+      <Mounting>47.49</Mounting>
+      <Equipment>17.76</Equipment>
+      <Other>2.07</Other>
+      <Total>68.26</Total>
+      <Name>Непредвиденные затраты для объектов капитального строительства производственного назначения - 3%</Name>
+      <Num>6</Num>
+      <Reason>Приказ от 4.08.2020 № 421/пр п.179</Reason>
+    </Addition>
+    <Summary>
+      <Building>0.94</Building>
+      <Mounting>47.49</Mounting>
+      <Equipment>17.76</Equipment>
+      <Other>2.07</Other>
+      <Total>68.26</Total>
+    </Summary>
+    <SubSummary>
+      <Building>32.18</Building>
+      <Mounting>1630.55</Mounting>
+      <Equipment>609.76</Equipment>
+      <Other>92.06</Other>
+      <Total>2364.55</Total>
+    </SubSummary>
+  </Chapter13>
+  <Chapter14>
+    <ChapterName>
+      <ConstantNameChapter>Налоги и обязательные платежи</ConstantNameChapter>
+    </ChapterName>
+    <Addition>
+      <Building>6.44</Building>
+      <Mounting>326.11</Mounting>
+      <Equipment>121.95</Equipment>
+      <Other>14.24</Other>
+      <Total>468.74</Total>
+      <Name>НДС 20%</Name>
+      <Num>7</Num>
+      <Reason>ФЗ 117 от 25.12.2018г.</Reason>
+    </Addition>
+    <Addition>
+      <Building>0</Building>
+      <Mounting>0</Mounting>
+      <Other>4.59</Other>
+      <Total>4.59</Total>
+      <Name>НДС 22%</Name>
+      <Num>8</Num>
+      <Reason>ФЗ 425 от 28.11.2025г.</Reason>
+    </Addition>
+    <Summary>
+      <Building>6.44</Building>
+      <Mounting>326.11</Mounting>
+      <Equipment>121.95</Equipment>
+      <Other>18.83</Other>
+      <Total>473.33</Total>
+    </Summary>
+  </Chapter14>
+  <Signatures>
+    <ProjectOrg>
+      <Name>М.Ю. Иванов</Name>
+    </ProjectOrg>
+    <ChiefProjectEngineer>
+      <Name>Лукьянов С.Д.</Name>
+    </ChiefProjectEngineer>
+    <Chief>
+      <Name>Шелегина И.С.</Name>
+      <Department>Сметный отдел</Department>
+    </Chief>
+    <Customer>
+      <Name>А.В. Шевченко</Name>
+      <Position>Директор Солнечногорского филиала ООО "Газпром теплоэнерго"</Position>
+    </Customer>
+    <Composer>
+      <Name>Медведев Д.В.</Name>
+      <Position>Инженер-сметчик</Position>
+    </Composer>
+    <Verifier>
+      <Name>Лукьянов С.Д.</Name>
+      <Position>Главный инженер проекта</Position>
+    </Verifier>
+  </Signatures>
+  <ExportDateTime>2026-04-23T12:28:03.00</ExportDateTime>
+</Construction>

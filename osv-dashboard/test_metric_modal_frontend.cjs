@@ -29,7 +29,7 @@ function element(id) {
         getAttribute: () => null,
         __cache: {},
         querySelectorAll(selector) {
-            if (selector.includes('tr[data-series-id]')) {
+            if (selector.includes('[data-series-id]') || selector.includes('tr[data-series-id]')) {
                 const matches = [...this.innerHTML.matchAll(/data-series-id="([^"]+)"/g)];
                 return matches.map(m => {
                     let id = m[1];
@@ -143,9 +143,11 @@ let bdCont = nodes.get('ki-modal-breakdown-container');
 let svgHtml = nodes.get('ki-metric-modal-svg').innerHTML;
 
 assert.equal(app.state.modalChart.activeId, '__main__');
-assert.ok(bdCont.innerHTML.includes('border-left:3px solid #3B82F6'), 'Active row highlighted');
+assert.ok(bdCont.innerHTML.includes('border-left:3px solid #3B82F6'), 'Active tile highlighted');
+assert.ok(bdCont.innerHTML.includes('ki-metric-interactive-tile'), 'Metric cards are tiles');
+assert.ok(!bdCont.innerHTML.includes('<table'), 'Metric breakdown is not rendered as a table');
 
-let rows = bdCont.querySelectorAll('tr[data-series-id]');
+let rows = bdCont.querySelectorAll('[data-series-id]');
 let sub1Row = rows.find(r => r.dataset.seriesId === '0');
 sub1Row.dispatchEvent('click', { detail: 1, target: { closest: () => null } });
 flushTimers();
@@ -154,7 +156,7 @@ assert.equal(app.state.modalChart.activeId, '0');
 sub1Row.dispatchEvent('dblclick', { target: { closest: () => null } });
 assert.ok(app.state.modalChart.pinnedIds.has('0'), 'Pinned sub 1');
 
-let sub2Row = bdCont.querySelectorAll('tr[data-series-id]').find(r => r.dataset.seriesId === '1');
+let sub2Row = bdCont.querySelectorAll('[data-series-id]').find(r => r.dataset.seriesId === '1');
 sub2Row.dispatchEvent('keydown', { key: ' ', preventDefault: () => {} });
 assert.ok(app.state.modalChart.pinnedIds.has('1'), 'Pinned sub 2 via keyboard');
 
@@ -181,24 +183,24 @@ app.drawMetricModalSvg(card);
 let svg3 = nodes.get('ki-metric-modal-svg').innerHTML;
 assert.ok(!svg3.includes('gap-transform-rect'), 'Monthly granularity refused gap transform carry');
 
-const analyticRow = bdCont.querySelectorAll('tr[data-series-id]')
+const analyticRow = bdCont.querySelectorAll('[data-series-id]')
     .find(row => row.dataset.seriesId === 'analytics:0');
 assert.ok(analyticRow, 'Analytics is selectable');
 analyticRow.dispatchEvent('dblclick', {target: {closest: () => null}});
 assert.ok(app.state.modalChart.pinnedIds.has('analytics:0'), 'Analytics can be pinned');
-const componentRows = bdCont.querySelectorAll('tr[data-series-id]');
-assert.equal(componentRows.filter(row => /^detail:/.test(row.dataset.seriesId)).length, 4,
-    'Four JSON-duplicated components remain selectable once each');
-assert.equal(componentRows.filter(row => /^component:/.test(row.dataset.seriesId)).length, 0,
-    'Duplicated component objects are omitted from the second category');
-const firstComponent = componentRows.find(row => row.dataset.seriesId === 'detail:0');
+const componentRows = bdCont.querySelectorAll('[data-series-id]');
+assert.equal(componentRows.filter(row => /^detail:/.test(row.dataset.seriesId)).length, 0,
+    'JSON-duplicated detail components are semantically deduplicated');
+assert.equal(componentRows.filter(row => /^component:/.test(row.dataset.seriesId)).length, 4,
+    'Four component series retain their canonical component prefix');
+const firstComponent = componentRows.find(row => row.dataset.seriesId === 'component:0');
 firstComponent.dispatchEvent('dblclick', {target: {closest: () => null}});
-assert.ok(app.state.modalChart.pinnedIds.has('detail:0'),
+assert.ok(app.state.modalChart.pinnedIds.has('component:0'),
     'A duplicated JSON component has one stable pin target');
 
 // A single click waits; a subsequent double click cancels that pending click.
 app.state.modalChart.activeId = '__main__';
-const sub1Again = bdCont.querySelectorAll('tr[data-series-id]')
+const sub1Again = bdCont.querySelectorAll('[data-series-id]')
     .find(row => row.dataset.seriesId === '0');
 sub1Again.dispatchEvent('click', {detail: 1, target: {closest: () => null}});
 sub1Again.dispatchEvent('dblclick', {target: {closest: () => null}});

@@ -371,13 +371,6 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   border: 1px solid #E5E7EB; border-radius: 8px; padding: 14px;
 }
 
-.collection-seg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.collection-seg-table td {
-  border-bottom: 1px solid #E5E7EB; padding: 8px 12px; text-align: right;
-  font-family: ui-monospace, monospace; font-weight: 500;
-}
-.collection-seg-table td:first-child { text-align: left; font-family: system-ui, sans-serif; font-weight: 600; color: #1F2937; }
-
 .waterfall-bar {
   display: flex; align-items: center; gap: 10px; padding: 8px 6px;
   border-bottom: 1px dashed #E5E7EB; font-size: 12px; transition: background 0.15s; border-radius: 4px;

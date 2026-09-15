@@ -457,6 +457,32 @@ function summaryFixture() {
     assert.equal(fresh.state.toolbar, null);
 }
 
+// The shared operational dynamics block is extracted as its own movable
+// constructor item, rather than being glued to the surrounding section.
+{
+    const freshWindow = {};
+    vm.runInNewContext(
+        fs.readFileSync(`${__dirname}/static/key_indicator_layout.js`, 'utf8'),
+        {window: freshWindow, document, console});
+    const fresh = freshWindow.KI_Layout;
+    const container = new Element();
+    const dynamics = new Element('div');
+    dynamics.dataset.layoutKey = 'dynamics';
+    const title = new Element('div', 'modal-section-title');
+    title.textContent = 'Динамика';
+    dynamics.appendChild(title);
+    container.appendChild(dynamics);
+    fresh.state.activeContainer = container;
+    fresh.captureOriginalDom(container, 22);
+    fresh.state.items = fresh.extractItems(container, 'operational');
+    assert.equal(fresh.state.items.length, 1);
+    assert.equal(fresh.state.items[0].type, 'chart');
+    assert.equal(fresh.state.items[0].title, 'Динамика');
+    assert.match(fresh.state.items[0].id, /dynamics/);
+    assert.equal(fresh.state.items[0].defaultPlacement, 'detail');
+    fresh.restoreOriginalDom();
+}
+
     console.log('PASS: key-indicator layouts, rendered states and relocated header toolbar');
 })().catch(error => {
     console.error(error);

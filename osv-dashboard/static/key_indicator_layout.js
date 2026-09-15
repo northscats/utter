@@ -304,6 +304,9 @@
 
         titleFor: function(element, fallback) {
             if (!element) return fallback;
+            if (element.dataset && element.dataset.layoutTitle) {
+                return String(element.dataset.layoutTitle).trim().slice(0, 160) || fallback;
+            }
             const title = element.querySelector &&
                 element.querySelector('.cash-summary-label, .cash-analysis-label, .collection-summary-label, .kpi-label, .modal-section-title');
             const value = title ? title.textContent : element.textContent;
@@ -367,6 +370,26 @@
                 // children can be restored to the exact nested positions.
                 if (summaryRootsWithCards.has(root)) return;
                 if (rootSet.has(root) && extracted.has(root)) return;
+                // The shared operational graph is a first-class layout item.
+                // Its key is deliberately supplied by the renderer instead of
+                // being inferred from a generated DOM id, so saved layouts
+                // survive changes to the surrounding specialized renderer.
+                const layoutKey = root.getAttribute ?
+                    (root.getAttribute('data-layout-key') ||
+                        (root.dataset && root.dataset.layoutKey)) : null;
+                if (layoutKey === 'dynamics') {
+                    if (consumed.has(root)) return;
+                    consumed.add(root);
+                    items.push({
+                        id: this.stableKey(cardId, root, 'chart', 'dynamics'),
+                        type: 'chart',
+                        elements: [root],
+                        title: 'Динамика',
+                        defaultPlacement: root.style.display === 'none' ? 'hidden' : 'detail'
+                    });
+                    this.anchorAndMove(root);
+                    return;
+                }
                 if (this.hasClass(root, 'modal-section-title')) {
                     const elements = [root];
                     let index = rootIndex + 1;
@@ -978,7 +1001,12 @@
                 row.setAttribute('role', 'listitem');
                 row.setAttribute('aria-grabbed', 'false');
                 if (this.state.selected.has(item.id)) row.classList.add('selected');
-                const kind = {card: 'Показатель', banner: 'Информация', section: 'Секция'}[item.type] || item.type;
+                const kind = {
+                    card: 'Показатель',
+                    banner: 'Информация',
+                    section: 'Секция',
+                    chart: 'График'
+                }[item.type] || item.type;
                 const position = placementItems[placement].findIndex(candidate => candidate.id === item.id);
                 const previous = position > 0 ? placementItems[placement][position - 1] : null;
                 const next = position >= 0 && position < placementItems[placement].length - 1 ?
