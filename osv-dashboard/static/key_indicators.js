@@ -4303,10 +4303,6 @@
                         Продлевать последнее значение
                     </label>
                 </div>
-                <div class="ki-gap-mode-note" style="font-size:11px;color:#92400E;margin:0 0 8px;text-align:right;">
-                    Режим 2 показывает синтетическое продолжение только на графике;
-                    суммы и фактические значения не изменяются.
-                </div>
                 <div class="cash-line-chart ki-metric-modal-svg" style="height:280px; position:relative;"></div>
             `;
             chCont.innerHTML = chartHtml;
