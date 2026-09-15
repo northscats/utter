@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}Предварительный просмотр импорта{% endblock %}
 {% block content %}
-<div id="analog-preview-page" hidden></div>
+<div id="analog-preview-page">
 <a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
 <h1>Проверка пары источников</h1>
 {% for item in diagnostics %}<div class="alert {{ item.severity }}">{{ item.message }}</div>{% endfor %}
@@ -10,9 +10,24 @@
   <dt>Номер заключения</dt><dd>{{ pair.conclusion.conclusion_number }}</dd>
   <dt>Дата утверждения</dt><dd>{{ pair.conclusion.approval_date }}</dd>
   <dt>Вид работ</dt><dd>{{ pair.conclusion.work_type }}</dd>
+  <dt>Адрес</dt><dd>{{ pair.conclusion.address }}</dd>
+  <dt>Регион источника</dt><dd>{{ pair.conclusion.region }}</dd>
+  <dt>Климатические условия</dt><dd>{{ pair.conclusion.climate_conditions }}</dd>
+  <dt>Кадастровый номер</dt><dd>{{ pair.conclusion.cadastral_number }}</dd>
   <dt>Итог ССР</dt><dd>{{ pair.ssr.summary.total }}</dd>
   <dt>Уровень цен</dt><dd>{{ pair.ssr.price_year }} / квартал {{ pair.ssr.price_quarter }}</dd>
 </dl>
+{% if pair.conclusion.teps %}
+<h2>Технико-экономические показатели</h2>
+<table>
+  <thead><tr><th>Показатель</th><th>Исходное значение</th><th>Нормализованное значение</th></tr></thead>
+  <tbody>{% for tep in pair.conclusion.teps %}<tr>
+    <td>{{ tep.name }}</td>
+    <td>{{ tep.value_text }}{% if tep.unit %} {{ tep.unit }}{% endif %}</td>
+    <td>{{ tep.normalized_value }}{% if tep.normalized_unit %} {{ tep.normalized_unit }}{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table>
+{% endif %}
 {% if pair.can_confirm %}<form method="post" action="{{ url_for('analog.import_confirm', import_id=import_id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label>Объект <input name="title" value="{{ pair.conclusion.expert_object_name }}"></label>
@@ -25,4 +40,5 @@
   <button class="btn" type="submit">Подтвердить импорт</button>
 </form>{% else %}<strong>Импорт заблокирован до исправления ошибок.</strong>{% endif %}
 </section>
+</div>
 {% endblock %}

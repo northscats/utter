@@ -8,6 +8,7 @@ import json
 import zipfile
 from io import BytesIO
 from datetime import date
+from decimal import Decimal
 
 _tmp = tempfile.mkdtemp(prefix='analog_route_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_tmp}/analog.db'
@@ -80,6 +81,14 @@ class AnalogRoutesTest(unittest.TestCase):
                 passport_id=passport_id).all()
             self.assertTrue(any(item.parent_id is not None for item in documents))
             self.assertTrue(any(item.node_kind == 'section' for item in documents))
+            passport = db.session.get(AnalogPassport, passport_id)
+            self.assertEqual(
+                passport.address,
+                'Солнечногорский район, с.п. Кривцовское, д. Кривцово')
+            self.assertEqual(
+                passport.capacity_kw,
+                (Decimal('6.53') * Decimal('1162.222222222222')).quantize(
+                    Decimal('0.000001')))
         duplicate = self.client.post('/analog-search/import/preview',
                                      data=self.files(conclusion),
                                      content_type='multipart/form-data')
@@ -179,7 +188,59 @@ class AnalogRoutesTest(unittest.TestCase):
         response = self.client.get(preview_url)
         self.assertEqual(response.status_code, 200)
         self.assertIn('Подтвердить импорт', response.get_data(as_text=True))
-        self.assertIn('analog-preview-page', response.get_data(as_text=True))
+        html = response.get_data(as_text=True)
+        self.assertIn('analog-preview-page', html)
+        self.assertIn('Солнечногорский район, с.п. Кривцовское, д. Кривцово', html)
+        self.assertIn('Технико-экономические показатели', html)
+        self.assertIn('Мощность котельной', html)
+        self.assertIn('6,53 Гкал', html)
+
+    def test_admin_can_remove_passport_from_analogs_table(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Аналог для удаления', object_type='котельная',
+                work_type='строительство', capacity_kw=100,
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.commit()
+            passport_id = passport.id
+
+        page = self.client.get('/analog-search')
+        html = page.get_data(as_text=True)
+        self.assertIn('Аналог для удаления', html)
+        self.assertIn(
+            f'/analog-search/passports/{passport_id}/archive', html)
+        self.assertIn('Удалить', html)
+
+        response = self.client.post(
+            f'/analog-search/passports/{passport_id}/archive',
+            headers={'Accept': 'text/html'}, follow_redirects=False)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['Location'], '/analog-search')
+        self.assertNotIn(
+            'Аналог для удаления',
+            self.client.get('/analog-search').get_data(as_text=True))
+        with app.app_context():
+            self.assertTrue(db.session.get(AnalogPassport, passport_id).archived)
+
+    def test_regular_user_cannot_remove_passport(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Защищённый аналог', object_type='котельная',
+                work_type='строительство', capacity_kw=100,
+                created_by=self.admin_id)
+            user = User(username='analog-delete-user', password_hash='unused',
+                        role='user')
+            user.password_change_required = False
+            db.session.add_all([passport, user])
+            db.session.commit()
+            passport_id = passport.id
+            user_id, user_version = user.id, int(user.password_version or 1)
+        self.login_values(user_id, user_version)
+        self.assertEqual(
+            self.client.post(
+                f'/analog-search/passports/{passport_id}/archive').status_code,
+            403)
 
     def test_preview_get_is_owned_and_confirmed_preview_redirects(self):
         response = self.client.post('/analog-search/import/preview',
@@ -243,6 +304,8 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('xhr.upload.onprogress', html)
         self.assertIn('Сервер проверяет и разбирает данные', html)
         self.assertIn('button.disabled = true', html)
+        self.assertIn('window.location.assign(finalUrl)', html)
+        self.assertNotIn('document.write(xhr.responseText)', html)
 
     def test_confirm_is_owned_by_creator_or_admin(self):
         response = self.client.post('/analog-search/import/preview',

@@ -104,13 +104,6 @@
           restore('Сессия истекла. Обновите страницу, войдите снова и повторите попытку.');
           return;
         }
-        if (xhr.responseText.includes('id="analog-preview-page"')) {
-          document.open();
-          document.write(xhr.responseText);
-          document.close();
-          history.replaceState(null, '', finalUrl);
-          return;
-        }
         if (finalUrl !== form.action) {
           window.location.assign(finalUrl);
           return;
@@ -159,8 +152,8 @@
 <section class="panel">
   <p class="result-groups"><strong>Хорошие аналоги: {{ good_count }}</strong> · <strong>Плохие аналоги: {{ pagination.total - good_count }}</strong></p>
   <div class="table-wrap"><table>
-    <thead><tr><th>№</th><th>Объект</th><th>Адрес</th><th>Работы</th><th>Мощность</th><th>Стоимость с коэффициентом</th><th>Аналогичность</th></tr></thead>
-    <tbody><tr><th colspan="7">Хорошие аналоги (отклонение мощности ABS ≤ 10%)</th></tr>
+    <thead><tr><th>№</th><th>Объект</th><th>Адрес</th><th>Работы</th><th>Мощность</th><th>Стоимость с коэффициентом</th><th>Аналогичность</th>{% if current_user.is_admin %}<th>Действия</th>{% endif %}</tr></thead>
+    <tbody><tr><th colspan="{{ 8 if current_user.is_admin else 7 }}">Хорошие аналоги (отклонение мощности ABS ≤ 10%)</th></tr>
     {% for row in good_rows %}
       <tr class="{% if row.good %}good{% else %}poor{% endif %}">
         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
@@ -168,13 +161,25 @@
         <td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td>
         <td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td>
         <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+        {% if current_user.is_admin %}<td>
+          <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn" type="submit" aria-label="Удалить объект {{ row.title }}">Удалить</button>
+          </form>
+        </td>{% endif %}
       </tr>
     {% endfor %}
-    <tr><th colspan="7">Плохие аналоги (отклонение мощности ABS &gt; 10%)</th></tr>
+    <tr><th colspan="{{ 8 if current_user.is_admin else 7 }}">Плохие аналоги (отклонение мощности ABS &gt; 10%)</th></tr>
     {% for row in poor_rows %}
-      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td></tr>
+      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+      {% if current_user.is_admin %}<td>
+        <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn" type="submit" aria-label="Удалить объект {{ row.title }}">Удалить</button>
+        </form>
+      </td>{% endif %}</tr>
     {% endfor %}
-    {% if not rows %}<tr><td colspan="7">Подтверждённых паспортов пока нет.</td></tr>{% endif %}</tbody>
+    {% if not rows %}<tr><td colspan="{{ 8 if current_user.is_admin else 7 }}">Подтверждённых паспортов пока нет.</td></tr>{% endif %}</tbody>
   </table></div>
   {% if pagination.pages > 1 %}<nav class="pagination">
     {% for page in pagination.iter_pages() %}{% if page %}

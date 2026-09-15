@@ -105,6 +105,58 @@ def _decimal(value, default=None):
         return default
 
 
+def _object_address(object_node):
+    """Read the object's structured address without concatenating its region code."""
+    children = list(object_node) if object_node is not None else []
+    address_node = next(
+        (child for child in children
+         if child.tag.rsplit('}', 1)[-1] == 'Address'),
+        None)
+    return (_direct_val(address_node, 'Note')
+            or _direct_val(address_node, 'Address')
+            or _text(address_node))
+
+
+def _object_region(object_node):
+    children = list(object_node) if object_node is not None else []
+    address_node = next(
+        (child for child in children
+         if child.tag.rsplit('}', 1)[-1] == 'Address'),
+        None)
+    return _direct_val(address_node, 'Region')
+
+
+def _tei_rows(object_node):
+    rows = []
+    if object_node is None:
+        return rows
+    unit_aliases = {
+        'гкал': ('Гкал', Decimal('1162.222222222222'), 'кВт'),
+        'гкал/ч': ('Гкал/ч', Decimal('1162.222222222222'), 'кВт'),
+        'квт': ('кВт', Decimal('1'), 'кВт'),
+    }
+    for item in list(object_node):
+        if item.tag.rsplit('}', 1)[-1] != 'TEI':
+            continue
+        name = _direct_val(item, 'Name')
+        unit = _direct_val(item, 'Measure') or _direct_val(item, 'Unit')
+        value_text = _direct_val(item, 'Value')
+        value = _decimal(value_text)
+        normalized_value, normalized_unit = value, unit
+        conversion = unit_aliases.get(unit.strip().lower())
+        if value is not None and conversion:
+            unit, multiplier, normalized_unit = conversion
+            normalized_value = value * multiplier
+        rows.append({
+            'name': name, 'unit': unit, 'value': value,
+            'normalized_value': normalized_value,
+            'normalized_unit': normalized_unit,
+            'value_text': value_text,
+            'provenance': 'conclusionRaw/Object/TEI',
+        })
+    return rows
+
+
 def _date(value):
     if not value:
         return None
@@ -256,23 +308,7 @@ def parse_conclusion(raw):
                                 'change_reason': comment or reason_text if index == 0 else '',
                               'provenance': 'conclusionRaw/EstimatedCost'})
     object_node = _find(data_root, 'Object')
-    tep_rows = []
-    if object_node is not None:
-        for item in list(object_node):
-            if item.tag.rsplit('}', 1)[-1] != 'TEI':
-                continue
-            parts = _text(item).split()
-            if len(parts) >= 2:
-                numeric = _decimal(parts[-1])
-                normalized, normalized_unit = numeric, parts[-2] if len(parts) > 2 else ''
-                if numeric is not None and normalized_unit.lower() in ('гкал', 'гкал/ч'):
-                    normalized = numeric * Decimal('1162.222222222222')
-                    normalized_unit = 'кВт'
-                tep_rows.append({'name': ' '.join(parts[:-2]) if len(parts) > 2 else parts[0],
-                                 'unit': parts[-2] if len(parts) > 2 else '',
-                                 'value': numeric, 'normalized_value': normalized,
-                                 'normalized_unit': normalized_unit, 'value_text': _text(item),
-                                 'provenance': 'conclusionRaw/Object/TEI'})
+    tep_rows = _tei_rows(object_node)
     climate = (_val(data_root, 'ClimateConditions') or
                _val(data_root, 'ClimateDistrict') or
                (_val(object_node, 'ClimateDistrict') if object_node is not None else ''))
@@ -287,7 +323,8 @@ def parse_conclusion(raw):
         'examination_result': result,
         'expert_object_name': name,
         'work_type': work,
-        'address': _direct_val(object_node, 'Address') if object_node is not None else '',
+        'address': _object_address(object_node),
+        'region': _object_region(object_node),
         'climate_zone': _val(data_root, 'ClimateDistrict'),
         'climate_conditions': climate,
         'natural_conditions': climate,
