@@ -72,6 +72,13 @@ def main():
                                     name='Проверка пары источников')).to_be_visible()
             expect(page.get_by_role('button',
                                     name='Подтвердить импорт')).to_be_visible()
+            assert '/analog-search/imports/' in page.url
+            assert page.url.endswith('/preview')
+            page.reload(wait_until='networkidle')
+            expect(page.get_by_role('heading',
+                                    name='Проверка пары источников')).to_be_visible()
+            expect(page.get_by_role('button',
+                                    name='Подтвердить импорт')).to_be_visible()
 
             page.goto(origin + '/analog-search', wait_until='networkidle')
             page.locator('input[name="conclusion"]').set_input_files(str(broken))

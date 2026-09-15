@@ -333,9 +333,8 @@ def import_preview():
                 return _duplicate_import_response(existing)
             raise
         if _html_import_request():
-            return render_template('analog_preview.html', pair=pair,
-                                   import_id=row.id,
-                                   diagnostics=pair['diagnostics'])
+            return redirect(url_for('analog.import_preview_detail',
+                                    import_id=row.id), code=303)
         return jsonify(status='preview', import_id=row.id, preview=row.preview,
                        diagnostics=pair['diagnostics'],
                        can_confirm=pair['can_confirm'])
@@ -344,7 +343,22 @@ def import_preview():
         return jsonify(status='error', diagnostics=_diagnostics([exc]),
                        can_confirm=False), 422
 
-
+@analog_bp.get('/imports/<int:import_id>/preview')
+@login_required
+def import_preview_detail(import_id):
+    row = db.session.get(AnalogImport, import_id) or abort(404)
+    if not current_user.is_admin and row.created_by != current_user.id:
+        abort(403, description='Предпросмотр доступен только его автору или администратору')
+    if row.status != 'preview':
+        if row.status == 'confirmed':
+            version = AnalogPassportVersion.query.filter_by(
+                source_hash=row.source_hash, ssr_hash=row.ssr_hash).first()
+            if version:
+                return redirect(url_for('analog.passport_detail',
+                                        passport_id=version.passport_id))
+        abort(410, description='Предпросмотр больше не доступен')
+    return render_template('analog_preview.html', pair=row.preview,
+                           import_id=row.id, diagnostics=row.diagnostics)
 @analog_bp.post('/import/<int:import_id>/confirm')
 @analog_bp.post('/imports/<int:import_id>/confirm')
 @analog_bp.post('/api/import/<int:import_id>/confirm')

@@ -108,7 +108,7 @@
           document.open();
           document.write(xhr.responseText);
           document.close();
-          history.replaceState(null, '', {{ url_for('analog.index')|tojson }});
+          history.replaceState(null, '', finalUrl);
           return;
         }
         if (finalUrl !== form.action) {

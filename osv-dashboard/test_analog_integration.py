@@ -170,10 +170,43 @@ class AnalogRoutesTest(unittest.TestCase):
         response = self.client.post('/analog-search/import/preview',
                                     data=self.files(self.conclusion + b'\n \n'),
                                     content_type='multipart/form-data',
-                                    headers={'Accept': 'text/html'})
+                                    headers={'Accept': 'text/html'},
+                                    follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        preview_url = response.headers['Location']
+        self.assertRegex(preview_url,
+                         r'/analog-search/imports/\d+/preview$')
+        response = self.client.get(preview_url)
         self.assertEqual(response.status_code, 200)
         self.assertIn('Подтвердить импорт', response.get_data(as_text=True))
         self.assertIn('analog-preview-page', response.get_data(as_text=True))
+
+    def test_preview_get_is_owned_and_confirmed_preview_redirects(self):
+        response = self.client.post('/analog-search/import/preview',
+                                    data=self.files(self.conclusion + b'\n \n \n'),
+                                    content_type='multipart/form-data')
+        import_id = response.get_json()['import_id']
+        preview_url = f'/analog-search/imports/{import_id}/preview'
+        self.assertEqual(self.client.get(preview_url).status_code, 200)
+
+        with app.app_context():
+            user = User(username='analog-preview-other', password_hash='unused',
+                        role='user')
+            user.password_change_required = False
+            db.session.add(user)
+            db.session.commit()
+            user_id, user_version = user.id, int(user.password_version or 1)
+        self.login_values(user_id, user_version)
+        self.assertEqual(self.client.get(preview_url).status_code, 403)
+
+        self.login_values(self.admin_id, self.admin_version)
+        confirmed = self.client.post(
+            f'/analog-search/import/{import_id}/confirm', json={})
+        passport_id = confirmed.get_json()['passport_id']
+        reopened = self.client.get(preview_url, follow_redirects=False)
+        self.assertEqual(reopened.status_code, 302)
+        self.assertIn(f'/analog-search/passports/{passport_id}',
+                      reopened.headers['Location'])
 
     def test_html_duplicate_redirects_to_existing_passport(self):
         conclusion = self.conclusion + b'\n  \n'
