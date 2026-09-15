@@ -1,6 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}Предварительный просмотр импорта{% endblock %}
 {% block content %}
+<div id="analog-preview-page" hidden></div>
 <a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
 <h1>Проверка пары источников</h1>
 {% for item in diagnostics %}<div class="alert {{ item.severity }}">{{ item.message }}</div>{% endfor %}

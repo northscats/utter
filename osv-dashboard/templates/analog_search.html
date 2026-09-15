@@ -24,13 +24,104 @@
 {% if current_user.is_authenticated %}
 <section class="panel">
   <h2>Импорт заключения и ССР</h2>
-  <form method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data">
+  <form id="analog-import-form" method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>XML заключения <input type="file" name="conclusion" accept=".xml" required></label>
     <label>ССР 3.01 (.gge) <input type="file" name="ssr" accept=".gge,.xml" required></label>
-    <button class="btn" type="submit">Предварительный просмотр</button>
+    <button class="btn" type="submit" id="analog-import-submit">Предварительный просмотр</button>
+    <div id="analog-import-status" hidden aria-live="polite" style="margin-top:12px">
+      <div id="analog-import-stage">Подготовка файлов…</div>
+      <progress id="analog-import-progress" max="100" value="0" style="width:100%"></progress>
+    </div>
+    <div id="analog-import-error" role="alert" hidden
+         style="margin-top:12px;padding:10px;border:1px solid #c33;background:#fff2f2;color:#8b1a1a"></div>
   </form>
 </section>
+<script>
+(() => {
+  const form = document.getElementById('analog-import-form');
+  if (!form || !window.XMLHttpRequest || !window.FormData) return;
+  const button = document.getElementById('analog-import-submit');
+  const status = document.getElementById('analog-import-status');
+  const stage = document.getElementById('analog-import-stage');
+  const progress = document.getElementById('analog-import-progress');
+  const errorBox = document.getElementById('analog-import-error');
+
+  function restore(message) {
+    button.disabled = false;
+    button.textContent = 'Предварительный просмотр';
+    status.hidden = true;
+    progress.removeAttribute('value');
+    errorBox.textContent = message;
+    errorBox.hidden = false;
+  }
+
+  function responseMessage(xhr) {
+    if (xhr.status === 413) return 'Файлы слишком велики. Уменьшите размер и повторите попытку.';
+    if (xhr.status === 401 || xhr.status === 403)
+      return 'Сессия или защитный токен истекли. Обновите страницу, войдите снова и повторите попытку.';
+    try {
+      const data = JSON.parse(xhr.responseText);
+      if (data.diagnostics && data.diagnostics.length)
+        return data.diagnostics.map(item => item.message).join(' ');
+      if (data.error) return data.error;
+    } catch (_) {}
+    if (xhr.status >= 500) return 'Сервер не смог обработать файлы. Повторите попытку позднее.';
+    return 'Не удалось обработать файлы. Проверьте их формат и повторите попытку.';
+  }
+
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (button.disabled || !form.reportValidity()) return;
+    button.disabled = true;
+    button.textContent = 'Отправка…';
+    errorBox.hidden = true;
+    status.hidden = false;
+    progress.value = 0;
+    stage.textContent = 'Загрузка файлов: 0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', form.action);
+    xhr.setRequestHeader('Accept', 'text/html');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.upload.onprogress = event => {
+      if (!event.lengthComputable) return;
+      const percent = Math.min(100, Math.round(event.loaded / event.total * 100));
+      progress.value = percent;
+      stage.textContent = `Загрузка файлов: ${percent}%`;
+    };
+    xhr.upload.onload = () => {
+      progress.removeAttribute('value');
+      stage.textContent = 'Файлы загружены. Сервер проверяет и разбирает данные…';
+      button.textContent = 'Обработка…';
+    };
+    xhr.onerror = () => restore('Соединение прервано. Проверьте сеть и повторите попытку.');
+    xhr.ontimeout = () => restore('Сервер слишком долго не отвечает. Повторите попытку.');
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 400) {
+        const finalUrl = xhr.responseURL || form.action;
+        if (finalUrl.includes('/login')) {
+          restore('Сессия истекла. Обновите страницу, войдите снова и повторите попытку.');
+          return;
+        }
+        if (xhr.responseText.includes('id="analog-preview-page"')) {
+          document.open();
+          document.write(xhr.responseText);
+          document.close();
+          history.replaceState(null, '', {{ url_for('analog.index')|tojson }});
+          return;
+        }
+        if (finalUrl !== form.action) {
+          window.location.assign(finalUrl);
+          return;
+        }
+      }
+      restore(responseMessage(xhr));
+    };
+    xhr.send(new FormData(form));
+  });
+})();
+</script>
 {% endif %}
 {% if current_user.is_admin %}
 <section class="panel"><h2>Администрирование</h2>

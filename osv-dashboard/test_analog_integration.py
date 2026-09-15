@@ -165,11 +165,48 @@ class AnalogRoutesTest(unittest.TestCase):
 
     def test_html_preview_and_confirm_redirect(self):
         response = self.client.post('/analog-search/import/preview',
-                                    data=self.files(),
+                                    data=self.files(self.conclusion + b'\n \n'),
                                     content_type='multipart/form-data',
                                     headers={'Accept': 'text/html'})
         self.assertEqual(response.status_code, 200)
         self.assertIn('Подтвердить импорт', response.get_data(as_text=True))
+        self.assertIn('analog-preview-page', response.get_data(as_text=True))
+
+    def test_html_duplicate_redirects_to_existing_passport(self):
+        conclusion = self.conclusion + b'\n  \n'
+        preview = self.client.post('/analog-search/import/preview',
+                                   data=self.files(conclusion),
+                                   content_type='multipart/form-data').get_json()
+        confirmed = self.client.post(
+            f"/analog-search/import/{preview['import_id']}/confirm", json={})
+        passport_id = confirmed.get_json()['passport_id']
+        duplicate = self.client.post(
+            '/analog-search/import/preview', data=self.files(conclusion),
+            content_type='multipart/form-data',
+            headers={'Accept': 'text/html'})
+        self.assertEqual(duplicate.status_code, 302)
+        self.assertIn(f'/analog-search/passports/{passport_id}',
+                      duplicate.headers['Location'])
+
+    def test_html_xhr_parse_error_is_actionable_json(self):
+        response = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(b'<broken'),
+            content_type='multipart/form-data',
+            headers={'Accept': 'text/html',
+                     'X-Requested-With': 'XMLHttpRequest'})
+        self.assertEqual(response.status_code, 422)
+        payload = response.get_json()
+        self.assertEqual(payload['status'], 'error')
+        self.assertEqual(payload['diagnostics'][0]['code'], 'malformed_xml')
+
+    def test_import_form_has_upload_and_processing_states(self):
+        page = self.client.get('/analog-search')
+        html = page.get_data(as_text=True)
+        self.assertIn('analog-import-progress', html)
+        self.assertIn('xhr.upload.onprogress', html)
+        self.assertIn('Сервер проверяет и разбирает данные', html)
+        self.assertIn('button.disabled = true', html)
 
     def test_confirm_is_owned_by_creator_or_admin(self):
         response = self.client.post('/analog-search/import/preview',

@@ -91,6 +91,22 @@ def _diagnostics(errors):
             for e in errors]
 
 
+def _html_import_request():
+    return request.accept_mimetypes.best == 'text/html'
+
+
+def _duplicate_import_response(existing):
+    passport_id = existing.version.passport_id
+    message = 'Такая пара файлов уже импортирована'
+    if _html_import_request():
+        flash(f'{message}. Открыт существующий паспорт.', 'info')
+        return redirect(url_for('analog.passport_detail', passport_id=passport_id))
+    return jsonify(status='duplicate', import_id=None, passport_id=passport_id,
+                   redirect_url=url_for('analog.passport_detail',
+                                        passport_id=passport_id),
+                   message=message)
+
+
 def _result_row(passport, query_capacity=None):
     capacity = Decimal(str(passport.capacity_kw)) if passport.capacity_kw is not None else None
     deviation = None
@@ -286,9 +302,7 @@ def import_preview():
         existing = AnalogSource.query.filter_by(
             source_hash=source_hash, ssr_hash=ssr_hash).first()
         if existing:
-            return jsonify(status='duplicate', import_id=None,
-                           passport_id=existing.version.passport_id,
-                           message='Такая пара уже импортирована идемпотентно')
+            return _duplicate_import_response(existing)
         pair = parse_pair(conclusion, ssr)
         conclusion_path = _persist_raw(source_hash, 'conclusion.xml', conclusion)
         ssr_path = _persist_raw(ssr_hash, 'summary.gge', ssr)
@@ -314,11 +328,9 @@ def import_preview():
             existing = AnalogSource.query.filter_by(
                 source_hash=source_hash, ssr_hash=ssr_hash).first()
             if existing:
-                return jsonify(status='duplicate', import_id=None,
-                               passport_id=existing.version.passport_id,
-                               message='Такая пара уже импортирована идемпотентно')
+                return _duplicate_import_response(existing)
             raise
-        if request.accept_mimetypes.best == 'text/html':
+        if _html_import_request():
             return render_template('analog_preview.html', pair=pair,
                                    import_id=row.id,
                                    diagnostics=pair['diagnostics'])
