@@ -4303,7 +4303,7 @@
                         Продлить
                     </label>
                 </div>
-                <div class="cash-line-chart ki-metric-modal-svg" style="height:280px; position:relative;"></div>
+                <div class="cash-line-chart ki-metric-modal-svg"></div>
             `;
             chCont.innerHTML = chartHtml;
             const chartContainer = chCont.querySelector
@@ -4500,8 +4500,9 @@
                     `<span><i style="background:${stableColor(series.id)}"></i>${esc(series.label)}</span>`
                 ).join('')
                 + '</div>';
-            container.innerHTML = legend + svg
-                + `<div class="cash-chart-point-overlays">${overlays.join('')}</div>`;
+            container.innerHTML = legend
+                + `<div class="cash-modal-chart-plot">${svg}`
+                + `<div class="cash-chart-point-overlays">${overlays.join('')}</div></div>`;
         },
 
         drawMetricModalSvg(card, chartContainer) {

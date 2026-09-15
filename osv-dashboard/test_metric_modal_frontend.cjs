@@ -236,6 +236,8 @@ assert.ok(cashSvg.includes('cash-modal-area'), 'Cash main has a baseline area fi
 assert.ok(cashSvg.includes('Денежные средства (сч. 50, 51, 52, 55)'),
     'Cash chart has the account legend');
 assert.ok(cashSvg.includes('cash-date-tick'), 'Cash chart has readable date ticks');
+assert.ok(cashSvg.includes('cash-modal-chart-plot'),
+    'Cash SVG and point overlays share one bounded plot layer');
 assert.ok(!cashSvg.includes('NCF') && !cashSvg.includes('Норматив'),
     'Cash chart has no NCF or norm line labels');
 assert.ok((cashSvg.match(/cash-modal-line-gap/g) || []).length > 0,

@@ -440,10 +440,13 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-data-state { display:inline-block; padding:2px 6px; border-radius:10px; font-size:9px; font-weight:700; }
 .cash-data-state.ok { background:#D1FAE5; color:#047857; }
 .cash-data-state.missing { background:#FEF3C7; color:#92400E; }
-.cash-line-chart { height:250px; border:1px solid #E5E7EB; border-radius:8px; background:#FAFBFC; padding:10px; }
-.cash-line-chart svg { width:100%; height:100%; overflow:visible; }
-.cash-line-chart { position:relative; }
+.cash-line-chart {
+  min-height:250px; height:auto; border:1px solid #E5E7EB; border-radius:8px;
+  background:#FAFBFC; padding:10px; box-sizing:border-box; overflow:hidden;
+}
+.cash-line-chart svg { display:block; width:100%; height:100%; overflow:hidden; }
 .ki-modal-dynamics-block .modal-chart-wrap { width:100%; box-sizing:border-box; }
+.cash-modal-chart-plot { position:relative; width:100%; height:270px; overflow:hidden; }
 .cash-modal-chart-legend {
   display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px;
   margin:0 0 8px; color:#374151; font-size:11px; font-weight:600;
@@ -453,7 +456,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-modal-chart-legend-main { color:#1E3A8A; }
 .cash-modal-chart-legend-main i { background:#2563EB; }
 .cash-modal-point { pointer-events:none; }
-.cash-chart-point-overlays { position:absolute; inset:0; pointer-events:none; }
+.cash-chart-point-overlays { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
 .cash-chart-point-overlay {
   position:absolute; width:16px; height:16px; border-radius:50%;
   pointer-events:auto; cursor:help; overflow:hidden; text-indent:-9999px;
