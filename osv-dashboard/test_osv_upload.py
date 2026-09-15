@@ -24,7 +24,7 @@ from app import (
     init_db,
 )
 from database import Company, Upload, User, db
-from jobs import create_job, finish_job
+from jobs import create_job, finish_job, get_job
 from osvparser import parse_many
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
@@ -105,6 +105,18 @@ check('завершение и ошибка показываются всплы�
       and "data.status === 'error'" in upload_monitor
       and "toast('Загрузка завершена'" in upload_monitor
       and "toast('Ошибка загрузки:" in upload_monitor)
+check('монитор показывает имена обрабатываемых файлов',
+      'Сейчас обрабатываются:' in upload_monitor
+      and "names.textContent = files.join(', ')" in upload_monitor)
+
+files_job_id = create_job(
+    company_id, ['ОСВ 08.xls', 'ОСВ 51.xlsx'])
+files_status = client.get(
+    f'/company/{company_id}/job/{files_job_id}').get_json()
+check('API статуса возвращает обрабатываемые файлы',
+      files_status['status'] == 'processing'
+      and files_status['files'] == ['ОСВ 08.xls', 'ОСВ 51.xlsx']
+      and get_job(files_job_id)['files'] == files_status['files'])
 
 contradictory_path = os.path.join(
     _TMP, 'ОСВ 51 с противоречивым итогом.xlsx')

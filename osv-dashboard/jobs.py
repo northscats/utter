@@ -15,9 +15,14 @@ _lock: threading.Lock = threading.Lock()
 _jobs: dict = {}   # job_id -> {status, result, error, created_at, company_id}
 
 
-def create_job(company_id: int) -> str:
+def create_job(company_id: int, filenames=None) -> str:
     """Register a new job and return its UUID string."""
     job_id = str(uuid.uuid4())
+    files = [
+        str(name).strip()
+        for name in (filenames or [])
+        if str(name).strip()
+    ]
     with _lock:
         _evict_stale()
         _jobs[job_id] = {
@@ -26,6 +31,7 @@ def create_job(company_id: int) -> str:
             'error': None,
             'created_at': datetime.utcnow(),
             'company_id': company_id,
+            'files': files,
         }
     return job_id
 

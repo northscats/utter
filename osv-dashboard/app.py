@@ -2174,7 +2174,10 @@ def company_new():
 
     # Запускаем обработку в фоне
     back_url = url_for('company_detail', company_id=company.id)
-    job_id = create_job(company.id)
+    job_id = create_job(
+        company.id,
+        [os.path.basename(path) for path in final_paths],
+    )
     threading.Thread(
         target=_bg_company_new,
         args=(job_id, company.id, final_dir, final_paths, ts,
@@ -2745,6 +2748,7 @@ def job_status(company_id, job_id):
         status=job['status'],
         error=job.get('error'),
         result=job.get('result'),
+        files=job.get('files') or [],
     )
 
 
@@ -2979,6 +2983,7 @@ def company_upload_all(company_id):
 
     saved = 0
     staged_names = set()
+    saved_names = []
     for f in all_files:
         name = _unique_attachment_name(f.filename, staged_names)
         ext = os.path.splitext(name)[1].lower()
@@ -2991,12 +2996,16 @@ def company_upload_all(company_id):
             import shutil as _sh_v; _sh_v.rmtree(stage_dir, ignore_errors=True)
             return _err(err)
         saved += 1
+        saved_names.append(name)
 
     if not saved:
         import shutil as _sh; _sh.rmtree(stage_dir, ignore_errors=True)
         return _err('Среди загруженных нет файлов .xls, .xlsx или .zip.')
 
-    job_id = create_job(company_id)
+    job_id = create_job(
+        company_id,
+        saved_names,
+    )
     threading.Thread(
         target=_bg_upload_all,
         args=(job_id, company_id, company.name, stage_dir, ts, current_user.id),

@@ -78,7 +78,21 @@
       box.innerHTML =
         '<span style="display:inline-block;width:18px;height:18px;border:2px solid #d3dade;' +
         'border-top-color:#4a9ab5;border-radius:50%;animation:_jspin .7s linear infinite"></span>' +
-        '<span>Обработка продолжается в фоне. Можно перейти в другой раздел.</span>';
+        '<div><div>Обработка продолжается в фоне. Можно перейти в другой раздел.</div></div>';
+      var files = Array.isArray(data.files) ? data.files : [];
+      if (files.length) {
+        var fileList = document.createElement('div');
+        fileList.style.cssText =
+          'margin-top:6px;color:#526773;font-size:12px;line-height:1.45;' +
+          'white-space:normal;overflow-wrap:anywhere';
+        var label = document.createElement('strong');
+        label.textContent = 'Сейчас обрабатываются: ';
+        fileList.appendChild(label);
+        var names = document.createElement('span');
+        names.textContent = files.join(', ');
+        fileList.appendChild(names);
+        box.lastChild.appendChild(fileList);
+      }
     } else if (status === 'done') {
       box.innerHTML = '<strong style="color:#3a7a57">✓ Загрузка завершена</strong>';
     } else if (status === 'error') {
