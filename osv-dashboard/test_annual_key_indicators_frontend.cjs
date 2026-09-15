@@ -198,6 +198,37 @@ async function testAnnual() {
     assert.ok(nodes.get('ki-modal-source').textContent.includes('Собственный капитал'));
     assert.ok(nodes.get('ki-modal-source').textContent.includes('C5'));
 
+    const autonomy = KI_AnnualApp.state.data.cards.find(c => c.id === 'autonomy');
+    autonomy.report_comparison = {
+        status: 'rounding', year: 2024, unit: 'ratio',
+        calculated_value: 0.404, reported_value: 0.4, delta: 0.004,
+        message: 'Расхождение возможно из-за округления <не ошибка>',
+        reported_provenance: {filename: 'book.xlsx', sheet: 'Коэффициенты', cell: 'D7'},
+        calculated_provenance: autonomy.provenance
+    };
+    KI_AnnualApp.renderCards();
+    assert.match(cardsGrid.innerHTML, /Независимый расчёт: 0,404/);
+    assert.match(cardsGrid.innerHTML, /Разница \(расчёт − книга\): 0,004/);
+    assert.match(cardsGrid.innerHTML, /&lt;не ошибка&gt;/);
+    KI_AnnualApp.openModal('autonomy');
+    const comparisonPanel = nodes.get('ki-modal-breakdown-container');
+    assert.equal(comparisonPanel.style.display, 'block');
+    assert.match(comparisonPanel.innerHTML, /book.xlsx/);
+    assert.match(comparisonPanel.innerHTML, /D7/);
+    assert.match(comparisonPanel.innerHTML, /C5/);
+    for (const status of ['incompatible_definition', 'missing_source']) {
+        autonomy.report_comparison = {...autonomy.report_comparison, status,
+            reported_value: null, delta: null, reported_provenance: null,
+            message: 'Сравнение недоступно: нет совместимого источника'};
+        KI_AnnualApp.openModal('autonomy');
+        assert.doesNotMatch(comparisonPanel.innerHTML, /Разница \(расчёт − книга\)/);
+        assert.match(comparisonPanel.innerHTML, /Сравнение недоступно/);
+        assert.doesNotMatch(comparisonPanel.innerHTML, /book.xlsx/);
+    }
+    KI_AnnualApp.openModal('revenue');
+    assert.equal(comparisonPanel.style.display, 'none');
+    assert.equal(comparisonPanel.innerHTML, '');
+
     KI_App.switchMode('operational');
     assert.equal(KI_AnnualApp.state.active, false);
     assert.equal(KI_App.state.mode, 'operational');

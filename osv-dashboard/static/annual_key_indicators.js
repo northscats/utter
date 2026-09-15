@@ -622,6 +622,34 @@
             c.style.display = 'block';
         },
 
+        reportComparisonHtml(card, detailed = false) {
+            const comparison = card.report_comparison;
+            if (!comparison) return '';
+            // More precision than the headline is essential: two rounded
+            // headline values may look equal while their difference is not.
+            const number = value => typeof value === 'number' && Number.isFinite(value)
+                ? new Intl.NumberFormat('ru-RU', {maximumSignificantDigits: 15}).format(value)
+                : 'Нет данных';
+            const unit = comparison.unit === 'percent' ? '%' : 'коэф.';
+            const deltaUnit = comparison.unit === 'percent' ? 'п.п.' : unit;
+            let html = `<div style="font-size:12px;line-height:1.5;margin-top:12px">
+                <strong>Сверка с годовой книгой${comparison.year ? ` · ${esc(comparison.year)}` : ''}</strong>
+                <div>Независимый расчёт: ${esc(number(comparison.calculated_value))} ${esc(unit)}</div>
+                <div>В годовой книге: ${esc(number(comparison.reported_value))} ${esc(unit)}</div>`;
+            if (typeof comparison.delta === 'number' && Number.isFinite(comparison.delta)) {
+                html += `<div>Разница (расчёт − книга): ${esc(number(comparison.delta))} ${esc(deltaUnit)}</div>`;
+            }
+            html += `<div>${esc(comparison.message || 'Сравнение недоступно')}</div>`;
+            if (detailed) {
+                html += `<div style="margin-top:8px"><strong>Источник коэффициента книги:</strong> ${esc(this.provenanceText({provenance: comparison.reported_provenance}))}</div>
+                    <div><strong>Источники независимого расчёта:</strong> ${esc(this.provenanceText({provenance: comparison.calculated_provenance}))}</div>
+                    <div>Сверка справочная: значения, рейтинг и принятые версии не изменяются.</div>`;
+            } else {
+                html += '<div>Источники и ограничения — в детализации.</div>';
+            }
+            return html + '</div>';
+        },
+
         renderCards() {
             const grid = document.getElementById('ki-annual-cards-grid');
             if (!state.data.cards) return;
@@ -716,6 +744,7 @@
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   <div style="font-size:12px;color:#6B7280;margin-bottom:8px">${esc(this.cardPeriodLabel(card))}</div>
                   ${deltaHtml}
+                  ${this.reportComparisonHtml(card)}
                 </div>
                 `;
             });
@@ -790,8 +819,12 @@
             ].filter(Boolean).join('. ');
             document.getElementById('ki-modal-source').textContent = provText;
             
-            document.getElementById('ki-modal-breakdown-title').style.display = 'none';
-            document.getElementById('ki-modal-breakdown-container').style.display = 'none';
+            const breakdownTitle = document.getElementById('ki-modal-breakdown-title');
+            const breakdownContainer = document.getElementById('ki-modal-breakdown-container');
+            breakdownTitle.style.display = card.report_comparison ? 'block' : 'none';
+            breakdownTitle.textContent = 'Сверка коэффициента с годовой книгой';
+            breakdownContainer.style.display = card.report_comparison ? 'block' : 'none';
+            breakdownContainer.innerHTML = this.reportComparisonHtml(card, true);
             
             const chCont = document.getElementById('ki-modal-chart-container');
             const chTitle = document.getElementById('ki-modal-chart-title');

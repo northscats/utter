@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import timezone
+from decimal import Decimal
 import math
+import re
 
 from database import HistoricalImport, HistoricalMetricValue, HistoricalYearVersion
 from annual_source_passport import build_annual_source_passport
 from historical_parser import (
-    _unit, _value, canonical_metric_key, normalize_name,
+    SOURCE_PRECISION_METADATA_PREFIX, _unit, _value, canonical_metric_key,
+    normalize_name,
 )
 
 
@@ -188,6 +191,13 @@ METHODOLOGY = [
     "Пропуски, верхние границы и неоднозначные источники делают расчёт недоступным. "
     "Знаменатель каждого нового отношения должен быть строго положительным; "
     "подстановка нуля и усреднение годовых отношений запрещены.",
+    "Сверка с опубликованным коэффициентом справочная: исходное значение книги, "
+    "расчёт и рейтинг не подменяются; принимаются только точные раздел, метка, "
+    "год и единица источника.",
+    "Разница в сверке равна независимый расчёт минус опубликованное значение; "
+    "признак возможного округления определяется по исходной точности ячейки.",
+    "Для балансовых отношений в диапазоне сравнивается граница последнего года; "
+    "потоковый ICR за диапазон не сравнивается с коэффициентом одного года.",
 ]
 
 
@@ -517,6 +527,67 @@ _DERIVED_COMPONENTS = {
 }
 
 
+# A report comparison is intentionally narrower than the annual card
+# catalogue.  The workbook has several similarly named coefficients whose
+# definitions are not interchangeable (for example, quick liquidity and
+# current liquidity live in the same sheet).  Keep the published metric's
+# section, exact label and unit next to the independently calculated formula
+# instead of searching the workbook by a loose title.
+_REPORT_COMPARISON_SPECS = {
+    "profitability": {
+        "section": "profitability",
+        "label": "Рентабельность продаж (прибыль от продаж / выручка)",
+        "unit": "percent",
+        "period_kind": "flow",
+        "formula_kind": "ratio",
+    },
+    "current_liquidity": {
+        "section": "liquidity",
+        "label": "Коэффициент текущей (общей) ликвидности",
+        "unit": "ratio",
+        "period_kind": "point",
+        "formula_kind": "ratio",
+    },
+    "autonomy": {
+        "section": "financial_stability",
+        "label": "Коэффициент автономии",
+        "unit": "ratio",
+        "period_kind": "point",
+        "formula_kind": "derived",
+        "definition_conflicts": ("Коэффициент финансового левериджа",),
+    },
+    "quick_liquidity": {
+        "section": "liquidity",
+        "label": "Коэффициент быстрой (промежуточной) ликвидности",
+        "unit": "ratio",
+        "period_kind": "point",
+        "formula_kind": "derived",
+        "definition_conflicts": (
+            "Коэффициент текущей (общей) ликвидности",
+            "Коэффициент абсолютной ликвидности",
+        ),
+    },
+    "absolute_liquidity": {
+        "section": "liquidity",
+        "label": "Коэффициент абсолютной ликвидности",
+        "unit": "ratio",
+        "period_kind": "point",
+        "formula_kind": "derived",
+        "definition_conflicts": (
+            "Коэффициент текущей (общей) ликвидности",
+            "Коэффициент быстрой (промежуточной) ликвидности",
+        ),
+    },
+    "interest_coverage": {
+        "section": "profitability",
+        "label": "Коэффициент покрытия процентов (ICR)",
+        "unit": "ratio",
+        "period_kind": "flow",
+        "formula_kind": "derived",
+    },
+}
+
+
 def _provenance_for(facts):
     items = []
     seen = set()
@@ -581,6 +652,446 @@ def _ratio_provenance(facts):
                 records.append(record)
     return sorted(records, key=lambda item: (
         item.get("year") or 0, item.get("component") or ""))
+
+
+def _report_comparison_template(
+    *, status, year, unit, calculated_value=None, reported_value=None,
+    delta=None, message="", reported_provenance=None,
+    calculated_provenance=None, reported_unit=None, reported_year=None,
+):
+    """Return the stable, read-only contract for one report comparison.
+
+    ``reported_unit`` and ``reported_year`` are deliberately retained as
+    diagnostic fields.  The UI suppresses a reported value when either one is
+    incompatible, so a wrong source can never be rendered with the selected
+    card's unit or year.
+    """
+    comparison = {
+        "status": status,
+        "year": year,
+        "unit": unit,
+        "calculated_value": calculated_value,
+        "reported_value": reported_value,
+        "delta": delta,
+        "message": message,
+        "reported_provenance": reported_provenance,
+        "calculated_provenance": list(calculated_provenance or ()),
+    }
+    if reported_unit is not None:
+        comparison["reported_unit"] = reported_unit
+    if reported_year is not None:
+        comparison["reported_year"] = reported_year
+    return comparison
+
+
+def _raw_precision(raw_text, precision_metadata=None):
+    """Read precision only when import recorded explicit source evidence.
+
+    Before source-format metadata existed, imports persisted ``str(value)``.
+    That string is ambiguous for numeric Excel cells (``0.4`` could have been
+    displayed as 0.4, 0.40, or 0.400), so it must never be treated as proof of
+    precision.  New parser imports store a marker in ``value_text`` for either
+    a genuinely textual number or an explicit Excel number format.
+    """
+    metadata = str(precision_metadata or "")
+    prefix = SOURCE_PRECISION_METADATA_PREFIX
+    if not metadata.startswith(prefix):
+        return None
+    payload = metadata[len(prefix):]
+    source, separator, places = payload.rpartition(":")
+    if not separator or source not in {"text", "excel_number_format"}:
+        return None
+    try:
+        precision = int(places)
+    except (TypeError, ValueError):
+        return None
+    return precision if precision >= 0 else None
+
+
+_ANNUAL_PERIOD_RE = re.compile(
+    r"^(?:за\s+)?(?P<year>(?:19|20)\d{2})"
+    r"(?:\s*(?:г\.?|год))?$",
+    re.IGNORECASE,
+)
+_YEAR_END_PERIOD_RE = re.compile(
+    r"^(?:(?:на|по\s+состоянию\s+на)\s+)?"
+    r"(?:(?:31[./-]12[./-](?P<day_first>(?:19|20)\d{2}))|"
+    r"(?P<year_first>(?:19|20)\d{2})[./-]12[./-]31|"
+    r"(?:31\s+декабря\s+(?P<month_word>(?:19|20)\d{2})))"
+    r"(?:\s*(?:г\.?|год))?$",
+    re.IGNORECASE,
+)
+
+
+def _report_year_in_period(row, year, period_kind="flow"):
+    """Require explicit annual/year-end evidence for the report coefficient.
+
+    A version's year is not enough: a persisted row can still carry an
+    interim or multi-year column label.  Both flow and point ratios accept a
+    bare annual year (the workbook's normal convention) or an explicit
+    31 December label.  No other date, month interval or year interval is
+    treated as comparable.
+    """
+    if period_kind not in {"flow", "point"}:
+        return False
+    period = str(row.period_label or "").strip()
+    period = re.sub(r"\s+", " ", period)
+    period = period.replace("–", "-").replace("—", "-").replace("−", "-")
+    annual = _ANNUAL_PERIOD_RE.fullmatch(period)
+    if annual is not None:
+        return int(annual.group("year")) == int(year)
+    year_end = _YEAR_END_PERIOD_RE.fullmatch(period)
+    if year_end is None:
+        return False
+    reported_year = (
+        year_end.group("day_first")
+        or year_end.group("year_first")
+        or year_end.group("month_word")
+    )
+    return reported_year is not None and int(reported_year) == int(year)
+
+
+def _report_period_years(row):
+    period = str(row.period_label or "").strip()
+    return re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", period)
+
+
+def _published_report_fact(rows, report_spec, year):
+    """Read one exact published coefficient without fuzzy substitution.
+
+    The ordinary card extractor intentionally accepts canonical parser aliases
+    for legacy cards.  A report comparison is stricter: a same-key alias with
+    a different visible label is not proof that the published definition is
+    the one being recalculated.
+    """
+    expected_label = report_spec["label"]
+    expected_norm = normalize_name(expected_label)
+    expected_key = _key(expected_label)
+    exact = [
+        row for row in rows
+        if row.section_key == report_spec["section"]
+        and row.metric_key == expected_key
+        and normalize_name(row.metric_label) == expected_norm
+    ]
+    if not exact:
+        conflict_norms = {
+            normalize_name(label)
+            for label in report_spec.get("definition_conflicts", ())
+        }
+        if any(
+            row.section_key == report_spec["section"]
+            and row.metric_key == expected_key
+            and normalize_name(row.metric_label) != expected_norm
+            for row in rows
+        ) or any(
+            row.section_key == report_spec["section"]
+            and normalize_name(row.metric_label) in conflict_norms
+            for row in rows
+        ):
+            return {
+                "status": "incompatible_definition",
+                "fact": _empty_fact(),
+                "reported_unit": None,
+                "reported_year": year,
+            }
+        return {
+            "status": "missing_source",
+            "fact": _empty_fact(),
+            "reported_unit": None,
+            "reported_year": year,
+        }
+
+    expected_rows = [
+        row for row in exact if row.unit == report_spec["unit"]
+    ]
+    if not expected_rows:
+        actual_units = sorted({row.unit for row in exact if row.unit})
+        return {
+            "status": "incompatible_unit",
+            "fact": _empty_fact(),
+            "reported_unit": (
+                actual_units[0] if len(actual_units) == 1 else "mixed"
+            ),
+            "reported_year": year,
+        }
+    # Reuse the established ambiguity, missing-value and provenance rules.
+    source_spec = {
+        "section": report_spec["section"],
+        "keys": (expected_key,),
+        "source_unit": report_spec["unit"],
+        "unit": report_spec["unit"],
+    }
+    fact = _fact(exact, source_spec)
+    if len(expected_rows) != 1:
+        return {
+            "status": "missing_source",
+            "fact": fact,
+            "reported_unit": report_spec["unit"],
+            "reported_year": year,
+        }
+    row = expected_rows[0]
+    fact["raw_text"] = row.raw_value.raw_text if row.raw_value else ""
+    fact["precision_metadata"] = row.value_text
+    fact["reported_unit"] = row.unit
+    fact["reported_year"] = year
+    if not _report_year_in_period(
+        row, year, report_spec.get("period_kind")
+    ):
+        period_years = _report_period_years(row)
+        return {
+            "status": "incompatible_year",
+            "fact": _empty_fact(),
+            "reported_unit": row.unit,
+            "reported_year": (
+                int(period_years[-1]) if period_years else None
+            ),
+        }
+    if fact.get("value") is None:
+        return {
+            "status": "missing_source",
+            "fact": fact,
+            "reported_unit": row.unit,
+            "reported_year": year,
+        }
+    if fact.get("upper_bound"):
+        return {
+            "status": "reported_upper_bound",
+            "fact": fact,
+            "reported_unit": row.unit,
+            "reported_year": year,
+        }
+    return {
+        "status": "reported",
+        "fact": fact,
+        "reported_unit": row.unit,
+        "reported_year": year,
+    }
+
+
+def _independent_ratio_fact(spec, component_facts, year_from, year_to):
+    """Calculate the ratio used only by the report comparison."""
+    if year_from is None or year_to is None:
+        return _empty_fact("Нет выбранного календарного года")
+    if spec.get("derived"):
+        return _aggregate_derived(spec, component_facts, year_from, year_to)
+    if spec["kind"] == "ratio":
+        return _aggregate_ratio(spec, component_facts, year_from, year_to)
+    return _empty_fact("Показатель не является отношением")
+
+
+def _build_report_comparison(
+    spec, current_fact, component_facts, rows_by_year,
+    selected_from, selected_to,
+):
+    """Compare a published annual ratio with an independent calculation.
+
+    This helper is intentionally called after the regular cards are built and
+    never feeds a value back into those cards.  It is an audit explanation,
+    not a source-priority rule.
+    """
+    report_spec = _REPORT_COMPARISON_SPECS.get(spec["id"])
+    if report_spec is None:
+        return None
+
+    calculated_from = selected_from
+    calculated_to = selected_to
+    if selected_from is None or selected_to is None:
+        calculated_fact = _empty_fact("Нет выбранного календарного года")
+        report_year = None
+    elif (
+        report_spec["period_kind"] == "point"
+        and selected_from != selected_to
+    ):
+        # A point-in-time balance ratio is comparable at the selected range's
+        # endpoint.  Earlier boundaries are not silently averaged.
+        calculated_from = calculated_to = selected_to
+        calculated_fact = _independent_ratio_fact(
+            spec, component_facts, calculated_from, calculated_to)
+        report_year = selected_to
+    else:
+        report_year = selected_to
+        calculated_fact = _independent_ratio_fact(
+            spec, component_facts, calculated_from, calculated_to)
+
+    calculated_value = calculated_fact.get("value")
+    calculated_provenance = calculated_fact.get("provenance_components") or []
+    # ICR (and every other flow ratio) over an interval is not comparable to a
+    # single annual workbook coefficient.  Keep the independent result and its
+    # evidence, but never expose the annual report value or a delta.
+    if (
+        report_year is not None
+        and selected_from is not None
+        and selected_to is not None
+        and selected_from != selected_to
+        and report_spec["period_kind"] == "flow"
+    ):
+        return _report_comparison_template(
+            status="incompatible_period",
+            year=report_year,
+            unit=report_spec["unit"],
+            calculated_value=calculated_value,
+            message=(
+                "Сверка недоступна: независимый расчёт выполнен за "
+                f"период {_range_label(selected_from, selected_to)}, "
+                "а опубликованный коэффициент относится к одному году."
+            ),
+            calculated_provenance=calculated_provenance,
+            reported_year=report_year,
+        )
+
+    if report_year is None:
+        return _report_comparison_template(
+            status="missing_source",
+            year=None,
+            unit=report_spec["unit"],
+            calculated_value=calculated_value,
+            message="Сверка недоступна: календарный год не выбран.",
+            calculated_provenance=calculated_provenance,
+        )
+
+    if report_year not in rows_by_year:
+        return _report_comparison_template(
+            status="missing_year",
+            year=report_year,
+            unit=report_spec["unit"],
+            calculated_value=calculated_value,
+            message=(
+                "Сверка недоступна: в принятых данных нет версии за "
+                f"{report_year} год."
+            ),
+            calculated_provenance=calculated_provenance,
+            reported_year=report_year,
+        )
+
+    published = _published_report_fact(
+        rows_by_year.get(report_year, ()), report_spec, report_year)
+    published_fact = published["fact"]
+    published_status = published["status"]
+    reported_value = published_fact.get("value")
+    reported_provenance = published_fact.get("provenance")
+    reported_unit = published.get("reported_unit")
+    reported_year = published.get("reported_year")
+
+    if published_status != "reported":
+        messages = {
+            "missing_source": (
+                "Сверка недоступна: в принятой версии нет совместимого "
+                "опубликованного коэффициента."
+            ),
+            "incompatible_definition": (
+                "Сверка недоступна: определение опубликованного коэффициента "
+                "не совпадает с формулой независимого расчёта."
+            ),
+            "incompatible_unit": (
+                "Сверка недоступна: единица опубликованного коэффициента "
+                "не соответствует ожидаемой."
+            ),
+            "incompatible_year": (
+                "Сверка недоступна: период опубликованного коэффициента "
+                f"не подтверждает {report_year} год."
+            ),
+            "reported_upper_bound": (
+                "Сверка недоступна: опубликованный коэффициент указан "
+                "верхней границей."
+            ),
+        }
+        # A wrong unit/year must not leave a numeric report value next to the
+        # selected card unit/year.  Preserve those diagnostics separately.
+        if published_status in {
+            "incompatible_unit", "incompatible_year", "reported_upper_bound",
+        }:
+            reported_value = None
+            reported_provenance = None
+        return _report_comparison_template(
+            status=published_status,
+            year=report_year,
+            unit=report_spec["unit"],
+            calculated_value=calculated_value,
+            reported_value=reported_value,
+            message=messages.get(
+                published_status,
+                "Сверка недоступна: нет совместимого источника.",
+            ),
+            reported_provenance=reported_provenance,
+            calculated_provenance=calculated_provenance,
+            reported_unit=reported_unit,
+            reported_year=reported_year,
+        )
+
+    if calculated_value is None or not math.isfinite(float(calculated_value)):
+        return _report_comparison_template(
+            status="missing_calculation",
+            year=report_year,
+            unit=report_spec["unit"],
+            reported_value=reported_value,
+            message=(
+                "Сверка недоступна: не подтверждён полный набор компонентов "
+                "независимого расчёта."
+            ),
+            reported_provenance=reported_provenance,
+            calculated_provenance=calculated_provenance,
+            reported_unit=reported_unit,
+            reported_year=reported_year,
+        )
+
+    calculated_number = float(calculated_value)
+    reported_number = float(reported_value)
+    delta_decimal = (
+        Decimal(str(calculated_number)) - Decimal(str(reported_number))
+    )
+    delta = float(delta_decimal)
+    if not math.isfinite(delta):
+        return _report_comparison_template(
+            status="missing_calculation",
+            year=report_year,
+            unit=report_spec["unit"],
+            reported_value=reported_value,
+            message="Сверка недоступна: разница не является конечным числом.",
+            reported_provenance=reported_provenance,
+            calculated_provenance=calculated_provenance,
+            reported_unit=reported_unit,
+            reported_year=reported_year,
+        )
+
+    if delta == 0:
+        status = "match"
+        message = "Значения совпадают."
+    else:
+        precision = _raw_precision(
+            published_fact.get("raw_text"),
+            published_fact.get("precision_metadata"),
+        )
+        rounding_tolerance = (
+            float(Decimal(1).scaleb(-precision) / Decimal(2))
+            if precision is not None else None
+        )
+        if (
+            rounding_tolerance is not None
+            and abs(delta_decimal) <= Decimal(str(rounding_tolerance))
+        ):
+            status = "rounding"
+            message = (
+                "Расхождение возможно из-за округления исходной публикации."
+            )
+        else:
+            status = "comparable"
+            message = (
+                "Сверка выполнена; разница показана как расчёт минус "
+                "опубликованное значение."
+            )
+    return _report_comparison_template(
+        status=status,
+        year=report_year,
+        unit=report_spec["unit"],
+        calculated_value=float(calculated_value),
+        reported_value=float(reported_value),
+        delta=delta,
+        message=message,
+        reported_provenance=reported_provenance,
+        calculated_provenance=calculated_provenance,
+        reported_unit=reported_unit,
+        reported_year=reported_year,
+    )
 
 
 def _missing_years_reason(label, facts, year_from, year_to):
@@ -945,6 +1456,7 @@ def build_annual_key_indicators(
     """
     versions = HistoricalYearVersion.query.join(HistoricalImport).filter(
         HistoricalYearVersion.company_id == company.id,
+        HistoricalImport.company_id == company.id,
         HistoricalYearVersion.is_active.is_(True),
         HistoricalImport.status == "active",
     ).order_by(HistoricalYearVersion.year).all()
@@ -1095,6 +1607,12 @@ def build_annual_key_indicators(
             "provenance_components": current.get("provenance_components", []),
             "previous_period_label": _range_label(previous_from, previous_to),
         }
+        report_comparison = _build_report_comparison(
+            spec, current, component_facts, rows_by_year,
+            selected_from, selected_to,
+        )
+        if report_comparison is not None:
+            card["report_comparison"] = report_comparison
         # Formula metadata is part of the contract for the stability
         # extension.  Leave the legacy cards untouched so their established
         # shape and rating treatment remain backwards compatible.
@@ -1171,6 +1689,11 @@ def build_annual_key_indicators(
             "знаменателей проверяется до деления.",
             "Для балансовых карточек используется последний год диапазона, "
             "для ICR суммируются EBIT и проценты за каждый год диапазона.",
+            "report_comparison является справочной read-only сверкой: "
+            "значения карточки, рейтинг и принятые версии не изменяются.",
+            "delta появляется только при совместимых определении, годе и "
+            "единице; потоковый ICR за многолетний диапазон с годовой книгой "
+            "не сопоставляется.",
         ],
         "methodology": list(METHODOLOGY),
     }

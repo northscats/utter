@@ -28,6 +28,12 @@ _MISSING_RE = re.compile(r"^[\-–—−]+$")
 _NUMBER_RE = re.compile(r"^[+−-]?(?:\d[\d\s\u00a0]*)(?:[.,]\d+)?$")
 _UPPER_RE = re.compile(r"^\s*<\s*([+−-]?\d[\d\s\u00a0]*(?:[.,]\d+)?)\s*(%)?\s*$")
 
+# ``HistoricalRawValue`` predates source-format auditing and cannot be migrated
+# for every deployment.  Numeric source precision is therefore carried through
+# the existing ``HistoricalMetricValue.value_text`` column as a private marker
+# during import.  The original raw cell text remains untouched.
+SOURCE_PRECISION_METADATA_PREFIX = "__osv_source_precision__:"
+
 MAX_XLSX_MEMBERS = 2000
 MAX_XLSX_UNCOMPRESSED = 100 * 1024 * 1024
 MAX_XLSX_MEMBER_SIZE = 25 * 1024 * 1024
@@ -382,13 +388,82 @@ def _unit(label, header, section_key, raw_value):
     return "ratio", 1.0
 
 
-def _value(value, unit, factor, year, period, coordinate):
+def _text_precision(value):
+    text = _raw(value).strip()
+    if not text:
+        return None
+    upper = _UPPER_RE.fullmatch(text)
+    text = upper.group(1) if upper else text.rstrip("%").strip()
+    text = text.replace("\u00a0", "").replace(" ", "")
+    text = text.replace("−", "-").replace(",", ".")
+    match = re.fullmatch(r"[+−-]?\d+(?:\.(\d+))?", text)
+    if not match:
+        return None
+    digits = match.group(1)
+    return len(digits) if digits is not None else 0
+
+
+def _number_format_precision(number_format):
+    """Return precision only for an explicit numeric Excel format.
+
+    ``General`` and date/fraction formats deliberately return ``None``:
+    display precision cannot be reconstructed safely from those formats.
+    """
+    format_text = str(number_format or "").strip()
+    if not format_text:
+        return None
+    # Keep this deliberately small.  A single positive numeric format is
+    # auditable; date, fraction, escaped-literal and multi-section formats
+    # otherwise make the displayed precision ambiguous.
+    match = re.fullmatch(
+        r"(?:#,##)?0(?:\.(?P<decimals>0+))?(?P<percent>%)?",
+        format_text,
+    )
+    if match is None:
+        return None
+    decimals = match.group("decimals")
+    return len(decimals) if decimals is not None else 0
+
+
+def _source_precision(value, number_format=None):
+    """Return ``(places, source)`` when the workbook proves precision."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # Excel's percent display scales the stored number by 100.  The
+        # historical parser intentionally leaves units/values unchanged, so
+        # a format-level decimal count would be in a different scale.  Do not
+        # manufacture a rounding tolerance for that ambiguous case.
+        if "%" in str(number_format or ""):
+            return None, None
+        places = _number_format_precision(number_format)
+        if places is not None:
+            return places, "excel_number_format"
+        return None, None
+    places = _text_precision(value)
+    if places is not None:
+        return places, "text"
+    return None, None
+
+
+def source_precision_metadata(precision, source):
+    """Encode explicit source precision in the existing value_text column."""
+    if precision is None or not source:
+        return None
+    return f"{SOURCE_PRECISION_METADATA_PREFIX}{source}:{int(precision)}"
+
+
+def _value(
+    value, unit, factor, year, period, coordinate, number_format=None,
+):
     raw = _raw(value)
     stripped = raw.strip()
+    raw_precision, precision_source = _source_precision(
+        value, number_format)
     result = {
         "year": year, "period": period, "raw": raw, "value": None,
         "unit": unit, "is_missing": False, "is_upper_bound": False,
         "cell": coordinate,
+        "raw_precision": raw_precision,
+        "raw_precision_source": precision_source,
     }
     if not stripped or _MISSING_RE.fullmatch(stripped):
         result["is_missing"] = True
@@ -442,6 +517,7 @@ def _parse_sheet(ws, key, title, metric_aliases):
             vals.append(_value(
                 cell.value, unit, factor, year, period,
                 f"{get_column_letter(column)}{row_number}",
+                cell.number_format,
             ))
         alias = _metric_alias(key, label, metric_aliases)
         metric_key = alias or canonical_metric_key(label)
@@ -588,7 +664,10 @@ def _reconcile(summary_ws, sections, section_aliases, metric_aliases, warnings):
         for column, year, period in year_columns:
             cell = summary_ws.cell(row_number, column)
             unit, factor = _unit(first, period, current_key, cell.value)
-            source = _value(cell.value, unit, factor, year, period, cell.coordinate)
+            source = _value(
+                cell.value, unit, factor, year, period, cell.coordinate,
+                cell.number_format,
+            )
             other = thematic.get((year, source["unit"]))
             if other is None or (source["is_missing"] and other["is_missing"]):
                 continue

@@ -24,6 +24,7 @@ from historical_parser import (
     canonical_metric_key,
     normalize_name,
     parse_historical_xlsx,
+    source_precision_metadata,
 )
 
 
@@ -192,7 +193,11 @@ def _persist_version_values(version, parsed, year):
                         float(normalized)
                         if isinstance(normalized, (int, float)) else None),
                     value_text=(
-                        normalized if isinstance(normalized, str) else None),
+                        source_precision_metadata(
+                            value.get("raw_precision"),
+                            value.get("raw_precision_source"),
+                        )
+                        or (normalized if isinstance(normalized, str) else None)),
                     unit=value.get("unit") or "ratio",
                     is_missing=bool(value.get("is_missing")),
                     is_upper_bound=bool(value.get("is_upper_bound")),
