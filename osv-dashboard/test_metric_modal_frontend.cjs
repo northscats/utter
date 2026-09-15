@@ -56,13 +56,17 @@ function element(id) {
                     return this.__cache[id];
                 });
             }
-            if (selector.includes('input[name="gapMode"]')) {
-                const matches = [...this.innerHTML.matchAll(/value="([^"]+)"/g)];
+            if (selector.includes('input[name="gapMode"]') ||
+                selector.includes('input[name="timelineMode"]')) {
+                const group = selector.includes('timelineMode') ? 'timelineMode' : 'gapMode';
+                const pattern = new RegExp(`name="${group}" value="([^"]+)"`, 'g');
+                const matches = [...this.innerHTML.matchAll(pattern)];
                 return matches.map(m => {
                     let val = m[1];
-                    if (!this.__cache['radio'+val]) {
+                    const cacheKey = `radio:${group}:${val}`;
+                    if (!this.__cache[cacheKey]) {
                         let handlers = {};
-                        this.__cache['radio'+val] = {
+                        this.__cache[cacheKey] = {
                             value: val,
                             addEventListener: (evt, fn) => { handlers[evt] = fn; },
                             dispatchEvent: (evt, data) => {
@@ -70,7 +74,7 @@ function element(id) {
                             }
                         };
                     }
-                    return this.__cache['radio'+val];
+                    return this.__cache[cacheKey];
                 });
             }
             return [];
@@ -279,6 +283,40 @@ assert.ok(!nodes.get('ki-metric-modal-svg').innerHTML.includes('cash-modal-area'
 assert.ok(!nodes.get('ki-metric-modal-svg').innerHTML.includes(
     'Денежные средства (сч. 50, 51, 52, 55)'),
     'Legend does not claim that the total is plotted after selecting one account');
+
+// Calendar scale aggregates balances by the last factual observation in each
+// day/week/month bucket without inventing values for empty buckets.
+const periodicCashCard = {
+    id: 'cash', title: 'Денежные средства', unit: 'RUB', value: 160,
+    series: [
+        snapshot('2026-01-01', 100),
+        snapshot('2026-01-08', 120),
+        snapshot('2026-02-02', 160)
+    ],
+    breakdown: [], details: []
+};
+app.state.modalChart.activeId = '__main__';
+app.state.modalChart.pinnedIds.clear();
+app.state.modalChart.gapMode = 1;
+app.state.modalChart.timelineMode = 'day';
+app.drawMetricModalSvg(periodicCashCard, nodes.get('ki-metric-modal-svg'));
+const dayPointCount = (nodes.get('ki-metric-modal-svg').innerHTML
+    .match(/class="cash-modal-point"/g) || []).length;
+app.state.modalChart.timelineMode = 'week';
+app.drawMetricModalSvg(periodicCashCard, nodes.get('ki-metric-modal-svg'));
+const weekSvg = nodes.get('ki-metric-modal-svg').innerHTML;
+const weekPointCount = (weekSvg.match(/class="cash-modal-point"/g) || []).length;
+assert.ok(weekSvg.includes('cash-modal-line-gap'),
+    'Weekly scale draws a line between weekly balance points');
+app.state.modalChart.timelineMode = 'month';
+app.drawMetricModalSvg(periodicCashCard, nodes.get('ki-metric-modal-svg'));
+const monthSvg = nodes.get('ki-metric-modal-svg').innerHTML;
+const monthPointCount = (monthSvg.match(/class="cash-modal-point"/g) || []).length;
+assert.match(monthSvg, /class="cash-modal-line"/,
+    'Monthly scale draws a line between adjacent monthly balance points');
+assert.equal(dayPointCount, 3, 'Daily scale keeps all factual observations');
+assert.equal(weekPointCount, 3, 'Weekly scale keeps the last observation of each occupied week');
+assert.equal(monthPointCount, 2, 'Monthly scale keeps the last observation of each occupied month');
 
 // A single click waits; a subsequent double click cancels that pending click.
 app.state.modalChart.activeId = '__main__';

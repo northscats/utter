@@ -451,6 +451,20 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   background:transparent; overflow:visible;
 }
 .cash-modal-chart-plot { position:relative; width:100%; height:270px; overflow:hidden; }
+.cash-chart-controls {
+  display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
+  gap:8px 18px; margin-bottom:8px;
+}
+.cash-chart-scale, .cash-chart-gap-mode { display:flex; align-items:center; gap:6px; }
+.cash-chart-controls label {
+  display:inline-flex; align-items:center; gap:4px; cursor:pointer; font-size:11px;
+  margin:0; padding:4px 8px; border:1px solid #D1D5DB; border-radius:999px;
+  background:#fff; color:#374151;
+}
+.cash-chart-controls label:has(input:checked) {
+  border-color:#2563EB; background:#EFF6FF; color:#1D4ED8; font-weight:700;
+}
+.cash-chart-controls input { margin:0; }
 .cash-modal-chart-legend {
   display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px;
   margin:0 0 8px; color:#374151; font-size:11px; font-weight:600;

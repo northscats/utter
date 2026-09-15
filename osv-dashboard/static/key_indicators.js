@@ -18,7 +18,7 @@
         reqId: 0,
         aiReport: null,
         chartJobs: {},
-        modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1 },
+        modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'day' },
         modalCharts: {}
     };
     
@@ -4292,16 +4292,24 @@
 
             const gapMode1 = state.modalChart.gapMode === 1;
             const gapMode2 = state.modalChart.gapMode === 2;
+            const timelineMode = state.modalChart.timelineMode || 'day';
             const chartHtml = `
-                <div style="display:flex; justify-content:flex-end; margin-bottom:8px; gap:16px;">
-                    <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                <div class="cash-chart-controls">
+                    <div class="cash-chart-scale" role="group" aria-label="Масштаб времени">
+                        <label><input type="radio" name="timelineMode" value="day" ${timelineMode === 'day' ? 'checked' : ''}>День</label>
+                        <label><input type="radio" name="timelineMode" value="week" ${timelineMode === 'week' ? 'checked' : ''}>Неделя</label>
+                        <label><input type="radio" name="timelineMode" value="month" ${timelineMode === 'month' ? 'checked' : ''}>Месяц</label>
+                    </div>
+                    <div class="cash-chart-gap-mode" role="group" aria-label="Отображение пропусков">
+                    <label>
                         <input type="radio" name="gapMode" value="1" ${gapMode1 ? 'checked' : ''} style="margin:0;">
                         Соединить
                     </label>
-                    <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                    <label>
                         <input type="radio" name="gapMode" value="2" ${gapMode2 ? 'checked' : ''} style="margin:0;">
                         Продлить
                     </label>
+                    </div>
                 </div>
                 <div class="cash-line-chart ki-metric-modal-svg"></div>
             `;
@@ -4314,6 +4322,12 @@
             Array.from(chCont.querySelectorAll('input[name="gapMode"]')).forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     state.modalChart.gapMode = Number(e.target.value);
+                    this.drawMetricModalSvg(card, chartContainer);
+                });
+            });
+            Array.from(chCont.querySelectorAll('input[name="timelineMode"]')).forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    state.modalChart.timelineMode = e.target.value;
                     this.drawMetricModalSvg(card, chartContainer);
                 });
             });
@@ -4336,40 +4350,94 @@
             const selectedUnit = (active.item && active.item.unit) ||
                 ((active.data || []).find(point => point && point.unit) || {}).unit ||
                 card.unit;
-            const selected = metricItems.filter(item => {
+            const rawSelected = metricItems.filter(item => {
                 const unit = (item.item && item.item.unit) ||
                     ((item.data || []).find(point => point && point.unit) || {}).unit ||
                     card.unit;
                 return (item.id === active.id ||
                     state.modalChart.pinnedIds.has(item.id)) && unit === selectedUnit;
             });
-            if (!selected.length) {
+            if (!rawSelected.length) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для отображения</div>';
                 return;
             }
 
-            const allDates = selected.flatMap(item => (item.data || [])
+            const rawDates = rawSelected.flatMap(item => (item.data || [])
                 .map(point => chartDate(point)).filter(value => value !== null));
-            if (!allDates.length) {
+            if (!rawDates.length) {
                 container.innerHTML = '<div class="chart-empty">Нет дат для отображения</div>';
                 return;
             }
+            const timelineMode = state.modalChart.timelineMode || 'day';
+            const dayMs = 86400000;
+            const bucketStart = (value) => {
+                const date = new Date(value);
+                let result = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+                if (timelineMode === 'week') {
+                    const weekday = new Date(result).getUTCDay();
+                    result -= ((weekday + 6) % 7) * dayMs;
+                } else if (timelineMode === 'month') {
+                    result = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+                }
+                return result;
+            };
+            const nextBucket = (value) => {
+                if (timelineMode === 'week') return value + 7 * dayMs;
+                if (timelineMode === 'month') {
+                    const date = new Date(value);
+                    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+                }
+                return value + dayMs;
+            };
+            const isoDate = value => new Date(value).toISOString().slice(0, 10);
+            const rangeStart = bucketStart(Math.min(...rawDates));
+            const rangeEnd = bucketStart(Math.max(...rawDates));
+            const aggregateSeries = (data) => {
+                const buckets = new Map();
+                (data || []).forEach(point => {
+                    const timestamp = chartDate(point);
+                    if (timestamp === null || !hasNumericValue(point.value)) return;
+                    const key = bucketStart(timestamp);
+                    const previous = buckets.get(key);
+                    if (!previous || timestamp >= previous.timestamp) {
+                        buckets.set(key, {timestamp, point});
+                    }
+                });
+                const result = [];
+                for (let cursor = rangeStart; cursor <= rangeEnd; cursor = nextBucket(cursor)) {
+                    const known = buckets.get(cursor);
+                    result.push(known
+                        ? {...known.point, date: isoDate(cursor), bucket_source_date:
+                            known.point.date || known.point.label}
+                        : {date: isoDate(cursor), label: isoDate(cursor), value: null,
+                            granularity: timelineMode});
+                }
+                return result;
+            };
+            const selected = rawSelected.map(item => ({
+                ...item, data: aggregateSeries(item.data)
+            }));
+            const allDates = selected.flatMap(item => item.data
+                .map(point => chartDate(point)).filter(value => value !== null));
             const minDate = Math.min(...allDates);
             const maxDate = Math.max(...allDates);
-            const span = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+            const span = Math.max(1, (maxDate - minDate) / dayMs);
             const width = 900, height = 270, left = 52, right = 18,
                 top = 38, bottom = 48;
             const plotWidth = width - left - right;
             const plotHeight = height - top - bottom;
             const x = item => left + Math.round(
                 (chartDate(item) - minDate) / 86400000) / span * plotWidth;
-            let max = 0;
+            const numericValues = [];
             selected.forEach(series => (series.data || []).forEach(point => {
-                if (hasNumericValue(point.value)) max = Math.max(max, Number(point.value));
+                if (hasNumericValue(point.value)) numericValues.push(Number(point.value));
             }));
-            if (max <= 0) max = 1;
-            const y = value => top + plotHeight - (Number(value) / max) * plotHeight;
-            const baseline = y(0);
+            let minValue = Math.min(0, ...numericValues);
+            let maxValue = Math.max(0, ...numericValues);
+            if (minValue === maxValue) maxValue = minValue + 1;
+            const y = value => top + (maxValue - Number(value)) /
+                (maxValue - minValue) * plotHeight;
+            const baseline = y(Math.max(0, minValue));
             const gapMode = state.modalChart.gapMode;
             const formatDate = value => {
                 const date = new Date(value);
@@ -4417,11 +4485,9 @@
                     const previousY = y(previous.value).toFixed(1);
                     const currentX = x(current.point).toFixed(1);
                     const currentY = y(current.value).toFixed(1);
-                    const consecutive = Math.round(
-                        (chartDate(current.point) - chartDate(previous.point)) / 86400000) === 1;
-                    const comparable = current.point.comparison &&
-                        current.point.comparison.comparable === true;
-                    if (consecutive || comparable) {
+                    const consecutive = nextBucket(chartDate(previous.point)) ===
+                        chartDate(current.point);
+                    if (consecutive) {
                         solid += ` M ${previousX} ${previousY} L ${currentX} ${currentY}`;
                         areaSegment.push(current);
                     } else if (gapMode === 2) {
@@ -4442,7 +4508,7 @@
                 + `role="img" aria-label="Динамика денежных средств">`;
             [0, 0.25, 0.5, 0.75, 1].forEach(tick => {
                 const py = top + plotHeight * tick;
-                const value = max * (1 - tick);
+                const value = maxValue - (maxValue - minValue) * tick;
                 svg += `<line x1="${left}" y1="${py}" x2="${width - right}" y2="${py}" `
                     + `stroke="#E5E7EB" stroke-width="1"/>`;
                 svg += `<text x="${left - 7}" y="${py + 4}" fill="#6B7280" `
@@ -4480,7 +4546,8 @@
                         + `${esc(this.formatValue(item.value, selectedUnit).val)}</div>`);
                 });
             });
-            const tickSeries = active.data || [];
+            const activeDisplay = selected.find(series => series.id === active.id) || selected[0];
+            const tickSeries = activeDisplay ? activeDisplay.data : [];
             const tickStep = Math.max(1, Math.ceil(tickSeries.length / 8));
             tickSeries.forEach((point, index) => {
                 if (!chartDate(point) ||
@@ -5093,10 +5160,12 @@ renderCashModal(card) {
             if (!state.modalCharts[cardId]) {
                 state.modalCharts[cardId] = {
                     activeId: null, pinnedIds: new Set(), gapMode: 1,
+                    timelineMode: 'day',
                     chartContainer: null
                 };
             }
             state.modalChart = state.modalCharts[cardId];
+            if (!state.modalChart.timelineMode) state.modalChart.timelineMode = 'day';
             this.hideModalSwitchStatus();
             
             state.lastFocused = document.activeElement;
