@@ -18,7 +18,7 @@
         reqId: 0,
         aiReport: null,
         chartJobs: {},
-        modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'day' },
+        modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
         modalCharts: {}
     };
 
@@ -4299,7 +4299,7 @@
 
             const gapMode1 = state.modalChart.gapMode === 1;
             const gapMode2 = state.modalChart.gapMode === 2;
-            const timelineMode = state.modalChart.timelineMode || 'day';
+            const timelineMode = state.modalChart.timelineMode || 'week';
             const chartHtml = `
                 <div class="cash-chart-controls">
                     <div class="cash-chart-scale" role="group" aria-label="Масштаб времени">
@@ -4375,7 +4375,7 @@
                 container.innerHTML = '<div class="chart-empty">Нет дат для отображения</div>';
                 return;
             }
-            const timelineMode = state.modalChart.timelineMode || 'day';
+            const timelineMode = state.modalChart.timelineMode || 'week';
             const dayMs = 86400000;
             const bucketStart = (value) => {
                 const date = new Date(value);
@@ -4674,7 +4674,7 @@
             let minDate = Math.min(...allDates);
             let maxDate = Math.max(...allDates);
             const dayMs = 86400000;
-            const timelineMode = state.modalChart.timelineMode || 'day';
+            const timelineMode = state.modalChart.timelineMode || 'week';
             const bucketStart = value => {
                 const date = new Date(value);
                 let result = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
@@ -5078,7 +5078,7 @@ renderCashModal(card) {
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
                 <div style="overflow-x:auto"><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td>${esc(dateText)}; по загруженным счетам</td><td></td></tr></tbody>
+                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
@@ -5230,12 +5230,12 @@ renderCashModal(card) {
             if (!state.modalCharts[cardId]) {
                 state.modalCharts[cardId] = {
                     activeId: null, pinnedIds: new Set(), gapMode: 1,
-                    timelineMode: 'day',
+                    timelineMode: 'week',
                     chartContainer: null
                 };
             }
             state.modalChart = state.modalCharts[cardId];
-            if (!state.modalChart.timelineMode) state.modalChart.timelineMode = 'day';
+            if (!state.modalChart.timelineMode) state.modalChart.timelineMode = 'week';
             this.hideModalSwitchStatus();
             
             state.lastFocused = document.activeElement;
