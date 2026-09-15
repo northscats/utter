@@ -4966,7 +4966,7 @@ renderCashModal(card) {
                     detail: accountDetails[account],
                     required,
                     norm: 'Индивидуальный норматив не задан',
-                    fact: `${formatted.val} ${formatted.u} · ${dateText}${share !== '—' ? ` · ${share} от известного итога` : ''}`,
+                    fact: `${formatted.val} ${formatted.u} · ${dateText}${share !== '—' ? ` · ${share}` : ''}`,
                     deviation: required ? 'Расчёт невозможен' : 'Оценивается после задания норматива',
                     source: required ? `требуется ОСВ по счёту ${account}` : `ОСВ по счёту ${account}`
                 });
@@ -5077,8 +5077,8 @@ renderCashModal(card) {
                 </div>
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
                 <div style="overflow-x:auto"><table class="cash-table">
-                    <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля известного итога</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}<br>${esc(coverageText)}</td><td>${total ? '100% известного итога' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td>${esc(dateText)}; по загруженным счетам</td><td>${esc(coverageText)}</td></tr></tbody>
+                    <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
+                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td>${esc(dateText)}; по загруженным счетам</td><td></td></tr></tbody>
                 </table></div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
