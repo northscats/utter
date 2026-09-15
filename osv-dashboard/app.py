@@ -2192,6 +2192,12 @@ def _upload_history_rows(uploads, company_id):
     """Build useful, provenance-aware labels for the upload history table."""
     from key_indicators import _period_bounds
 
+    def _short_filename(value, head=20, tail=14):
+        name = os.path.basename(str(value or '').strip()) or 'Файл'
+        if len(name) <= head + tail + 1:
+            return name
+        return f'{name[:head]}…{name[-tail:]}'
+
     def _bounds(item, fallback_label=''):
         start = end = None
         try:
@@ -2246,8 +2252,10 @@ def _upload_history_rows(uploads, company_id):
             item_accounts = {account} if account else set()
             start, end = _bounds(item)
             relative_path = str(item.get('relative_path') or '').strip()
+            filename = os.path.basename(relative_path) or 'Файл'
             file_rows.append({
-                'filename': os.path.basename(relative_path) or 'Файл',
+                'filename': filename,
+                'display_filename': _short_filename(filename),
                 'account_label': account or '—',
                 'period_label': item.get('period') or '—',
                 'period_type': _period_type(start, end),
@@ -2280,11 +2288,14 @@ def _upload_history_rows(uploads, company_id):
             'upload': upload,
             'file_rows': file_rows,
             'file_label': (
-                file_rows[0]['filename'] if len(file_rows) == 1
+                file_rows[0]['display_filename'] if len(file_rows) == 1
                 else f'Пакет ({upload.files_count or len(file_rows)} файлов)'
             ) if file_rows else (
                 f'Пакет ({upload.files_count} файлов)'
                 if (upload.files_count or 0) > 1 else 'Файл'
+            ),
+            'full_file_label': (
+                file_rows[0]['filename'] if len(file_rows) == 1 else ''
             ),
             'account_label': ', '.join(sorted(accounts)) if accounts else '—',
             'period_type': _period_type(start, end),

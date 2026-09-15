@@ -328,6 +328,17 @@ tr:last-child td{border-bottom:0}
   border:1px solid var(--line);border-radius:8px;padding:10px 16px;
   margin-bottom:12px;font-size:12.5px;color:var(--ink)}
 .comp-summary b{color:var(--ink)}
+/* ── Компактная история загрузок ── */
+.upload-history-table{table-layout:auto}
+.upload-history-table th,.upload-history-table td{
+  padding:5px 8px;line-height:1.2;white-space:nowrap;vertical-align:middle}
+.upload-history-table .upload-file-col{width:190px}
+.upload-history-table .upload-period-col{min-width:210px;width:28%}
+.upload-package-details summary{cursor:pointer;color:#1f6680;font-weight:600;
+  list-style-position:inside}
+.upload-package-files{margin-top:7px;min-width:720px;background:#fbfcfd}
+.upload-package-files th,.upload-package-files td{
+  padding:4px 7px;font-size:11.5px;white-space:nowrap}
 /* ── Историческая аналитика ── */
 .hist-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:22px 24px;margin-bottom:20px}
@@ -1022,12 +1033,12 @@ tr:last-child td{border-bottom:0}
   <div class="card">
     <h3>История загрузок ({{ uploads|length }} пакет{{ uploads|length|pluralize('','а','ов') }})</h3>
     {% if uploads %}
-    <table>
+    <table class="upload-history-table">
       <tr>
         <th>Дата загрузки</th>
         <th>Источник</th>
-        <th>Файл / пакет</th>
-        <th>Период</th>
+        <th class="upload-file-col">Файл / пакет</th>
+        <th class="upload-period-col">Период</th>
         <th>Номер счета</th>
         <th>Тип</th>
         <th>Покрытие дней</th>
@@ -1057,7 +1068,7 @@ tr:last-child td{border-bottom:0}
               </tr>
               {% for file in row.file_rows %}
               <tr>
-                <td>{{ file.filename }}</td>
+                <td title="{{ file.filename }}">{{ file.display_filename }}</td>
                 <td>{{ file.period_label }}</td>
                 <td>{{ file.account_label }}</td>
                 <td>{{ file.period_type }}</td>
@@ -1067,7 +1078,7 @@ tr:last-child td{border-bottom:0}
             </table>
           </details>
           {% else %}
-          {{ row.file_label }}
+          <span title="{{ row.full_file_label }}">{{ row.file_label }}</span>
           {% endif %}
         </td>
         <td>{{ u.period_label or '—' }}</td>
