@@ -879,6 +879,29 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(points['2026-01-03']['value'], 30)
         self.assertEqual(points['2026-01-01']['accounts'], ['50', '51'])
 
+    def test_cash_daily_series_reports_four_account_coverage_per_date(self):
+        src = build_indicator_source({
+            '50': account('50', [day('2026-01-01', skd=10),
+                                 day('2026-01-02', skd=11)], period=''),
+            '51': account('51', [day('2026-01-01', skd=20),
+                                 day('2026-01-02', skd=21)], period=''),
+            '52': account('52', [day('2026-01-01', skd=30)], period=''),
+            '55': account('55', [day('2026-01-01', skd=40)], period=''),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'month', '2026-01-02')['cards']}['cash']
+        points = {point['date']: point for point in cash['series']}
+
+        self.assertEqual(points['2026-01-01']['value'], 100)
+        self.assertEqual(points['2026-01-01']['accounts'],
+                         ['50', '51', '52', '55'])
+        self.assertEqual(points['2026-01-01']['missing_accounts'], [])
+        self.assertEqual(points['2026-01-01']['coverage'], 'complete')
+        self.assertEqual(points['2026-01-02']['value'], 32)
+        self.assertEqual(points['2026-01-02']['accounts'], ['50', '51'])
+        self.assertEqual(points['2026-01-02']['missing_accounts'], ['52', '55'])
+        self.assertEqual(points['2026-01-02']['coverage'], 'partial')
+
     def test_cash_quarter_series_uses_daily_slots_without_spreading_balances(self):
         src = build_indicator_source({
             '51': account('51', [

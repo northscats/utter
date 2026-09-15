@@ -190,3 +190,17 @@ mtime_ms = 1789368123954
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/889620c1-278c-4ef1-a461-709207cd896b/513a095e-8d56-41d4-9b92-b6aa093ad9f4"
 storage_version_token = "1789368132373724"
 content_type = "application/msword"
+
+[[outputs]]
+id = "fJbCeViYdsiJNFVv87eH9"
+uri = "file://generated_assets/mup-kgh-account-52-zero-confirmation-2026-07-01_2026-09-15.xlsx"
+type = "table"
+title = "Подтверждение нулевого счёта 52"
+description = "Явное подтверждение для МУП КГХ за 01.07–15.09.2026. В документе указано, что это подтверждение пользователя, а не выгрузка 1С."
+logical_id = "43113f9f-103f-4c65-b846-a87956172cf3"
+content_hash = "sha256:0ed5b8d8efba9d9e26650be48ebaf351842f5fe80ba2b34a5e33d53dfbf95b92"
+size = 5323
+mtime_ms = 1789478843539
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/43113f9f-103f-4c65-b846-a87956172cf3/be637178-5469-46fa-a640-5543b8b2dca9"
+storage_version_token = "1789478859725377"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

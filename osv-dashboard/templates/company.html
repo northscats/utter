@@ -1108,7 +1108,12 @@ const _OSV_GROUPS=[
   {label:'Финрезультат',accounts:[{acc:'90',name:'Продажи (выручка)',critical:true},{acc:'91',name:'Прочие доходы/расходы',critical:false}]},
   {label:'Затраты',accounts:[{acc:'20',name:'Осн. производство',critical:true},{acc:'25',name:'Общепроизводственные',critical:true},{acc:'26',name:'Управленческие',critical:true},{acc:'44',name:'Коммерческие',critical:false}]},
   {label:'Долги',accounts:[{acc:'62',name:'Покупатели (ДЗ)',critical:true},{acc:'60',name:'Поставщики (КЗ)',critical:true},{acc:'76',name:'Прочие расчёты',critical:false}]},
-  {label:'Деньги',accounts:[{acc:'51',name:'Расчётные счета',critical:true},{acc:'50',name:'Касса',critical:false}]},
+  {label:'Деньги',accounts:[
+    {acc:'50',name:'Касса — конечный остаток на дату',critical:true},
+    {acc:'51',name:'Расчётные счета — конечный остаток на дату',critical:true},
+    {acc:'52',name:'Валютные счета — конечный остаток на дату',critical:true},
+    {acc:'55',name:'Специальные счета — конечный остаток на дату',critical:true}
+  ]},
   {label:'Налоги и ФОТ',accounts:[{acc:'70',name:'Оплата труда',critical:true},{acc:'68',name:'Налоги и сборы',critical:true},{acc:'69',name:'Соц. страхование',critical:true}]},
   {label:'Кредиты и займы',accounts:[{acc:'66',name:'Краткосрочные',critical:false},{acc:'67',name:'Долгосрочные',critical:false}]}
 ];

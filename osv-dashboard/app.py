@@ -718,7 +718,85 @@ def _save_files(paths_src, company_id, ts):
         saved.append(dest)
     return saved
 
+def _derive_cash_daily_rows(parsed, through_date=None):
+    """Derive exact end-of-day cash balances from dated report turnovers.
 
+    This is valid only when the report's dated rows reconcile to its complete
+    opening, turnover and closing totals. It does not spread a period total:
+    every movement stays on its source date, and no-movement days preserve the
+    preceding balance.
+    """
+    from collections import defaultdict
+    from datetime import date as _date
+    from math import isfinite
+    from key_indicators import _period_bounds
+
+    if str(parsed.get('acc')) not in {'50', '51', '52', '55'}:
+        return []
+    start, end = _period_bounds(parsed.get('period', ''))
+    top = parsed.get('top')
+    if start is None or end is None or not isinstance(top, dict):
+        return []
+    numeric_keys = ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')
+    try:
+        totals = {key: float(top[key]) for key in numeric_keys}
+    except (KeyError, TypeError, ValueError):
+        return []
+    if not all(isfinite(value) for value in totals.values()):
+        return []
+    report_end = end
+    end = min(end, through_date or _date.today())
+    if end < start:
+        return []
+
+    movements = defaultdict(lambda: [0.0, 0.0])
+    for item in parsed.get('daily') or []:
+        try:
+            day = _date.fromisoformat(item['date'])
+        except (KeyError, TypeError, ValueError):
+            return []
+        if day < start or day > report_end:
+            return []
+        debit, credit = item.get('obd'), item.get('obk')
+        try:
+            debit, credit = float(debit), float(credit)
+        except (TypeError, ValueError):
+            return []
+        if not isfinite(debit) or not isfinite(credit):
+            return []
+        movements[day][0] += debit
+        movements[day][1] += credit
+
+    report_debit = round(sum(value[0] for value in movements.values()), 2)
+    report_credit = round(sum(value[1] for value in movements.values()), 2)
+    if (abs(report_debit - totals['obd']) > 0.01 or
+            abs(report_credit - totals['obk']) > 0.01):
+        return []
+
+    running = totals['snd'] - totals['snk']
+    result = []
+    cursor = start
+    while cursor <= end:
+        debit, credit = movements[cursor]
+        opening = running
+        running = round(running + debit - credit, 2)
+        result.append({
+            'date': cursor,
+            'snd': round(max(opening, 0.0), 2),
+            'snk': round(max(-opening, 0.0), 2),
+            'obd': round(debit, 2),
+            'obk': round(credit, 2),
+            'skd': round(max(running, 0.0), 2),
+            'skk': round(max(-running, 0.0), 2),
+        })
+        cursor += timedelta(days=1)
+
+    # The report total describes its actual generated state even when its
+    # nominal period endpoint lies in the future (for example "September").
+    closing = totals['skd'] - totals['skk']
+    if abs(running - closing) > 0.01:
+        return []
+    return result
 def _upsert_daily_rows(company_id, paths):
     """Если XLS-файл является суточным ОСВ (дата извлекается из шапки),
     записывает/обновляет строку DailyRow для этого дня и счёта.
@@ -727,22 +805,28 @@ def _upsert_daily_rows(company_id, paths):
     count = 0
     for path in paths:
         dt = extract_daily_date(path)
-        if dt is None:
-            continue
         try:
             parsed = parse_osv(path)
         except Exception:
             continue
         acc = parsed['acc']
         top = parsed['top']
-        row = DailyRow.query.filter_by(
-            company_id=company_id, date=dt, acc=acc).first()
-        if row is None:
-            row = DailyRow(company_id=company_id, date=dt, acc=acc)
-            db.session.add(row)
-        row.snd = top['snd']; row.snk = top['snk']
-        row.obd = top['obd']; row.obk = top['obk']
-        row.skd = top['skd']; row.skk = top['skk']
+        observations = ([{
+            'date': dt,
+            **{key: top[key] for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')},
+        }] if dt is not None else _derive_cash_daily_rows(parsed))
+        if not observations:
+            continue
+        for observation in observations:
+            row = DailyRow.query.filter_by(
+                company_id=company_id, date=observation['date'], acc=acc).first()
+            if row is None:
+                row = DailyRow(
+                    company_id=company_id, date=observation['date'], acc=acc)
+                db.session.add(row)
+            for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk'):
+                setattr(row, key, observation[key])
+            row.uploaded_at = utcnow()
         count += 1
     return count
 
