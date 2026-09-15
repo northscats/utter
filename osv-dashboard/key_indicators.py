@@ -1995,7 +1995,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     cards = [
         _card('cash', cash, 'RUB', 'СКд − СКк по счетам 50, 51, 52, 55',
               'Конечные сальдо ОСВ', cash_reason,
-              breakdown=[{'label': f'Счёт {a}', 'value': v} for a, v in cash_parts],
+              # Keep all supported accounts selectable.  A missing account is
+              # ``None`` (never an invented zero), while the headline still
+              # sums only the authentic parts below.
+              breakdown=[{
+                  'label': f'Счёт {account}',
+                  'value': dict(cash_parts).get(account),
+              } for account in _CASH_ACCOUNTS],
               date=cash_snapshot['date'],
               accounts=list(cash_snapshot['accounts']),
               missing_accounts=list(cash_snapshot['missing_accounts']),
@@ -2383,6 +2389,157 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'date': point_date, 'label': option['label'],
                 'value': month_values[cid]})
 
+        # Keep every selectable accounting component on the same authentic
+        # timeline as its parent card.  A point is intentionally ``None`` when
+        # the source has no exact observation for that slot; this is not a
+        # place to carry a balance forward or prorate a period report.
+        def append_component_series(items, values, unit=None):
+            if not items:
+                return
+            for item in items:
+                label = item.get('label')
+                if isinstance(values, dict) and label not in values:
+                    continue
+                value = values.get(label) if isinstance(values, dict) else None
+                item.setdefault('series', []).append({
+                    'date': point_date,
+                    'label': option['label'],
+                    'value': value,
+                    'unit': unit or item.get('unit'),
+                    'granularity': series_kind,
+                    'synthetic': False,
+                })
+
+        cash_values = {}
+        for account in _CASH_ACCOUNTS:
+            account_value, _ = _top_balance(source, account, month_end)
+            cash_values[f'Счёт {account}'] = account_value
+        append_component_series(card_map['cash'].get('breakdown'), cash_values, 'RUB')
+
+        append_component_series(
+            card_map['revenue'].get('details'),
+            {'Выручка брутто': month_pl['gross'],
+             'НДС': month_pl['vat']},
+            'RUB')
+        collection_values = {
+            item['label']: item['value']
+            for item in month_collection['components']
+        }
+        append_component_series(
+            card_map['collection'].get('details'), collection_values, 'RUB')
+
+        # Balance analytics are selectable details in the AR/AP windows.  Use
+        # the exact point-end snapshot (or the authentic period report at
+        # that endpoint), never the selected-period headline as a proxy for a
+        # missing analytic row.
+        ar_point = _sub_balance_analytics(
+            source, '62', '62.01', month_end)
+        ar_point.extend(_sub_balance_analytics(source, '76', '76', month_end))
+        append_component_series(
+            card_map['ar'].get('analytics'),
+            {item.get('label'): item.get('value') for item in ar_point},
+            'RUB')
+        for item in card_map['ar'].get('analytics') or []:
+            key = (item.get('account'), item.get('analytic_key'))
+            if item.get('series'):
+                item['series'][-1]['value'] = next(
+                    (row.get('value') for row in ar_point
+                     if (row.get('account'), row.get('analytic_key')) == key),
+                    None)
+
+        ap_point = _sub_balance_analytics(
+            source, '60', '60.01', month_end)
+        append_component_series(
+            card_map['ap'].get('analytics'),
+            {item.get('label'): item.get('value') for item in ap_point},
+            'RUB')
+        for item in card_map['ap'].get('analytics') or []:
+            key = (item.get('account'), item.get('analytic_key'))
+            if item.get('series'):
+                item['series'][-1]['value'] = next(
+                    (row.get('value') for row in ap_point
+                     if (row.get('account'), row.get('analytic_key')) == key),
+                    None)
+
+        cogs_point = defaultdict(float)
+        cogs_known = defaultdict(bool)
+        for row in month_pl['cost_rows']:
+            analytic_key, _ = _analytic_identity(row)
+            if row.get('obd_known') is False:
+                cogs_known[analytic_key] = True
+            else:
+                cogs_point[analytic_key] += row.get('obd', 0)
+        for item in card_map['cogs'].get('analytics') or []:
+            value = (None if cogs_known[item.get('analytic_key')]
+                     else round(cogs_point[item.get('analytic_key')], 2))
+            item.setdefault('series', []).append({
+                'date': point_date, 'label': option['label'], 'value': value,
+                'unit': 'RUB', 'granularity': series_kind, 'synthetic': False})
+
+        # The selected report's component rows (68/69/70 and the two credit
+        # accounts) are also useful modal series.  Missing account rows remain
+        # missing rather than becoming zeros.
+        credit_values = {}
+        for account in ('66', '67'):
+            credit_values[f'Счёт {account}'] = _top_balance(
+                source, account, month_end, credit=True)[0]
+        append_component_series(
+            card_map['credits'].get('breakdown'), credit_values, 'RUB')
+        append_component_series(
+            card_map['ap'].get('components'),
+            {item['label']: item['value'] for item in (
+                [{'label': 'Поставщики и подрядчики',
+                  'value': _sub_balance(
+                      source, '60', '60.01', month_end, credit=True)[0]}] +
+                [{'label': label, 'value': _top_balance(
+                    source, account, month_end, credit=True)[0]}
+                 for account, label in (
+                     ('68', 'Налоги и сборы'),
+                     ('69', 'Страховые взносы'),
+                     ('70', 'Расчёты с персоналом'))])},
+            'RUB')
+
+        # ``details`` is the common, generic modal contract.  Keep the
+        # authenticated measures that already have dedicated series in that
+        # contract as well, so keyboard/pin interactions work consistently
+        # for cards with a specialised renderer.
+        salary_details = card_map['salary'].setdefault('details', [])
+        if not salary_details:
+            salary_details.extend([
+                {'label': 'Кредитовое сальдо 70', 'value': salary},
+                {'label': 'Дебетовое сальдо 70', 'value': salary_debit},
+                {'label': 'Кредитовый оборот 70',
+                 'value': salary_turnovers['credit']},
+                {'label': 'Кредитовый оборот 69',
+                 'value': insurance_turnovers['credit']},
+            ])
+        append_component_series(
+            salary_details,
+            {'Кредитовое сальдо 70': _top_balance(
+                source, '70', month_end, credit=True)[0],
+             'Дебетовое сальдо 70': _top_balance(source, '70', month_end)[0],
+             'Кредитовый оборот 70': month_salary_turnovers['credit'],
+             'Кредитовый оборот 69': month_insurance_turnovers['credit']},
+            'RUB')
+
+        capex_details = card_map['capex'].setdefault('details', [])
+        if not capex_details:
+            capex_details.extend([
+                {'label': 'Дебетовый оборот 08',
+                 'value': month_capex_turnovers['debit']},
+                {'label': 'Кредитовый оборот 08',
+                 'value': month_capex_turnovers['credit']},
+                {'label': 'Дебетовое сальдо 08',
+                 'value': _top_balance(source, '08', month_end)[0]},
+            ])
+        append_component_series(
+            capex_details,
+            {'Дебетовый оборот 08': month_capex_turnovers['debit'],
+             'Кредитовый оборот 08': month_capex_turnovers['credit'],
+             'Дебетовое сальдо 08': _top_balance(
+                 source, '08', month_end)[0]},
+            'RUB')
+
     series_accounts = {
         'cash': {'series': value_accounts['cash']},
         'revenue': {'series': ('90',)},
@@ -2545,6 +2702,27 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             card_map['salary']['delta'] = {
                 'value': round(salary - previous_salary, 2), 'unit': 'RUB',
                 'label': 'к предыдущей сопоставимой дате'}
+
+    # Tell clients which granularity they received.  A month-end point from
+    # an ОСВ period report remains a monthly aggregate and must not be treated
+    # as a missing daily observation by the renderer.
+    for card in cards:
+        card['granularity'] = series_kind
+        for field in (
+                'series', 'turnover_series', 'gross_series',
+                'sales_profit_series', 'other_result_series', 'pretax_series',
+                'accrual_series', 'insurance_series', 'credit_series',
+                'balance_series'):
+            for point in card.get(field) or []:
+                point.setdefault('granularity', series_kind)
+                point.setdefault('synthetic', False)
+        for collection in (
+                card.get('breakdown') or [], card.get('details') or [],
+                card.get('analytics') or [], card.get('components') or []):
+            for item in collection:
+                for point in item.get('series') or []:
+                    point.setdefault('granularity', series_kind)
+                    point.setdefault('synthetic', False)
 
     # Object table uses one and the same path1 dimension for both sides.
     rev_group, vat_group, cost_group = (

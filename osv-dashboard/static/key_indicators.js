@@ -17,7 +17,9 @@
         companySwitchPeriodFallback: null,
         reqId: 0,
         aiReport: null,
-        chartJobs: {}
+        chartJobs: {},
+        modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1 },
+        modalCharts: {}
     };
     
     const svgIcon = (path) => `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" fill="none" stroke-width="2"><path d="${path}"/></svg>`;
@@ -78,13 +80,47 @@
     // Return separate solid and dashed paths.  A dashed portion only joins
     // two known samples with unavailable slots between them; it never
     // extrapolates before the first or after the last known sample.
+    const hasNumericValue = value => value !== null &&
+        value !== undefined &&
+        !(typeof value === 'string' && value.trim() === '') &&
+        Number.isFinite(Number(value));
+
+    // Details and components can arrive as separate JSON objects even when
+    // they describe the same accounting component.  Use stable accounting
+    // identity plus the authentic series signature, rather than object
+    // identity, while keeping same-label items from other categories apart.
+    const metricSeriesSignature = item => JSON.stringify((item &&
+        item.series || []).map(point => [
+        point && point.date, point && point.label, point && point.value,
+        point && point.granularity, point && point.unit
+    ]));
+    const metricSelectableIdentity = (item, category) => {
+        const pointUnit = item && item.series && item.series.find(point =>
+            point && point.unit);
+        const family = category === 'detail' || category === 'component'
+            ? 'collection-component' : category;
+        return JSON.stringify([
+            family,
+            item && item.label,
+            item && item.account,
+            item && item.side,
+            (item && item.unit) || (pointUnit && pointUnit.unit) || '',
+            metricSeriesSignature(item)
+        ]);
+    };
+
     const chartLinePaths = (points, x, y, valueOf, timeline, connection) => {
+        // The API declares the point granularity.  Only a daily series may
+        // bridge an absent calendar day; monthly/period aggregates retain
+        // their authentic slots and do not receive a daily gap bridge.
+        const declaredGranularity = points.find(point => point &&
+            point.granularity)?.granularity;
         const known = [];
         const solid = [];
         const dashed = [];
         points.forEach((point, index) => {
             const value = valueOf(point);
-            if (value === null || !Number.isFinite(Number(value))) return;
+            if (!hasNumericValue(value)) return;
             known.push({index, value: Number(value), point});
         });
         known.forEach((current, knownIndex) => {
@@ -92,9 +128,12 @@
             const consecutive = previous && (timeline.calendar
                 ? timeline.day(current.index) - timeline.day(previous.index) === 1
                 : current.index - previous.index === 1);
-            const kind = previous && connection
-                ? connection(previous, current, consecutive)
-                : (previous ? (consecutive ? 'solid' : 'gap') : 'start');
+            const kind = previous && declaredGranularity &&
+                declaredGranularity !== 'day' && !consecutive
+                ? 'none'
+                : (previous && connection
+                    ? connection(previous, current, consecutive)
+                    : (previous ? (consecutive ? 'solid' : 'gap') : 'start'));
             if (!previous || kind === 'start' || kind === 'none' || kind === 'gap') {
                 solid.push(` M ${x(current.index).toFixed(1)} ${y(current.value).toFixed(1)}`);
             } else if (kind === 'solid') {
@@ -522,7 +561,7 @@
                 const button = e.target.closest('.quarter-btn');
                 if (button && !button.disabled) this.onQuarterChange(button.dataset.value);
             });
-            
+
             const modal = document.getElementById('ki-modal');
             modal.setAttribute('tabindex', '-1');
             modal.setAttribute('aria-labelledby', 'ki-modal-title');
@@ -552,7 +591,7 @@
                     }
                 }
             }, true);
-            
+
             document.getElementById('ki-cards-grid').addEventListener('keydown', e => {
                 if (e.key === 'Enter' || e.key === ' ') {
                     const card = e.target.closest('.kpi-card.clickable');
@@ -851,13 +890,13 @@
                     signal: abortController.signal, 
                     headers: { 'Accept': 'application/json' }
                 });
-                
+
                 if (response.status === 401) {
                     window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
                     return; 
                 }
                 if (response.status === 403) throw new Error("Нет доступа (403)");
-                
+
                 const text = await response.text();
                 let data;
                 try {
@@ -880,7 +919,7 @@
                         dateFrom: requestedDateFrom
                     });
                 }
-                
+
                 if (!response.ok) {
                     throw new Error(responseError || `Ошибка сервера: ${response.status}`);
                 }
@@ -1834,9 +1873,10 @@
             if (!container) return;
             const points = (card.series || []).map((item, index) => ({
                 ...item, index, label: item.label,
-                value: item.value === null ? null : Number(item.value) / 1000000
+                value: hasNumericValue(item.value)
+                    ? Number(item.value) / 1000000 : null
             }));
-            const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
+            const valid = points.filter(item => hasNumericValue(item.value));
             if (!valid.length) {
                 container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
                 return;
@@ -1865,7 +1905,7 @@
                 svg += `<text class="chart-gap-help" x="${width-right}" y="14" font-size="10" fill="#6B7280" text-anchor="end">Пунктир — пропуск данных, не факт</text>`;
             }
             points.forEach((item, index) => {
-                if (item.value !== null && Number.isFinite(item.value)) {
+                if (hasNumericValue(item.value)) {
                     svg += `<circle class="revenue-chart-point" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="#10B981" tabindex="0"/>`;
                 }
                 if (index % Math.max(1, Math.ceil(points.length / 8)) === 0 || index === points.length - 1)
@@ -1936,7 +1976,8 @@
             const required = this.collectionRequirements();
             const arCard = state.data.cards.find(item => item.id === 'ar') || {};
             const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
-            const availableAr = (arCard.series || []).filter(item => item.value !== null);
+            const availableAr = (arCard.series || []).filter(item =>
+                hasNumericValue(item.value));
             const currentAr = availableAr.length ? availableAr[availableAr.length - 1] : null;
             const previousAr = availableAr.length > 1 ? availableAr[availableAr.length - 2] : null;
             const arChange = currentAr && previousAr ? currentAr.value - previousAr.value : null;
@@ -3978,8 +4019,410 @@
             return [dates, comparison.comparable ? 'одинаковый состав счетов' : comparison.reason || 'Нет сопоставимых остатков']
                 .filter(Boolean).join(' · ');
         },
+        /* Legacy icon fragment removed; shared renderer follows.
+                    : '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" style="color:#9CA3AF; margin-right:6px; opacity:0.3;"><path d="M21.1 3.9a3.5 3.5 0 0 0-4.95 0L14 6l-5.5-1.5L7 6l3.5 4.5L5 16l-3 3 3-3 5.5-5.5L18 17l1.5-1.5L18 10l2.1-2.15a3.5 3.5 0 0 0 0-4.95z"/></svg>';
+        */
+        renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle) {
+            bdTitle.style.display = 'block';
+            chTitle.style.display = 'block';
+            chCont.style.display = 'block';
+            bdCont.style.display = 'block';
 
-        renderCashModal(card) {
+            const baseTooltip = this.metricTooltipData(card);
+            const rowUnit = (item) => (item && item.unit) ||
+                ((item && item.series || []).find(point => point && point.unit) || {}).unit ||
+                card.unit;
+
+            const togglePin = (id) => {
+                if (state.modalChart.pinnedIds.has(id)) {
+                    state.modalChart.pinnedIds.delete(id);
+                } else {
+                    state.modalChart.pinnedIds.add(id);
+                }
+                this.renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle);
+            };
+
+            const setActive = (id) => {
+                state.modalChart.activeId = id;
+                this.renderMetricModalInteractive(card, bdCont, bdTitle, chCont, chTitle);
+            };
+
+            const handleKey = (e, id) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    setActive(id);
+                }
+                if (e.key === ' ' || e.code === 'Space') {
+                    e.preventDefault();
+                    togglePin(id);
+                }
+            };
+
+            // Build table
+            let bdHtml = '<table class="collection-seg-table"><tbody>';
+            const rowById = new Map([['__main__', card]]);
+            const selectableRows = [];
+            const seenRows = new Set();
+            const addRows = (items, prefix) => {
+                (items || []).forEach((item, index) => {
+                    if (!item) return;
+                    const identity = metricSelectableIdentity(item, prefix);
+                    if (seenRows.has(identity)) return;
+                    seenRows.add(identity);
+                    const id = prefix === 'breakdown'
+                        ? String(index) : `${prefix}:${index}`;
+                    rowById.set(id, item);
+                    selectableRows.push({id, item});
+                });
+            };
+            addRows(card.breakdown, 'breakdown');
+            addRows(card.details, 'detail');
+            addRows(card.analytics, 'analytics');
+            addRows(card.components, 'component');
+
+            const renderRow = (id, label, value, hasSeries, isMain) => {
+                const row = rowById.get(id) || card;
+                const unit = rowUnit(row);
+                const f = this.formatValue(value, unit);
+                const isActive = state.modalChart.activeId === id;
+                const isPinned = state.modalChart.pinnedIds.has(id);
+                const pinIcon = isPinned
+                    ? '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="currentColor" stroke-width="2" style="color:#F59E0B; margin-right:6px;"><path d="M21.1 3.9a3.5 3.5 0 0 0-4.95 0L14 6l-5.5-1.5L7 6l3.5 4.5L5 16l-3 3 3-3 5.5-5.5L18 17l1.5-1.5L18 10l2.1-2.15a3.5 3.5 0 0 0 0-4.95z"/></svg>'
+                    : '<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" style="color:#9CA3AF; margin-right:6px; opacity:0.3;"><path d="M21.1 3.9a3.5 3.5 0 0 0-4.95 0L14 6l-5.5-1.5L7 6l3.5 4.5L5 16l-3 3 3-3 5.5-5.5L18 17l1.5-1.5L18 10l2.1-2.15a3.5 3.5 0 0 0 0-4.95z"/></svg>';
+
+                const trStyle = isActive ? 'background:#EFF6FF; border-left:3px solid #3B82F6;' : (hasSeries ? 'cursor:pointer;' : 'opacity:0.6;');
+
+                const tooltip = this.cashTooltip(this.metricTooltipData(card, {
+                    title: `${card.title}: ${label}`,
+                    fact: `${f.val} ${f.u}`,
+                    detail: `${baseTooltip.detail} Детализация: ${label}.`,
+                    deviation: isMain ? 'Итоговое значение' : 'Составная часть общего показателя'
+                }));
+
+                bdHtml += `<tr class="cash-tooltip-host ki-metric-interactive-row" style="${trStyle}" tabindex="${hasSeries ? '0' : '-1'}" data-series-id="${id}">
+                    <td style="display:flex;align-items:center;">
+                        <button type="button" class="pin-btn" aria-label="${isPinned ? 'Открепить' : 'Закрепить'}" title="${isPinned ? 'Открепить серию' : 'Закрепить серию'}" style="background:none;border:none;cursor:pointer;display:flex;align-items:center;padding:0;" tabindex="-1">
+                            ${hasSeries ? pinIcon : ''}
+                        </button>
+                        ${esc(label)}${tooltip}
+                    </td>
+                    <td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td>
+                </tr>`;
+            };
+
+            if (card.series && card.series.length > 0) {
+                renderRow('__main__', 'Итого', card.value, true, true);
+            }
+            selectableRows.forEach(({id, item}) => {
+                renderRow(id, item.label, item.value,
+                    !!(item.series && item.series.length > 0), false);
+            });
+            bdHtml += '</tbody></table>';
+            bdCont.innerHTML = bdHtml;
+
+            // Attach events
+            Array.from(bdCont.querySelectorAll('tr[data-series-id]')).forEach(tr => {
+                const id = tr.dataset.seriesId;
+                let clickTimer = null;
+                tr.addEventListener('click', (e) => {
+                    if (e.target.closest('.pin-btn')) {
+                        togglePin(id);
+                        return;
+                    }
+                    if (e.detail === 1) {
+                        clickTimer = setTimeout(() => { try { setActive(id); } catch (err) { console.error(err); } }, 200);
+                    }
+                });
+                tr.addEventListener('dblclick', () => {
+                    clearTimeout(clickTimer);
+                    togglePin(id);
+                });
+                tr.addEventListener('keydown', (e) => handleKey(e, id));
+            });
+
+            const gapMode1 = state.modalChart.gapMode === 1;
+            const gapMode2 = state.modalChart.gapMode === 2;
+            const chartHtml = `
+                <div style="display:flex; justify-content:flex-end; margin-bottom:8px; gap:16px;">
+                    <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="radio" name="gapMode" value="1" ${gapMode1 ? 'checked' : ''} style="margin:0;">
+                        Соединять пропуски (пунктир)
+                    </label>
+                    <label style="font-size:11px; display:flex; align-items:center; gap:4px; cursor:pointer;">
+                        <input type="radio" name="gapMode" value="2" ${gapMode2 ? 'checked' : ''} style="margin:0;">
+                        Продлевать последнее значение
+                    </label>
+                </div>
+                <div class="ki-gap-mode-note" style="font-size:11px;color:#92400E;margin:0 0 8px;text-align:right;">
+                    Режим 2 показывает синтетическое продолжение только на графике;
+                    суммы и фактические значения не изменяются.
+                </div>
+                <div class="cash-line-chart" id="ki-metric-modal-svg" style="height:220px; position:relative;"></div>
+            `;
+            chCont.innerHTML = chartHtml;
+
+            Array.from(chCont.querySelectorAll('input[name="gapMode"]')).forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    state.modalChart.gapMode = Number(e.target.value);
+                    this.scheduleChart('ki-metric-modal-svg', () => this.drawMetricModalSvg(card), 0);
+                });
+            });
+
+            this.scheduleChart('ki-metric-modal-svg', () => this.drawMetricModalSvg(card), 50);
+        },
+
+        drawMetricModalSvg(card) {
+            const container = document.getElementById('ki-metric-modal-svg');
+            if (!container) return;
+
+            const unitFor = (item, data) => (item && item.unit) ||
+                ((data || []).find(point => point && point.unit) || {}).unit ||
+                card.unit;
+            const availableSeries = [];
+            const seenSeriesItems = new Set();
+            const addSeries = (id, label, data, isMain, item, category) => {
+                if (!data || !data.length) return;
+                const identity = metricSelectableIdentity(item, category);
+                if (seenSeriesItems.has(identity)) return;
+                seenSeriesItems.add(identity);
+                availableSeries.push({
+                    id, label, data, isMain, unit: unitFor(item, data)
+                });
+            };
+            if (card.series) addSeries(
+                '__main__', 'Итого', card.series, true, card, 'main');
+            if (card.breakdown) {
+                card.breakdown.forEach((b, i) => {
+                    addSeries(String(i), b.label, b.series, false, b, 'breakdown');
+                });
+            }
+            const addCollectionSeries = (items, prefix) => {
+                (items || []).forEach((item, i) => {
+                    addSeries(`${prefix}:${i}`, item && item.label,
+                        item && item.series, false, item, prefix);
+                });
+            };
+            addCollectionSeries(card.details, 'detail');
+            addCollectionSeries(card.analytics, 'analytics');
+            addCollectionSeries(card.components, 'component');
+
+            const activeSeries = availableSeries.find(
+                series => series.id === state.modalChart.activeId);
+            const selectedUnit = activeSeries ? activeSeries.unit : card.unit;
+            const chartUnit = selectedUnit;
+            const compatible = availableSeries.filter(
+                series => series.unit === selectedUnit);
+            const seriesToDraw = compatible.filter(series => {
+                const isActive = state.modalChart.activeId === series.id;
+                const isPinned = state.modalChart.pinnedIds.has(series.id);
+                if (isActive || isPinned) {
+                    series.isActive = isActive;
+                    series.isPinned = isPinned;
+                    return true;
+                }
+                return false;
+            });
+            const incompatiblePinned = availableSeries.some(series =>
+                state.modalChart.pinnedIds.has(series.id) &&
+                series.unit !== selectedUnit);
+            if (incompatiblePinned) {
+                state.modalChart.unitNotice =
+                    `Закреплённые серии ${selectedUnit} не смешиваются с сериями другой единицы измерения.`;
+            } else {
+                state.modalChart.unitNotice = '';
+            }
+
+            seriesToDraw.sort((a, b) => (a.isActive === b.isActive) ? 0 : a.isActive ? 1 : -1);
+
+            if (seriesToDraw.length === 0) {
+                container.innerHTML = '<div class="chart-empty">Нет данных для отображения</div>';
+                return;
+            }
+
+            const baseSeries = seriesToDraw.find(s => s.isActive) || seriesToDraw[0];
+            const timeline = chartTimeline(baseSeries.data);
+
+            let allDates = [];
+            compatible.forEach(s => {
+                s.data.forEach(item => {
+                    const d = chartDate(item);
+                    if (d) allDates.push(d);
+                });
+            });
+            let minDate = Math.min(...allDates);
+            let maxDate = Math.max(...allDates);
+            let span = Math.max(1, Math.round((maxDate - minDate) / 86400000));
+
+            let masterTimeline = timeline;
+            if (timeline.calendar && allDates.length > 0) {
+                masterTimeline = {
+                    calendar: true,
+                    day: index => Math.round((chartDate(baseSeries.data[index]) - minDate) / 86400000),
+                    x: (dateMs) => Math.round((dateMs - minDate) / 86400000) / span,
+                    rawX: timeline.x
+                };
+            }
+
+            let min = 0, max = 0;
+            compatible.forEach(s => {
+                s.data.forEach(item => {
+                    if (hasNumericValue(item.value)) {
+                        const v = Number(item.value);
+                        if (v < min) min = v;
+                        if (v > max) max = v;
+                    }
+                });
+            });
+            if (min === max) max = min + 1;
+
+            const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;
+            const plotWidth = width - left - right;
+            const plotHeight = height - top - bottom;
+
+            const getY = val => top + plotHeight - ((val - min) / (max - min)) * plotHeight;
+            const getX = (item, index, sData) => {
+                if (masterTimeline.calendar) {
+                    const d = chartDate(item);
+                    return d ? left + masterTimeline.x(d) * plotWidth : left;
+                }
+                return left + masterTimeline.rawX(index, plotWidth);
+            };
+
+            const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F43F5E'];
+            const stableColor = id => {
+                const text = String(id);
+                let hash = 0;
+                for (let i = 0; i < text.length; i++) {
+                    hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+                }
+                return colors[Math.abs(hash) % colors.length];
+            };
+
+            let svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="width:100%;height:100%;">`;
+
+            [0, 0.25, 0.5, 0.75, 1].forEach(tick => {
+                const y = top + plotHeight * tick;
+                const val = max - (max - min) * tick;
+                svg += `<line x1="${left}" y1="${y}" x2="${width - right}" y2="${y}" stroke="#E5E7EB" stroke-width="1"/>`;
+                svg += `<text x="${left - 6}" y="${y + 4}" fill="#6B7280" font-size="10" text-anchor="end">${this.formatValue(val, chartUnit).val}</text>`;
+            });
+
+            const gapMode = state.modalChart.gapMode;
+
+            let htmlOverlay = '<div style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;">';
+
+            seriesToDraw.forEach(s => {
+                const color = stableColor(s.id);
+                const strokeWidth = s.isActive ? 3 : 2;
+                const opacity = s.isActive ? 1 : 0.6;
+
+                let pathSolid = '';
+                let pathDashed = '';
+
+                // Granularity is a server contract; point spacing is not a
+                // reliable way to distinguish sparse daily data from reports.
+                const granularity = (state.data && state.data.period &&
+                    state.data.period.series_kind) ||
+                    (s.data[0] && s.data[0].granularity) ||
+                    card.granularity || 'day';
+                const isMonthlyData = granularity !== 'day';
+
+                const validPoints = [];
+                s.data.forEach((p, i) => {
+                    if (!hasNumericValue(p.value)) return;
+                    const v = Number(p.value);
+                    validPoints.push({...p, index: i, v});
+                });
+
+                validPoints.forEach((curr, vi) => {
+                    const cx = getX(curr, curr.index, s.data);
+                    const cy = getY(curr.v);
+
+                    if (vi === 0) {
+                        pathSolid += ` M ${cx.toFixed(1)} ${cy.toFixed(1)}`;
+                    } else {
+                        const prev = validPoints[vi - 1];
+                        const px = getX(prev, prev.index, s.data);
+                        const py = getY(prev.v);
+
+                        const isConsecutive = masterTimeline.calendar
+                            ? Math.round((chartDate(curr) - chartDate(prev)) / 86400000) === 1
+                            : (curr.index - prev.index === 1);
+                        const comparable = curr.comparison && curr.comparison.comparable === true;
+                        if (isConsecutive || comparable) {
+                            pathSolid += ` L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
+                        } else {
+                            if (gapMode === 2 && masterTimeline.calendar && !isMonthlyData) {
+                                pathSolid += ` L ${cx.toFixed(1)} ${py.toFixed(1)} L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
+
+                                const tooltipData = this.metricTooltipData(card, {
+                                    title: `${s.label} (Синтетическое значение)`,
+                                    fact: `${this.formatValue(prev.v, chartUnit).val} ${chartUnit || ''}`,
+                                    detail: `Продлено с ${prev.label || prev.date}. Точные данные за этот день отсутствуют.`,
+                                    deviation: 'Замещающее значение', deviationClass: 'missing'
+                                });
+                                const tooltip = this.cashTooltip(tooltipData);
+
+                                const rectW = Math.max(cx - px, 1);
+                                const leftPct = (px / width) * 100;
+                                const topPct = ((py - 10) / height) * 100;
+                                const widthPct = (rectW / width) * 100;
+                                const heightPct = (20 / height) * 100;
+
+                                htmlOverlay += `
+                                <div class="cash-tooltip-host gap-transform-rect" tabindex="0" style="position:absolute; left:${leftPct}%; top:${topPct}%; width:${widthPct}%; height:${heightPct}%; pointer-events:auto; cursor:help;">
+                                    ${tooltip}
+                                </div>`;
+                            } else {
+                                pathSolid += ` M ${cx.toFixed(1)} ${cy.toFixed(1)}`;
+                                if (!isMonthlyData) {
+                                    pathDashed += ` M ${px.toFixed(1)} ${py.toFixed(1)} L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                svg += `<path d="${pathSolid}" stroke="${color}" stroke-width="${strokeWidth}" fill="none" stroke-linejoin="round" opacity="${opacity}"/>`;
+                if (pathDashed) {
+                    svg += `<path d="${pathDashed}" stroke="${color}" stroke-width="${strokeWidth}" fill="none" stroke-linejoin="round" stroke-dasharray="4,4" opacity="${opacity}"/>`;
+                }
+
+                validPoints.forEach(curr => {
+                    const cx = getX(curr, curr.index, s.data);
+                    const cy = getY(curr.v);
+
+                    const tooltipData = this.metricTooltipData(card, {
+                        title: `${s.label}: ${curr.label || curr.date}`,
+                        fact: `${this.formatValue(curr.v, chartUnit).val} ${chartUnit || ''}`,
+                        detail: curr.reason || 'Фактическое значение',
+                        deviation: (curr.comparison && curr.comparison.comparable && curr.comparison.value) ?
+                            (curr.comparison.value > 0 ? '+' : '') + this.formatValue(curr.comparison.value, chartUnit).val : ''
+                    });
+                    const tooltip = this.cashTooltip(tooltipData);
+
+                    const leftPct = ((cx - 6) / width) * 100;
+                    const topPct = ((cy - 6) / height) * 100;
+                    const wPct = (12 / width) * 100;
+                    const hPct = (12 / height) * 100;
+
+                    htmlOverlay += `
+                    <div class="cash-tooltip-host chart-point-marker" tabindex="0" style="position:absolute; left:${leftPct}%; top:${topPct}%; width:${wPct}%; height:${hPct}%; border-radius:50%; background:transparent; pointer-events:auto; cursor:help; display:flex; align-items:center; justify-content:center;">
+                        <div style="width:6px; height:6px; background:${s.isActive ? color : '#fff'}; border:2px solid ${color}; border-radius:50%;"></div>
+                        ${tooltip}
+                    </div>`;
+                });
+            });
+
+            svg += '</svg>';
+            htmlOverlay += '</div>';
+
+            const unitNotice = state.modalChart.unitNotice
+                ? `<div style="font-size:11px;color:#92400E;margin-bottom:6px;">${esc(state.modalChart.unitNotice)}</div>`
+                : '';
+            container.innerHTML = unitNotice + svg + htmlOverlay;
+        },
+renderCashModal(card) {
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
             const names = {
@@ -4291,6 +4734,15 @@
             if (!card) return;
 
             state.modalCardId = cardId;
+            // Chart selection is local to the card.  Breakdown indexes are
+            // intentionally reused by different cards, so a single global
+            // pinned set would leak a pin from one modal into another.
+            if (!state.modalCharts[cardId]) {
+                state.modalCharts[cardId] = {
+                    activeId: null, pinnedIds: new Set(), gapMode: 1
+                };
+            }
+            state.modalChart = state.modalCharts[cardId];
             this.hideModalSwitchStatus();
             
             state.lastFocused = document.activeElement;
@@ -4312,6 +4764,15 @@
             const salaryContent = document.getElementById('ki-salary-modal-content');
             const capexContent = document.getElementById('ki-capex-modal-content');
             const genericContent = document.getElementById('ki-generic-modal-content');
+            const commonHasBreakdownSeries = card.breakdown &&
+                card.breakdown.some(b => b.series && b.series.length > 0);
+            const commonHasDetailsSeries = card.details &&
+                card.details.some(d => d.series && d.series.length > 0);
+            const commonHasAnalyticsSeries = card.analytics &&
+                card.analytics.some(d => d.series && d.series.length > 0);
+            const commonHasComponentsSeries = card.components &&
+                card.components.some(d => d.series && d.series.length > 0);
+            const commonHasMainSeries = card.series && card.series.length > 0;
             salaryContent.style.display = 'none';
             capexContent.style.display = 'none';
             if (cardId === 'cash') {
@@ -4448,30 +4909,69 @@
             
             document.getElementById('ki-modal-formula').textContent = card.formula || 'Нет данных';
             document.getElementById('ki-modal-source').textContent = card.source ? `Источник: ${card.source}` : '';
-            
+
+
+
             const bdCont = document.getElementById('ki-modal-breakdown-container');
             const bdTitle = document.getElementById('ki-modal-breakdown-title');
-            if (card.breakdown && card.breakdown.length > 0) {
-                bdTitle.style.display = 'block';
-                let bdHtml = '<table class="collection-seg-table"><tbody>';
-                card.breakdown.forEach(b => {
-                    const f = this.formatValue(b.value, card.unit);
-                    const tooltip = this.cashTooltip(this.metricTooltipData(card, {
-                        title: `${card.title}: ${b.label}`,
-                        fact: `${f.val} ${f.u}`,
-                        detail: `${baseTooltip.detail} Детализация: ${b.label}.`,
-                        deviation: 'Составная часть общего показателя'
-                    }));
-                    bdHtml += `<tr class="cash-tooltip-host" tabindex="0"><td>${esc(b.label)}${tooltip}</td><td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td></tr>`;
+            const chCont = document.getElementById('ki-modal-chart-container');
+            const chTitle = document.getElementById('ki-modal-chart-title');
+
+            const hasBreakdownSeries = card.breakdown && card.breakdown.some(b => b.series && b.series.length > 0);
+            const hasDetailsSeries = card.details && card.details.some(d => d.series && d.series.length > 0);
+            const hasMainSeries = card.series && card.series.length > 0;
+
+            if (state.mode === 'operational' && (hasMainSeries || hasBreakdownSeries || hasDetailsSeries)) {
+                const validIds = new Set();
+                if (hasMainSeries) validIds.add('__main__');
+                if (card.breakdown) card.breakdown.forEach((b, i) => { if (b.series && b.series.length > 0) validIds.add(String(i)); });
+                if (card.details) card.details.forEach((d, i) => { if (d.series && d.series.length > 0) validIds.add(`detail:${i}`); });
+
+                if (!validIds.has(state.modalChart.activeId)) {
+                    state.modalChart.activeId = hasMainSeries ? '__main__' :
+                        (hasBreakdownSeries ? String(card.breakdown.findIndex(b => b.series && b.series.length > 0)) :
+                            (hasDetailsSeries ? `detail:${card.details.findIndex(d => d.series && d.series.length > 0)}` : null));
+                }
+
+                const newPinned = new Set();
+                state.modalChart.pinnedIds.forEach(id => {
+                    if (validIds.has(id)) newPinned.add(id);
                 });
-                bdHtml += '</tbody></table>';
-                bdCont.innerHTML = bdHtml;
-                bdCont.style.display = 'block';
+                state.modalChart.pinnedIds = newPinned;
+
             } else {
-                bdTitle.style.display = 'none';
-                bdCont.style.display = 'none';
+                if (card.breakdown && card.breakdown.length > 0) {
+                    bdTitle.style.display = 'block';
+                    let bdHtml = '<table class="collection-seg-table"><tbody>';
+                    card.breakdown.forEach(b => {
+                        const f = this.formatValue(b.value, card.unit);
+                        const tooltip = this.cashTooltip(this.metricTooltipData(card, {
+                            title: `${card.title}: ${b.label}`,
+                            fact: `${f.val} ${f.u}`,
+                            detail: `${baseTooltip.detail} Детализация: ${b.label}.`,
+                            deviation: 'Составная часть общего показателя'
+                        }));
+                        bdHtml += `<tr class="cash-tooltip-host" tabindex="0"><td>${esc(b.label)}${tooltip}</td><td>${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</td></tr>`;
+                    });
+                    bdHtml += '</tbody></table>';
+                    bdCont.innerHTML = bdHtml;
+                    bdCont.style.display = 'block';
+                } else {
+                    bdTitle.style.display = 'none';
+                    bdCont.style.display = 'none';
+                }
+
+                if (hasMainSeries) {
+                    chTitle.style.display = 'block';
+                    chCont.style.display = 'block';
+                    this.scheduleChart('ki-modal-chart-container',
+                        () => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container', card), 50);
+                } else {
+                    chTitle.style.display = 'none';
+                    chCont.style.display = 'none';
+                }
             }
-            
+
             const dtCont = document.getElementById('ki-modal-details-container');
             const dtTitle = document.getElementById('ki-modal-details-title');
             if (card.details && card.details.length > 0) {
@@ -4502,18 +5002,45 @@
                 dtTitle.style.display = 'none';
                 dtCont.style.display = 'none';
             }
-
-            const chCont = document.getElementById('ki-modal-chart-container');
-            const chTitle = document.getElementById('ki-modal-chart-title');
-            if (card.series && card.series.length > 0) {
-                chTitle.style.display = 'block';
-                chCont.style.display = 'block';
-                this.scheduleChart('ki-modal-chart-container',
-                    () => this.renderBarChart(card.series, card.unit, 'ki-modal-chart-container', card), 50);
-            } else {
-                chTitle.style.display = 'none';
-                chCont.style.display = 'none';
             }
+
+            // Specialized content stays intact; the shared interactive
+            // surface is appended in the generic modal area for every card.
+            genericContent.style.display = 'block';
+            if (state.mode === 'operational' &&
+                (commonHasMainSeries || commonHasBreakdownSeries ||
+                 commonHasDetailsSeries || commonHasAnalyticsSeries ||
+                 commonHasComponentsSeries)) {
+                const validIds = new Set();
+                if (commonHasMainSeries) validIds.add('__main__');
+                const seenSelectable = new Set();
+                const addValidIds = (items, prefix) => {
+                    (items || []).forEach((item, index) => {
+                        if (!item || !item.series || !item.series.length) return;
+                        const identity = metricSelectableIdentity(item, prefix);
+                        if (seenSelectable.has(identity)) return;
+                        seenSelectable.add(identity);
+                        validIds.add(prefix === 'breakdown'
+                            ? String(index) : `${prefix}:${index}`);
+                    });
+                };
+                addValidIds(card.breakdown, 'breakdown');
+                addValidIds(card.details, 'detail');
+                addValidIds(card.analytics, 'analytics');
+                addValidIds(card.components, 'component');
+                if (!validIds.has(state.modalChart.activeId)) {
+                    state.modalChart.activeId = commonHasMainSeries
+                        ? '__main__'
+                        : (validIds.values().next().value || null);
+                }
+                state.modalChart.pinnedIds = new Set(
+                    [...state.modalChart.pinnedIds].filter(id => validIds.has(id)));
+                this.renderMetricModalInteractive(
+                    card,
+                    document.getElementById('ki-modal-breakdown-container'),
+                    document.getElementById('ki-modal-breakdown-title'),
+                    document.getElementById('ki-modal-chart-container'),
+                    document.getElementById('ki-modal-chart-title'));
             }
             
             if (window.KI_Layout) {
@@ -4574,11 +5101,10 @@
             
             const points = series.map(s => {
                 let v = s.value;
-                if (v !== null && unit === 'RUB') v = v / 1000000;
+                if (hasNumericValue(v) && unit === 'RUB') v = v / 1000000;
                 return { ...s, scaledValue: v };
             });
-            const valid = points.filter(s => s.scaledValue != null &&
-                Number.isFinite(Number(s.scaledValue)));
+            const valid = points.filter(s => hasNumericValue(s.scaledValue));
             
             if(valid.length === 0) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для графика<br>(недостаточно периодов)</div>';
@@ -4631,7 +5157,7 @@
                 let v = s.value;
                 if (v !== null && unit === 'RUB') v = v / 1000000;
                 
-                if(v != null && Number.isFinite(Number(v))) {
+                if(hasNumericValue(v)) {
                     const py = y(v);
                     const fill = v >= 0 ? '#3B82F6' : '#EF4444';
                     svg += `<circle class="metric-chart-point" data-index="${i}" cx="${cx}" cy="${py}" r="4" fill="${fill}" tabindex="0" aria-label="${esc(s.label)}: ${esc(v)}"/>`;
