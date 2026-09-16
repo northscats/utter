@@ -1463,6 +1463,25 @@ def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
+    if str(account) == '70':
+        report_start = _iso(acc.get('report_start'))
+        report_end = _iso(acc.get('report_end'))
+        top = acc.get('top')
+        if (report_start and report_end and report_start <= end < report_end
+                and isinstance(top, dict)):
+            rows = _turnover_basis(_daily(source, account, report_start, end))
+            if rows:
+                # Keep credit as the positive sign. All movements for one date
+                # are added before that day's closing balance becomes the next
+                # day's opening balance; summing the signed movements is
+                # algebraically equivalent and avoids hierarchy duplication.
+                signed_credit = (
+                    top.get('snk', 0) - top.get('snd', 0)
+                    + sum(row.get('obk', 0) - row.get('obd', 0)
+                          for row in rows)
+                )
+                value = signed_credit if credit else -signed_credit
+                return round(max(0.0, value), 2), None
     report = next((r for r in reversed(acc.get('balance_reports') or [])
                    if r.get('report_end') == end.isoformat()), None)
     if report is None:

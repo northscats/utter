@@ -19,6 +19,25 @@ def day(dt, p3='', p1='', obd=0, obk=0, **balance):
                 obd=obd, obk=obk, **balance)
 
 class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
+    def test_salary_balance_rolls_forward_daily_movements_from_report_opening(self):
+        raw = account(
+            '70',
+            [
+                day('2025-12-31', 'Работник А', obd=10, obk=30),
+                day('2026-01-01', 'Работник А'),
+                day('2026-06-30', 'Работник А', obd=20, obk=50),
+                day('2026-06-30', 'Работник Б', obd=30, obk=30),
+            ],
+            top=dict(snd=0, snk=100, obd=60, obk=110, skd=0, skk=150),
+            period='за 01.01.2025 - 15.09.2026',
+        )
+        cards = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'70': raw}),
+            period='day', date_from='2026-01-01', date='2026-06-30',
+        )['cards']}
+        self.assertEqual(cards['salary']['value'], 150)
+        self.assertEqual(cards['salary']['debit_balance'], 0)
+
     def test_quality_missing_accounts_use_account_numbers_not_metric_ids(self):
         result = build_key_indicators(build_indicator_source({
             '90': account('90', [day('2026-01-31', '90.01', obk=100)]),
