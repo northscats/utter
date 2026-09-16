@@ -3209,6 +3209,20 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             ('90.03', vat_keys, vat_unknown))
         for analytic_key in sorted(keys, key=lambda key: labels_by_key[key])
     ]
+    display_analytics = [
+        {
+            'analytic_key': analytic_key,
+            'analytic_label': labels_by_key[analytic_key].split(' / ', 1)[0],
+            # 90.01 is the gross amount. 90.03 is VAT and must not become a
+            # second activity row when account/category columns are hidden.
+            'gross_amount': (
+                round(rev_by_key[analytic_key], 2)
+                if analytic_key in rev_by_key
+                and analytic_key not in rev_unknown else None),
+        }
+        for analytic_key in sorted(
+            rev_keys | vat_keys, key=lambda key: labels_by_key[key])
+    ]
     conflicts = []
     for analytic_key in sorted(rev_keys & vat_keys):
         rev_category = mapping.get(('90.01', analytic_key))
@@ -3249,6 +3263,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     revenue_segments = {
         'categories': segment_rows,
         'analytics': discovered,
+        'display_analytics': display_analytics,
         'unclassified': unclassified,
         'unknown_amounts': unknown_amounts,
         'conflicts': conflicts,

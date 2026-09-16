@@ -35,7 +35,7 @@ from jobs import create_job, get_job, finish_job, fail_job
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
+from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company, CompanyContact,
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        DadataDiagnosticEvent,
                        CompanyFinance, CompanyLicense, CompanyMembership,
@@ -606,6 +606,40 @@ def _accepted_monthly_files(paths, parsed_data, audit):
     evidence.
     """
     return accepted_parsed_files(paths, parsed_data, audit)
+
+
+def _accepted_daily_files(paths):
+    """Return manifest-ready evidence for each successfully parsed daily OSV."""
+    from osvparser import extract_daily_date, parse_osv
+    accepted = []
+    for path in paths:
+        try:
+            parsed = dict(parse_osv(path))
+        except Exception:
+            continue
+        observed = list(parsed.get('daily') or [])
+        direct_date = extract_daily_date(path)
+        if direct_date is not None:
+            observed.append({'date': direct_date.isoformat()})
+        if not observed:
+            observed.extend({
+                'date': item['date'].isoformat()
+            } for item in _derive_cash_daily_rows(parsed))
+        parsed['daily'] = observed
+        accepted.append((path, parsed))
+    return accepted
+
+
+def _schedule_osv_file_summaries(company_id):
+    """Best-effort post-commit orchestration shared by every ingestion path."""
+    try:
+        from osv_ai_summary import ensure_file_summaries
+        ensure_file_summaries(company_id, UPLOADS)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.warning(
+            'OSV file AI scheduling failed for company %s: %s',
+            company_id, exc)
 _PASSWORD_HASH_PREFIX = 'bcrypt-sha256$1$'
 
 
@@ -949,6 +983,8 @@ def _import_bundled_mup_kgh_account55():
     if not rows_match and _upsert_daily_rows(company.id, [destination]) != 1:
         raise RuntimeError('Не удалось построить дневные остатки счёта 55')
     db.session.commit()
+    if not already_registered:
+        _schedule_osv_file_summaries(company.id)
     return True
 
 
@@ -998,6 +1034,7 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
     # импорта предприятия: audit тогда ссылается на месячные файлы, которых
     # нет в списке манифеста (или, наоборот, на суточный файл).
     monthly_paths = [path for path in paths if not _is_daily_xls(path)]
+    daily_paths = [path for path in paths if path not in monthly_paths]
     if not monthly_paths:
         return None, []
 
@@ -1043,7 +1080,8 @@ def _process_files(paths, company_id, ts, back_url, company_name=''):
         files_count=len(paths),
         metrics_json=_dataset_metrics_json(dataset),
         source_manifest_json=_monthly_manifest_json(
-            monthly_paths, data, audit, company_id),
+            monthly_paths, data, audit, company_id,
+            extra_accepted=_accepted_daily_files(daily_paths)),
     )
     return record_kwargs, audit
 
@@ -1243,10 +1281,25 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                            if p not in daily_xls]
                             imported_count = 0
                             monthly_manifest_files = []
+                            daily_manifest_files = []
 
                             if daily_xls:
+                                daily_dir = _reserve_upload_batch_dir(
+                                    company_id, f'daily_imap_{ts}')
+                                attachment_batch_dirs.append(daily_dir)
+                                saved_daily = []
+                                daily_names = set()
+                                for source_path in daily_xls:
+                                    saved_name = _unique_attachment_name(
+                                        extracted_names[source_path], daily_names)
+                                    destination = os.path.join(
+                                        daily_dir, saved_name)
+                                    _shutil.copy2(source_path, destination)
+                                    saved_daily.append(destination)
                                 imported_count += _upsert_daily_rows(
-                                    company_id, daily_xls)
+                                    company_id, saved_daily)
+                                daily_manifest_files.extend(
+                                    _accepted_daily_files(saved_daily))
 
                             if monthly_xls:
                                 save_dir = _reserve_upload_batch_dir(
@@ -1315,12 +1368,13 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                 source='auto_imap',
                                 metrics_json=_dataset_metrics_json(dataset),
                                 source_manifest_json=dump_manifest(build_manifest(
-                                    monthly_manifest_files,
+                                    monthly_manifest_files + daily_manifest_files,
                                     os.path.join(UPLOADS, str(company_id)))),
                             )
                             db.session.add(_up)
                             db.session.commit()
                             attachment_committed = True
+                            _schedule_osv_file_summaries(company_id)
                             _durable_backup('IMAP ZIP ОСВ')
                             stats['files_processed'] += len(extracted_xls)
                         else:  # XLS / XLSX
@@ -1342,6 +1396,8 @@ def _do_imap_sync(uploader_id: int) -> dict:
                                         'не удалось разобрать суточную ОСВ')
                                 from osvparser import parse_osv as _parse_osv
                                 loaded_accounts = [_parse_osv(dest)['acc']]
+                                monthly_manifest_files.extend(
+                                    _accepted_daily_files([dest]))
                             else:
                                 parsed_file, parse_audit = parse_many([dest])
                                 if not parsed_file:
@@ -1397,6 +1453,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             db.session.add(_up)
                             db.session.commit()
                             attachment_committed = True
+                            _schedule_osv_file_summaries(company_id)
                             _durable_backup('IMAP ОСВ')
                             stats['files_processed'] += 1
                     except Exception as exc:
@@ -1522,6 +1579,8 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                         full_xls.append(dest)
 
                 _upsert_daily_rows(company_id, full_xls + daily_xls)
+                monthly_manifest_files.extend(
+                    _accepted_daily_files(daily_xls))
 
                 if full_xls:
                     data_check, parse_audit = parse_many(full_xls)
@@ -1549,7 +1608,9 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                 batch_dirs.append(zip_dir)
                 dest = os.path.join(zip_dir, os.path.basename(zp))
                 _sh.move(zp, dest)
-                successes, errors = parse_zip(dest)
+                accepted_zip_dir = os.path.join(zip_dir, 'accepted')
+                successes, errors = parse_zip(
+                    dest, accepted_dir=accepted_zip_dir)
                 audit_out += [{'file': e['file'], 'acc': '?',
                                'status': f'ОШИБКА: {e["error"]}', 'ok': False}
                               for e in errors]
@@ -1566,6 +1627,10 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
                     row.source_type = 'direct_daily_osv'
                     row.uploaded_at = utcnow()
                     zip_dates.append(dt)
+                monthly_manifest_files.extend(
+                    _accepted_daily_files([
+                        item['path'] for item in successes if item.get('path')
+                    ]))
 
             # Cleanup staging dir
             _sh.rmtree(stage_dir, ignore_errors=True)
@@ -1626,6 +1691,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             db.session.add(upload)
             db.session.commit()
             committed = True
+            _schedule_osv_file_summaries(company_id)
             _durable_backup('ОСВ background upload')
 
             discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
@@ -1675,6 +1741,7 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
             db.session.add(upload)
             db.session.commit()
             committed = True
+            _schedule_osv_file_summaries(company_id)
             _durable_backup('первый ОСВ предприятия')
 
             log_event('company_created',
@@ -2373,6 +2440,14 @@ def company_detail(company_id):
     year = request.args.get('year', None, type=int)
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
+    from osv_ai_summary import (
+        accepted_sources, serialized_file_summaries, source_set_revision,
+    )
+    ai_file_sources = accepted_sources(uploads)
+    if ai_summary and ai_summary.source_revision != source_set_revision(
+            ai_file_sources):
+        ai_summary = None
+    ai_file_summaries = serialized_file_summaries(company_id, ai_file_sources)
 
     upload_history_rows = _upload_history_rows(uploads, company_id)
 
@@ -2419,6 +2494,7 @@ def company_detail(company_id):
                            discrepancy=completed_result.get('discrepancy', []),
                            annual_coverage=_annual_coverage(company_id, year),
                            ai_summary=ai_summary,
+                           ai_file_summaries=ai_file_summaries,
                            ai_provider_configured=ai_provider_configured,
                            historical_enabled=app.config[
                                'HISTORICAL_IMPORT_ENABLED'],
@@ -2818,6 +2894,7 @@ def company_ai_summary(company_id):
     """Формирует ИИ-заключение по финансовым данным предприятия."""
     from ai_client import call_ai_provider as _call_ai
     company = db.session.get(Company, company_id) or abort(404)
+    requested_company_revision = company.osv_source_revision or ''
 
     # Выбираем провайдера: явно помеченный default → иначе первый активный
     provider = (AiProvider.query.filter_by(is_default=True, is_active=True).first()
@@ -2830,60 +2907,83 @@ def company_ai_summary(company_id):
     # ── Сбор данных ──────────────────────────────────────────────────────────
     uploads = Upload.query.filter_by(company_id=company_id)\
                           .order_by(Upload.uploaded_at.desc()).all()
-    latest = uploads[0] if uploads else None
+    from osv_ai_summary import (
+        accepted_sources, range_evidence, source_set_revision,
+        verified_source_facts,
+    )
+    sources = accepted_sources(uploads)
+    requested_revision = source_set_revision(sources)
+    all_daily_rows = DailyRow.query.filter_by(company_id=company_id)\
+        .order_by(DailyRow.date.asc(), DailyRow.id.asc()).all()
+    def _format_ai_amount(value):
+        return f'{float(value or 0):,.2f}'.replace(',', ' ')
 
-    # Последнее сальдо по ключевым счетам (из DailyRow)
+    evidence = range_evidence(
+        sources, extra_dates=[row.date for row in all_daily_rows])
+    source_facts, unavailable_sources = verified_source_facts(
+        company_id, sources, UPLOADS)
+
+    # Факты по всему диапазону суточных наблюдений, без подмены пропусков.
     key_accs = {'51': 'Сч.51 Расчётный счёт',
                 '62': 'Сч.62 Дебиторы (потребители)',
                 '60': 'Сч.60 Кредиторы (поставщики)',
                 '70': 'Сч.70 Расчёты с персоналом'}
     daily_facts = {}
     for acc in key_accs:
-        row = (DailyRow.query
-               .filter_by(company_id=company_id, acc=acc)
-               .order_by(DailyRow.date.desc())
-               .first())
-        if row:
-            daily_facts[acc] = {'date': row.date.strftime('%d.%m.%Y'),
-                                'skd': row.skd, 'skk': row.skk}
-
-    cov = _annual_coverage(company_id)
+        rows = [row for row in all_daily_rows if row.acc == acc]
+        if rows:
+            daily_facts[acc] = {
+                'start': rows[0].date, 'end': rows[-1].date,
+                'opening': rows[0].snd - rows[0].snk,
+                'closing': rows[-1].skd - rows[-1].skk,
+                'obd': sum(row.obd or 0 for row in rows),
+                'obk': sum(row.obk or 0 for row in rows),
+                'observations': len({row.date for row in rows}),
+            }
 
     # ── Формирование промпта ─────────────────────────────────────────────────
     lines = [f'Организация: {company.name}']
-
-    if latest:
-        lines.append(f'Период ОСВ: {latest.period_label or "не указан"}')
-        cl = ('закрыт' if latest.closure_status is True
-              else ('не закрыт' if latest.closure_status is False else 'неизвестно'))
-        lines.append(f'Статус закрытия периода: {cl}')
-        fin_map = {'profit': 'прибыль', 'loss': 'убыток', 'neutral': 'нейтральный'}
-        lines.append(f'Финансовый результат: {fin_map.get(latest.profit_sign, "—")}')
-        if latest.profit_value:
-            v = f'{latest.profit_value:,.2f}'.replace(',', ' ')
-            lines.append(f'Сумма финансового результата: {v} руб.')
-        all_accounts = set()
-        for upload in uploads:
-            all_accounts.update(str(acc) for acc in upload.accounts_list)
-        if all_accounts:
-            sorted_accounts = sorted(
-                all_accounts,
-                key=lambda acc: (int(acc) if acc.isdigit() else 9999, acc))
-            lines.append(
-                f'Загруженные счета ОСВ: {", ".join(sorted_accounts)}')
-
-    lines.append(f'Покрытие данными: {cov["total_months_ok"]}/{cov["total_months_past"]} '
-                 f'мес. ({cov["months_coverage_pct"]}%)')
+    if evidence['start'] and evidence['end']:
+        lines.append(
+            f'Фактический диапазон всех принятых ОСВ: '
+            f'{evidence["start"]:%d.%m.%Y}–{evidence["end"]:%d.%m.%Y}')
+        lines.append(
+            f'Покрытые календарные месяцы: {len(evidence["covered_months"])}')
+        lines.append(
+            'Разрывы между периодами: ' + (
+                ', '.join(
+                    f'{start:%d.%m.%Y}'
+                    if start == end else f'{start:%d.%m.%Y}–{end:%d.%m.%Y}'
+                    for start, end in evidence['missing_intervals'][:20])
+                + (f' и ещё {len(evidence["missing_intervals"]) - 20}'
+                   if len(evidence['missing_intervals']) > 20 else '')
+                if evidence['missing_intervals'] else 'не обнаружены'))
+    else:
+        lines.append('Фактический диапазон ОСВ не подтверждён метаданными источников.')
+    lines.append(f'Принятых версий исходных файлов: {len(sources)}')
+    all_accounts = sorted({item['account'] for item in sources if item['account']})
+    if all_accounts:
+        lines.append(f'Счета в принятых файлах: {", ".join(all_accounts)}')
+    if source_facts:
+        lines.append('\nПроверенные факты каждого принятого файла:')
+        lines.extend(f'  {fact}' for fact in source_facts)
+    if unavailable_sources:
+        lines.append('\nНедоступные или изменённые источники (не использованы):')
+        lines.extend(f'  {item}' for item in unavailable_sources)
 
     if daily_facts:
-        lines.append('\nОстатки по ключевым счетам (суточные данные, последняя дата):')
+        lines.append('\nФакты по ключевым счетам из всех суточных наблюдений:')
         for acc, info in daily_facts.items():
-            saldo = info['skd'] - info['skk']
-            v = f'{saldo:,.2f}'.replace(',', ' ')
-            lines.append(f'  {key_accs[acc]} на {info["date"]}: сальдо {v} руб.')
+            lines.append(
+                f'  {key_accs[acc]}: {info["start"]:%d.%m.%Y}–'
+                f'{info["end"]:%d.%m.%Y}, наблюдений {info["observations"]}; '
+                f'сальдо {_format_ai_amount(info["opening"])} → '
+                f'{_format_ai_amount(info["closing"])} руб.; '
+                f'сумма наблюдаемых оборотов Дт '
+                f'{_format_ai_amount(info["obd"])}, Кт '
+                f'{_format_ai_amount(info["obk"])} руб.')
 
-    if len(uploads) > 1:
-        lines.append(f'\nВсего пакетов загрузок: {len(uploads)}')
+    lines.append(f'\nВсего пакетов загрузок: {len(uploads)}')
 
     system_msg = (
         'Ты финансовый аналитик, специализирующийся на анализе данных '
@@ -2923,23 +3023,47 @@ def company_ai_summary(company_id):
         )
     except Exception as e:
         app.logger.error('AI summary error for company %s: %s', company_id, e)
-        return jsonify(ok=False, error=str(e)), 502
+        return jsonify(
+            ok=False,
+            error='ИИ-провайдер временно недоступен. Повторите запрос позже.',
+        ), 502
 
     content = result['content']
     usage   = result['usage']
 
     # ── Сохранение (upsert) ───────────────────────────────────────────────────
-    summary = AiSummary.query.filter_by(company_id=company_id).first()
-    if summary is None:
-        summary = AiSummary(company_id=company_id)
-        db.session.add(summary)
-    summary.content           = content
-    summary.provider_name     = provider.name
-    summary.model_name        = provider.model
-    summary.prompt_tokens     = usage.get('prompt_tokens', 0)
-    summary.completion_tokens = usage.get('completion_tokens', 0)
-    summary.generated_at      = datetime.now(timezone.utc)
-    db.session.commit()
+    db.session.rollback()
+    with db.session.begin():
+        locked_company = Company.query.filter_by(id=company_id)\
+            .with_for_update().first() or abort(404)
+        current_sources = accepted_sources(
+            Upload.query.filter_by(company_id=company_id).all())
+        if (
+            (locked_company.osv_source_revision or '')
+                != requested_company_revision
+            or source_set_revision(current_sources) != requested_revision
+        ):
+            return jsonify(
+                ok=False,
+                error=('Набор ОСВ изменился во время формирования. '
+                       'Запустите заключение повторно.'),
+            ), 409
+        summary = AiSummary.query.filter_by(company_id=company_id)\
+            .with_for_update().first()
+        if summary is None:
+            summary = AiSummary(company_id=company_id)
+            db.session.add(summary)
+        summary.content           = content
+        summary.provider_name     = provider.name
+        summary.model_name        = provider.model
+        summary.prompt_tokens     = usage.get('prompt_tokens', 0)
+        summary.completion_tokens = usage.get('completion_tokens', 0)
+        summary.generated_at      = datetime.now(timezone.utc)
+        summary.analysis_start    = evidence['start']
+        summary.analysis_end      = evidence['end']
+        summary.source_revision   = requested_revision
+        db.session.flush()
+        generated_at = summary.generated_at
 
     log_event('ai_summary_generated', {
         'company_id': company_id,
@@ -2953,9 +3077,40 @@ def company_ai_summary(company_id):
             provider=provider.name,
             model=provider.model,
             tokens=usage.get('prompt_tokens', 0) + usage.get('completion_tokens', 0),
-            generated_at=summary.generated_at.strftime('%d.%m.%Y %H:%M'),
+            generated_at=generated_at.strftime('%d.%m.%Y %H:%M'),
+            range_label=(
+                f'{evidence["start"]:%d.%m.%Y}–{evidence["end"]:%d.%m.%Y}'
+                if evidence['start'] and evidence['end'] else 'не определён'),
         ),
     )
+
+
+@app.route('/company/<int:company_id>/ai-file-summaries', methods=['GET'])
+@login_required
+def company_ai_file_summaries(company_id):
+    db.session.get(Company, company_id) or abort(404)
+    from osv_ai_summary import (accepted_sources, serialized_file_summaries)
+    uploads = Upload.query.filter_by(company_id=company_id).all()
+    sources = accepted_sources(uploads)
+    return jsonify(ok=True, files=serialized_file_summaries(company_id, sources))
+
+
+@app.route('/company/<int:company_id>/ai-file-summary/<source_id>',
+           methods=['POST'])
+@login_required
+def company_ai_file_summary(company_id, source_id):
+    db.session.get(Company, company_id) or abort(404)
+    if not re.fullmatch(r'[0-9a-f]{64}', source_id or ''):
+        abort(404)
+    from osv_ai_summary import ensure_file_summaries, serialized_file_summaries
+    sources = ensure_file_summaries(
+        company_id, UPLOADS, source_ids=[source_id])
+    if not any(item['source_id'] == source_id for item in sources):
+        abort(404)
+    item = next(item for item in serialized_file_summaries(
+        company_id, sources) if item['source_id'] == source_id)
+    return jsonify(ok=True, file=item), 202 if item['status'] in (
+        'queued', 'running') else 200
 
 
 # ---------------------------------------------------------------------------
@@ -3020,72 +3175,6 @@ def company_upload_all(company_id):
     # загрузки. Не блокируем быстрый ответ браузеру общим after_request backup.
     g.durable_backup_done = True
     return redirect(url_for('company_detail', company_id=company_id, job=job_id))
-
-    # Пересобираем дашборд: месячные XLS + суточные из БД
-    back_url = url_for('company_detail', company_id=company_id)
-    dataset, rebuild_audit = _rebuild_dashboard_with_daily(company_id,
-                                                            company_name=company.name)
-    audit_out = rebuild_audit + audit_out
-
-    if dataset is None:
-        db.session.rollback()
-        msg = rebuild_audit[-1]['status'] if rebuild_audit else 'нет данных'
-        return _err(f'Дашборд не построен: {msg}', audit_out)
-
-    html_content = render_dashboard(dataset, back_url=back_url)
-    out_dir = os.path.join(OUTPUT, str(company_id))
-    os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, 'dashboard_current.html'), 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    _save_kpi_cache(dataset, out_dir)
-
-    # Метаданные для записи в историю
-    period_lbl = dataset.get('period_label', '')
-    if zip_dates:
-        _MRU = {1:'янв',2:'фев',3:'мар',4:'апр',5:'май',6:'июн',
-                7:'июл',8:'авг',9:'сен',10:'окт',11:'ноя',12:'дек'}
-        zd_sorted = sorted(set(zip_dates))
-        d0, d1 = zd_sorted[0], zd_sorted[-1]
-        zip_lbl = (f'{d0.day} {_MRU[d0.month]}' if d0 == d1
-                   else f'{d0.strftime("%d.%m")}–{d1.strftime("%d.%m")}')
-        period_lbl = f'{period_lbl} + {zip_lbl}'.strip(' +')
-
-    brief = dataset.get('brief', {})
-    lead  = brief.get('lead', '')
-    if 'убыток' in lead.lower():
-        profit_sign = 'loss'
-    elif 'прибыль' in lead.lower():
-        profit_sign = 'profit'
-    else:
-        profit_sign = 'neutral'
-    closure_status = _dataset_closure_status(dataset)
-
-    upload = Upload(
-        company_id=company_id,
-        uploaded_by=current_user.id,
-        period_label=period_lbl,
-        accounts_loaded=json.dumps(_dataset_accounts(dataset)),
-        closure_status=closure_status,
-        profit_sign=profit_sign,
-        files_count=total_files,
-        dashboard_file='dashboard_current.html',
-        source='manual',
-        metrics_json=_dataset_metrics_json(dataset),
-        source_manifest_json='[]',
-    )
-    db.session.add(upload)
-    db.session.commit()
-    _durable_backup('ОСВ upload')
-
-    uploads = Upload.query.filter_by(company_id=company_id)\
-                          .order_by(Upload.uploaded_at.desc()).all()
-    discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
-    return render_template('company.html', company=company, uploads=uploads,
-                           upload_history_rows=_upload_history_rows(
-                               uploads, company_id),
-                           audit=audit_out, error=None,
-                           discrepancy=discrepancy,
-                           annual_coverage=_annual_coverage(company_id))
 
 
 # ---------------------------------------------------------------------------
@@ -4073,7 +4162,8 @@ def company_upload_zip(company_id):
     zfile.save(zip_path)
 
     # Парсим ZIP
-    successes, errors = parse_zip(zip_path)
+    accepted_zip_dir = os.path.join(zip_dir, 'accepted')
+    successes, errors = parse_zip(zip_path, accepted_dir=accepted_zip_dir)
 
     if not successes:
         msgs = '; '.join(e['error'] for e in errors[:3])
@@ -4142,10 +4232,14 @@ def company_upload_zip(company_id):
         dashboard_file=out_name,
         source='manual',
         metrics_json=_dataset_metrics_json(dataset),
-        source_manifest_json='[]',
+        source_manifest_json=dump_manifest(build_manifest(
+            _accepted_daily_files([
+                item['path'] for item in successes if item.get('path')
+            ]), os.path.join(UPLOADS, str(company_id)))),
     )
     db.session.add(upload)
     db.session.commit()
+    _schedule_osv_file_summaries(company_id)
     _durable_backup('суточный ZIP ОСВ')
 
     audit_out += [{'file': f'{item["date"]} сч.{item["parsed"]["acc"]}',
@@ -5105,6 +5199,7 @@ def _delete_company_records(company):
     dependent_models = (
         OneCChannel,
         EmailRule,
+        OsvFileAiSummary,
         AiSummary,
         DailyRow,
         RevenueAnalyticMapping,
@@ -6525,6 +6620,7 @@ def init_db(perform_durable=True):
             ('internal_code', "VARCHAR(80) DEFAULT ''"),
             ('identity_key', "VARCHAR(80)"),
             ('status', "VARCHAR(20) NOT NULL DEFAULT 'active'"),
+            ('osv_source_revision', "VARCHAR(80) NOT NULL DEFAULT ''"),
             ('is_rso', "BOOLEAN NOT NULL DEFAULT TRUE"),
             ('curator_user_id', "INTEGER REFERENCES users(id)"),
             ('ogrn', "VARCHAR(20) DEFAULT ''"),
@@ -6654,6 +6750,26 @@ def init_db(perform_durable=True):
             # guessed file-to-upload association.
             ('source_manifest_json', "TEXT"),
         ])
+        _add_missing('ai_summaries', [
+            ('analysis_start', "DATE"),
+            ('analysis_end', "DATE"),
+            ('source_revision', "VARCHAR(64) DEFAULT ''"),
+        ])
+        try:
+            stale_file_summaries = OsvFileAiSummary.query.filter(
+                OsvFileAiSummary.status.in_(('queued', 'running'))).all()
+            for _file_summary in stale_file_summaries:
+                _file_summary.status = 'error'
+                _file_summary.error_text = (
+                    'Формирование прервано перезапуском приложения. '
+                    'Запустите его повторно.')
+            if stale_file_summaries:
+                db.session.commit()
+        except Exception as _file_summary_recovery_exc:
+            db.session.rollback()
+            app.logger.warning(
+                'OSV file AI summary recovery failed: %s',
+                _file_summary_recovery_exc)
         if db.engine.dialect.name == 'postgresql':
             try:
                 from sqlalchemy import text as _text_catalog_run
@@ -7082,9 +7198,11 @@ def _reserve_upload_batch_dir(company_id, prefix):
             candidate = os.path.join(
                 company_root, f'{prefix}_retry_{suffix}')
 
-def _monthly_manifest_json(paths, parsed_data, audit, company_id):
+def _monthly_manifest_json(
+        paths, parsed_data, audit, company_id, extra_accepted=()):
     """Serialize accepted monthly files, including an explicit empty array."""
     accepted = _accepted_monthly_files(paths, parsed_data, audit)
+    accepted.extend(extra_accepted)
     return dump_manifest(build_manifest(
         accepted, os.path.join(UPLOADS, str(company_id))))
 

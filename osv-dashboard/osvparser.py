@@ -19,6 +19,7 @@ import re
 import os
 import zipfile
 import tempfile
+import shutil
 from datetime import date as _date
 
 RE_DATE = re.compile(r'Обороты за (\d\d)\.(\d\d)\.(\d\d)')
@@ -163,7 +164,7 @@ def extract_daily_date(path):
 
 
 # ---------------------------------------------------------------- парсинг ZIP-архива суточных ОСВ
-def parse_zip(zip_path):
+def parse_zip(zip_path, accepted_dir=None):
     """
     Распаковывает ZIP-архив с суточными ОСВ и парсит каждый XLS.
 
@@ -196,7 +197,19 @@ def parse_zip(zip_path):
                 continue
             try:
                 parsed = parse_osv(fpath)
-                successes.append({'date': dt, 'parsed': parsed})
+                item = {'date': dt, 'parsed': parsed, 'file': fname}
+                if accepted_dir:
+                    os.makedirs(accepted_dir, exist_ok=True)
+                    stem, ext = os.path.splitext(fname)
+                    destination = os.path.join(accepted_dir, fname)
+                    suffix = 1
+                    while os.path.exists(destination):
+                        suffix += 1
+                        destination = os.path.join(
+                            accepted_dir, f'{stem}_{suffix}{ext}')
+                    shutil.copy2(fpath, destination)
+                    item['path'] = destination
+                successes.append(item)
             except Exception as e:
                 errors.append({'file': fname, 'error': str(e)})
 

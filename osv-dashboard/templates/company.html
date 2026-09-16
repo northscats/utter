@@ -120,6 +120,23 @@ tr:last-child td{border-bottom:0}
   border-radius:7px;padding:10px 14px;font-size:13px}
 .ai-spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.35);
   border-top-color:#fff;border-radius:50%;animation:aispin .6s linear infinite}
+.ai-range{font-size:12px;color:var(--mut);margin-top:8px}
+.ai-files{display:flex;flex-wrap:wrap;gap:7px;padding:4px 1px 9px;margin-top:16px}
+.ai-file-pill{flex:0 0 62px;min-width:62px;border:1px solid var(--line);background:#fff;
+  border-radius:9px;padding:9px 8px;text-align:center;cursor:pointer;color:var(--ink);font:inherit}
+.ai-file-pill:hover{border-color:#7caabd}.ai-file-pill.active{border-color:var(--water);
+  box-shadow:0 0 0 2px rgba(34,126,159,.13);background:#f4fafc}
+.ai-file-account{display:block;font-size:19px;line-height:1.1;font-weight:800}
+.ai-file-state{display:inline-block;width:7px;height:7px;border-radius:50%;margin:6px 0 0;
+  background:#a7b2ba}.ai-file-state.ready{background:#2d8b57}
+.ai-file-state.queued,.ai-file-state.running{background:#d28b20}
+.ai-file-state.error{background:#b63b34}
+.ai-file-panel{margin-top:4px;padding:14px 16px;border:1px solid var(--line);
+  border-radius:9px;background:#fbfcfd}
+.ai-file-panel-title{font-size:12px;font-weight:700;margin-bottom:8px}
+.ai-file-action{border:0;background:none;color:var(--water);font-weight:700;cursor:pointer;padding:0}
+@media(max-width:640px){.ai-card{padding:17px 15px}.ai-file-pill{flex-basis:56px;min-width:56px}
+  .ai-content{padding:13px 14px}}
 @keyframes aispin{to{transform:rotate(360deg)}}
 .audit-card{margin-top:18px}
 .audit-table td.st-ok{color:var(--ok)} .audit-table td.st-bad{color:var(--bad);font-weight:600} .audit-table td.st-warn{color:#7a5a00;font-weight:600}
@@ -1035,6 +1052,12 @@ tr:last-child td{border-bottom:0}
     </div>
 
     {% if _ai_sum %}
+    <div class="ai-range" id="ai-range">
+      Диапазон анализа:
+      {% if _ai_sum.analysis_start and _ai_sum.analysis_end %}
+        {{ _ai_sum.analysis_start.strftime('%d.%m.%Y') }}–{{ _ai_sum.analysis_end.strftime('%d.%m.%Y') }}
+      {% else %}не определён{% endif %}
+    </div>
     <div class="ai-content" id="ai-content">{{ _ai_sum.content }}</div>
     <div class="ai-meta" id="ai-meta">
       Сформировано: {{ _ai_sum.generated_at.strftime('%d.%m.%Y %H:%M') }} &middot;
@@ -1042,10 +1065,27 @@ tr:last-child td{border-bottom:0}
       {{ _ai_sum.prompt_tokens + _ai_sum.completion_tokens }} токенов
     </div>
     {% else %}
+    <div class="ai-range" id="ai-range" style="display:none"></div>
     <div class="ai-content" id="ai-content" style="display:none"></div>
     <div class="ai-meta"    id="ai-meta"    style="display:none"></div>
     {% endif %}
     <div class="ai-err-msg" id="ai-err" style="display:none"></div>
+    {% if ai_file_summaries %}
+    <div class="ai-files" id="ai-files" aria-label="Заключения по файлам ОСВ">
+      {% for file in ai_file_summaries %}
+      <button type="button" class="ai-file-pill" data-source-id="{{ file.source_id }}"
+              onclick="selectAiFile('{{ file.source_id }}')" title="{{ file.filename }}">
+        <span class="ai-file-account">{{ file.account or '?' }}</span>
+        <span class="ai-file-state {{ file.status }}"
+              aria-label="{% if file.status == 'ready' %}готово{% elif file.status in ('queued', 'running') %}формируется{% elif file.status == 'error' %}ошибка{% else %}не сформировано{% endif %}"></span>
+      </button>
+      {% endfor %}
+    </div>
+    <div class="ai-file-panel" id="ai-file-panel">
+      <div class="ai-file-panel-title" id="ai-file-title">Заключение по исходному файлу</div>
+      <div id="ai-file-body">Выберите файл выше.</div>
+    </div>
+    {% endif %}
   </div>
 
   <!-- История загрузок -->
@@ -1653,6 +1693,7 @@ function requestAiSummary() {
   var content = document.getElementById('ai-content');
   var meta    = document.getElementById('ai-meta');
   var errEl   = document.getElementById('ai-err');
+  var rangeEl = document.getElementById('ai-range');
   var csrf    = document.querySelector('meta[name="csrf-token"]').content;
 
   btn.disabled = true;
@@ -1674,6 +1715,8 @@ function requestAiSummary() {
           ' &middot; ' + d.meta.model +
           ' &middot; ' + d.meta.tokens + ' токенов';
         meta.style.display = 'block';
+        rangeEl.textContent = 'Диапазон анализа: ' + d.meta.range_label;
+        rangeEl.style.display = 'block';
         btn.innerHTML = 'Обновить заключение';
       } else {
         errEl.textContent = d.error || 'Ошибка при получении заключения';
@@ -1687,6 +1730,92 @@ function requestAiSummary() {
       btn.innerHTML = 'Сформировать заключение';
     })
     .finally(function() { btn.disabled = false; });
+}
+
+var aiFiles = {{ ai_file_summaries|default([])|tojson }};
+var aiFilePoll = null;
+
+function aiFileById(sourceId) {
+  return aiFiles.find(function(item){ return item.source_id === sourceId; });
+}
+
+function updateAiFilePills() {
+  document.querySelectorAll('.ai-file-pill').forEach(function(button) {
+    var item = aiFileById(button.dataset.sourceId);
+    var dot = button.querySelector('.ai-file-state');
+    if (dot && item) dot.className = 'ai-file-state ' + item.status;
+    if (dot && item) dot.setAttribute('aria-label', item.status === 'ready' ? 'готово' :
+      (item.status === 'queued' || item.status === 'running') ? 'формируется' :
+      item.status === 'error' ? 'ошибка' : 'не сформировано');
+  });
+}
+
+function renderAiFile(item) {
+  var body = document.getElementById('ai-file-body');
+  var title = document.getElementById('ai-file-title');
+  if (!body || !item) return;
+  if (title) title.textContent = 'Заключение по исходному файлу — ' + item.filename;
+  if (item.status === 'ready') {
+    renderAiContent(body, item.content);
+    return;
+  }
+  if (item.status === 'queued' || item.status === 'running') {
+    body.innerHTML = '<span class="ai-spin" style="border-color:#ccd8dd;border-top-color:var(--water)"></span> Формируется…';
+    scheduleAiFilePoll(item.source_id);
+    return;
+  }
+  if (item.status === 'error') {
+    body.innerHTML = '<span style="color:var(--bad)">' + escapeAiHtml(item.error || 'Не удалось сформировать заключение') +
+      '</span> <button class="ai-file-action" onclick="startAiFile(\'' + item.source_id + '\')">Повторить</button>';
+    return;
+  }
+  body.innerHTML = 'Заключение ещё не сформировано. <button class="ai-file-action" onclick="startAiFile(\'' +
+    item.source_id + '\')">Сформировать</button>';
+}
+
+function selectAiFile(sourceId) {
+  document.querySelectorAll('.ai-file-pill').forEach(function(button) {
+    button.classList.toggle('active', button.dataset.sourceId === sourceId);
+  });
+  var item = aiFileById(sourceId);
+  renderAiFile(item);
+  if (item && (item.status === 'none' || item.status === 'error')) {
+    startAiFile(sourceId);
+  }
+}
+
+function startAiFile(sourceId) {
+  var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  fetch('/company/{{ company.id }}/ai-file-summary/' + sourceId, {
+    method:'POST', body:new FormData(),
+    headers:{'X-CSRFToken':csrf, 'X-Requested-With':'XMLHttpRequest'}
+  }).then(function(response){ return response.json(); }).then(function(data) {
+    if (!data.ok) throw new Error(data.error || 'Ошибка запуска');
+    var index = aiFiles.findIndex(function(item){ return item.source_id === sourceId; });
+    if (index >= 0) aiFiles[index] = data.file;
+    updateAiFilePills();
+    renderAiFile(data.file);
+  }).catch(function(error) {
+    var body = document.getElementById('ai-file-body');
+    if (body) body.textContent = error.message || 'Не удалось запустить анализ';
+  });
+}
+
+function scheduleAiFilePoll(sourceId) {
+  clearTimeout(aiFilePoll);
+  aiFilePoll = setTimeout(function() {
+    fetch('/company/{{ company.id }}/ai-file-summaries', {cache:'no-store'})
+      .then(function(response){ return response.json(); })
+      .then(function(data) {
+        if (!data.ok) return;
+        aiFiles = data.files;
+        updateAiFilePills();
+        var selected = document.querySelector('.ai-file-pill.active');
+        if (selected && selected.dataset.sourceId === sourceId) {
+          renderAiFile(aiFileById(sourceId));
+        }
+      });
+  }, 1600);
 }
 
 function escapeAiHtml(value) {

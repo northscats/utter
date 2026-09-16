@@ -1834,9 +1834,6 @@
                     <td><div class="obj-name-wrap"><span>${esc(segment.label)}</span><span class="obj-code">${esc(segment.code)}</span></div>${tooltip}</td>
                     <td>${segment.value === null ? 'Н/Д' : `${this.formatValue(segment.value, 'RUB').val}`}</td>
                     <td>${esc(share)}</td>
-                    <td class="cash-value-missing">Нужны данные</td>
-                    <td class="cash-value-missing">Нужны данные</td>
-                    <td class="cash-value-missing">Нужны данные</td>
                 </tr>`;
             });
             const tableTooltip = this.cashTooltip({
@@ -1877,11 +1874,10 @@
                     ${unknownAmounts.length ? ` Нет суммы по аналитикам: ${esc(unknownAmounts.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}. Значения не заменены нулём.` : ''}
                     ${segmentData.reconciliation_difference !== null && segmentData.reconciliation_difference !== undefined && Math.abs(segmentData.reconciliation_difference) > 0.01 ? ` Расхождение с общей выручкой: ${esc(this.formatValue(segmentData.reconciliation_difference, 'RUB').val)} млн ₽.` : ''}
                 </div>` : ''}
-                ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.analytics || [], definitions) : ''}
+                ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.display_analytics || []) : ''}
                 <div class="revenue-table-wrap"><table class="cash-table revenue-table">
-                    <thead><tr><th>Сегмент</th><th>Выручка, млн ₽</th><th>Доля</th><th>Сбор</th><th>Δ к плану</th><th>Δ к АПГ</th></tr></thead>
-                    <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td>
-                        <td class="cash-value-missing">Нужны данные</td><td class="cash-value-missing">Нужны данные</td><td class="cash-value-missing">Нужны данные</td></tr></tbody>
+                    <thead><tr><th>Сегмент</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
+                    <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>
                 </table></div>
                 <div class="revenue-missing-grid">
                     ${this.cashMetricCard('Уровень сбора', 'Нужны данные', 'оплаты / начисления', {
@@ -1904,31 +1900,29 @@
                 `;
         },
 
-        renderRevenueMappingEditor(analytics, definitions) {
+        renderRevenueMappingEditor(analytics) {
             if (!analytics.length) return '';
-            const options = definitions.map(item =>
-                `<option value="${esc(item.id)}">${esc(item.label)}</option>`).join('');
+            const rubAmount = value => new Intl.NumberFormat('ru-RU', {
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            }).format(value / 1000);
+            const percent = value => new Intl.NumberFormat('ru-RU', {
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            }).format(value) + '%';
+            const knownTotal = analytics.reduce((sum, item) =>
+                item.gross_amount == null ? sum : sum + Number(item.gross_amount), 0);
+            const hasKnownAmount = analytics.some(item => item.gross_amount != null);
             const rows = analytics.map(item => `
-                <tr><td>${esc(item.account)}</td><td>${esc(item.analytic_label)}</td>
-                <td><select class="revenue-mapping-select" data-account="${esc(item.account)}"
-                    data-key="${esc(item.analytic_key)}"
-                    data-label="${esc(item.analytic_label)}"><option value="">Не классифицировано</option>
-                    ${options}</select></td></tr>`).join('');
-            setTimeout(() => {
-                document.querySelectorAll('.revenue-mapping-select').forEach(select => {
-                    const found = analytics.find(item =>
-                        item.account === select.dataset.account &&
-                        item.analytic_key === select.dataset.key);
-                    select.value = found && found.category ? found.category : '';
-                });
-            }, 0);
+                <tr><td>${esc(item.analytic_label)}</td>
+                <td class="num">${item.gross_amount == null ? 'Нет данных' :
+                    esc(rubAmount(Number(item.gross_amount)))}</td>
+                <td class="num">${item.gross_amount == null ? 'Нет данных' :
+                    esc(percent(knownTotal ? Number(item.gross_amount) / knownTotal * 100 : 0))}</td></tr>`).join('');
             return `<div class="modal-section-title">Сопоставление аналитик предприятия</div>
-                <div class="revenue-mapping-help">Настройка действует для всех периодов. Сопоставьте 90.01 и 90.03 независимо.</div>
                 <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table">
-                <thead><tr><th>Счёт</th><th>Аналитика</th><th>Категория</th></tr></thead>
-                <tbody>${rows}</tbody></table></div>
-                <button type="button" class="revenue-mapping-save" onclick="window.KI_App.saveRevenueMappings()">Сохранить сопоставления</button>
-                <span id="revenue-mapping-status" class="revenue-mapping-status"></span>`;
+                <thead><tr><th>Вид деятельности</th><th>Сумма с НДС, тыс. руб.</th><th>Доля, %</th></tr></thead>
+                <tbody>${rows}<tr class="revenue-mapping-total"><td>Итого</td>
+                <td class="num">${hasKnownAmount ? esc(rubAmount(knownTotal)) : 'Нет данных'}</td>
+                <td class="num">${hasKnownAmount ? '100,00%' : 'Нет данных'}</td></tr></tbody></table></div>`;
         },
 
         async saveRevenueMappings() {

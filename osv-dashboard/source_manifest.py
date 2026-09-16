@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Helpers for the immutable manifest of accepted monthly ОСВ files.
+"""Helpers for the immutable manifest of accepted ОСВ source files.
 
 The manifest is deliberately built only after a file has been parsed and
 accepted by the monthly upload pipeline.  A path in this module is always
@@ -117,7 +117,7 @@ def build_manifest(
     accepted_files,
     company_upload_root: str,
 ) -> list[dict]:
-    """Build JSON-safe records for already accepted parsed monthly files.
+    """Build JSON-safe records for already accepted parsed source files.
 
     ``accepted_files`` is an iterable of ``(path, parsed_result)`` pairs.
     Callers are responsible for deciding acceptance (including duplicate

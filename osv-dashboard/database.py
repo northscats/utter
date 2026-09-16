@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
+from sqlalchemy import event
 
 db = SQLAlchemy()
 
@@ -169,6 +170,7 @@ class Company(db.Model):
     dadata_sync_status  = db.Column(db.String(24), default='never')
     dadata_last_error   = db.Column(db.Text, default='')
     profile_version     = db.Column(db.Integer, nullable=False, default=1)
+    osv_source_revision = db.Column(db.String(80), nullable=False, default='')
     updated_at          = db.Column(db.DateTime(timezone=True), default=utcnow,
                                     onupdate=utcnow)
 
@@ -491,6 +493,15 @@ class Upload(db.Model):
             return value if isinstance(value, list) else None
         except (TypeError, ValueError):
             return None
+
+
+@event.listens_for(Upload, 'after_insert')
+def _advance_company_osv_source_revision(_mapper, connection, target):
+    """Coordinate aggregate publication with every committed Upload insert."""
+    connection.execute(
+        Company.__table__.update()
+        .where(Company.id == target.company_id)
+        .values(osv_source_revision=f'upload:{target.id}'))
 
 class ConsumerCollectionAccrual(db.Model):
     """Документ начисления с аналитикой потребителя."""
@@ -873,6 +884,40 @@ class AiSummary(db.Model):
     prompt_tokens     = db.Column(db.Integer, default=0)
     completion_tokens = db.Column(db.Integer, default=0)
     generated_at      = db.Column(db.DateTime(timezone=True), default=utcnow)
+    analysis_start    = db.Column(db.Date, nullable=True)
+    analysis_end      = db.Column(db.Date, nullable=True)
+    source_revision   = db.Column(db.String(64), default='')
+
+
+class OsvFileAiSummary(db.Model):
+    """Saved AI conclusion for one immutable accepted OSV source version."""
+    __tablename__ = 'osv_file_ai_summaries'
+    __table_args__ = (
+        db.UniqueConstraint('company_id', 'source_id',
+                            name='uq_osv_file_ai_company_source'),
+    )
+
+    id                = db.Column(db.Integer, primary_key=True)
+    company_id        = db.Column(db.Integer, db.ForeignKey(
+                                  'companies.id', ondelete='CASCADE'),
+                                  nullable=False, index=True)
+    source_id         = db.Column(db.String(64), nullable=False)
+    source_sha256     = db.Column(db.String(64), nullable=False)
+    relative_path     = db.Column(db.Text, nullable=False)
+    filename          = db.Column(db.String(500), nullable=False)
+    account           = db.Column(db.String(32), default='')
+    period_label      = db.Column(db.String(200), default='')
+    report_start      = db.Column(db.Date, nullable=True)
+    report_end        = db.Column(db.Date, nullable=True)
+    status            = db.Column(db.String(20), nullable=False, default='queued')
+    content           = db.Column(db.Text, default='')
+    error_text        = db.Column(db.Text, default='')
+    provider_name     = db.Column(db.String(100), default='')
+    model_name        = db.Column(db.String(200), default='')
+    prompt_tokens     = db.Column(db.Integer, default=0)
+    completion_tokens = db.Column(db.Integer, default=0)
+    queued_at         = db.Column(db.DateTime(timezone=True), default=utcnow)
+    generated_at      = db.Column(db.DateTime(timezone=True), nullable=True)
 
 
 # ---------------------------------------------------------------------------

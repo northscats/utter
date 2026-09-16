@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """Регрессия CSRF и быстрого запуска фоновой загрузки ОСВ."""
 import io
+import hashlib
+import json
 import os
 import re
 import sys
 import tempfile
+import zipfile
+from unittest.mock import patch
 from openpyxl import Workbook
 
 _TMP = tempfile.mkdtemp(prefix='osv_upload_test_')
@@ -18,14 +22,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module
 from app import (
     _company_summary,
+    _accepted_daily_files,
     _compute_company_completeness,
     _dataset_accounts,
+    _delete_company_records,
     app,
     init_db,
 )
-from database import Company, Upload, User, db
+from database import (
+    AiProvider, AiSummary, Company, OsvFileAiSummary, Upload, User, db,
+)
 from jobs import create_job, finish_job, get_job
 from osvparser import parse_many
+from source_manifest import build_manifest
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
 init_db()
@@ -131,6 +140,31 @@ sheet.append(['Итого', 100, 0, 0, 0, 100, 0])
 book.save(contradictory_path)
 book.close()
 
+daily_path = os.path.join(_TMP, 'ОСВ счёт 62 за день.xlsx')
+book = Workbook()
+sheet = book.active
+sheet.append([
+    'Оборотно-сальдовая ведомость по счету 62 за 5 июля 2026 г.'
+])
+sheet.append(['Счет'])
+sheet.append(['Итого', 10, 0, 20, 15, 15, 0])
+book.save(daily_path)
+book.close()
+daily_zip = os.path.join(_TMP, 'daily.zip')
+with zipfile.ZipFile(daily_zip, 'w') as archive:
+    archive.write(daily_path, arcname=os.path.basename(daily_path))
+accepted_dir = os.path.join(_TMP, 'accepted-daily')
+_successes, _errors = app_module.parse_zip(
+    daily_zip, accepted_dir=accepted_dir)
+daily_manifest = build_manifest(
+    _accepted_daily_files([item['path'] for item in _successes]), _TMP)
+check('суточная ОСВ из ZIP сохраняется отдельным источником',
+      len(_successes) == len(daily_manifest) == 1
+      and os.path.isfile(_successes[0]['path'])
+      and daily_manifest[0]['account'] == '62'
+      and daily_manifest[0]['granularity'] == 'day'
+      and daily_manifest[0]['observed_start'] == '2026-07-05')
+
 _data, contradictory_audit = parse_many([contradictory_path])
 completed_job_id = create_job(company_id)
 finish_job(completed_job_id, {
@@ -188,5 +222,75 @@ with app.app_context():
 check('старые загрузки с пустым метаданным читают счета из дашборда',
       completeness['status'] == 'full'
       and completeness['found'] == completeness['total'] == 20)
+
+relative = '20260101_120000/report.xlsx'
+digest = 'a' * 64
+source_id = hashlib.sha256(
+    f'{relative}\0{digest}'.encode('utf-8')).hexdigest()
+manifest = [{
+    'source_id': source_id, 'sha256': digest, 'relative_path': relative,
+    'account': '51', 'period': 'Январь 2025',
+    'report_start': '2025-01-01', 'report_end': '2025-01-31',
+}]
+with app.app_context():
+    db.session.add(Upload(
+        company_id=company_id, uploaded_by=admin_id, period_label='Январь 2025',
+        accounts_loaded='["51"]', files_count=1,
+        source_manifest_json=json.dumps(manifest)))
+    db.session.add(AiSummary(
+        company_id=company_id, content='УСТАРЕВШЕЕ ЗАКЛЮЧЕНИЕ',
+        source_revision='old-source-set'))
+    db.session.commit()
+    check('новая ОСВ атомарно меняет маркер набора источников',
+          db.session.get(Company, company_id).osv_source_revision.startswith(
+              'upload:'))
+    from osv_ai_summary import ensure_file_summaries
+    ensure_file_summaries(company_id, app_module.UPLOADS, start_workers=False)
+    ensure_file_summaries(company_id, app_module.UPLOADS, start_workers=False)
+    check('повторная постановка не дублирует файловое заключение',
+          OsvFileAiSummary.query.filter_by(
+              company_id=company_id, source_id=source_id).count() == 1)
+
+page = client.get(f'/company/{company_id}').get_data(as_text=True)
+check('общее заключение скрывается после изменения набора ОСВ',
+      'УСТАРЕВШЕЕ ЗАКЛЮЧЕНИЕ' not in page
+      and source_id in page
+      and 'Январь 2025' in page)
+
+with app.app_context():
+    db.session.add(AiProvider(
+        name='Ошибочный тестовый провайдер',
+        base_url='https://provider.invalid', model='test',
+        is_active=True, is_default=True))
+    db.session.commit()
+csrf = client.get('/rating-api/csrf').get_json()['csrf_token']
+with patch(
+        'ai_client.call_ai_provider',
+        side_effect=Exception('AI HTTP 500: INTERNAL_PROVIDER_SECRET')):
+    failed_summary = client.post(
+        f'/company/{company_id}/ai-summary',
+        headers={'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'})
+failed_payload = failed_summary.get_json()
+check('ошибка общего ИИ не раскрывает ответ провайдера',
+      failed_summary.status_code == 502
+      and 'временно недоступен' in failed_payload['error']
+      and 'INTERNAL_PROVIDER_SECRET' not in failed_payload['error'])
+
+with app.app_context():
+    disposable = Company(name='Удаляемое предприятие', created_by=admin_id)
+    db.session.add(disposable)
+    db.session.flush()
+    disposable_id = disposable.id
+    db.session.add(OsvFileAiSummary(
+        company_id=disposable_id, source_id='f' * 64,
+        source_sha256='e' * 64, relative_path='batch/file.xlsx',
+        filename='file.xlsx'))
+    db.session.commit()
+    _delete_company_records(disposable)
+    db.session.commit()
+    check('файловые заключения не мешают удалить предприятие',
+          db.session.get(Company, disposable_id) is None
+          and OsvFileAiSummary.query.filter_by(
+              company_id=disposable_id).count() == 0)
 
 print('\\nВСЕ ТЕСТЫ ЗАГРУЗКИ ОСВ ПРОЙДЕНЫ')
