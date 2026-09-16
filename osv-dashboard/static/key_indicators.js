@@ -902,28 +902,65 @@
                     if (!neighbor) return;
                     const startNeighborWidth =
                         neighbor.getBoundingClientRect().width;
-                    cells.forEach(cell => {
-                        const width = Math.round(
-                            cell.getBoundingClientRect().width);
-                        cell.style.width = `${width}px`;
-                        cell.style.minWidth = `${width}px`;
-                        cell.style.maxWidth = `${width}px`;
-                    });
-                    table.style.width = `${Math.ceil(startTableWidth)}px`;
-                    table.style.minWidth = `${Math.ceil(startTableWidth)}px`;
-                    table.style.maxWidth = `${Math.ceil(startTableWidth)}px`;
-                    table.style.tableLayout = 'fixed';
+                    const startColumnWidths = cells.map(cell =>
+                        cell.getBoundingClientRect().width);
+                    const syncGroup = table.dataset.kiTableSync;
+                    const syncTables = syncGroup
+                        ? Array.from(document.querySelectorAll(
+                            `table[data-ki-table-sync="${syncGroup}"]`))
+                        : [];
+                    const applySyncedWidths = widths => {
+                        const percentages = widths.map(width =>
+                            width / startTableWidth * 100);
+                        syncTables.forEach(peer => {
+                            const peerHeader = peer.tHead && peer.tHead.rows[
+                                peer.tHead.rows.length - 1];
+                            if (!peerHeader ||
+                                    peerHeader.cells.length !== percentages.length) return;
+                            peer.style.width = '100%';
+                            peer.style.minWidth = '520px';
+                            peer.style.maxWidth = '100%';
+                            peer.style.tableLayout = 'fixed';
+                            Array.from(peerHeader.cells).forEach((cell, index) => {
+                                const width = `${percentages[index]}%`;
+                                cell.style.width = width;
+                                cell.style.minWidth = width;
+                                cell.style.maxWidth = width;
+                            });
+                        });
+                    };
+                    if (syncTables.length) {
+                        applySyncedWidths(startColumnWidths);
+                    } else {
+                        cells.forEach((cell, index) => {
+                            const width = Math.round(startColumnWidths[index]);
+                            cell.style.width = `${width}px`;
+                            cell.style.minWidth = `${width}px`;
+                            cell.style.maxWidth = `${width}px`;
+                        });
+                        table.style.width = `${Math.ceil(startTableWidth)}px`;
+                        table.style.minWidth = `${Math.ceil(startTableWidth)}px`;
+                        table.style.maxWidth = `${Math.ceil(startTableWidth)}px`;
+                        table.style.tableLayout = 'fixed';
+                    }
                     document.body.classList.add('ki-column-resizing');
                     const move = moveEvent => {
                         const widths = this.columnResizeWidths(
                             startWidth, startNeighborWidth,
                             moveEvent.clientX - startX);
-                        header.style.width = `${widths.current}px`;
-                        header.style.minWidth = `${widths.current}px`;
-                        header.style.maxWidth = `${widths.current}px`;
-                        neighbor.style.width = `${widths.neighbor}px`;
-                        neighbor.style.minWidth = `${widths.neighbor}px`;
-                        neighbor.style.maxWidth = `${widths.neighbor}px`;
+                        if (syncTables.length) {
+                            const nextWidths = startColumnWidths.slice();
+                            nextWidths[columnIndex] = widths.current;
+                            nextWidths[columnIndex + 1] = widths.neighbor;
+                            applySyncedWidths(nextWidths);
+                        } else {
+                            header.style.width = `${widths.current}px`;
+                            header.style.minWidth = `${widths.current}px`;
+                            header.style.maxWidth = `${widths.current}px`;
+                            neighbor.style.width = `${widths.neighbor}px`;
+                            neighbor.style.minWidth = `${widths.neighbor}px`;
+                            neighbor.style.maxWidth = `${widths.neighbor}px`;
+                        }
                     };
                     const finish = () => {
                         document.body.classList.remove('ki-column-resizing');
@@ -2193,7 +2230,7 @@
                     ${segmentData.reconciliation_difference !== null && segmentData.reconciliation_difference !== undefined && Math.abs(segmentData.reconciliation_difference) > 0.01 ? ` Расхождение с общей выручкой: ${esc(this.formatValue(segmentData.reconciliation_difference, 'RUB').val)} млн ₽.` : ''}
                 </div>` : ''}
                 ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.display_analytics || []) : ''}
-                <div class="revenue-table-wrap"><table class="cash-table revenue-table">
+                <div class="revenue-table-wrap"><table class="cash-table revenue-table" data-ki-table-sync="revenue-analytics">
                     <thead><tr><th>Группа</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
                     <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>
                 </table></div>
@@ -2241,7 +2278,7 @@
                 <td class="num">${item.gross_amount == null ? 'Нет данных' :
                     esc(percent(knownTotal ? Number(item.gross_amount) / knownTotal * 100 : 0))}</td></tr>`).join('');
             return `<div class="modal-section-title">Сопоставление аналитик предприятия</div>
-                <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table">
+                <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table" data-ki-table-sync="revenue-analytics">
                 <thead><tr><th>Вид деятельности</th><th>Сумма с НДС, тыс. руб.</th><th>Доля, %</th></tr></thead>
                 <tbody>${rows}<tr class="revenue-mapping-total"><td>Итого</td>
                 <td class="num">${hasKnownAmount ? esc(rubAmount(knownTotal)) : 'Нет данных'}</td>

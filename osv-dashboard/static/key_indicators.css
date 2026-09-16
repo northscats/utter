@@ -523,6 +523,18 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 }
 .revenue-mapping-help { font-size:12px; color:#6B7280; margin-bottom:10px; }
 .revenue-mapping-table { min-width:520px; }
+.revenue-table[data-ki-table-sync="revenue-analytics"],
+.revenue-mapping-table[data-ki-table-sync="revenue-analytics"] {
+  width:100%; max-width:100%; table-layout:fixed;
+}
+.revenue-table[data-ki-table-sync="revenue-analytics"] th:first-child,
+.revenue-mapping-table[data-ki-table-sync="revenue-analytics"] th:first-child {
+  width:50%;
+}
+.revenue-table[data-ki-table-sync="revenue-analytics"] th:not(:first-child),
+.revenue-mapping-table[data-ki-table-sync="revenue-analytics"] th:not(:first-child) {
+  width:25%;
+}
 .revenue-mapping-table th:first-child { width:58%; }
 .revenue-mapping-table .num { text-align:right; white-space:nowrap; }
 .revenue-mapping-total td { font-weight:800; border-top:2px solid #CBD5E1; }
