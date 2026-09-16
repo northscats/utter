@@ -2450,6 +2450,9 @@
             const net6202 = (obd6202 !== null && obk6202 !== null && obd6202 !== undefined && obk6202 !== undefined)
                 ? (obk6202 - obd6202)
                 : null;
+            const proxyPaid = (obk6201 !== null && obk6201 !== undefined && net6202 !== null)
+                ? obk6201 + net6202
+                : null;
 
             const bannerHtml = `
                 <div class="ki-modal-info-banner" style="background: #F8FAFC; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #E5E7EB;">
@@ -2471,7 +2474,7 @@
                             : this.cashMetricCard('НАЧИСЛЕНО', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'Начислено', fact: rub(obd6201)}), obd6201 === null)}
                         ${linked.available
                             ? this.cashMetricCard('РАСПРЕДЕЛЕНО ОПЛАТ', rub(linked.payment), 'не позднее даты отсечения', this.collectionTooltip({title: 'Распределённые оплаты', fact: rub(linked.payment)}), linked.payment === null)
-                            : this.cashMetricCard('ОПЛАЧЕНО', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'Оплачено', fact: rub(obk6201)}), obk6201 === null)}
+                            : this.cashMetricCard('ОПЛАЧЕНО', rub(proxyPaid), 'ОбК 62.01 + ОбК 62.02 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено по прокси ОСВ', fact: rub(proxyPaid), note: 'ОбК 62.01 + ОбК 62.02 − ОбД 62.02'}), proxyPaid === null)}
                         ${this.cashMetricCard('ПРОКСИ ОСВ', pct(proxyTurnover), 'контрольная величина', this.collectionTooltip({title: 'Бухгалтерский прокси ОСВ', fact: pct(proxyTurnover)}), proxyTurnover === null)}
                     </div>
                 </div>`;

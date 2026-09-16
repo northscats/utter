@@ -115,6 +115,19 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /УРОВЕНЬ СОБИРАЕМОСТИ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /НАЧИСЛЕНО/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОПЛАЧЕНО/);
+  const proxyComponents = Object.assign({}, collectionBase, {
+    value: 70,
+    accounting_proxy: {value: 70},
+    components: [
+      {account: '62.01', side: 'debit', value: 100000000},
+      {account: '62.01', side: 'credit', value: 60000000},
+      {account: '62.02', side: 'debit', value: 20000000},
+      {account: '62.02', side: 'credit', value: 30000000},
+    ],
+  });
+  app.renderCollectionModal(proxyComponents);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70,0 млн ₽/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {
