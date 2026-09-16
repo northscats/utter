@@ -61,6 +61,22 @@ body {
 .mode-btn:last-child { border-right: none; }
 .mode-btn:hover { background: rgba(255,255,255,0.15); }
 .mode-btn.active { background: #F59E0B; color: #1E3A5F; font-weight: 700; }
+.ki-tooltip-toggle {
+  width:34px; height:32px; padding:0; margin-left:-12px;
+  display:inline-flex; align-items:center; justify-content:center;
+  color:#E2E8F0; background:rgba(255,255,255,.1);
+  border:1px solid rgba(255,255,255,.2); border-radius:6px;
+  cursor:pointer; transition:all .15s; flex:0 0 auto;
+}
+.ki-tooltip-toggle:hover { background:rgba(255,255,255,.18); color:#fff; }
+.ki-tooltip-toggle:focus-visible {
+  outline:2px solid #F59E0B; outline-offset:2px;
+}
+.ki-tooltip-toggle[aria-pressed="true"] {
+  background:#F59E0B; border-color:#F59E0B; color:#1E3A5F;
+}
+body.ki-tooltips-disabled .cash-tooltip-host,
+body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 
 .period-selector {
   display: flex; background: rgba(255,255,255,0.1);

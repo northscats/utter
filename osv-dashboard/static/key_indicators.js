@@ -17,11 +17,13 @@
         companySwitchPeriodFallback: null,
         reqId: 0,
         aiReport: null,
+        tooltipsEnabled: true,
         chartJobs: {},
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
         modalCharts: {}
     };
     const periodSelectionStorageKey = 'brain4sales:key-indicators:period-selection';
+    const tooltipPreferenceStorageKey = 'brain4sales:key-indicators:tooltips-enabled';
 
     const metricChartColor = id => {
         if (id === '__main__') return '#2563EB';
@@ -593,6 +595,8 @@
             const urlParams = new URLSearchParams(window.location.search);
             const initialMode = urlParams.get('mode') || 'operational';
             this.restorePeriodSelection();
+            this.restoreTooltipPreference();
+            this.updateTooltipToggle();
 
             if (initialMode === 'annual') {
                 state.mode = 'annual';
@@ -653,6 +657,43 @@
             } catch (error) {
                 // Private mode or a browser storage policy may deny access.
             }
+        },
+
+        restoreTooltipPreference() {
+            try {
+                if (!window.localStorage) return;
+                const saved = window.localStorage.getItem(
+                    tooltipPreferenceStorageKey);
+                if (saved !== null) state.tooltipsEnabled = saved !== 'false';
+            } catch (error) {
+                // Private mode or a browser storage policy may deny access.
+            }
+        },
+
+        updateTooltipToggle() {
+            const button = document.getElementById('ki-tooltip-toggle');
+            const disabled = !state.tooltipsEnabled;
+            document.body.classList.toggle('ki-tooltips-disabled', disabled);
+            if (!button) return;
+            button.setAttribute('aria-pressed', String(disabled));
+            const label = disabled ? 'Включить подсказки' : 'Отключить подсказки';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+        },
+
+        toggleTooltips() {
+            state.tooltipsEnabled = !state.tooltipsEnabled;
+            if (!state.tooltipsEnabled) this.hideRichTooltip();
+            try {
+                if (window.localStorage) {
+                    window.localStorage.setItem(
+                        tooltipPreferenceStorageKey,
+                        String(state.tooltipsEnabled));
+                }
+            } catch (error) {
+                // The visual setting still works for the current page.
+            }
+            this.updateTooltipToggle();
         },
         
         switchMode(mode) {
@@ -1909,6 +1950,10 @@
             document.body.appendChild(portal);
             this._richTooltipPortal = portal;
             this._richTooltipHost = null;
+            const toggle = document.getElementById('ki-tooltip-toggle');
+            if (toggle) {
+                toggle.addEventListener('click', () => this.toggleTooltips());
+            }
 
             const hostSelector = '.cash-tooltip-host, .cash-summary-card, .cash-analysis-card';
             document.addEventListener('pointerover', event => {
@@ -1951,6 +1996,7 @@
         },
 
         showRichTooltipHtml(html, clientX, clientY) {
+            if (!state.tooltipsEnabled) return;
             const portal = this._richTooltipPortal || document.getElementById('ki-rich-tooltip-portal');
             if (!portal) return;
             portal.innerHTML = html;
