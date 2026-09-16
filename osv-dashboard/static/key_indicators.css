@@ -466,8 +466,10 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-data-state.ok { background:#D1FAE5; color:#047857; }
 .cash-data-state.missing { background:#FEF3C7; color:#92400E; }
 .cash-line-chart {
-  min-height:250px; height:auto; border:1px solid #E5E7EB; border-radius:8px;
-  background:#FAFBFC; padding:10px; box-sizing:border-box; overflow:hidden;
+  min-height:290px; height:auto; border:1px solid #E2E8F0; border-radius:12px;
+  background:linear-gradient(180deg,#FCFDFE 0%,#F8FAFC 100%);
+  padding:8px 12px 4px; box-sizing:border-box; overflow:hidden;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
 }
 .cash-line-chart svg { display:block; width:100%; height:100%; overflow:hidden; }
 .ki-modal-dynamics-block .modal-chart-wrap {
@@ -475,7 +477,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   margin:0 0 18px; padding:0; border:0; border-radius:0;
   background:transparent; overflow:visible;
 }
-.cash-modal-chart-plot { position:relative; width:100%; height:270px; overflow:hidden; }
+.cash-modal-chart-plot { position:relative; width:100%; height:290px; overflow:hidden; }
 .metric-modal-chart-plot { position:relative; width:100%; height:220px; overflow:hidden; }
 .metric-modal-chart-plot > svg { display:block; width:100%; height:100%; }
 .metric-chart-point-svg { pointer-events:none; }
@@ -494,13 +496,20 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 }
 .cash-chart-controls input { margin:0; }
 .cash-modal-chart-legend {
-  display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px;
-  margin:0 0 8px; color:#374151; font-size:11px; font-weight:600;
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:10px 22px;
+  margin:4px 0 6px; color:#64748B; font-size:11px; font-weight:600;
 }
 .cash-modal-chart-legend span { display:inline-flex; align-items:center; gap:5px; }
-.cash-modal-chart-legend i { width:9px; height:9px; display:inline-block; border-radius:50%; background:#2563EB; }
-.cash-modal-chart-legend-main { color:#1E3A8A; }
-.cash-modal-chart-legend-main i { background:#2563EB; }
+.cash-modal-chart-legend i {
+  width:31px; height:10px; display:inline-block; border-radius:1px;
+  background:rgba(37,99,235,.07); border:3px solid var(--legend-color,#2563EB);
+  box-sizing:border-box;
+}
+.cash-modal-chart-legend-main { color:#64748B; }
+.cash-modal-chart-legend-main i { --legend-color:#2563EB; }
+.cash-modal-chart-legend-ncf i { --legend-color:#10B981; background:rgba(16,185,129,.06); }
+.cash-modal-line, .cash-modal-line-gap { vector-effect:non-scaling-stroke; }
+.cash-modal-point { vector-effect:non-scaling-stroke; }
 .cash-modal-point { pointer-events:none; }
 .cash-chart-point-overlays { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
 .cash-chart-point-overlay {
