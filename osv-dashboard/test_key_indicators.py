@@ -2748,6 +2748,24 @@ class PeriodAggregateTests(unittest.TestCase):
             [item['value'] for item in card['components']],
             [100, 50, 10, 20])
 
+    def test_collection_proxy_keeps_explicit_account_with_deep_daily_analytics(self):
+        rows = [
+            dict(date='2026-01-31', month='2026-01', account='62.01',
+                 path1='Покупатель', path2='Услуга', path3='<...>',
+                 obd=100, obk=50),
+            dict(date='2026-01-31', month='2026-01', account='62.02',
+                 path1='Покупатель', path2='Услуга', path3='<...>',
+                 obd=10, obk=20),
+        ]
+        source = build_indicator_source({'62': account('62', rows)})
+        self.assertEqual(
+            {row['account'] for row in source['accounts']['62']['daily']},
+            {'62.01', '62.02'})
+        card = {item['id']: item for item in build_key_indicators(
+            source, period='month', date='2026-01-31')['cards']}['collection']
+        self.assertEqual(card['value'], 60)
+        self.assertIsNone(card['reason'])
+
     def test_collection_proxy_missing_6202_is_not_zero(self):
         rows = [day('2026-01-31', '62.01', obd=100, obk=50)]
         card = {item['id']: item for item in build_key_indicators(

@@ -179,6 +179,7 @@ def build_indicator_source(parsed_data):
             row = {
                 'date': dt,
                 'month': str(item.get('month') or dt[:7]),
+                'account': str(item.get('account') or ''),
                 'path1': str(item.get('path1') or ''),
                 'path2': str(item.get('path2') or ''),
                 'path3': str(item.get('path3') or ''),
@@ -193,7 +194,8 @@ def build_indicator_source(parsed_data):
                 if item.get(key) is not None:
                     row[key] = _number(item[key])
             marker = tuple(row.get(k) for k in
-                           ('date', 'path1', 'path2', 'path3', 'obd', 'obk',
+                           ('date', 'account', 'path1', 'path2', 'path3',
+                            'obd', 'obk',
                             'obd_known', 'obk_known',
                             'snd', 'snk', 'skd', 'skk'))
             if marker not in seen:
@@ -301,7 +303,8 @@ def build_indicator_source(parsed_data):
             'report_end': end.isoformat() if end else None,
             'check_ok': raw.get('check_ok') if isinstance(raw.get('check_ok'), bool) else None,
             'warnings': acc_warnings,
-            'daily': sorted(daily, key=lambda x: (x['date'], x['path1'], x['path2'], x['path3'])),
+            'daily': sorted(daily, key=lambda x: (
+                x['date'], x['account'], x['path1'], x['path2'], x['path3'])),
             'top': top,
             'rows': rows,
             'source_file': str(raw.get('source_file') or ''),
@@ -787,21 +790,24 @@ def _leaf_rows(rows, predicate):
     grouped = defaultdict(list)
     for row in matched:
         paths = [row.get(k, '') for k in
-                 ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')]
+                 ('account', 'p0', 'p1', 'p2', 'p3',
+                  'path1', 'path2', 'path3')]
         analytics = tuple(x for x in paths
                           if x and not re.match(r'^\d{2}(?:\.\d+)*$', x))
         grouped[(row['date'], analytics)].append(row)
     result = []
     for candidates in grouped.values():
         depth = max(max((x.count('.') for x in
-                         (r.get('p0', ''), r.get('p1', ''), r.get('p2', ''),
+                          (r.get('account', ''), r.get('p0', ''),
+                           r.get('p1', ''), r.get('p2', ''),
                           r.get('p3', ''), r.get('path1', ''),
                           r.get('path2', ''), r.get('path3', ''))
                          if re.match(r'^\d{2}(?:\.\d+)*$', x)), default=-1)
                     for r in candidates)
         result.extend(r for r in candidates
                       if max((x.count('.') for x in
-                              (r.get('p0', ''), r.get('p1', ''), r.get('p2', ''),
+                              (r.get('account', ''), r.get('p0', ''),
+                               r.get('p1', ''), r.get('p2', ''),
                                r.get('p3', ''), r.get('path1', ''),
                                r.get('path2', ''), r.get('path3', ''))
                               if re.match(r'^\d{2}(?:\.\d+)*$', x)), default=-1) == depth)
@@ -810,7 +816,7 @@ def _leaf_rows(rows, predicate):
 
 def _has_prefix(row, prefix):
     return any(str(row.get(k) or '').startswith(prefix)
-               for k in ('p0', 'p1', 'p2', 'p3',
+               for k in ('account', 'p0', 'p1', 'p2', 'p3',
                          'path1', 'path2', 'path3'))
 
 
@@ -1122,7 +1128,9 @@ def _explicit_subaccount_rows(rows, sub):
     for row in rows:
         codes = [
             str(row.get(key) or '').strip()
-            for key in ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')
+            for key in (
+                'account', 'p0', 'p1', 'p2', 'p3',
+                'path1', 'path2', 'path3')
         ]
         if any(code == sub or code.startswith(sub + '.') for code in codes):
             matched.append(row)
@@ -1133,7 +1141,9 @@ def _explicit_subaccount_rows(rows, sub):
         return [
             code for code in (
                 str(row.get(key) or '').strip()
-                for key in ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3')
+                for key in (
+                    'account', 'p0', 'p1', 'p2', 'p3',
+                    'path1', 'path2', 'path3')
             )
             if re.fullmatch(r'\d{2}(?:\.\d+)+', code)
         ]

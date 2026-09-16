@@ -300,8 +300,16 @@ def parse_osv(path):
         m = RE_DATE.match(label)
         if m:
             d, mo, y = m.groups()
+            account_codes = [
+                str(value).strip() for value in path_by_lvl.values()
+                if re.fullmatch(r'\d{2}(?:\.\d+)*', str(value).strip())
+                and (str(value).strip() == acc
+                     or str(value).strip().startswith(acc + '.'))
+            ]
             daily.append(dict(
                 date=f'20{y}-{mo}-{d}', month=f'20{y}-{mo}',
+                account=max(account_codes, key=lambda value: value.count('.'))
+                if account_codes else acc,
                 path1=path_by_lvl.get(lvl - 1, ''),
                 path2=path_by_lvl.get(lvl - 2, ''),
                 path3=path_by_lvl.get(lvl - 3, ''),
