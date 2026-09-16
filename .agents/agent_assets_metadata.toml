@@ -204,3 +204,17 @@ mtime_ms = 1789478843539
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/43113f9f-103f-4c65-b846-a87956172cf3/be637178-5469-46fa-a640-5543b8b2dca9"
 storage_version_token = "1789478859725377"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "LFc0LMF-cqE8IJ_xlc2Rl"
+uri = "file://deliverables/reglament_zagruzki_OSV_brain4sales.doc"
+type = "word_document"
+title = "Регламент загрузки и валидации ОСВ"
+description = "Стандартизированный механизм почтовой поставки ОСВ для brain4sales: историческое наполнение, периодичность, форматы, дедупликация, валидация, контроль и внедрение для 60+ предприятий."
+logical_id = "c87c40f0-6382-4364-a375-fbf3808a10a6"
+content_hash = "sha256:b579137652ac90c65d693878f8eb7928a1cffa0046f42db8399688d9a704d46b"
+size = 72704
+mtime_ms = 1789589806833
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/c87c40f0-6382-4364-a375-fbf3808a10a6/98ff45bc-1b14-4154-8aef-1d0d4e3f27d9"
+storage_version_token = "1789589823722787"
+content_type = "application/msword"
