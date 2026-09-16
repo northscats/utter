@@ -252,6 +252,8 @@ def build_indicator_source(parsed_data):
             balance_reports.append({
                 'period': str(report.get('period') or ''),
                 'source_file': str(report.get('source_file') or ''),
+                'source_updated_at': str(report.get('source_updated_at') or ''),
+                'complete_snapshot': bool(report.get('complete_snapshot')),
                 'report_start': report_start.isoformat() if report_start else None,
                 'report_end': report_end.isoformat(),
                 'top': {k: _number(report_top.get(k)) for k in
@@ -473,7 +475,8 @@ def _report_precedence(report, index, account=None):
     """Sort key where a later source revision wins an equal interval."""
     scope = _report_scope_score(report, account) if account is not None else 0
     updated = str(report.get('source_updated_at') or '')
-    return scope, updated, index
+    complete = int(bool(report.get('complete_snapshot')))
+    return complete, (updated if complete else ''), scope, updated, index
 
 
 def _period_report_selection(source, account, start, end):
@@ -884,6 +887,20 @@ def _account_covers(source, account, start, end):
                for a, b in spans)
 
 
+def _complete_snapshot_covers(source, start, end):
+    return any(
+        _iso(item.get('start')) == start and _iso(item.get('end')) == end
+        for item in source.get('_complete_snapshots') or []
+    )
+
+
+def _complete_snapshot_at(source, boundary, key):
+    return any(
+        _iso(item.get(key)) == boundary
+        for item in source.get('_complete_snapshots') or []
+    )
+
+
 def _latest_daily_subaccount_rows(source, account, sub, start, end):
     """Use explicit daily rows when the current full report covers the period."""
     acc = source['accounts'].get(account)
@@ -903,8 +920,8 @@ def _pl_facts(source, start, end):
     d90 = _movement_rows(source, '90', start, end)
     rev_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.01'))
     vat_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.03'))
-    cost_rows = _latest_daily_subaccount_rows(
-        source, '90', '90.02', start, end)
+    cost_rows = None if _complete_snapshot_covers(source, start, end) else \
+        _latest_daily_subaccount_rows(source, '90', '90.02', start, end)
     if cost_rows is None:
         cost_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.02'))
     gross = _known_sum(rev_rows, 'obk') if rev_rows else None
@@ -1200,7 +1217,9 @@ def _sub_turnover(source, account, sub, start, end, side):
     """Return turnover for an exact subaccount without parent/child duplication."""
     rows = _movement_rows(source, account, start, end)
     basis = _leaf_rows(rows, lambda row: _has_prefix(row, sub))
-    return _known_sum(basis, side) if basis else None
+    if basis:
+        return _known_sum(basis, side)
+    return 0.0 if _complete_snapshot_covers(source, start, end) else None
 
 
 def _explicit_subaccount_rows(rows, sub):
@@ -1551,8 +1570,26 @@ def _consumer_collection(accruals, allocations, mappings, norms,
 def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
+        if _complete_snapshot_at(source, end, 'end'):
+            return 0.0, None
         return None, f'Счёт {account} не загружен'
-    if str(account) == '70':
+    complete_report = next((
+        report for report in acc.get('balance_reports') or []
+        if report.get('complete_snapshot')
+        and report.get('report_end') == end.isoformat()
+    ), None)
+    if _complete_snapshot_at(source, end, 'end') and complete_report is None:
+        return 0.0, None
+    report_candidates = [
+        (index, report)
+        for index, report in enumerate(acc.get('balance_reports') or [])
+        if report.get('report_end') == end.isoformat()
+    ]
+    report = max(
+        report_candidates,
+        key=lambda item: _report_precedence(item[1], item[0], account),
+    )[1] if report_candidates else None
+    if report is None and str(account) == '70':
         report_start = _iso(acc.get('report_start'))
         report_end = _iso(acc.get('report_end'))
         top = acc.get('top')
@@ -1571,8 +1608,6 @@ def _top_balance(source, account, end, credit=False):
                 )
                 value = signed_credit if credit else -signed_credit
                 return round(max(0.0, value), 2), None
-    report = next((r for r in reversed(acc.get('balance_reports') or [])
-                   if r.get('report_end') == end.isoformat()), None)
     if report is None:
         top_index = source.get('_top_balance_index')
         if top_index is not None:
@@ -1804,18 +1839,25 @@ def _top_opening_balance(source, account, start, credit=False):
     """Return an account opening balance only from an exact report boundary."""
     acc = source['accounts'].get(account)
     if not acc:
-        return None
+        return 0.0 if _complete_snapshot_at(source, start, 'start') else None
     reports = list(acc.get('balance_reports') or [])
     if acc.get('report_start') == start.isoformat() and acc.get('top') is not None:
         reports.append({
             'report_start': acc.get('report_start'),
             'top': acc.get('top'),
         })
-    report = next((item for item in reversed(reports)
-                   if item.get('report_start') == start.isoformat()
-                   and item.get('top') is not None), None)
+    report_candidates = [
+        (index, item)
+        for index, item in enumerate(reports)
+        if item.get('report_start') == start.isoformat()
+        and item.get('top') is not None
+    ]
+    report = max(
+        report_candidates,
+        key=lambda item: _report_precedence(item[1], item[0], account),
+    )[1] if report_candidates else None
     if not report:
-        return None
+        return 0.0 if _complete_snapshot_at(source, start, 'start') else None
     top = report['top']
     value = top.get('snk', 0) - top.get('snd', 0) if credit else \
         top.get('snd', 0) - top.get('snk', 0)
@@ -1832,6 +1874,8 @@ def _account_turnovers(source, account, start, end):
     else:
         plain = [row for row in rows if not _analytic_parts(row)]
         basis = plain if plain else _turnover_basis(rows)
+    if not basis and _complete_snapshot_covers(source, start, end):
+        return {'debit': 0.0, 'credit': 0.0}
     return {
         'debit': _known_sum(basis, 'obd') if basis else None,
         'credit': _known_sum(basis, 'obk') if basis else None,
@@ -1840,8 +1884,15 @@ def _account_turnovers(source, account, start, end):
 
 def _balance_provenance(source, account, end):
     acc = source['accounts'].get(account, {})
-    report = next((r for r in reversed(acc.get('balance_reports') or [])
-                   if r.get('report_end') == end.isoformat()), None)
+    report_candidates = [
+        (index, report)
+        for index, report in enumerate(acc.get('balance_reports') or [])
+        if report.get('report_end') == end.isoformat()
+    ]
+    report = max(
+        report_candidates,
+        key=lambda item: _report_precedence(item[1], item[0], account),
+    )[1] if report_candidates else None
     if report:
         parts = [report.get('period'), report.get('source_file')]
     elif acc.get('report_end') == end.isoformat():
@@ -1991,12 +2042,12 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             ('25', 'Общепроизводственные затраты'),
             ('26', 'Общехозяйственные затраты'),
             ('44', 'Расходы на продажу')):
-        movement_rows = _turnover_basis(
-            _movement_rows(source, account, start, end))
+        movement_rows = _movement_rows(source, account, start, end)
+        turnover = _account_turnovers(source, account, start, end)
         cost_movements.append({
             'account': account,
             'label': movement_label,
-            'value': _known_sum(movement_rows, 'obd') if movement_rows else None,
+            'value': turnover['debit'],
         })
     recognized_costs = [
         {
@@ -2194,6 +2245,9 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     }
     selling_expense = recognized_costs[1]['value']
     admin_expense = recognized_costs[2]['value']
+    if selling_expense is None and _complete_snapshot_covers(source, start, end):
+        selling_expense = 0.0
+        recognized_costs[1]['value'] = 0.0
     profit_from_sales = (
         round(gross_profit - selling_expense - admin_expense, 2)
         if gross_profit is not None

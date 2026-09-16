@@ -218,3 +218,17 @@ mtime_ms = 1789589806833
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/c87c40f0-6382-4364-a375-fbf3808a10a6/98ff45bc-1b14-4154-8aef-1d0d4e3f27d9"
 storage_version_token = "1789589823722787"
 content_type = "application/msword"
+
+[[outputs]]
+id = "2Uz2AGn4bAooyrH2SNZ7-"
+uri = "file://deliverables/otchet_realizaciya_plana_OSV_brain4sales.doc"
+type = "word_document"
+title = "Отчёт о реализации плана ОСВ"
+description = "Результаты исправления основных показателей МУП КГХ, контрольные значения, реализованные механизмы и итоги проверки."
+logical_id = "901da02a-55d0-454d-98dd-eaddb67c9278"
+content_hash = "sha256:a5dd037ecff268eff95933c90c76a0c49305dda74462dc263e71c73596ace189"
+size = 50688
+mtime_ms = 1789590637612
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/901da02a-55d0-454d-98dd-eaddb67c9278/6ef4ab00-fbcd-4e99-9101-d452acbd74b3"
+storage_version_token = "1789590714564969"
+content_type = "application/msword"

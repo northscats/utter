@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func
 
 from database import DailyRow, Upload, db
+from consolidated_osv import parse_consolidated_osv
 from key_indicators import _period_bounds, build_indicator_source
 from osvparser import parse_osv
 from source_manifest import relative_upload_path, sha256_file
@@ -23,6 +24,18 @@ from source_passport import (
     build_source_passport,
     enrich_source_passport,
 )
+
+_CONTROL_SNAPSHOT_ROOT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'control_snapshots')
+
+
+def _is_trusted_control_path(path):
+    root = os.path.realpath(_CONTROL_SNAPSHOT_ROOT)
+    candidate = os.path.realpath(path)
+    try:
+        return os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        return False
 
 
 class SourceBusyError(Exception):
@@ -380,6 +393,7 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
     failures = []
     excluded_annual = set()
     source_manifest = []
+    complete_snapshots = []
     daily_uploaded_at = []
     for path in sorted(paths, key=lambda p: (os.stat(p).st_mtime_ns, p)):
         name = os.path.basename(path)
@@ -397,7 +411,12 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
             })
             continue
         try:
-            parsed = parse_osv(path)
+            trusted_control = _is_trusted_control_path(path)
+            consolidated = parse_consolidated_osv(path) if trusted_control else None
+            if trusted_control and not consolidated:
+                raise ValueError('Некорректный полный контрольный снимок ОСВ')
+            parsed_items = list(consolidated.values()) if consolidated else [
+                parse_osv(path)]
         except ValueError:
             if _is_annual_analytics(path):
                 excluded_annual.add(name)
@@ -431,34 +450,49 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
                 **identity,
             })
             continue
-        parsed['source_file'] = name
-        parsed['source_updated_at'] = datetime.fromtimestamp(
+        updated_at = datetime.fromtimestamp(
             os.stat(path).st_mtime, timezone.utc).isoformat()
+        if consolidated:
+            first = parsed_items[0]
+            period_start, period_end = _period_bounds(first.get('period', ''))
+            complete_snapshots.append({
+                'start': period_start.isoformat() if period_start else None,
+                'end': period_end.isoformat() if period_end else None,
+                'source_file': name,
+                'source_updated_at': updated_at,
+            })
         source_manifest.append({
             'source_file': name,
             'path': path,
             'batch': batch,
-            'kind': 'osv',
+            'kind': 'consolidated_control' if consolidated else 'osv',
             'status': 'parsed',
             **identity,
-            'account': str(parsed.get('acc') or ''),
-            'period': parsed.get('period', ''),
+            'account': 'ALL' if consolidated else str(parsed_items[0].get('acc') or ''),
+            'period': parsed_items[0].get('period', ''),
             'report_start': (
-                _period_bounds(parsed.get('period', ''))[0].isoformat()
-                if _period_bounds(parsed.get('period', ''))[0] else None),
+                _period_bounds(parsed_items[0].get('period', ''))[0].isoformat()
+                if _period_bounds(parsed_items[0].get('period', ''))[0] else None),
             'report_end': (
-                _period_bounds(parsed.get('period', ''))[1].isoformat()
-                if _period_bounds(parsed.get('period', ''))[1] else None),
+                _period_bounds(parsed_items[0].get('period', ''))[1].isoformat()
+                if _period_bounds(parsed_items[0].get('period', ''))[1] else None),
             'daily_dates': [
-                row.get('date') for row in parsed.get('daily', [])
+                row.get('date') for parsed in parsed_items
+                for row in parsed.get('daily', [])
                 if row.get('date')
             ],
-            'source_updated_at': parsed['source_updated_at'],
+            'source_updated_at': updated_at,
             'source_size': os.stat(path).st_size,
-            'check_ok': parsed.get('check_ok'),
-            'warnings': list(parsed.get('warnings') or []),
+            'check_ok': all(parsed.get('check_ok') is not False
+                            for parsed in parsed_items),
+            'warnings': list(dict.fromkeys(
+                warning for parsed in parsed_items
+                for warning in parsed.get('warnings') or [])),
         })
-        reports.setdefault(str(parsed['acc']), []).append(parsed)
+        for parsed in parsed_items:
+            parsed['source_file'] = name
+            parsed['source_updated_at'] = updated_at
+            reports.setdefault(str(parsed['acc']), []).append(parsed)
     data = {}
     for acc, entries in reports.items():
         latest = copy.deepcopy(entries[-1])
@@ -469,7 +503,8 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
         latest['daily'] = merged
         latest['balance_reports'] = [
             {key: copy.deepcopy(report.get(key)) for key in (
-                'period', 'top', 'rows', 'source_file', 'source_updated_at')}
+                'period', 'top', 'rows', 'source_file', 'source_updated_at',
+                'complete_snapshot')}
             for report in entries
         ]
         latest['coverage_reports'] = [report.get('period', '') for report in entries]
@@ -514,6 +549,7 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
             'Проверьте исходные загрузки и повторите запрос.',
             failures=sorted(set(failures)))
     source = build_indicator_source(data)
+    source['_complete_snapshots'] = complete_snapshots
     if daily_uploaded_at:
         source['source_daily_uploaded_at'] = daily_uploaded_at
     # This is deliberately a separate read-only manifest.  The calculation
@@ -567,6 +603,16 @@ def load_company_source(company_id, uploads_root):
     )
     paths = list(manifest_paths)
     for path in fallback_paths:
+        if path not in paths:
+            paths.append(path)
+    control_dir = os.path.join(_CONTROL_SNAPSHOT_ROOT, str(int(company_id)))
+    control_paths = []
+    if os.path.isdir(control_dir):
+        control_paths = [
+            entry.path for entry in os.scandir(control_dir)
+            if entry.is_file() and entry.name.lower().endswith(('.xls', '.xlsx'))
+        ]
+    for path in control_paths:
         if path not in paths:
             paths.append(path)
     signature_paths = list(manifest_candidates)

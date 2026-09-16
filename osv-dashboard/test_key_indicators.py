@@ -2350,7 +2350,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         }
         card = {x['id']: x for x in build_key_indicators(
             src, debtor_mappings=[mapping])['cards']}['ar']
-        self.assertEqual(card['value'], 40)
+        self.assertEqual(card['value'], 30)
         self.assertEqual(card['debtor_segments']['included_76'], 10)
         new_items = card['debtor_segments']['new']
         self.assertTrue(any(item['account'] == '62.01' for item in new_items))
