@@ -72,6 +72,35 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cards['revenue']['value'], 100)
         self.assertIn('брутто', cards['revenue']['formula'])
 
+    def test_cogs_prefers_latest_full_report_daily_rows_to_old_exact_report(self):
+        raw = account(
+            '90',
+            [
+                day('2026-01-01', '90.02'),
+                day('2026-01-31', '90.01', obk=150),
+                day('2026-01-31', '90.03', obd=20),
+                day('2026-01-31', '90.02', obd=90),
+                day('2026-06-30', '90.02'),
+            ],
+            period='за 01.01.2025 - 15.09.2026',
+        )
+        raw['balance_reports'] = [{
+            'period': 'за 1 полугодие 2026 г.',
+            'rows': [
+                dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                     obd=0, obk=120),
+                dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                     obd=20, obk=0),
+                dict(lvl=1, label='90.02', p0='90', p1='90.02',
+                     obd=70, obk=0),
+            ],
+        }]
+        result = build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='day', date_from='2026-01-01', date='2026-06-30')
+        cards = {item['id']: item for item in result['cards']}
+        self.assertEqual(cards['cogs']['value'], 90)
+
     def test_cumulative_reports_restore_vat_and_year_over_year(self):
         raw = account('90', [
             day('2025-09-15', '90.01', obk=100),

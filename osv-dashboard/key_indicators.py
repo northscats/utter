@@ -884,11 +884,29 @@ def _account_covers(source, account, start, end):
                for a, b in spans)
 
 
+def _latest_daily_subaccount_rows(source, account, sub, start, end):
+    """Use explicit daily rows when the current full report covers the period."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return None
+    report_start = _iso(acc.get('report_start'))
+    report_end = _iso(acc.get('report_end'))
+    if not report_start or not report_end or report_start > start or report_end < end:
+        return None
+    rows = _leaf_rows(
+        _daily(source, account, start, end),
+        lambda row: _has_prefix(row, sub))
+    return rows or None
+
+
 def _pl_facts(source, start, end):
     d90 = _movement_rows(source, '90', start, end)
     rev_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.01'))
     vat_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.03'))
-    cost_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.02'))
+    cost_rows = _latest_daily_subaccount_rows(
+        source, '90', '90.02', start, end)
+    if cost_rows is None:
+        cost_rows = _leaf_rows(d90, lambda r: _has_prefix(r, '90.02'))
     gross = _known_sum(rev_rows, 'obk') if rev_rows else None
     vat = _known_sum(vat_rows, 'obd') if vat_rows else None
     revenue = round(gross - vat, 2) if gross is not None and vat is not None else gross
