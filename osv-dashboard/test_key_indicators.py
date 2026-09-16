@@ -239,6 +239,30 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual([p['value'] for p in card['balance_series']], [10, None, 40])
         self.assertEqual(card['closing_balance'], 40)
 
+    def test_ar_period_chart_rolls_daily_balance_from_opening(self):
+        raw = account(
+            '62',
+            [
+                day('2026-01-01', '62.01', obd=10, obk=0, p1='Покупатель А'),
+                day('2026-01-01', '62.01', obd=5, obk=0, p1='Покупатель Б'),
+                day('2026-01-03', '62.01', obd=0, obk=20),
+            ],
+            period='за 01.01.2026 - 03.01.2026',
+        )
+        raw['rows'] = [
+            dict(lvl=1, label='62.01', p0='62', p1='62.01',
+                 p2='', p3='', snd=100, snk=0, obd=15, obk=20,
+                 skd=95, skk=0),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'62': raw}),
+            period='day', date_from='2026-01-01', date='2026-01-03')
+        card = next(item for item in result['cards'] if item['id'] == 'ar')
+        self.assertEqual(
+            [point['value'] for point in card['series']],
+            [115, 115, 95])
+        self.assertEqual(card['granularity'], 'day')
+
     def test_balance_only_at_original_report_boundary(self):
         top = dict(snd=1, snk=0, obd=0, obk=0, skd=25, skk=0)
         src = build_indicator_source({

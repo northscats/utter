@@ -922,6 +922,12 @@ def _sub_balance(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
+    if str(account) == '62' and str(sub) == '62.01':
+        signed_debit = _rolled_sub_signed_balance(
+            source, account, sub, end)
+        if signed_debit is not None:
+            value = -signed_debit if credit else signed_debit
+            return round(max(0.0, value), 2), None
     report = next((r for r in reversed(acc.get('balance_reports') or [])
                    if r.get('report_end') == end.isoformat()), None)
     # A report at the exact endpoint is the latest accepted source for that
@@ -950,6 +956,12 @@ def _sub_balance(source, account, sub, end, credit=False):
 
 def _sub_opening_balance(source, account, sub, start, credit=False):
     """Return a subaccount opening balance only from an exact report boundary."""
+    if str(account) == '62' and str(sub) == '62.01':
+        signed_debit = _sub_signed_opening_balance(
+            source, account, sub, start)
+        if signed_debit is not None:
+            value = -signed_debit if credit else signed_debit
+            return round(max(0.0, value), 2)
     acc = source['accounts'].get(account)
     if not acc:
         return None
@@ -968,6 +980,63 @@ def _sub_opening_balance(source, account, sub, start, credit=False):
     value = row.get('snk', 0) - row.get('snd', 0) if credit else \
         row.get('snd', 0) - row.get('snk', 0)
     return round(max(0.0, value), 2)
+
+
+def _sub_signed_opening_balance(source, account, sub, start):
+    """Restore debit-positive opening balance from the latest full report."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return None
+    report_start = _iso(acc.get('report_start'))
+    report_end = _iso(acc.get('report_end'))
+    if not report_start or not report_end or not (
+            report_start <= start <= report_end):
+        return None
+    row = _report_scope_row({'rows': acc.get('rows') or []}, account, sub)
+    if not row:
+        return None
+    signed_debit = row.get('snd', 0) - row.get('snk', 0)
+    prior_rows = [
+        item for item in acc.get('daily') or []
+        if report_start <= _iso(item.get('date')) < start
+    ]
+    basis = _explicit_subaccount_rows(prior_rows, sub)
+    if basis:
+        debit = _known_sum(basis, 'obd')
+        credit = _known_sum(basis, 'obk')
+        if debit is None or credit is None:
+            return None
+        signed_debit += debit - credit
+    return round(signed_debit, 2)
+
+
+def _rolled_sub_signed_balance(source, account, sub, end):
+    """Restore debit-positive balance through an intermediate report date."""
+    acc = source['accounts'].get(account)
+    if not acc:
+        return None
+    report_start = _iso(acc.get('report_start'))
+    report_end = _iso(acc.get('report_end'))
+    if not report_start or not report_end or not (
+            report_start <= end < report_end):
+        return None
+    signed_debit = _sub_signed_opening_balance(
+        source, account, sub, report_start)
+    if signed_debit is None:
+        return None
+    rows = [
+        item for item in acc.get('daily') or []
+        if report_start <= _iso(item.get('date')) <= end
+    ]
+    basis = _explicit_subaccount_rows(rows, sub)
+    if not basis:
+        return None
+    debit = _known_sum(basis, 'obd')
+    credit = _known_sum(basis, 'obk')
+    if debit is None or credit is None:
+        return None
+    return round(signed_debit + debit - credit, 2)
+
 
 def _row_subaccount(row, root):
     codes = [str(row.get(key) or '') for key in
@@ -3146,6 +3215,37 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                     item['series'] = collection_component_series[item['label']]
         card_map['collection']['granularity'] = 'day'
 
+    # Restore intermediate 62.01 balances from an authentic opening balance
+    # and daily movements instead of reducing a period ОСВ to one endpoint.
+    ar_signed_opening = _sub_signed_opening_balance(
+        source, '62', '62.01', start)
+    if ar_signed_opening is not None and not allowed_76:
+        ar_daily_series = []
+        ar_signed_balance = ar_signed_opening
+        ar_cursor = start
+        while ar_cursor <= end:
+            point_rows = _explicit_subaccount_rows(
+                _daily(source, '62', ar_cursor, ar_cursor), '62.01')
+            if point_rows:
+                debit = _known_sum(point_rows, 'obd')
+                credit = _known_sum(point_rows, 'obk')
+                if debit is None or credit is None:
+                    ar_daily_series = []
+                    break
+                ar_signed_balance += debit - credit
+            ar_daily_series.append({
+                'date': ar_cursor.isoformat(),
+                'label': _options([ar_cursor], 'day')[0]['label'],
+                'value': round(max(0.0, ar_signed_balance), 2),
+                'signed_balance': round(ar_signed_balance, 2),
+                'granularity': 'day',
+                'synthetic': False,
+            })
+            ar_cursor += timedelta(days=1)
+        if ar_daily_series:
+            card_map['ar']['series'] = ar_daily_series
+            card_map['ar']['granularity'] = 'day'
+
     series_accounts = {
         'cash': {'series': value_accounts['cash']},
         'revenue': {'series': ('90',)},
@@ -3317,7 +3417,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # an ОСВ period report remains a monthly aggregate and must not be treated
     # as a missing daily observation by the renderer.
     for card in cards:
-        card['granularity'] = 'day' if card['id'] == 'cash' else series_kind
+        if card['id'] == 'cash' or (
+                card['id'] == 'ar' and card.get('series')
+                and all(point.get('granularity') == 'day'
+                        for point in card['series'])):
+            card['granularity'] = 'day'
+        else:
+            card['granularity'] = series_kind
         for field in (
                 'series', 'turnover_series', 'gross_series',
                 'sales_profit_series', 'other_result_series', 'pretax_series',
