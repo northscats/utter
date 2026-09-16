@@ -1917,11 +1917,12 @@
             this._richTooltipHost = null;
         },
 
-        cashMetricCard(label, value, sub, tooltip, needsData, seriesId = '') {
+        cashMetricCard(label, value, sub, tooltip, needsData, seriesId = '',
+                valueClass = '') {
             return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0"
                     ${seriesId ? `data-series-id="${esc(seriesId)}"` : ''}>
                 <div class="cash-analysis-label">${esc(label)}</div>
-                <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : 'cash-value-ok'}">${esc(value)}</div>
+                <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : valueClass || 'cash-value-ok'}">${esc(value)}</div>
                 <div class="cash-analysis-sub">${esc(sub)}</div>
                 ${this.cashTooltip(tooltip)}
             </div>`;
@@ -5310,7 +5311,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
                         <div class="cash-summary-sub">${esc(cashFormatted.u)} · ${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
-                        <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : 'cash-value-ok'}">${esc(deltaText)}</div>
+                        <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : delta < 0 ? 'cash-value-negative' : 'cash-value-ok'}">${esc(deltaText)}</div>
                         <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Текущая ликвидность</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
@@ -5327,7 +5328,7 @@ renderCashModal(card) {
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
                     ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
-                    ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null)}
+                    ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null, '', delta < 0 ? 'cash-value-negative' : '')}
                     ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityData, true)}
                     ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
                     ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
@@ -5410,7 +5411,7 @@ renderCashModal(card) {
                     svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="${item.coverage === 'complete' ? '#3B82F6' : '#D97706'}" tabindex="0" aria-label="${esc(`Остаток на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
                 }
                 if (changes[index].value !== null) {
-                    svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="#10B981" tabindex="0"/>`;
+                    svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="${changes[index].value < 0 ? '#F97316' : '#10B981'}" tabindex="0"/>`;
                 }
                 if (index % Math.max(1, Math.ceil(points.length / 8)) === 0 || index === points.length - 1)
                     svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(item.label)}</text>`;

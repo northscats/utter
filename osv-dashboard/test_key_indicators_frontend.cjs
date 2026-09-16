@@ -192,6 +192,8 @@ async function checkBootstrap(configuration) {
   app.renderPeriodSelector();
   assert.equal(yearSelect.getAttribute('aria-label'), 'Конечная дата');
   assert.equal(nodes.get('ki-quarter-buttons').style.display, 'none');
+  assert.match(script, /delta < 0 \? 'cash-value-negative'/,
+    'negative cash balance changes must use the carrot color class');
 }
 
 (async () => {
