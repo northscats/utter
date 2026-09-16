@@ -2709,3 +2709,133 @@ class PeriodAggregateTests(unittest.TestCase):
             date_from='2026-01-30')['cards']}['collection']
         self.assertEqual([item['value'] for item in card['turnover_series']],
                          [60, None])
+
+    def test_linked_collection_is_calculated_by_confirmed_consumer_category(self):
+        rows = [
+            day('2026-01-31', '62.01', obd=100, obk=50),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+        ]
+        mappings = [{
+            'account': '62.01', 'analytic_key': 'buyer-1', 'category': 'population',
+            'effective_from': '2026-01-01', 'effective_to': '2026-12-31',
+        }, {
+            'account': '62.01', 'analytic_key': 'buyer-2', 'category': 'budget',
+            'effective_from': '2026-01-01', 'effective_to': '2026-12-31',
+        }]
+        accruals = [
+            {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'buyer-1',
+             'type': 'accrual', 'accrued': 60, 'accrual_document': 'ACC-1'},
+            {'date': '2026-01-20', 'account': '62.01', 'analytic_key': 'buyer-2',
+             'type': 'accrual', 'accrued': 40, 'accrual_document': 'ACC-2'},
+        ]
+        allocations = [
+            {'date': '2026-01-25', 'payment_document': 'PAY-1',
+             'accrual_document': 'ACC-1', 'type': 'payment', 'allocated_amount': 54},
+            {'date': '2026-01-26', 'payment_document': 'PAY-2',
+             'accrual_document': 'ACC-2', 'type': 'payment', 'allocated_amount': 28},
+        ]
+        norms = [{
+            'category': 'population', 'plan_percent': 85, 'approved': True,
+            'source': 'Бюджет 2026', 'version': '1',
+            'approved_at': '2025-12-20',
+            'valid_from': '2026-01-01', 'valid_to': '2026-12-31',
+        }]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}),
+            debtor_mappings=mappings, collection_accruals=accruals,
+            collection_allocations=allocations,
+            collection_norms=norms)['cards']}['collection']
+        linked = card['consumer_collection']
+        self.assertTrue(linked['available'])
+        self.assertEqual(linked['value'], 82)
+        self.assertEqual(linked['reconciliation_difference'], 22)
+        population = next(row for row in linked['categories']
+                          if row['id'] == 'population')
+        budget = next(row for row in linked['categories']
+                      if row['id'] == 'budget')
+        self.assertEqual(population['value'], 90)
+        self.assertEqual(population['deviation'], 5)
+        self.assertEqual(population['status'], 'normal')
+        self.assertIsNone(budget['plan'])
+        self.assertIsNone(budget['deviation'])
+        self.assertIsNone(budget['status'])
+
+    def test_linked_collection_rejects_unmapped_and_unknown_amounts(self):
+        accruals = [
+            {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'unknown',
+             'type': 'accrual', 'accrued': 10, 'accrual_document': 'ACC-1'},
+            {'date': '2026-01-16', 'account': '62.01', 'analytic_key': 'buyer',
+             'type': 'accrual', 'accrued': None, 'accrual_document': 'ACC-2'},
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({}), date='2026-01-31',
+            collection_accruals=accruals)['cards']}[
+                'collection']
+        linked = card['consumer_collection']
+        self.assertFalse(linked['available'])
+        self.assertEqual(len(linked['rejected']), 2)
+        self.assertIsNone(linked['value'])
+
+    def test_collection_mapping_is_resolved_on_each_operation_date(self):
+        source = build_indicator_source({
+            '__consumer_collection__': {'accruals': [
+                {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'buyer',
+                 'type': 'accrual', 'accrued': 40, 'accrual_document': 'ACC-1'},
+                {'date': '2026-02-15', 'account': '62.01', 'analytic_key': 'buyer',
+                 'type': 'accrual', 'accrued': 60, 'accrual_document': 'ACC-2'},
+            ], 'allocations': [
+                {'date': '2026-01-20', 'payment_document': 'PAY-1',
+                 'accrual_document': 'ACC-1', 'type': 'payment', 'allocated_amount': 20},
+                {'date': '2026-02-10', 'payment_document': 'PAY-2',
+                 'accrual_document': 'ACC-2', 'type': 'payment', 'allocated_amount': 45},
+            ]}})
+        mappings = [
+            {'account': '62.01', 'analytic_key': 'buyer', 'category': 'population',
+             'effective_from': '2026-01-01', 'effective_to': '2026-01-31'},
+            {'account': '62.01', 'analytic_key': 'buyer', 'category': 'budget',
+             'effective_from': '2026-02-01', 'effective_to': '2026-12-31'},
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            source, period='month', date_from='2026-01-20',
+            date='2026-02-15', debtor_mappings=mappings)['cards']}['collection']
+        linked = card['consumer_collection']
+        self.assertEqual(linked['value'], 65)
+        self.assertEqual(
+            next(row for row in linked['categories']
+                 if row['id'] == 'population')['value'], 50)
+        self.assertEqual(
+            next(row for row in linked['categories']
+                 if row['id'] == 'budget')['value'], 75)
+        self.assertFalse(linked['reconciled'])
+
+    def test_collection_cohort_excludes_future_payment_until_cutoff(self):
+        source = build_indicator_source({
+            '__consumer_collection__': {
+                'accruals': [{
+                    'date': '2026-01-15', 'account': '62.01',
+                    'analytic_key': 'buyer', 'accrued': 100,
+                    'type': 'accrual',
+                    'accrual_document': 'ACC-1',
+                }],
+                'allocations': [{
+                    'date': '2026-02-10', 'payment_document': 'PAY-1',
+                    'accrual_document': 'ACC-1', 'allocated_amount': 80,
+                    'type': 'payment',
+                }],
+            }})
+        mappings = [{
+            'account': '62.01', 'analytic_key': 'buyer',
+            'category': 'population',
+            'effective_from': '2026-01-01', 'effective_to': '2026-12-31',
+        }]
+        january = {item['id']: item for item in build_key_indicators(
+            source, period='month', date='2026-01-15',
+            debtor_mappings=mappings)['cards']}['collection']
+        through_february = {item['id']: item for item in build_key_indicators(
+            source, period='month', date='2026-02-10',
+            date_from='2026-01-15', debtor_mappings=mappings)['cards']}[
+                'collection']
+        self.assertEqual(january['consumer_collection']['value'], 0)
+        self.assertEqual(through_february['consumer_collection']['value'], 80)
+        self.assertEqual(january['value'], 0)
+        self.assertEqual(january['measurement_basis'], 'linked_accrual_payments')

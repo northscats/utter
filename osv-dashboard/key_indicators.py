@@ -159,10 +159,13 @@ def build_indicator_source(parsed_data):
     """Return a JSON-safe versioned snapshot of authentic parsed ОСВ data."""
     if not isinstance(parsed_data, dict):
         raise ValueError('parsed_data must be a dictionary')
+    linked_source = parsed_data.get('__consumer_collection__') or {}
     accounts = {}
     all_dates = set()
     warnings = []
     for account, raw in sorted(parsed_data.items()):
+        if account == '__consumer_collection__':
+            continue
         if not isinstance(raw, dict):
             continue
         account = str(account)
@@ -313,12 +316,32 @@ def build_indicator_source(parsed_data):
             all_dates.add(report['report_end'])
         for interval in coverage:
             all_dates.add(interval['end'])
-    return {
+    result = {
         'version': 1,
         'dates': sorted(all_dates),
         'accounts': accounts,
         'warnings': list(dict.fromkeys(warnings)),
     }
+    if isinstance(linked_source, dict):
+        accruals = linked_source.get('accruals')
+        allocations = linked_source.get('allocations')
+        norms = linked_source.get('norms')
+        if isinstance(accruals, list):
+            result['collection_accruals'] = [
+                dict(item) for item in accruals if isinstance(item, dict)]
+            result['dates'] = sorted(set(result['dates']) | {
+                str(item.get('date')) for item in result['collection_accruals']
+                if _iso(item.get('date'))})
+        if isinstance(allocations, list):
+            result['collection_allocations'] = [
+                dict(item) for item in allocations if isinstance(item, dict)]
+            result['dates'] = sorted(set(result['dates']) | {
+                str(item.get('date')) for item in result['collection_allocations']
+                if _iso(item.get('date'))})
+        if isinstance(norms, list):
+            result['collection_norms'] = [
+                dict(item) for item in norms if isinstance(item, dict)]
+    return result
 
 
 def _range(kind, endpoint):
@@ -1126,6 +1149,183 @@ def _collection_components(source, start, end):
     }
 
 
+def _consumer_collection(accruals, allocations, mappings, norms,
+                         start, end, proxy_value):
+    """Calculate collection for accrual cohort with payments through cutoff."""
+    categories = {key: title for key, title in REVENUE_CATEGORIES}
+    mapping_rules = defaultdict(list)
+    for item in mappings or []:
+        if not isinstance(item, dict):
+            continue
+        account = str(item.get('account') or '')
+        key = str(item.get('analytic_key') or '')
+        category = str(item.get('category') or '')
+        valid_from = _iso(item.get('effective_from'))
+        valid_to = _iso(item.get('effective_to'))
+        if key and category in categories and valid_from and valid_to:
+            mapping_rules[(account, key)].append(
+                (valid_from, valid_to, category))
+
+    accepted = []
+    rejected = []
+    totals = defaultdict(lambda: {'accrual': 0.0, 'payment': 0.0})
+    all_accrual_documents = {
+        str(item.get('accrual_document') or '').strip()
+        for item in accruals or [] if isinstance(item, dict)}
+    allocations_by_accrual = defaultdict(float)
+    allocation_rejected = []
+    for item in allocations or []:
+        if not isinstance(item, dict):
+            continue
+        paid_at = _iso(item.get('date'))
+        document = str(item.get('accrual_document') or '').strip()
+        payment_document = str(item.get('payment_document') or '').strip()
+        amount = item.get('allocated_amount')
+        entry_type = str(item.get('type') or '')
+        if (not paid_at or paid_at > end or not document or not payment_document
+                or not isinstance(amount, (int, float))
+                or isinstance(amount, bool)
+                or entry_type not in ('payment', 'refund')):
+            if paid_at and paid_at <= end:
+                allocation_rejected.append({
+                    'date': paid_at.isoformat(),
+                    'reason': 'Некорректное распределение оплаты',
+                })
+            continue
+        allocations_by_accrual[document] += (
+            float(amount) if entry_type == 'payment' else -float(amount))
+
+    known_accrual_documents = set()
+    for item in accruals or []:
+        if not isinstance(item, dict):
+            continue
+        occurred = _iso(item.get('date'))
+        if not occurred or occurred < start or occurred > end:
+            continue
+        account = str(item.get('account') or '')
+        key = str(item.get('analytic_key') or '')
+        accrued = item.get('accrued')
+        entry_type = str(item.get('type') or '')
+        document = str(item.get('accrual_document') or '').strip()
+        problems = []
+        if not account or not key:
+            problems.append('не указан счёт или ключ аналитики')
+        if (not isinstance(accrued, (int, float)) or isinstance(accrued, bool)
+                or entry_type not in ('accrual', 'correction')):
+            problems.append('сумма начисления не является числом')
+        mapped = {
+            category for valid_from, valid_to, category
+            in mapping_rules.get((account, key), [])
+            if valid_from <= occurred <= valid_to}
+        if len(mapped) != 1:
+            problems.append(
+                'нет единственной подтверждённой категории на дату операции')
+        if not document:
+            problems.append('не указан документ начисления')
+        if problems:
+            rejected.append({
+                'date': occurred.isoformat(),
+                'analytic_key': key or None,
+                'reason': '; '.join(problems),
+            })
+            continue
+        category = next(iter(mapped))
+        row = {
+            'date': occurred.isoformat(),
+            'account': account,
+            'analytic_key': key,
+            'category': category,
+            'accrued': round(
+                float(accrued) if entry_type == 'accrual'
+                else -float(accrued), 2),
+            'allocated_payment': round(
+                allocations_by_accrual.get(document, 0.0), 2),
+            'accrual_document': document,
+        }
+        known_accrual_documents.add(document)
+        accepted.append(row)
+        totals[category]['accrual'] += row['accrued']
+        totals[category]['payment'] += row['allocated_payment']
+
+    unknown_allocations = sorted(
+        document for document in allocations_by_accrual
+        if document not in all_accrual_documents)
+    rejected.extend(allocation_rejected)
+    rejected.extend({
+        'date': end.isoformat(),
+        'reason': f'Оплата ссылается на начисление вне выбранной когорты: {doc}',
+    } for doc in unknown_allocations)
+    rows = []
+    for key, title in REVENUE_CATEGORIES:
+        values = totals.get(key)
+        accrual = round(values['accrual'], 2) if values else None
+        payment = round(values['payment'], 2) if values else None
+        rows.append({
+            'id': key, 'label': title, 'accrual': accrual, 'payment': payment,
+            'value': (round(payment / accrual * 100, 2)
+                      if accrual not in (None, 0) else None),
+        })
+    total_accrual = round(sum(row['accrued'] for row in accepted), 2)
+    total_payment = round(sum(row['allocated_payment'] for row in accepted), 2)
+    value = (round(total_payment / total_accrual * 100, 2)
+             if accepted and total_accrual != 0 else None)
+
+    approved_candidates = defaultdict(list)
+    for item in norms or []:
+        if not isinstance(item, dict) or item.get('approved') is not True:
+            continue
+        category = str(item.get('category') or '')
+        valid_from = _iso(item.get('valid_from'))
+        valid_to = _iso(item.get('valid_to'))
+        plan = item.get('plan_percent')
+        if (category in categories and valid_from and valid_to
+                and valid_from <= start and valid_to >= end
+                and isinstance(plan, (int, float)) and not isinstance(plan, bool)
+                and item.get('source') and item.get('approved_at')):
+            approved_candidates[category].append({
+                'value': round(float(plan), 2),
+                'source': str(item['source']),
+                'version': str(item.get('version') or ''),
+                'approved_at': str(item['approved_at']),
+            })
+    approved_norms = {
+        category: items[0] for category, items in approved_candidates.items()
+        if len(items) == 1
+    }
+    norm_conflicts = sorted(
+        category for category, items in approved_candidates.items()
+        if len(items) > 1)
+    for row in rows:
+        norm = approved_norms.get(row['id'])
+        row['plan'] = norm
+        row['deviation'] = (
+            round(row['value'] - norm['value'], 2)
+            if row['value'] is not None and norm else None)
+        row['status'] = (
+            ('normal' if row['deviation'] >= 0 else 'attention')
+            if row['deviation'] is not None else None)
+
+    return {
+        'available': value is not None,
+        'value': value,
+        'accrual': total_accrual if accepted else None,
+        'payment': total_payment if accepted else None,
+        'categories': rows,
+        'accepted_rows': len(accepted),
+        'rejected': rejected,
+        'reconciled': (
+            not rejected and value is not None and proxy_value is not None
+            and abs(value - proxy_value) <= 0.01),
+        'reconciliation_difference': (
+            round(value - proxy_value, 2)
+            if value is not None and proxy_value is not None else None),
+        'proxy_value': proxy_value,
+        'series': [],
+        'norms_available': bool(approved_norms),
+        'norm_conflicts': norm_conflicts,
+    }
+
+
 def _top_balance(source, account, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
@@ -1429,7 +1629,9 @@ def _card(cid, value, unit, formula, source_label, reason=None, **extra):
 
 def build_key_indicators(source, period='month', date=None, date_from=None,
                          revenue_mappings=None, cost_mappings=None,
-                         debtor_mappings=None):
+                         debtor_mappings=None, collection_accruals=None,
+                         collection_allocations=None,
+                         collection_norms=None):
     """Calculate the strict JSON response contract from a source snapshot."""
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
@@ -1805,6 +2007,15 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     collection = collection_data['value']
     collection_reason = collection_data['reason']
     collection_components = collection_data['components']
+    linked_collection = _consumer_collection(
+        collection_accruals if collection_accruals is not None
+        else source.get('collection_accruals'),
+        collection_allocations if collection_allocations is not None
+        else source.get('collection_allocations'),
+        debtor_mappings,
+        collection_norms if collection_norms is not None
+        else source.get('collection_norms'),
+        start, end, collection)
     # Keep the account-level component rows as the auditable analytics.  They
     # are intentionally not inferred from root 62 or from payment registers.
     collection_analytics = []
@@ -2079,12 +2290,24 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               details=[{'label': 'Выручка брутто', 'value': gross_rev, 'unit': 'RUB'},
                        {'label': 'НДС', 'value': vat, 'unit': 'RUB',
                         **({'reason': 'Строки 90.03 отсутствуют'} if vat is None else {})}]),
-        _card('collection', collection, '%',
-              '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
-              'Явные обороты ОСВ 62.01 и 62.02',
-              collection_reason,
-               measurement_basis='accounting_collection_proxy',
-               linked_payments_available=False,
+        _card('collection',
+               linked_collection['value']
+               if linked_collection['available'] else collection, '%',
+               ('Распределённые оплаты / начисления × 100%'
+                if linked_collection['available'] else
+                '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%'),
+               ('Регистр начислений и распределений оплат'
+                if linked_collection['available'] else
+                'Явные обороты ОСВ 62.01 и 62.02'),
+               None if linked_collection['available'] else collection_reason,
+                title=('Фактическая собираемость'
+                       if linked_collection['available']
+                       else _TITLES['collection']),
+                measurement_basis=('linked_accrual_payments'
+                                   if linked_collection['available']
+                                   else 'accounting_collection_proxy'),
+               linked_payments_available=linked_collection['available'],
+               consumer_collection=linked_collection,
                accounting_proxy={
                    'value': collection,
                    'formula': '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
@@ -2414,6 +2637,22 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'credit_6201': month_components.get('Кредитовый оборот 62.01'),
             'debit_6202': month_components.get('Дебетовый оборот 62.02'),
             'credit_6202': month_components.get('Кредитовый оборот 62.02')})
+        month_linked = _consumer_collection(
+            collection_accruals if collection_accruals is not None
+            else source.get('collection_accruals'),
+            collection_allocations if collection_allocations is not None
+            else source.get('collection_allocations'),
+            debtor_mappings,
+            collection_norms if collection_norms is not None
+            else source.get('collection_norms'),
+            month_start, month_end, month_collection['value'])
+        card_map['collection']['consumer_collection']['series'].append({
+            'date': point_date,
+            'label': option['label'],
+            'value': month_linked['value'],
+            'proxy_value': month_collection['value'],
+            'categories': month_linked['categories'],
+        })
         cash_month = _cash_snapshot(source, month_end)
         month_values['cash'] = cash_month['value']
         card_map['cash']['series'].append({

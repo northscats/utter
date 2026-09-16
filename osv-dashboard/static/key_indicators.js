@@ -2074,7 +2074,11 @@
             if (!container) return;
 
             const components = card.components || card.collection_components || [];
-            const turnover = card.value;
+            const linked = card.consumer_collection || {};
+            const proxyTurnover = card.accounting_proxy &&
+                card.accounting_proxy.value !== undefined
+                ? card.accounting_proxy.value : card.value;
+            const turnover = linked.available ? linked.value : proxyTurnover;
             const rub = value => value === null || value === undefined ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
 
@@ -2098,23 +2102,62 @@
                     <div style="font-size: 13px; color: #1E3A5F; font-weight: 500; margin-bottom: 16px; display: flex; align-items: flex-start; gap: 8px;">
                         <svg style="flex-shrink: 0; color: #3B82F6; margin-top: 2px;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
                         <div>
-                            Собираемость по ОСВ рассчитана как бухгалтерский прокси. <span style="color: #64748B;">Нужны явные компоненты 62.01/62.02. Формула:</span>
-                            <span style="background: #EFF6FF; color: #1D4ED8; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-left: 4px;">${esc(card.formula || '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%')}</span>
+                            ${linked.available
+                                ? 'Фактическая собираемость рассчитана по начислениям выбранной когорты и распределённым оплатам не позднее даты отсечения.'
+                                : 'Собираемость по ОСВ рассчитана как бухгалтерский прокси.'}
+                            <span style="color: #64748B;"> Контрольный прокси ОСВ:</span>
+                            <span style="background: #EFF6FF; color: #1D4ED8; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; margin-left: 4px;">(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%</span>
+                            <div style="margin-top:6px;color:#64748B;">Корень 62 и отсутствующие компоненты не заменяют фактические обороты нулём.</div>
                         </div>
                     </div>
                     <div class="collection-summary">
-                        ${this.cashMetricCard('ОБЩИЙ СБОР ПО ОСВ', pct(turnover), 'из компонентов', this.collectionTooltip({title: 'Общий сбор', fact: pct(turnover)}), turnover === null, '__main__')}
-                        ${this.cashMetricCard('ОбД 62.01', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'ОбД 62.01', fact: rub(obd6201)}), obd6201 === null)}
-                        ${this.cashMetricCard('ОбК 62.01', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'ОбК 62.01', fact: rub(obk6201)}), obk6201 === null)}
-                        ${this.cashMetricCard('Эффект 62.02', rub(net6202), 'ОбК 62.02 − ОбД 62.02', this.collectionTooltip({title: 'Сальдо оборотов 62.02', fact: rub(net6202)}), net6202 === null)}
+                        ${this.cashMetricCard(linked.available ? 'ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ' : 'ОБЩИЙ СБОР ПО ОСВ', pct(turnover), linked.available ? 'распределённые оплаты / начисления' : 'из компонентов', this.collectionTooltip({title: linked.available ? 'Фактическая собираемость' : 'Общий сбор по ОСВ', fact: pct(turnover)}), turnover === null, '__main__')}
+                        ${linked.available
+                            ? this.cashMetricCard('НАЧИСЛЕНО', rub(linked.accrual), 'когорта выбранного периода', this.collectionTooltip({title: 'Начисления когорты', fact: rub(linked.accrual)}), linked.accrual === null)
+                            : this.cashMetricCard('ОбД 62.01', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'ОбД 62.01', fact: rub(obd6201)}), obd6201 === null)}
+                        ${linked.available
+                            ? this.cashMetricCard('РАСПРЕДЕЛЕНО ОПЛАТ', rub(linked.payment), 'не позднее даты отсечения', this.collectionTooltip({title: 'Распределённые оплаты', fact: rub(linked.payment)}), linked.payment === null)
+                            : this.cashMetricCard('ОбК 62.01', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'ОбК 62.01', fact: rub(obk6201)}), obk6201 === null)}
+                        ${this.cashMetricCard('ПРОКСИ ОСВ', pct(proxyTurnover), 'контрольная величина', this.collectionTooltip({title: 'Бухгалтерский прокси ОСВ', fact: pct(proxyTurnover)}), proxyTurnover === null)}
                     </div>
                 </div>`;
 
-            const segmentNoticeHtml = `
+            const segmentNoticeHtml = linked.available ? `
+                <div style="background: ${linked.reconciled ? '#ECFDF5' : '#FFF7ED'}; border-left: 4px solid ${linked.reconciled ? '#10B981' : '#F97316'}; border-radius: 4px; padding: 12px 16px; margin-bottom: 16px; font-size: 12px; color: #374151;">
+                    Фактическая собираемость по связанным начислениям: <strong>${esc(pct(linked.value))}</strong>.
+                    Начислено ${esc(rub(linked.accrual))}, распределено оплат ${esc(rub(linked.payment))}.
+                    ${linked.reconciliation_difference === null || linked.reconciliation_difference === undefined
+                        ? 'Сверка с общим показателем ОСВ недоступна.'
+                        : `Расхождение с общим показателем ОСВ: <strong>${esc(Number(linked.reconciliation_difference).toFixed(2))} п.п.</strong>`}
+                    ${linked.rejected && linked.rejected.length ? ` Не включено строк: ${esc(linked.rejected.length)}.` : ''}
+                </div>` : `
                 <div style="background: #F9FAFB; border-left: 4px solid #9CA3AF; border-radius: 4px; padding: 12px 16px; margin-bottom: 24px; font-size: 12px; color: #4B5563; display: flex; align-items: center; gap: 8px;">
                     <svg style="flex-shrink: 0;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
                     Детализация по сегментам потребителей недоступна: отсутствуют регистры начислений и распределения оплат.
                 </div>`;
+
+            const segmentRows = (linked.categories || []).map(row => {
+                const plan = row.plan ? pct(row.plan.value) : 'Н/Д';
+                const deviation = row.deviation === null || row.deviation === undefined
+                    ? 'Н/Д' : `${row.deviation >= 0 ? '+' : ''}${Number(row.deviation).toFixed(1)} п.п.`;
+                const status = row.status === 'normal' ? 'Норма'
+                    : row.status === 'attention' ? 'Внимание' : 'Н/Д';
+                return `<tr>
+                    <td style="text-align:left;font-weight:600;">${esc(row.label)}</td>
+                    <td style="text-align:right;">${esc(rub(row.accrual))}</td>
+                    <td style="text-align:right;">${esc(rub(row.payment))}</td>
+                    <td style="text-align:right;font-weight:700;">${esc(pct(row.value))}</td>
+                    <td style="text-align:right;">${esc(plan)}</td>
+                    <td style="text-align:right;">${esc(deviation)}</td>
+                    <td style="text-align:center;">${esc(status)}</td>
+                </tr>`;
+            }).join('');
+            const segmentTableHtml = linked.available ? `
+                <div class="modal-section-title">СОБИРАЕМОСТЬ ПО КАТЕГОРИЯМ ПОТРЕБИТЕЛЕЙ</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table">
+                    <thead><tr><th>Категория</th><th>Начислено</th><th>Оплачено</th><th>Факт</th><th>План</th><th>Отклонение</th><th>Статус</th></tr></thead>
+                    <tbody>${segmentRows}</tbody>
+                </table></div>` : '';
 
             const chartHtml = `
                 <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика" style="margin-bottom: 24px;">
@@ -2171,9 +2214,28 @@
                     </table>
                 </div>`;
 
-            container.innerHTML = bannerHtml + chartHtml + segmentNoticeHtml + tableHtml;
+            container.innerHTML = bannerHtml + segmentNoticeHtml + segmentTableHtml + chartHtml + tableHtml;
 
-            this.mountSharedDynamics(card, container);
+            const dynamicsCard = linked.available ? Object.assign({}, card, {
+                series: linked.series || [],
+                components: (linked.categories || []).map(category => ({
+                    label: category.label,
+                    value: category.value,
+                    series_id: `consumer:${category.id}`,
+                    series: (linked.series || []).map(point => {
+                        const categoryPoint = (point.categories || []).find(
+                            item => item.id === category.id);
+                        return {
+                            date: point.date,
+                            label: point.label,
+                            value: categoryPoint ? categoryPoint.value : null
+                        };
+                    })
+                })),
+                details: [],
+                analytics: []
+            }) : card;
+            this.mountSharedDynamics(dynamicsCard, container);
         },
         arRequirements() {
             return {

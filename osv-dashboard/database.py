@@ -492,6 +492,77 @@ class Upload(db.Model):
         except (TypeError, ValueError):
             return None
 
+class ConsumerCollectionAccrual(db.Model):
+    """Документ начисления с аналитикой потребителя."""
+    __tablename__ = 'consumer_collection_accruals'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'accrual_document',
+            name='uq_consumer_collection_accrual_source'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    accrual_date = db.Column(db.Date, nullable=False, index=True)
+    accrual_document = db.Column(db.String(500), nullable=False)
+    account = db.Column(db.String(32), nullable=False)
+    analytic_key = db.Column(db.String(64), nullable=False)
+    entry_type = db.Column(db.String(20), nullable=False, default='accrual')
+    accrued = db.Column(db.Float, nullable=False)
+    source_name = db.Column(db.String(200), nullable=False)
+    source_version = db.Column(db.String(120), nullable=False)
+    imported_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class ConsumerPaymentAllocation(db.Model):
+    """Распределение платёжного документа на документ начисления."""
+    __tablename__ = 'consumer_payment_allocations'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'payment_document', 'accrual_document',
+            name='uq_consumer_payment_allocation_source'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    payment_date = db.Column(db.Date, nullable=False, index=True)
+    payment_document = db.Column(db.String(500), nullable=False)
+    accrual_document = db.Column(db.String(500), nullable=False, index=True)
+    entry_type = db.Column(db.String(20), nullable=False, default='payment')
+    allocated_amount = db.Column(db.Float, nullable=False)
+    source_name = db.Column(db.String(200), nullable=False)
+    source_version = db.Column(db.String(120), nullable=False)
+    imported_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+class ConsumerCollectionNorm(db.Model):
+    """Утверждённый план собираемости по категории потребителей."""
+    __tablename__ = 'consumer_collection_norms'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'category', 'valid_from', 'valid_to', 'source_name',
+            'source_version', name='uq_consumer_collection_norm_source'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    category = db.Column(db.String(32), nullable=False)
+    plan_percent = db.Column(db.Float, nullable=False)
+    approved = db.Column(db.Boolean, nullable=False, default=False)
+    approved_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    valid_from = db.Column(db.Date, nullable=False)
+    valid_to = db.Column(db.Date, nullable=False)
+    source_name = db.Column(db.String(200), nullable=False)
+    source_version = db.Column(db.String(120), nullable=False)
+    imported_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
 class RatingProfile(db.Model):
     """Именованный пользовательский профиль общего рейтинга."""
     __tablename__ = 'rating_profiles'

@@ -42,7 +42,8 @@ from database import (AiProvider, AiSummary, AuditLog, Company, CompanyContact,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
                        CostAnalyticMapping,
-                       DebtorAnalyticMapping,
+                        DebtorAnalyticMapping, ConsumerCollectionAccrual,
+                        ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
                        Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
@@ -113,6 +114,8 @@ _DURABLE_MODELS = (
     User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
     RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
+    ConsumerCollectionAccrual, ConsumerPaymentAllocation,
+    ConsumerCollectionNorm,
     AnalogPassport, AnalogPassportVersion, AnalogSource,
     AnalogOrganizationRole, AnalogTep, AnalogDocument, AnalogCostRow,
     AnalogSSRChapter, AnalogSSRItem, AnalogDiagnostic,
@@ -3151,10 +3154,45 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
 
     source, updated_at = load_company_source(company.id, UPLOADS)
     mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company.id)
+    collection_accruals = [{
+        'date': row.accrual_date.isoformat(),
+        'account': row.account,
+        'analytic_key': row.analytic_key,
+        'type': row.entry_type,
+        'accrued': row.accrued,
+        'accrual_document': row.accrual_document,
+        'source': row.source_name,
+        'version': row.source_version,
+    } for row in ConsumerCollectionAccrual.query.filter_by(
+        company_id=company.id).all()]
+    collection_allocations = [{
+        'date': row.payment_date.isoformat(),
+        'payment_document': row.payment_document,
+        'accrual_document': row.accrual_document,
+        'type': row.entry_type,
+        'allocated_amount': row.allocated_amount,
+        'source': row.source_name,
+        'version': row.source_version,
+    } for row in ConsumerPaymentAllocation.query.filter_by(
+        company_id=company.id).all()]
+    collection_norms = [{
+        'category': row.category,
+        'plan_percent': row.plan_percent,
+        'approved': row.approved,
+        'approved_at': row.approved_at.isoformat(),
+        'valid_from': row.valid_from.isoformat(),
+        'valid_to': row.valid_to.isoformat(),
+        'source': row.source_name,
+        'version': row.source_version,
+    } for row in ConsumerCollectionNorm.query.filter_by(
+        company_id=company.id).all()]
     payload = build_key_indicators(
         source, period=period, date=endpoint, date_from=date_from,
         revenue_mappings=mappings, cost_mappings=cost_mappings,
-        debtor_mappings=debtor_mappings)
+        debtor_mappings=debtor_mappings,
+        collection_accruals=collection_accruals,
+        collection_allocations=collection_allocations,
+        collection_norms=collection_norms)
     payload['company'] = {'id': company.id, 'name': company.name}
     payload['updated_at'] = updated_at
     payload['source_passport'] = build_period_passport(source, payload)
@@ -3640,6 +3678,134 @@ def key_indicator_debtor_mappings(company_id):
         allowed_removed_tables={'debtor_analytic_mappings'})
     saved = DebtorAnalyticMapping.query.filter_by(company_id=company_id).count()
     return jsonify(saved=saved)
+
+
+@app.route('/company/<int:company_id>/key-indicators/collection-source',
+           methods=['POST'])
+@admin_required
+def key_indicator_collection_source(company_id):
+    """Atomically replace linked collection facts and approved norms."""
+    company = db.session.get(Company, company_id) or abort(404)
+    if company.is_archived:
+        abort(409, description='Архивное предприятие доступно только для чтения')
+    body = request.get_json(silent=True) or {}
+    accruals = body.get('accruals')
+    allocations = body.get('allocations')
+    norms = body.get('norms')
+    if (not isinstance(accruals, list)
+            or not isinstance(allocations, list)
+            or not isinstance(norms, list)):
+        return jsonify(
+            error='Поля accruals, allocations и norms должны быть списками'), 400
+    allowed_categories = {'population', 'uk', 'budget', 'legal', 'subsidy'}
+    normalized_accruals = []
+    normalized_allocations = []
+    normalized_norms = []
+    try:
+        for item in accruals:
+            if not isinstance(item, dict):
+                raise ValueError('Некорректная строка регистра')
+            accrual_date = datetime.strptime(
+                str(item.get('date') or ''), '%Y-%m-%d').date()
+            account = str(item.get('account') or '').strip()
+            analytic_key = str(item.get('analytic_key') or '').strip()
+            document = str(item.get('accrual_document') or '').strip()
+            source_name = str(item.get('source') or '').strip()
+            source_version = str(item.get('version') or '').strip()
+            accrued = item.get('accrued')
+            entry_type = str(item.get('type') or '').strip()
+            if (account != '62.01' and not re.fullmatch(r'76(?:\.\d+)+', account)
+                    or not re.fullmatch(r'[0-9a-f]{64}', analytic_key)
+                    or not document or len(document) > 500
+                    or not source_name or len(source_name) > 200
+                    or not source_version or len(source_version) > 120
+                    or entry_type not in {'accrual', 'correction'}
+                    or isinstance(accrued, bool) or not isinstance(accrued, (int, float))
+                    or accrued < 0):
+                raise ValueError('Некорректная строка начисления')
+            normalized_accruals.append(ConsumerCollectionAccrual(
+                company_id=company_id, accrual_date=accrual_date,
+                account=account, analytic_key=analytic_key,
+                entry_type=entry_type, accrued=float(accrued),
+                accrual_document=document,
+                source_name=source_name,
+                source_version=source_version))
+        for item in allocations:
+            if not isinstance(item, dict):
+                raise ValueError('Некорректная строка распределения оплаты')
+            payment_date = datetime.strptime(
+                str(item.get('date') or ''), '%Y-%m-%d').date()
+            payment_document = str(item.get('payment_document') or '').strip()
+            accrual_document = str(item.get('accrual_document') or '').strip()
+            source_name = str(item.get('source') or '').strip()
+            source_version = str(item.get('version') or '').strip()
+            amount = item.get('allocated_amount')
+            entry_type = str(item.get('type') or '').strip()
+            if (not payment_document or not accrual_document
+                    or len(payment_document) > 500 or len(accrual_document) > 500
+                    or not source_name or len(source_name) > 200
+                    or not source_version or len(source_version) > 120
+                    or entry_type not in {'payment', 'refund'}
+                    or isinstance(amount, bool) or not isinstance(amount, (int, float))
+                    or amount < 0):
+                raise ValueError('Некорректная строка распределения оплаты')
+            normalized_allocations.append(ConsumerPaymentAllocation(
+                company_id=company_id, payment_date=payment_date,
+                payment_document=payment_document,
+                accrual_document=accrual_document,
+                entry_type=entry_type, allocated_amount=float(amount),
+                source_name=source_name,
+                source_version=source_version))
+        for item in norms:
+            if not isinstance(item, dict):
+                raise ValueError('Некорректная строка норматива')
+            category = str(item.get('category') or '').strip()
+            source_name = str(item.get('source') or '').strip()
+            source_version = str(item.get('version') or '').strip()
+            valid_from = datetime.strptime(
+                str(item.get('valid_from') or ''), '%Y-%m-%d').date()
+            valid_to = datetime.strptime(
+                str(item.get('valid_to') or ''), '%Y-%m-%d').date()
+            approved_at = datetime.fromisoformat(
+                str(item.get('approved_at') or '').replace('Z', '+00:00'))
+            plan = item.get('plan_percent')
+            if (category not in allowed_categories or valid_from > valid_to
+                    or item.get('approved') is not True
+                    or isinstance(plan, bool) or not isinstance(plan, (int, float))
+                    or not source_name or len(source_name) > 200
+                    or not source_version or len(source_version) > 120):
+                raise ValueError('Некорректный утверждённый норматив')
+            normalized_norms.append(ConsumerCollectionNorm(
+                company_id=company_id, category=category,
+                plan_percent=float(plan), approved=True,
+                approved_at=approved_at, valid_from=valid_from,
+                valid_to=valid_to, source_name=source_name,
+                source_version=source_version))
+    except (TypeError, ValueError) as exc:
+        return jsonify(error=str(exc)), 400
+    accrual_documents = {
+        row.accrual_document for row in normalized_accruals}
+    if any(row.accrual_document not in accrual_documents
+           for row in normalized_allocations):
+        return jsonify(error='Распределение ссылается на неизвестное начисление'), 400
+    ConsumerCollectionAccrual.query.filter_by(company_id=company_id).delete()
+    ConsumerPaymentAllocation.query.filter_by(company_id=company_id).delete()
+    ConsumerCollectionNorm.query.filter_by(company_id=company_id).delete()
+    db.session.add_all(
+        normalized_accruals + normalized_allocations + normalized_norms)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify(error='Источник содержит дублирующиеся строки'), 409
+    _durable_backup(
+        'источник собираемости по категориям',
+        allowed_removed_tables={
+            'consumer_collection_accruals', 'consumer_payment_allocations',
+            'consumer_collection_norms'})
+    return jsonify(accruals=len(normalized_accruals),
+                   allocations=len(normalized_allocations),
+                   norms=len(normalized_norms))
 @app.route('/company/<int:company_id>/key-indicators/cost-mappings',
            methods=['POST'])
 @admin_required

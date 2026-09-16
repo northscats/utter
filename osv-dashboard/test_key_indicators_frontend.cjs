@@ -67,6 +67,28 @@ async function checkBootstrap(configuration) {
   assert.equal(million.u, 'млн ₽');
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
+  app.mountSharedDynamics = () => {};
+  const collectionBase = {
+    id: 'collection', title: 'Собираемость', value: 60, unit: '%',
+    accounting_proxy: {value: 60}, components: [],
+    consumer_collection: {available: false, categories: [], series: []},
+  };
+  assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОБЩИЙ СБОР ПО ОСВ/);
+  const factualCollection = Object.assign({}, collectionBase, {
+    value: 80,
+    consumer_collection: {
+      available: true, value: 80, accrual: 100, payment: 80,
+      reconciled: false, reconciliation_difference: 20,
+      rejected: [], series: [], categories: [{
+        id: 'population', label: 'Население', accrual: 100,
+        payment: 80, value: 80, plan: null, deviation: null, status: null,
+      }],
+    },
+  });
+  assert.doesNotThrow(() => app.renderCollectionModal(factualCollection));
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Население/);
   const previousData = app.state.data;
   app.state.data = {period: {start: '2026-01-01', end: '2026-06-30', label: '2026'}};
   assert.equal(app.displayedPeriodLabel(), '01.01.2026 — 30.06.2026');
