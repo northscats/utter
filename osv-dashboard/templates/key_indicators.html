@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Основные показатели - {{ company.name }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='key_indicators.css', v='20260916-7') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='key_indicators.css', v='20260916-8') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_source_passport.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_indicator_layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_dashboard_layout.css') }}">
@@ -57,16 +57,6 @@
           <button class="mode-btn active" data-mode="operational">ОСВ</button>
           <button class="mode-btn" data-mode="annual">Годовые</button>
         </div>
-        <button type="button" class="ki-tooltip-toggle" id="ki-tooltip-toggle"
-                aria-pressed="false" aria-label="Отключить подсказки"
-                title="Отключить подсказки">
-          <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"
-               stroke="currentColor" fill="none" stroke-width="2"
-               stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 15a4 4 0 0 1-4 4H8l-5 3v-7a4 4 0 0 1-1-2.7V7a4 4 0 0 1 4-4h11a4 4 0 0 1 4 4v8z"/>
-            <path d="m3 3 18 18"/>
-          </svg>
-        </button>
         <div class="period-selector" id="ki-period-selector">
           <button class="period-btn active" data-period="year">Год</button>
           <button class="period-btn" data-period="quarter">Квартал</button>
@@ -98,6 +88,16 @@
               onclick="window.KI_App.switchTab('data')">
         <span class="tab-icon"><svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></span>
         Данные
+      </button>
+      <button type="button" class="ki-tooltip-toggle" id="ki-tooltip-toggle"
+              aria-pressed="false" aria-label="Отключить подсказки"
+              title="Отключить подсказки">
+        <svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18"
+             stroke="currentColor" fill="none" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a4 4 0 0 1-4 4H8l-5 3v-7a4 4 0 0 1-1-2.7V7a4 4 0 0 1 4-4h11a4 4 0 0 1 4 4v8z"/>
+          <path d="m3 3 18 18"/>
+        </svg>
       </button>
       <button type="button" class="ki-dashboard-layout-gear" id="ki-dashboard-layout-gear"
               aria-label="Настроить карточки показателей" title="Настроить карточки показателей">

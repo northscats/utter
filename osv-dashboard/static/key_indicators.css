@@ -62,19 +62,22 @@ body {
 .mode-btn:hover { background: rgba(255,255,255,0.15); }
 .mode-btn.active { background: #F59E0B; color: #1E3A5F; font-weight: 700; }
 .ki-tooltip-toggle {
-  width:34px; height:32px; padding:0; margin-left:-12px;
+  width:36px; height:34px; padding:0; margin-left:auto;
   display:inline-flex; align-items:center; justify-content:center;
-  color:#E2E8F0; background:rgba(255,255,255,.1);
-  border:1px solid rgba(255,255,255,.2); border-radius:6px;
+  color:#4B5563; background:#fff;
+  border:1px solid #D1D5DB; border-radius:7px;
   cursor:pointer; transition:all .15s; flex:0 0 auto;
 }
-.ki-tooltip-toggle:hover { background:rgba(255,255,255,.18); color:#fff; }
+.ki-tooltip-toggle:hover {
+  color:#1D4ED8; border-color:#93C5FD; background:#EFF6FF;
+}
 .ki-tooltip-toggle:focus-visible {
-  outline:2px solid #F59E0B; outline-offset:2px;
+  outline:2px solid #2563EB; outline-offset:2px;
 }
 .ki-tooltip-toggle[aria-pressed="true"] {
-  background:#F59E0B; border-color:#F59E0B; color:#1E3A5F;
+  background:#FEF3C7; border-color:#F59E0B; color:#92400E;
 }
+.tabs-bar .ki-tooltip-toggle + .ki-dashboard-layout-gear { margin-left:8px; }
 body.ki-tooltips-disabled .cash-tooltip-host,
 body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 
