@@ -15,11 +15,12 @@ from datetime import date as Date, timedelta
 
 _BALANCE_ACCOUNTS = {'50', '51', '52', '55', '60', '62', '66', '67', '70'}
 _CASH_ACCOUNTS = ('50', '51', '52', '55')
-_CARD_ORDER = ('cash', 'revenue', 'collection', 'ar', 'ap', 'cogs',
+_CARD_ORDER = ('cash', 'ncf', 'revenue', 'collection', 'ar', 'ap', 'cogs',
                'profit', 'credits', 'salary', 'capex')
 _ANALYTIC_SERIES_LIMIT = 200
 _TITLES = {
     'cash': 'Денежные средства',
+    'ncf': 'NCF — чистый денежный поток',
     'revenue': 'Выручка',
     'collection': 'Собираемость (прокси по ОСВ)',
     'ar': 'Подтверждённая дебиторская задолженность',
@@ -2592,6 +2593,10 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               coverage=cash_snapshot['coverage'],
               comparison=None,
               notes=cash_notes),
+        _card('ncf', None, 'RUB',
+              'Остаток денежных средств на конец − остаток на начало периода',
+              'Динамика счетов 50, 51, 52, 55',
+              'Для расчёта нужны минимум две подтверждённые точки остатка'),
         _card('revenue', revenue, 'RUB',
               'ОбК(90.01*) − ОбД(90.03*)' if vat is not None else 'ОбК(90.01*), брутто',
               'Суточные листовые обороты счёта 90',
@@ -3037,7 +3042,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'date': point_date, 'label': option['label'],
             'value': month_insurance_turnovers['credit']})
         for cid in _CARD_ORDER:
-            if cid == 'cash':
+            if cid in ('cash', 'ncf'):
                 continue
             card_map[cid]['series'].append({
                 'date': point_date, 'label': option['label'],
@@ -3239,6 +3244,27 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             })
         cash_cursor += timedelta(days=1)
     card_map['cash']['series'] = cash_daily_series
+    ncf_series = []
+    previous_cash_point = None
+    for point in cash_daily_series:
+        ncf_point = {
+            **point,
+            'value': (
+                round(point['value'] - previous_cash_point['value'], 2)
+                if point.get('value') is not None
+                and previous_cash_point is not None
+                and previous_cash_point.get('value') is not None else None),
+        }
+        ncf_series.append(ncf_point)
+        previous_cash_point = point
+    known_cash_points = [
+        point for point in cash_daily_series if point.get('value') is not None]
+    if len(known_cash_points) >= 2:
+        card_map['ncf']['value'] = round(
+            known_cash_points[-1]['value'] - known_cash_points[0]['value'], 2)
+        card_map['ncf']['reason'] = None
+    card_map['ncf']['series'] = ncf_series
+    card_map['ncf']['granularity'] = 'day'
     for item in card_map['cash'].get('breakdown') or []:
         match = re.search(r'(\d{2})', str(item.get('label') or ''))
         account = match.group(1) if match else None

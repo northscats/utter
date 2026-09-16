@@ -27,6 +27,7 @@
 
     const metricChartColor = id => {
         if (id === '__main__') return '#2563EB';
+        if (id === 'ncf') return '#10B981';
         const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6',
             '#EC4899', '#06B6D4', '#F43F5E'];
         let hash = 0;
@@ -40,6 +41,7 @@
 
     const cardDefinitions = [
         { id: 'cash', icon: '<span aria-hidden="true">₽</span>' },
+        { id: 'ncf', icon: svgIcon('M4 14l5-5 4 4 7-7M20 6v5h-5') },
         { id: 'revenue', icon: svgIcon('M3 3v18h18M3 16l6-6 4 4 8-8') },
         { id: 'collection', icon: svgIcon('M3 10h18M7 15h1m4 0h1M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z') },
         { id: 'ar', icon: svgIcon('M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4') },
@@ -160,31 +162,6 @@
         return prefix === 'breakdown' ? String(index) : `${prefix}:${index}`;
     };
 
-    const cashNcfMetric = card => {
-        if (!card || card.id !== 'cash' || !Array.isArray(card.series) ||
-                card.series.length < 2) return null;
-        const series = card.series.map((point, index, points) => ({
-            ...point,
-            value: index > 0 && hasNumericValue(point.value) &&
-                hasNumericValue(points[index - 1].value)
-                ? Number(point.value) - Number(points[index - 1].value)
-                : null
-        }));
-        const knownBalances = card.series.filter(point =>
-            hasNumericValue(point && point.value));
-        const value = knownBalances.length > 1
-            ? Number(knownBalances[knownBalances.length - 1].value) -
-                Number(knownBalances[0].value)
-            : null;
-        return {
-            id: '__ncf__',
-            label: 'NCF за выбранный период',
-            value,
-            unit: card.unit,
-            series
-        };
-    };
-
     const metricSeriesItems = card => {
         const result = [];
         const seen = new Set();
@@ -202,17 +179,6 @@
             });
         };
         add(card, 'main', 0, true);
-        const ncf = cashNcfMetric(card);
-        if (ncf) {
-            seen.add('__ncf__');
-            result.push({
-                id: '__ncf__',
-                label: ncf.label,
-                item: ncf,
-                data: ncf.series,
-                isMain: false
-            });
-        }
         (card.breakdown || []).forEach((item, index) =>
             add(item, 'breakdown', index, false));
         ['components', 'details', 'analytics'].forEach(category => {
@@ -247,17 +213,6 @@
             });
         };
         if (card.series && card.series.length) add(card, 'main', 0, true);
-        const ncf = cashNcfMetric(card);
-        if (ncf) {
-            seen.add('__ncf__');
-            result.push({
-                id: '__ncf__',
-                label: ncf.label,
-                item: ncf,
-                hasSeries: true,
-                isMain: false
-            });
-        }
         (card.breakdown || []).forEach((item, index) =>
             add(item, 'breakdown', index, false));
         ['components', 'details', 'analytics'].forEach(category => {
@@ -1629,7 +1584,7 @@
             if (!state.data.cards) return;
             
             let html = '';
-            const orderedIds = ['cash', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            const orderedIds = ['cash', 'ncf', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
             (state.data.cards || []).forEach(card => {
                 if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
             });
