@@ -148,7 +148,10 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ИСТОЧНИКИ НАЧИСЛЕНИЙ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /1С: Расчёты/);
   const previousData = app.state.data;
-  app.state.data = {period: {start: '2026-01-01', end: '2026-06-30', label: '2026'}};
+  app.state.data = {
+    period: {start: '2026-01-01', end: '2026-06-30', label: '2026'},
+    cards: [{id: 'revenue', value: 1000000000, title: 'Выручка'}],
+  };
   assert.equal(app.displayedPeriodLabel(), '01.01.2026 — 30.06.2026');
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.chartPeriodBounds([
@@ -159,6 +162,20 @@ async function checkBootstrap(configuration) {
   app.updateModalSubtitle();
   assert.equal(nodes.get('ki-modal-subtitle').textContent,
     'Детализация по данным ОСВ · 01.01.2026 — 30.06.2026');
+  if (configuration) {
+    assert.doesNotThrow(() => app.renderArModal({
+      id: 'ar', value: 437405275.57, opening_value: 100000000,
+      consumer_advances: 53124872,
+      analytics: [], details: [], series: [],
+      debtor_segments: {
+        categories: [], new: [], unmapped: [], conflicts: [],
+        confirmed_total: 437405275.57, classified_total: 0,
+        reconciliation_difference: 437405275.57, reconciled: false,
+      },
+    }));
+    assert.match(nodes.get('ki-ar-modal-content').innerHTML, /ДЗ ПОТРЕБИТЕЛЕЙ/);
+    assert.match(nodes.get('ki-ar-modal-content').innerHTML, /АВАНСЫ ПОТРЕБИТЕЛЕЙ/);
+  }
   app.state.data.period.start = '2026-06-30';
   assert.equal(app.displayedPeriodLabel(), '30.06.2026');
   app.state.data = previousData;

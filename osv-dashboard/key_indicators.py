@@ -922,7 +922,7 @@ def _sub_balance(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
-    if str(account) == '62' and str(sub) == '62.01':
+    if str(account) == '62' and str(sub) in ('62.01', '62.02'):
         signed_debit = _rolled_sub_signed_balance(
             source, account, sub, end)
         if signed_debit is not None:
@@ -956,7 +956,7 @@ def _sub_balance(source, account, sub, end, credit=False):
 
 def _sub_opening_balance(source, account, sub, start, credit=False):
     """Return a subaccount opening balance only from an exact report boundary."""
-    if str(account) == '62' and str(sub) == '62.01':
+    if str(account) == '62' and str(sub) in ('62.01', '62.02'):
         signed_debit = _sub_signed_opening_balance(
             source, account, sub, start)
         if signed_debit is not None:
@@ -2263,6 +2263,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
 
     ar_62, ar_reason = _sub_balance(source, '62', '62.01', end)
     ar_opening = _sub_opening_balance(source, '62', '62.01', start)
+    consumer_advances, consumer_advances_reason = _sub_balance(
+        source, '62', '62.02', end, credit=True)
     ar_62_analytics = _sub_balance_analytics(source, '62', '62.01', end)
     ar_76_analytics = _sub_balance_analytics(source, '76', '76', end)
     active_debtor_mappings = defaultdict(set)
@@ -2376,8 +2378,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'included_in_total': True,
                 'synthetic_residual': True,
             })
-    ar = (round(ar_62 + allowed_76, 2)
-          if ar_62 is not None else None)
+    ar = round(ar_62, 2) if ar_62 is not None else None
     classified_ar = round(sum(debtor_categories.values()), 2)
     debtor_category_rows = [{
         'id': key, 'label': title,
@@ -2564,12 +2565,21 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                    {'label': 'График/возраст долга', 'value': None, 'unit': 'RUB',
                     'reason': 'ОСВ не содержит сроков возникновения и погашения долга'}]),
         _card('ar', ar, 'RUB',
-              'max(СКд − СКк, 0) по 62.01 + явно сопоставленный дебет 76',
-              'Сальдо 62.01 и разрешённые аналитики 76', ar_reason,
-               opening_value=ar_opening if not allowed_76 else None,
+              'max(СКд − СКк, 0) по 62.01',
+              'Дебетовое сальдо 62.01', ar_reason,
+               opening_value=ar_opening,
+               consumer_advances=consumer_advances,
+               consumer_advances_reason=consumer_advances_reason,
                analytics=ar_analytics,
                debtor_segments=debtor_segments,
-               notes=['Счёт 76 включён только по явно сопоставленным аналитикам выбранного периода.']),
+               details=[{
+                   'label': 'АВАНСЫ ПОТРЕБИТЕЛЕЙ',
+                   'value': consumer_advances,
+                   'unit': 'RUB',
+                   'series_id': 'consumer-advances',
+                   'series': [],
+               }],
+               notes=['ДЗ потребителей равна дебетовому сальдо 62.01; счёт 76 в итог не включается.']),
         _card('ap', ap, 'RUB', 'max(СКк − СКд, 0) по 60.01',
               'Сальдо субсчёта 60.01', ap_reason,
               opening_value=ap_opening,
@@ -3245,6 +3255,37 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         if ar_daily_series:
             card_map['ar']['series'] = ar_daily_series
             card_map['ar']['granularity'] = 'day'
+
+    advances_signed_opening = _sub_signed_opening_balance(
+        source, '62', '62.02', start)
+    advances_details = card_map['ar'].get('details') or []
+    advances_item = next((
+        item for item in advances_details
+        if item.get('series_id') == 'consumer-advances'), None)
+    if advances_signed_opening is not None and advances_item is not None:
+        advances_series = []
+        advances_signed_balance = advances_signed_opening
+        advances_cursor = start
+        while advances_cursor <= end:
+            point_rows = _explicit_subaccount_rows(
+                _daily(source, '62', advances_cursor, advances_cursor),
+                '62.02')
+            if point_rows:
+                debit = _known_sum(point_rows, 'obd')
+                credit = _known_sum(point_rows, 'obk')
+                if debit is None or credit is None:
+                    advances_series = []
+                    break
+                advances_signed_balance += debit - credit
+            advances_series.append({
+                'date': advances_cursor.isoformat(),
+                'label': _options([advances_cursor], 'day')[0]['label'],
+                'value': round(max(0.0, -advances_signed_balance), 2),
+                'granularity': 'day',
+                'synthetic': False,
+            })
+            advances_cursor += timedelta(days=1)
+        advances_item['series'] = advances_series
 
     series_accounts = {
         'cash': {'series': value_accounts['cash']},

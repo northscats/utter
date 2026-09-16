@@ -2266,8 +2266,8 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         }
         mapped = {x['id']: x for x in build_key_indicators(
             src, debtor_mappings=[mapping62, mapping76])['cards']}['ar']
-        self.assertEqual(mapped['value'], 140)
-        self.assertTrue(mapped['debtor_segments']['reconciled'])
+        self.assertEqual(mapped['value'], 100)
+        self.assertFalse(mapped['debtor_segments']['reconciled'])
         self.assertEqual(mapped['debtor_segments']['included_76'], 40)
 
     def test_report_hierarchy_supplies_leaf_balances_and_keeps_76_subaccounts(self):

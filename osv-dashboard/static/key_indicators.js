@@ -2647,6 +2647,7 @@
             const required = this.arRequirements();
             const revenueCard = state.data.cards.find(item => item.id === 'revenue') || {};
             const current = card.value;
+            const consumerAdvances = card.consumer_advances;
             const opening = card.opening_value;
             const change = current !== null && current !== undefined &&
                 opening !== null && opening !== undefined ? current - opening : null;
@@ -2672,6 +2673,20 @@
                     : required.fullDebt,
                 deviation: 'Фактическое подтверждённое сальдо 62.01 и разрешённых аналитик 76',
                 deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
+            });
+            const advancesTip = this.arTooltip({
+                title: 'Авансы потребителей',
+                description: 'Кредитовое сальдо расчётов по авансам потребителей на выбранную дату.',
+                formula: 'Авансы потребителей = max(СКк(62.02) − СКд(62.02), 0)',
+                detail: 'Рассчитывается отдельно от дебиторской задолженности по 62.01.',
+                required: consumerAdvances === null || consumerAdvances === undefined
+                    ? 'ОСВ счёта 62 с начальным сальдо и дневными оборотами 62.02.'
+                    : null,
+                fact: rub(consumerAdvances),
+                deviation: 'Кредитовое сальдо 62.02',
+                deviationClass: consumerAdvances === null || consumerAdvances === undefined
+                    ? 'missing' : 'neutral',
+                source: 'сальдо ОСВ 62.02'
             });
             const changeTip = this.arTooltip({
                 title: 'Изменение дебиторской задолженности',
@@ -2810,10 +2825,11 @@
             });
 
             container.innerHTML = `
-                <div class="cash-info-banner"><strong>В расчёт включена только подтверждённая ДЗ покупателей 62.01.</strong>
-                    Дебетовое сальдо счёта 76 добавляется только после утверждённого сопоставления аналитик.</div>
+                <div class="cash-info-banner"><strong>ДЗ потребителей равна дебетовому сальдо 62.01.</strong>
+                    Аналитики счёта 76 показываются отдельно и не прибавляются к этой метрике.</div>
                 <div class="collection-summary ar-summary">
-                    ${this.cashMetricCard('Подтверждённая ДЗ', rub(current), '62.01 + разрешённые аналитики 76', totalTip, current === null || current === undefined, '__main__')}
+                    ${this.cashMetricCard('ДЗ ПОТРЕБИТЕЛЕЙ', rub(current), 'дебетовое сальдо 62.01', totalTip, current === null || current === undefined, '__main__')}
+                    ${this.cashMetricCard('АВАНСЫ ПОТРЕБИТЕЛЕЙ', rub(consumerAdvances), 'кредитовое сальдо 62.02', advancesTip, consumerAdvances === null || consumerAdvances === undefined, 'detail:consumer-advances')}
                     ${this.cashMetricCard('Изменение ДЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
                     ${this.cashMetricCard('Оценочный DSO', dso === null ? 'Нужны данные' : `${dso.toFixed(0)} дней`, 'бухгалтерская оценка', dsoTip, dso === null)}
                     ${this.cashMetricCard('ДЗ / Выручка', pct(ratio), period.label || 'выбранный период', ratioTip, ratio === null)}
