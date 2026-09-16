@@ -2465,13 +2465,13 @@
                         </div>
                     </div>
                     <div class="collection-summary">
-                        ${this.cashMetricCard(linked.available ? 'ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ' : 'ОБЩИЙ СБОР ПО ОСВ', pct(turnover), linked.available ? 'распределённые оплаты / начисления' : 'из компонентов', this.collectionTooltip({title: linked.available ? 'Фактическая собираемость' : 'Общий сбор по ОСВ', fact: pct(turnover)}), turnover === null, '__main__')}
+                        ${this.cashMetricCard(linked.available ? 'ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ' : 'УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'распределённые оплаты / начисления' : 'из компонентов', this.collectionTooltip({title: linked.available ? 'Фактическая собираемость' : 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '__main__')}
                         ${linked.available
                             ? this.cashMetricCard('НАЧИСЛЕНО', rub(linked.accrual), 'когорта выбранного периода', this.collectionTooltip({title: 'Начисления когорты', fact: rub(linked.accrual)}), linked.accrual === null)
-                            : this.cashMetricCard('ОбД 62.01', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'ОбД 62.01', fact: rub(obd6201)}), obd6201 === null)}
+                            : this.cashMetricCard('НАЧИСЛЕНО', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'Начислено', fact: rub(obd6201)}), obd6201 === null)}
                         ${linked.available
                             ? this.cashMetricCard('РАСПРЕДЕЛЕНО ОПЛАТ', rub(linked.payment), 'не позднее даты отсечения', this.collectionTooltip({title: 'Распределённые оплаты', fact: rub(linked.payment)}), linked.payment === null)
-                            : this.cashMetricCard('ОбК 62.01', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'ОбК 62.01', fact: rub(obk6201)}), obk6201 === null)}
+                            : this.cashMetricCard('ОПЛАЧЕНО', rub(obk6201), 'оплаты долга', this.collectionTooltip({title: 'Оплачено', fact: rub(obk6201)}), obk6201 === null)}
                         ${this.cashMetricCard('ПРОКСИ ОСВ', pct(proxyTurnover), 'контрольная величина', this.collectionTooltip({title: 'Бухгалтерский прокси ОСВ', fact: pct(proxyTurnover)}), proxyTurnover === null)}
                     </div>
                 </div>`;

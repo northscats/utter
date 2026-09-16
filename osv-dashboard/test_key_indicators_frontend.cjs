@@ -112,7 +112,9 @@ async function checkBootstrap(configuration) {
     consumer_collection: {available: false, categories: [], series: []},
   };
   assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОБЩИЙ СБОР ПО ОСВ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /УРОВЕНЬ СОБИРАЕМОСТИ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /НАЧИСЛЕНО/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОПЛАЧЕНО/);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {
