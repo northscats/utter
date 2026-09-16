@@ -2119,6 +2119,8 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         new76 = next(x for x in without76['debtor_segments']['new']
                      if x['account'] == '76.05')
         self.assertFalse(new76['included_in_total'])
+        self.assertNotIn('analytics', without76['debtor_segments'])
+        self.assertNotIn('value', new76)
         mapping76 = {
             'account': '76.05',
             'analytic_key': revenue_analytic_key(['Субсидия']),

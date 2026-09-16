@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """ОСВ Дашборд — веб-приложение с PostgreSQL, авторизацией и мультипредприятием."""
 import json
+import gzip
 import os
 import shutil
 import calendar
@@ -3224,6 +3225,11 @@ def key_indicators_data(company_id):
         return jsonify(error='Не удалось рассчитать показатели. Повторите запрос позже.'), 500
     response = jsonify(payload)
     response.headers['Cache-Control'] = 'private, no-store'
+    if ('gzip' in request.headers.get('Accept-Encoding', '').lower()
+            and len(response.get_data()) >= 1024 * 256):
+        response.set_data(gzip.compress(response.get_data(), compresslevel=5))
+        response.headers['Content-Encoding'] = 'gzip'
+        response.headers['Vary'] = 'Accept-Encoding'
     return response
 
 

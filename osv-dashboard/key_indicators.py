@@ -17,6 +17,7 @@ _BALANCE_ACCOUNTS = {'50', '51', '52', '55', '60', '62', '66', '67', '70'}
 _CASH_ACCOUNTS = ('50', '51', '52', '55')
 _CARD_ORDER = ('cash', 'revenue', 'collection', 'ar', 'ap', 'cogs',
                'profit', 'credits', 'salary', 'capex')
+_ANALYTIC_SERIES_LIMIT = 200
 _TITLES = {
     'cash': 'Денежные средства',
     'revenue': 'Выручка',
@@ -1056,39 +1057,28 @@ def _explicit_subaccount_rows(rows, sub):
         )].append(row)
     result = []
     for partition_rows in partitions.values():
-        codes_by_row = {id(row): numeric_codes(row) for row in partition_rows}
-        analytics_by_row = {
-            id(row): tuple(_analytic_parts(row)) for row in partition_rows
-        }
+        indexed_rows = []
+        child_account_codes = set()
+        child_analytic_prefixes = defaultdict(set)
         for row in partition_rows:
-            row_codes = codes_by_row[id(row)]
-            row_subcodes = [code for code in row_codes
-                            if code == sub or code.startswith(sub + '.')]
+            row_subcodes = [
+                code for code in numeric_codes(row)
+                if code == sub or code.startswith(sub + '.')]
             if not row_subcodes:
                 continue
             row_code = max(row_subcodes, key=lambda code: code.count('.'))
-            row_analytics = analytics_by_row[id(row)]
-            has_child = False
-            for child in partition_rows:
-                if child is row:
-                    continue
-                child_codes = codes_by_row[id(child)]
-                child_subcodes = [code for code in child_codes
-                                  if code == sub or code.startswith(sub + '.')]
-                if not child_subcodes:
-                    continue
-                child_code = max(child_subcodes, key=lambda code: code.count('.'))
-                child_analytics = analytics_by_row[id(child)]
-                if child_code.startswith(row_code + '.') or (
-                        child_code == row_code and
-                        ((not row_analytics and child_analytics) or
-                         (row_analytics and
-                          len(child_analytics) > len(row_analytics) and
-                          child_analytics[:len(row_analytics)] ==
-                          row_analytics))):
-                    has_child = True
-                    break
-            if not has_child:
+            row_analytics = tuple(_analytic_parts(row))
+            indexed_rows.append((row, row_code, row_analytics))
+            code_parts = row_code.split('.')
+            for length in range(2, len(code_parts)):
+                child_account_codes.add('.'.join(code_parts[:length]))
+            for length in range(len(row_analytics)):
+                child_analytic_prefixes[row_code].add(
+                    row_analytics[:length])
+        for row, row_code, row_analytics in indexed_rows:
+            if (row_code not in child_account_codes
+                    and row_analytics not in
+                    child_analytic_prefixes[row_code]):
                 result.append(row)
     return result
 
@@ -2094,6 +2084,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     debtor_categories = defaultdict(float)
     allowed_76 = 0.0
     active_mapping_records = []
+
+    def debtor_issue(item, **extra):
+        return {
+            'account': item.get('account'),
+            'analytic_key': item.get('analytic_key'),
+            'label': item.get('label'),
+            'included_in_total': item.get('included_in_total'),
+            **extra,
+        }
+
     for item in debtor_mappings or []:
         effective_from = _iso(item.get('effective_from'))
         effective_to = _iso(item.get('effective_to'))
@@ -2132,18 +2132,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             }
             ar_analytics.append(classified)
             if conflict:
-                conflict = {
-                    **classified, 'categories': sorted(categories),
-                    'message': (
+                debtor_conflicts.append(debtor_issue(
+                    classified, categories=sorted(categories),
+                    message=(
                         'Для аналитики действуют конфликтующие или '
-                        'не покрывающие весь выбранный период правила'),
-                }
-                debtor_conflicts.append(conflict)
+                        'не покрывающие весь выбранный период правила')))
             if category is None:
                 if (account, item['analytic_key']) in known_debtor_mapping_keys:
-                    debtor_unmapped.append(classified)
+                    debtor_unmapped.append(debtor_issue(classified))
                 else:
-                    debtor_new.append(classified)
+                    debtor_new.append(debtor_issue(classified))
             else:
                 debtor_categories[category] += item['value']
                 if account.startswith('76.'):
@@ -2174,7 +2172,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         round(ar - classified_ar, 2) if ar is not None else None)
     debtor_segments = {
         'categories': debtor_category_rows,
-        'analytics': ar_analytics,
         'mapping_records': active_mapping_records,
         'new': debtor_new,
         'unmapped': debtor_unmapped,
@@ -2756,34 +2753,43 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         # the exact point-end snapshot (or the authentic period report at
         # that endpoint), never the selected-period headline as a proxy for a
         # missing analytic row.
-        ar_point = _sub_balance_analytics(
-            source, '62', '62.01', month_end)
-        ar_point.extend(_sub_balance_analytics(source, '76', '76', month_end))
-        append_component_series(
-            card_map['ar'].get('analytics'),
-            {item.get('label'): item.get('value') for item in ar_point},
-            'RUB')
-        for item in card_map['ar'].get('analytics') or []:
-            key = (item.get('account'), item.get('analytic_key'))
-            if item.get('series'):
-                item['series'][-1]['value'] = next(
-                    (row.get('value') for row in ar_point
-                     if (row.get('account'), row.get('analytic_key')) == key),
-                    None)
+        ar_series_items = card_map['ar'].get('analytics') or []
+        if len(ar_series_items) <= _ANALYTIC_SERIES_LIMIT:
+            ar_point = _sub_balance_analytics(
+                source, '62', '62.01', month_end)
+            ar_point.extend(_sub_balance_analytics(
+                source, '76', '76', month_end))
+            append_component_series(
+                ar_series_items,
+                {item.get('label'): item.get('value') for item in ar_point},
+                'RUB')
+            ar_values = {
+                (row.get('account'), row.get('analytic_key')): row.get('value')
+                for row in ar_point}
+            for item in ar_series_items:
+                if item.get('series'):
+                    item['series'][-1]['value'] = ar_values.get(
+                        (item.get('account'), item.get('analytic_key')))
+        else:
+            card_map['ar']['analytic_series_omitted'] = len(ar_series_items)
 
-        ap_point = _sub_balance_analytics(
-            source, '60', '60.01', month_end)
-        append_component_series(
-            card_map['ap'].get('analytics'),
-            {item.get('label'): item.get('value') for item in ap_point},
-            'RUB')
-        for item in card_map['ap'].get('analytics') or []:
-            key = (item.get('account'), item.get('analytic_key'))
-            if item.get('series'):
-                item['series'][-1]['value'] = next(
-                    (row.get('value') for row in ap_point
-                     if (row.get('account'), row.get('analytic_key')) == key),
-                    None)
+        ap_series_items = card_map['ap'].get('analytics') or []
+        if len(ap_series_items) <= _ANALYTIC_SERIES_LIMIT:
+            ap_point = _sub_balance_analytics(
+                source, '60', '60.01', month_end)
+            append_component_series(
+                ap_series_items,
+                {item.get('label'): item.get('value') for item in ap_point},
+                'RUB')
+            ap_values = {
+                (row.get('account'), row.get('analytic_key')): row.get('value')
+                for row in ap_point}
+            for item in ap_series_items:
+                if item.get('series'):
+                    item['series'][-1]['value'] = ap_values.get(
+                        (item.get('account'), item.get('analytic_key')))
+        else:
+            card_map['ap']['analytic_series_omitted'] = len(ap_series_items)
 
         cogs_point = defaultdict(float)
         cogs_known = defaultdict(bool)
