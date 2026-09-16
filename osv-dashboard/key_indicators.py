@@ -1168,6 +1168,8 @@ def _consumer_collection(accruals, allocations, mappings, norms,
 
     accepted = []
     rejected = []
+    accrual_source_groups = defaultdict(
+        lambda: {'rows': 0, 'accrual': 0.0, 'date_from': None, 'date_to': None})
     totals = defaultdict(lambda: {'accrual': 0.0, 'payment': 0.0})
     all_accrual_documents = {
         str(item.get('accrual_document') or '').strip()
@@ -1207,6 +1209,8 @@ def _consumer_collection(accruals, allocations, mappings, norms,
         accrued = item.get('accrued')
         entry_type = str(item.get('type') or '')
         document = str(item.get('accrual_document') or '').strip()
+        source_name = str(item.get('source') or '').strip()
+        source_version = str(item.get('version') or '').strip()
         problems = []
         if not account or not key:
             problems.append('не указан счёт или ключ аналитики')
@@ -1246,6 +1250,14 @@ def _consumer_collection(accruals, allocations, mappings, norms,
         accepted.append(row)
         totals[category]['accrual'] += row['accrued']
         totals[category]['payment'] += row['allocated_payment']
+        if source_name and source_version:
+            source_group = accrual_source_groups[(source_name, source_version)]
+            source_group['rows'] += 1
+            source_group['accrual'] += row['accrued']
+            source_group['date_from'] = min(
+                filter(None, (source_group['date_from'], occurred)))
+            source_group['date_to'] = max(
+                filter(None, (source_group['date_to'], occurred)))
 
     unknown_allocations = sorted(
         document for document in allocations_by_accrual
@@ -1304,6 +1316,14 @@ def _consumer_collection(accruals, allocations, mappings, norms,
         row['status'] = (
             ('normal' if row['deviation'] >= 0 else 'attention')
             if row['deviation'] is not None else None)
+    accrual_sources = [{
+        'source': source,
+        'version': version,
+        'rows': values['rows'],
+        'accrual': round(values['accrual'], 2),
+        'date_from': values['date_from'].isoformat(),
+        'date_to': values['date_to'].isoformat(),
+    } for (source, version), values in sorted(accrual_source_groups.items())]
 
     return {
         'available': value is not None,
@@ -1311,6 +1331,7 @@ def _consumer_collection(accruals, allocations, mappings, norms,
         'accrual': total_accrual if accepted else None,
         'payment': total_payment if accepted else None,
         'categories': rows,
+        'accrual_sources': accrual_sources,
         'accepted_rows': len(accepted),
         'rejected': rejected,
         'reconciled': (

@@ -80,7 +80,10 @@ async function checkBootstrap(configuration) {
     consumer_collection: {
       available: true, value: 80, accrual: 100, payment: 80,
       reconciled: false, reconciliation_difference: 20,
-      rejected: [], series: [], categories: [{
+      rejected: [], series: [], accrual_sources: [{
+        source: '1С: Расчёты', version: '2026.01', rows: 2,
+        accrual: 100, date_from: '2026-01-15', date_to: '2026-01-20',
+      }], categories: [{
         id: 'population', label: 'Население', accrual: 100,
         payment: 80, value: 80, plan: null, deviation: null, status: null,
       }],
@@ -89,6 +92,8 @@ async function checkBootstrap(configuration) {
   assert.doesNotThrow(() => app.renderCollectionModal(factualCollection));
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Население/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ИСТОЧНИКИ НАЧИСЛЕНИЙ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /1С: Расчёты/);
   const previousData = app.state.data;
   app.state.data = {period: {start: '2026-01-01', end: '2026-06-30', label: '2026'}};
   assert.equal(app.displayedPeriodLabel(), '01.01.2026 — 30.06.2026');

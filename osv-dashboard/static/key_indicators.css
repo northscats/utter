@@ -775,6 +775,10 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
     min-width: 720px;
 }
 
+.collection-detail-table.collection-source-table {
+    min-width: 720px;
+}
+
 .collection-detail-table.collection-audit-table th {
     background: #1E3A8A;
     color: #fff;

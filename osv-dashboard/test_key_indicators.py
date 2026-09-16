@@ -2724,9 +2724,11 @@ class PeriodAggregateTests(unittest.TestCase):
         }]
         accruals = [
             {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'buyer-1',
-             'type': 'accrual', 'accrued': 60, 'accrual_document': 'ACC-1'},
+             'type': 'accrual', 'accrued': 60, 'accrual_document': 'ACC-1',
+             'source': '1С: Расчёты', 'version': '2026.01'},
             {'date': '2026-01-20', 'account': '62.01', 'analytic_key': 'buyer-2',
-             'type': 'accrual', 'accrued': 40, 'accrual_document': 'ACC-2'},
+             'type': 'accrual', 'accrued': 40, 'accrual_document': 'ACC-2',
+             'source': '1С: Расчёты', 'version': '2026.01'},
         ]
         allocations = [
             {'date': '2026-01-25', 'payment_document': 'PAY-1',
@@ -2749,6 +2751,11 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertTrue(linked['available'])
         self.assertEqual(linked['value'], 82)
         self.assertEqual(linked['reconciliation_difference'], 22)
+        self.assertEqual(linked['accrual_sources'], [{
+            'source': '1С: Расчёты', 'version': '2026.01', 'rows': 2,
+            'accrual': 100, 'date_from': '2026-01-15',
+            'date_to': '2026-01-20',
+        }])
         population = next(row for row in linked['categories']
                           if row['id'] == 'population')
         budget = next(row for row in linked['categories']
@@ -2763,9 +2770,11 @@ class PeriodAggregateTests(unittest.TestCase):
     def test_linked_collection_rejects_unmapped_and_unknown_amounts(self):
         accruals = [
             {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'unknown',
-             'type': 'accrual', 'accrued': 10, 'accrual_document': 'ACC-1'},
+             'type': 'accrual', 'accrued': 10, 'accrual_document': 'ACC-1',
+             'source': '1С', 'version': '2026.01'},
             {'date': '2026-01-16', 'account': '62.01', 'analytic_key': 'buyer',
-             'type': 'accrual', 'accrued': None, 'accrual_document': 'ACC-2'},
+             'type': 'accrual', 'accrued': None, 'accrual_document': 'ACC-2',
+             'source': '1С', 'version': '2026.01'},
         ]
         card = {item['id']: item for item in build_key_indicators(
             build_indicator_source({}), date='2026-01-31',
@@ -2775,6 +2784,7 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertFalse(linked['available'])
         self.assertEqual(len(linked['rejected']), 2)
         self.assertIsNone(linked['value'])
+        self.assertEqual(linked['accrual_sources'], [])
 
     def test_collection_mapping_is_resolved_on_each_operation_date(self):
         source = build_indicator_source({

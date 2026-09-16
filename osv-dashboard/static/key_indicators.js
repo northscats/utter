@@ -2159,6 +2159,25 @@
                     <tbody>${segmentRows}</tbody>
                 </table></div>` : '';
 
+            const accrualSourceRows = (linked.accrual_sources || []).map(row => `
+                <tr>
+                    <td style="text-align:left;font-weight:600;">${esc(row.source)}</td>
+                    <td style="text-align:left;">${esc(row.version)}</td>
+                    <td style="text-align:left;">${esc(row.date_from)} — ${esc(row.date_to)}</td>
+                    <td style="text-align:right;">${esc(row.rows)}</td>
+                    <td style="text-align:right;font-weight:700;">${esc(rub(row.accrual))}</td>
+                </tr>`).join('');
+            const accrualSourcesHtml = accrualSourceRows ? `
+                <div class="modal-section-title">ИСТОЧНИКИ НАЧИСЛЕНИЙ</div>
+                <div class="collection-table-wrap">
+                    <table class="collection-detail-table collection-source-table">
+                        <thead>
+                            <tr><th>Источник</th><th>Версия</th><th>Период записей</th><th>Строк</th><th>Начислено</th></tr>
+                        </thead>
+                        <tbody>${accrualSourceRows}</tbody>
+                    </table>
+                </div>` : '';
+
             const chartHtml = `
                 <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика" style="margin-bottom: 24px;">
                     <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; margin-top: 0; border-bottom: none; padding-bottom: 0;">
@@ -2214,7 +2233,8 @@
                     </table>
                 </div>`;
 
-            container.innerHTML = bannerHtml + segmentNoticeHtml + segmentTableHtml + chartHtml + tableHtml;
+            container.innerHTML = bannerHtml + segmentNoticeHtml + segmentTableHtml +
+                accrualSourcesHtml + chartHtml + tableHtml;
 
             const dynamicsCard = linked.available ? Object.assign({}, card, {
                 series: linked.series || [],
