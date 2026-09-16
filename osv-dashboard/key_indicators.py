@@ -1247,6 +1247,16 @@ def _collection_components_from_rows(rows):
 
 def _collection_components(source, start, end):
     """Read the four strict ОСВ components used by collection proxy."""
+    daily_rows = []
+    for row in source.get('accounts', {}).get('62', {}).get('daily') or []:
+        row_date = _iso(row.get('date'))
+        if row_date is not None and start <= row_date <= end:
+            daily_rows.append(row)
+    daily_has_required_subaccounts = all(
+        _explicit_subaccount_rows(daily_rows, sub)
+        for sub in ('62.01', '62.02'))
+    if daily_has_required_subaccounts:
+        return _collection_components_from_rows(daily_rows)
     return _collection_components_from_rows(
         _movement_rows(source, '62', start, end))
 

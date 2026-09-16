@@ -2748,6 +2748,32 @@ class PeriodAggregateTests(unittest.TestCase):
             [item['value'] for item in card['components']],
             [100, 50, 10, 20])
 
+    def test_collection_proxy_prefers_daily_rows_over_truncated_period_hierarchy(self):
+        daily_rows = [
+            day('2026-01-31', '62.01', obd=100, obk=50),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+        ]
+        raw = account('62', daily_rows, period='за январь 2026 г.')
+        raw['balance_reports'] = [self._report(
+            'за январь 2026 г.', [
+                dict(lvl=1, label='62.01', p0='62', p1='62.01',
+                     p2='', p3='', snd=0, snk=0, obd=300, obk=150,
+                     skd=0, skk=0),
+                dict(lvl=2, label='Покупатель', p0='62', p1='62.01',
+                     p2='Покупатель', p3='', snd=0, snk=0, obd=300,
+                     obk=150, skd=0, skk=0),
+                dict(lvl=1, label='62.02', p0='62', p1='62.02',
+                     p2='', p3='', snd=0, snk=0, obd=30, obk=60,
+                     skd=0, skk=0),
+            ])]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': raw}),
+            period='month', date='2026-01-31')['cards']}['collection']
+        self.assertEqual(card['value'], 60)
+        self.assertEqual(
+            [item['value'] for item in card['components']],
+            [100, 50, 10, 20])
+
     def test_collection_proxy_keeps_explicit_account_with_deep_daily_analytics(self):
         rows = [
             dict(date='2026-01-31', month='2026-01', account='62.01',
