@@ -584,34 +584,28 @@ def _period_rows(source, account, start, end):
 
 
 def _cumulative_difference_rows(source, account, start, end):
-    """Derive one interval from cumulative reports with the same start."""
+    """Derive one interval by subtracting its exactly covered prefix."""
     acc = source.get('accounts', {}).get(str(account))
     if not acc or start <= Date.min:
         return None
     baseline_end = start - timedelta(days=1)
-    indexed = [
-        (index, report, *_report_bounds(report))
-        for index, report in enumerate(acc.get('balance_reports') or [])
-        if isinstance(report, dict) and all(_report_bounds(report))
-    ]
-    pairs = []
-    for current_index, current, current_start, current_end in indexed:
+    candidates = []
+    for current_index, current in enumerate(acc.get('balance_reports') or []):
+        if not isinstance(current, dict):
+            continue
+        current_start, current_end = _report_bounds(current)
+        if not current_start or not current_end:
+            continue
         if current_end != end or current_start >= start:
             continue
-        baselines = [
-            item for item in indexed
-            if item[2] == current_start and item[3] == baseline_end
-        ]
-        if baselines:
-            baseline = max(
-                baselines,
-                key=lambda item: _report_precedence(
-                    item[1], item[0], account))
-            pairs.append((current_index, current, baseline[0], baseline[1]))
-    if not pairs:
+        baseline_rows = _period_rows(
+            source, account, current_start, baseline_end)
+        if baseline_rows is not None:
+            candidates.append((current_index, current, baseline_rows))
+    if not candidates:
         return None
-    _, current, _, baseline = max(
-        pairs,
+    _, current, baseline_rows = max(
+        candidates,
         key=lambda item: _report_precedence(item[1], item[0], account))
 
     identity_keys = (
@@ -620,16 +614,25 @@ def _cumulative_difference_rows(source, account, start, end):
     def identity(row):
         return tuple(str(row.get(key) or '') for key in identity_keys)
 
-    baseline_rows = {
-        identity(row): row for row in baseline.get('rows') or []
-        if isinstance(row, dict)
-    }
+    baseline_by_identity = {}
+    for row in baseline_rows:
+        if not isinstance(row, dict):
+            continue
+        key = identity(row)
+        accumulated = baseline_by_identity.setdefault(
+            key, {'obd': 0.0, 'obk': 0.0,
+                  'obd_known': True, 'obk_known': True})
+        for side in ('obd', 'obk'):
+            accumulated[f'{side}_known'] = (
+                accumulated[f'{side}_known'] and
+                row.get(f'{side}_known') is not False)
+            accumulated[side] += float(row.get(side) or 0)
     result = []
     for row in current.get('rows') or []:
         if not isinstance(row, dict):
             continue
         item = dict(row)
-        previous = baseline_rows.get(identity(row), {})
+        previous = baseline_by_identity.get(identity(row), {})
         for side in ('obd', 'obk'):
             known = row.get(f'{side}_known') is not False and \
                 previous.get(f'{side}_known') is not False
@@ -1822,6 +1825,12 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     d90, rev_rows, vat_rows, cost_rows = (
         pl['rows'], pl['rev_rows'], pl['vat_rows'], pl['cost_rows'])
     gross_rev, vat = pl['gross'], pl['vat']
+    vat_exists_outside_exact_interval = vat is None and any(
+        _has_prefix(row, '90.03')
+        for report in source.get('accounts', {}).get('90', {}).get(
+            'balance_reports', [])
+        for row in report.get('rows') or []
+    )
     revenue, cogs, gross_profit = pl['revenue'], pl['cost'], pl['profit']
     cogs_analytics = []
     cogs_groups = defaultdict(list)
@@ -2395,7 +2404,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               None if revenue is not None else 'Нет строк точного префикса 90.01',
               details=[{'label': 'Выручка брутто', 'value': gross_rev, 'unit': 'RUB'},
                        {'label': 'НДС', 'value': vat, 'unit': 'RUB',
-                        **({'reason': 'Строки 90.03 отсутствуют'} if vat is None else {})}]),
+                         **({'reason': (
+                             'ОСВ 90.03 не покрывает выбранный интервал точно'
+                             if vat_exists_outside_exact_interval else
+                             'Строки 90.03 отсутствуют')}
+                            if vat is None else {})}]),
         _card('collection',
                linked_collection['value']
                if linked_collection['available'] else collection, '%',

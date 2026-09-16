@@ -103,6 +103,50 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(revenue['year_over_year']['delta'], 100)
         self.assertEqual(revenue['year_over_year']['basis'], 'gross')
 
+    def test_cumulative_report_can_subtract_tiled_prefix_for_quarter_vat(self):
+        raw = account('90')
+        raw['balance_reports'] = [
+            {
+                'period': 'за 2025 г.',
+                'top': dict(obd=20, obk=100),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=100),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=20, obk=0),
+                ],
+            },
+            {
+                'period': 'за 1 полугодие 2026 г.',
+                'top': dict(obd=40, obk=200),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=200),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=40, obk=0),
+                ],
+            },
+            {
+                'period': 'за 01.01.2025 - 15.09.2026',
+                'top': dict(obd=90, obk=450),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=450),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=90, obk=0),
+                ],
+            },
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='quarter', date='2026-09-15')
+        revenue = {card['id']: card for card in result['cards']}['revenue']
+        details = {item['label']: item['value']
+                   for item in revenue['details']}
+        self.assertEqual(details['Выручка брутто'], 150)
+        self.assertEqual(details['НДС'], 30)
+        self.assertEqual(revenue['value'], 120)
+
     def test_month_range_sums_from_selected_start_through_end(self):
         rows = [
             day('2026-08-31', '90.01', obk=10),

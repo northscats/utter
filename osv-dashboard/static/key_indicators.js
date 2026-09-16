@@ -787,6 +787,16 @@
             summaryRows.forEach(row => body.appendChild(row));
         },
 
+        columnResizeWidths(currentWidth, neighborWidth, delta, minimum = 72) {
+            const clampedDelta = Math.max(
+                minimum - currentWidth,
+                Math.min(neighborWidth - minimum, delta));
+            return {
+                current: Math.round(currentWidth + clampedDelta),
+                neighbor: Math.round(neighborWidth - clampedDelta)
+            };
+        },
+
         enhanceTable(table) {
             if (!table || table.dataset.kiTableTools === 'ready') return;
             const headerRow = table.tHead && table.tHead.rows[
@@ -828,6 +838,10 @@
                     }
                 });
 
+                // The last column is resized from the separator on its left.
+                // Keeping the outer-right edge fixed prevents the table from
+                // growing beyond its modal or screen container.
+                if (columnIndex === headerRow.cells.length - 1) return;
                 const resizer = document.createElement('span');
                 resizer.className = 'ki-column-resizer';
                 resizer.setAttribute('role', 'separator');
@@ -842,19 +856,33 @@
                     const startX = event.clientX;
                     const startWidth = header.getBoundingClientRect().width;
                     const startTableWidth = table.getBoundingClientRect().width;
+                    const cells = Array.from(headerRow.cells);
+                    const neighbor = cells[columnIndex + 1];
+                    if (!neighbor) return;
+                    const startNeighborWidth =
+                        neighbor.getBoundingClientRect().width;
+                    cells.forEach(cell => {
+                        const width = Math.round(
+                            cell.getBoundingClientRect().width);
+                        cell.style.width = `${width}px`;
+                        cell.style.minWidth = `${width}px`;
+                        cell.style.maxWidth = `${width}px`;
+                    });
                     table.style.width = `${Math.ceil(startTableWidth)}px`;
                     table.style.minWidth = `${Math.ceil(startTableWidth)}px`;
+                    table.style.maxWidth = `${Math.ceil(startTableWidth)}px`;
                     table.style.tableLayout = 'fixed';
                     document.body.classList.add('ki-column-resizing');
                     const move = moveEvent => {
-                        const width = Math.max(
-                            72, Math.round(startWidth + moveEvent.clientX - startX));
-                        const delta = width - startWidth;
-                        header.style.width = `${width}px`;
-                        header.style.minWidth = `${width}px`;
-                        header.style.maxWidth = `${width}px`;
-                        table.style.width = `${Math.ceil(startTableWidth + delta)}px`;
-                        table.style.minWidth = table.style.width;
+                        const widths = this.columnResizeWidths(
+                            startWidth, startNeighborWidth,
+                            moveEvent.clientX - startX);
+                        header.style.width = `${widths.current}px`;
+                        header.style.minWidth = `${widths.current}px`;
+                        header.style.maxWidth = `${widths.current}px`;
+                        neighbor.style.width = `${widths.neighbor}px`;
+                        neighbor.style.minWidth = `${widths.neighbor}px`;
+                        neighbor.style.maxWidth = `${widths.neighbor}px`;
                     };
                     const finish = () => {
                         document.body.classList.remove('ki-column-resizing');
@@ -2107,7 +2135,7 @@
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${grossSeriesId ? `data-series-id="${esc(grossSeriesId)}"` : ''}><div class="cash-summary-label">Выручка брутто</div>
                         <div class="cash-summary-value">${esc(grossFormatted.val)}</div><div class="cash-summary-sub">${esc(grossFormatted.u)} · ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${vatSeriesId ? `data-series-id="${esc(vatSeriesId)}"` : ''}><div class="cash-summary-label">НДС</div>
-                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : esc(vatFormatted.val)}</div><div class="cash-summary-sub">${vat === null ? 'нет аналитики 90.03' : `${esc(vatFormatted.u)} · ОбД 90.03`}</div>${this.cashTooltip(vatTooltip)}</div>
+                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : esc(vatFormatted.val)}</div><div class="cash-summary-sub">${vat === null ? esc(vatDetail && vatDetail.reason || 'нет аналитики 90.03') : `${esc(vatFormatted.u)} · ОбД 90.03`}</div>${this.cashTooltip(vatTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
                 </div>

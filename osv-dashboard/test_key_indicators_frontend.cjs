@@ -97,6 +97,14 @@ async function checkBootstrap(configuration) {
     tBodies: [{rows: sortableRows, appendChild: row => sortedRows.push(row)}]
   }, 0, 'asc');
   assert.deepEqual(sortedRows.map(row => row.index), [1, 2, 0, 3]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(app.columnResizeWidths(200, 100, 80))),
+    {current: 228, neighbor: 72},
+    'column growth must be limited by the neighboring column');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(app.columnResizeWidths(200, 100, -180))),
+    {current: 72, neighbor: 228},
+    'a resized column must retain its minimum width');
   app.mountSharedDynamics = () => {};
   const collectionBase = {
     id: 'collection', title: 'Собираемость', value: 60, unit: '%',
