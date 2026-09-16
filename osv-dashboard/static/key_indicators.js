@@ -5072,14 +5072,24 @@
             };
             const bucketRangeStart = bucketStart(minDate);
             const bucketRangeEnd = bucketStart(maxDate);
-            const aggregateSeries = data => {
+            const aggregateSeries = (data, isCollectionMain = false) => {
                 const buckets = new Map();
                 (data || []).forEach(point => {
                     const timestamp = chartDate(point);
                     if (timestamp === null || timestamp < minDate ||
-                            timestamp > maxDate ||
-                            !hasNumericValue(point.value)) return;
+                            timestamp > maxDate) return;
                     const key = bucketStart(timestamp);
+                    if (card.id === 'collection' &&
+                            card.measurement_basis === 'accounting_collection_proxy') {
+                        const bucket = buckets.get(key) || {
+                            timestamp, points: []
+                        };
+                        bucket.timestamp = Math.max(bucket.timestamp, timestamp);
+                        bucket.points.push(point);
+                        buckets.set(key, bucket);
+                        return;
+                    }
+                    if (!hasNumericValue(point.value)) return;
                     const previous = buckets.get(key);
                     if (!previous || timestamp >= previous.timestamp) {
                         buckets.set(key, {timestamp, point});
@@ -5094,6 +5104,52 @@
                         ? known.timestamp
                         : Math.min(selectedBounds.end,
                             Math.max(selectedBounds.start, cursor));
+                    if (known && known.points) {
+                        if (isCollectionMain) {
+                            const keys = [
+                                'debit_6201', 'credit_6201',
+                                'debit_6202', 'credit_6202'
+                            ];
+                            const totals = {};
+                            keys.forEach(component => {
+                                const values = known.points
+                                    .map(point => point[component])
+                                    .filter(hasNumericValue)
+                                    .map(Number);
+                                totals[component] = values.length
+                                    ? values.reduce((sum, value) => sum + value, 0)
+                                    : null;
+                            });
+                            const complete = keys.every(component =>
+                                totals[component] !== null);
+                            const value = complete && totals.debit_6201 !== 0
+                                ? (totals.credit_6201 + totals.credit_6202 -
+                                    totals.debit_6202) /
+                                    totals.debit_6201 * 100
+                                : null;
+                            result.push({
+                                ...totals,
+                                date: new Date(displayDate).toISOString().slice(0, 10),
+                                bucket_date: new Date(cursor).toISOString().slice(0, 10),
+                                label: '', value, granularity: timelineMode
+                            });
+                        } else {
+                            const values = known.points
+                                .map(point => point.value)
+                                .filter(hasNumericValue)
+                                .map(Number);
+                            result.push({
+                                date: new Date(displayDate).toISOString().slice(0, 10),
+                                bucket_date: new Date(cursor).toISOString().slice(0, 10),
+                                label: '',
+                                value: values.length
+                                    ? values.reduce((sum, value) => sum + value, 0)
+                                    : null,
+                                granularity: timelineMode
+                            });
+                        }
+                        continue;
+                    }
                     result.push(known
                         ? {...known.point,
                             date: new Date(displayDate).toISOString().slice(0, 10),
@@ -5105,7 +5161,8 @@
                 return result;
             };
             const displaySeries = seriesToDraw.map(series => ({
-                ...series, data: aggregateSeries(series.data)
+                ...series, data: aggregateSeries(
+                    series.data, series.id === '__main__')
             }));
             const baseSeries = displaySeries.find(s => s.isActive) || displaySeries[0];
             const span = Math.max(1, (maxDate - minDate) / dayMs);
@@ -5285,6 +5342,8 @@
                 if (index % tickStep !== 0 && index !== baseSeries.data.length - 1) return;
                 const dateMs = chartDate(point);
                 if (dateMs === null) return;
+                if (minDate !== maxDate &&
+                        (dateMs === minDate || dateMs === maxDate)) return;
                 const cx = getX(point, index, baseSeries.data);
                 const label = dateFormatter.format(new Date(dateMs)).replace(/\s*г\.$/, '');
                 svg += `<line x1="${cx.toFixed(1)}" y1="${height - bottom}" `

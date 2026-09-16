@@ -1195,11 +1195,16 @@ def _explicit_subaccount_turnover(source, sub, start, end):
     }
 
 
-def _collection_components(source, start, end):
-    """Read the four strict ОСВ components used by collection proxy."""
+def _collection_components_from_rows(rows):
+    """Read the four strict collection components from one movement interval."""
     values = {
-        sub: _explicit_subaccount_turnover(source, sub, start, end)
+        sub: {
+            'debit': _known_sum(matched, 'obd') if matched else None,
+            'credit': _known_sum(matched, 'obk') if matched else None,
+            'rows': matched,
+        }
         for sub in ('62.01', '62.02')
+        for matched in [_explicit_subaccount_rows(rows, sub)]
     }
     debit_01 = values['62.01']['debit']
     credit_01 = values['62.01']['credit']
@@ -1238,6 +1243,12 @@ def _collection_components(source, start, end):
         'components': components,
         'accounts': values,
     }
+
+
+def _collection_components(source, start, end):
+    """Read the four strict ОСВ components used by collection proxy."""
+    return _collection_components_from_rows(
+        _movement_rows(source, '62', start, end))
 
 
 def _consumer_collection(accruals, allocations, mappings, norms,
@@ -3051,6 +3062,60 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         account = match.group(1) if match else None
         if account in cash_daily_values:
             item['series'] = cash_daily_values[account]
+
+    # Collection is an interval movement. Keep authentic daily components for
+    # arbitrary date ranges so the client can recompute day/week/month ratios
+    # from the four summed turnovers instead of plotting one period-end total.
+    collection_daily_rows = defaultdict(list)
+    for row in source.get('accounts', {}).get('62', {}).get('daily') or []:
+        row_date = _iso(row.get('date'))
+        if row_date is not None and start <= row_date <= end:
+            collection_daily_rows[row_date].append(row)
+    collection_daily_series = []
+    collection_component_series = defaultdict(list)
+    collection_cursor = start
+    while collection_cursor <= end:
+        point_date = collection_cursor.isoformat()
+        point_label = _options([collection_cursor], 'day')[0]['label']
+        point_collection = _collection_components_from_rows(
+            collection_daily_rows.get(collection_cursor, []))
+        point_values = {
+            item['label']: item['value']
+            for item in point_collection['components']
+        }
+        collection_daily_series.append({
+            'date': point_date,
+            'label': point_label,
+            'value': point_collection['value'],
+            'components': point_collection['components'],
+            'reason': point_collection['reason'],
+            'debit_6201': point_values.get('Дебетовый оборот 62.01'),
+            'credit_6201': point_values.get('Кредитовый оборот 62.01'),
+            'debit_6202': point_values.get('Дебетовый оборот 62.02'),
+            'credit_6202': point_values.get('Кредитовый оборот 62.02'),
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        for label, value in point_values.items():
+            collection_component_series[label].append({
+                'date': point_date,
+                'label': point_label,
+                'value': value,
+                'unit': 'RUB',
+                'granularity': 'day',
+                'synthetic': False,
+            })
+        collection_cursor += timedelta(days=1)
+    if any(point['value'] is not None for point in collection_daily_series):
+        card_map['collection']['series'] = collection_daily_series
+        card_map['collection']['turnover_series'] = collection_daily_series
+        for collection in (
+                card_map['collection'].get('components') or [],
+                card_map['collection'].get('details') or []):
+            for item in collection:
+                if item.get('label') in collection_component_series:
+                    item['series'] = collection_component_series[item['label']]
+        card_map['collection']['granularity'] = 'day'
 
     series_accounts = {
         'cash': {'series': value_accounts['cash']},
