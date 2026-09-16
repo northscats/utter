@@ -263,6 +263,30 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             [115, 115, 95])
         self.assertEqual(card['granularity'], 'day')
 
+    def test_ap_balance_uses_latest_full_report_daily_movements(self):
+        raw = account(
+            '60',
+            [
+                day('2025-12-31', '60.01', obd=20, obk=10,
+                    p1='Поставщик А'),
+                day('2026-01-01', '60.01', p1='Поставщик А'),
+                day('2026-06-30', '60.01', obd=30, obk=50,
+                    p1='Поставщик А'),
+            ],
+            period='за 01.01.2025 - 15.09.2026',
+        )
+        raw['rows'] = [
+            dict(lvl=1, label='60.01', p0='60', p1='60.01',
+                 p2='', p3='', snd=0, snk=100, obd=50, obk=60,
+                 skd=0, skk=110),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'60': raw}),
+            period='day', date_from='2026-01-01', date='2026-06-30')
+        card = next(item for item in result['cards'] if item['id'] == 'ap')
+        self.assertEqual(card['value'], 110)
+        self.assertEqual(card['opening_value'], 90)
+
     def test_balance_only_at_original_report_boundary(self):
         top = dict(snd=1, snk=0, obd=0, obk=0, skd=25, skk=0)
         src = build_indicator_source({

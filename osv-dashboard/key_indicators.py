@@ -922,7 +922,8 @@ def _sub_balance(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
         return None, f'Счёт {account} не загружен'
-    if str(account) == '62' and str(sub) in ('62.01', '62.02'):
+    if ((str(account) == '62' and str(sub) in ('62.01', '62.02'))
+            or (str(account) == '60' and str(sub) == '60.01')):
         signed_debit = _rolled_sub_signed_balance(
             source, account, sub, end)
         if signed_debit is not None:
@@ -956,7 +957,8 @@ def _sub_balance(source, account, sub, end, credit=False):
 
 def _sub_opening_balance(source, account, sub, start, credit=False):
     """Return a subaccount opening balance only from an exact report boundary."""
-    if str(account) == '62' and str(sub) in ('62.01', '62.02'):
+    if ((str(account) == '62' and str(sub) in ('62.01', '62.02'))
+            or (str(account) == '60' and str(sub) == '60.01')):
         signed_debit = _sub_signed_opening_balance(
             source, account, sub, start)
         if signed_debit is not None:
