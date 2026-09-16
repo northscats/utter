@@ -67,6 +67,17 @@ async function checkBootstrap(configuration) {
   assert.equal(million.u, 'млн ₽');
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
+    {type: 'number', value: 1234.5});
+  const sortableRows = ['12,5%', '2,0%', '8,3%'].map((text, index) => ({
+    index, cells: [{dataset: {}, textContent: text}]
+  }));
+  const sortedRows = [];
+  app.sortTable({
+    tBodies: [{rows: sortableRows, appendChild: row => sortedRows.push(row)}]
+  }, 0, 'asc');
+  assert.deepEqual(sortedRows.map(row => row.index), [1, 2, 0]);
   app.mountSharedDynamics = () => {};
   const collectionBase = {
     id: 'collection', title: 'Собираемость', value: 60, unit: '%',

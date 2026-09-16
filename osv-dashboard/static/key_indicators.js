@@ -656,6 +656,165 @@
             }
         },
 
+        tableSortValue(cell) {
+            const raw = String(
+                (cell && cell.dataset && cell.dataset.sortValue) ||
+                (cell && cell.textContent) || '').replace(/\u00a0/g, ' ').trim();
+            const dateMatch = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(raw);
+            if (dateMatch) {
+                return {
+                    type: 'number',
+                    value: Date.UTC(
+                        Number(dateMatch[3]),
+                        Number(dateMatch[2]) - 1,
+                        Number(dateMatch[1]))
+                };
+            }
+            const numeric = raw
+                .replace(/\s+/g, '')
+                .replace(/[₽%]/g, '')
+                .replace(/(?:млн|тыс|дн(?:ей|я|ь)?)/gi, '')
+                .replace(',', '.');
+            if (/^[-+]?\d+(?:\.\d+)?$/.test(numeric)) {
+                return {type: 'number', value: Number(numeric)};
+            }
+            return {type: 'text', value: raw.toLocaleLowerCase('ru-RU')};
+        },
+
+        sortTable(table, columnIndex, direction) {
+            const body = table && table.tBodies && table.tBodies[0];
+            if (!body) return;
+            const rows = Array.from(body.rows).map((row, index) => ({
+                row,
+                index,
+                sort: this.tableSortValue(row.cells[columnIndex])
+            }));
+            const sign = direction === 'desc' ? -1 : 1;
+            rows.sort((left, right) => {
+                if (!left.sort.value && left.sort.value !== 0) return 1;
+                if (!right.sort.value && right.sort.value !== 0) return -1;
+                let comparison;
+                if (left.sort.type === 'number' && right.sort.type === 'number') {
+                    comparison = left.sort.value - right.sort.value;
+                } else {
+                    comparison = String(left.sort.value).localeCompare(
+                        String(right.sort.value), 'ru-RU', {
+                            numeric: true, sensitivity: 'base'
+                        });
+                }
+                return comparison ? comparison * sign : left.index - right.index;
+            });
+            rows.forEach(item => body.appendChild(item.row));
+        },
+
+        enhanceTable(table) {
+            if (!table || table.dataset.kiTableTools === 'ready') return;
+            const headerRow = table.tHead && table.tHead.rows[
+                table.tHead.rows.length - 1];
+            if (!headerRow || !headerRow.cells.length) return;
+            table.dataset.kiTableTools = 'ready';
+            table.classList.add('ki-adjustable-table');
+
+            Array.from(headerRow.cells).forEach((header, columnIndex) => {
+                if (header.colSpan > 1) return;
+                header.classList.add('ki-sortable-column');
+                header.tabIndex = 0;
+                header.setAttribute('role', 'columnheader');
+                header.setAttribute('aria-sort', 'none');
+                header.title = 'Сортировать по столбцу';
+
+                const sort = () => {
+                    const nextDirection = header.dataset.sortDirection === 'asc'
+                        ? 'desc' : 'asc';
+                    Array.from(headerRow.cells).forEach(item => {
+                        item.classList.remove('ki-sort-asc', 'ki-sort-desc');
+                        item.dataset.sortDirection = '';
+                        item.setAttribute('aria-sort', 'none');
+                    });
+                    header.dataset.sortDirection = nextDirection;
+                    header.classList.add(`ki-sort-${nextDirection}`);
+                    header.setAttribute(
+                        'aria-sort',
+                        nextDirection === 'asc' ? 'ascending' : 'descending');
+                    this.sortTable(table, columnIndex, nextDirection);
+                };
+                header.addEventListener('click', event => {
+                    if (!event.target.closest('.ki-column-resizer')) sort();
+                });
+                header.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        sort();
+                    }
+                });
+
+                const resizer = document.createElement('span');
+                resizer.className = 'ki-column-resizer';
+                resizer.setAttribute('role', 'separator');
+                resizer.setAttribute('aria-orientation', 'vertical');
+                resizer.setAttribute(
+                    'aria-label',
+                    `Изменить ширину столбца ${header.textContent.trim()}`);
+                resizer.title = 'Перетащите для изменения ширины';
+                resizer.addEventListener('pointerdown', event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const startX = event.clientX;
+                    const startWidth = header.getBoundingClientRect().width;
+                    const startTableWidth = table.getBoundingClientRect().width;
+                    table.style.width = `${Math.ceil(startTableWidth)}px`;
+                    table.style.minWidth = `${Math.ceil(startTableWidth)}px`;
+                    table.style.tableLayout = 'fixed';
+                    document.body.classList.add('ki-column-resizing');
+                    const move = moveEvent => {
+                        const width = Math.max(
+                            72, Math.round(startWidth + moveEvent.clientX - startX));
+                        const delta = width - startWidth;
+                        header.style.width = `${width}px`;
+                        header.style.minWidth = `${width}px`;
+                        header.style.maxWidth = `${width}px`;
+                        table.style.width = `${Math.ceil(startTableWidth + delta)}px`;
+                        table.style.minWidth = table.style.width;
+                    };
+                    const finish = () => {
+                        document.body.classList.remove('ki-column-resizing');
+                        document.removeEventListener('pointermove', move);
+                        document.removeEventListener('pointerup', finish);
+                        document.removeEventListener('pointercancel', finish);
+                    };
+                    document.addEventListener('pointermove', move);
+                    document.addEventListener('pointerup', finish);
+                    document.addEventListener('pointercancel', finish);
+                });
+                header.appendChild(resizer);
+            });
+        },
+
+        enhanceTables(root) {
+            const selector = '#ki-modal table, #ki-objects-table, #ki-annual-container table';
+            if (root && root.matches && root.matches(selector)) {
+                this.enhanceTable(root);
+            }
+            if (root && root.querySelectorAll) {
+                root.querySelectorAll(selector).forEach(
+                    table => this.enhanceTable(table));
+            }
+        },
+
+        initTableTools() {
+            this.enhanceTables(document);
+            if (typeof MutationObserver === 'undefined') return;
+            const observer = new MutationObserver(mutations => {
+                mutations.forEach(mutation => {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1) this.enhanceTables(node);
+                    });
+                });
+            });
+            observer.observe(document.body, {childList: true, subtree: true});
+            this.tableToolsObserver = observer;
+        },
+
         bindEvents() {
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.addEventListener('click', e => {
@@ -713,6 +872,7 @@
                     }
                 }
             });
+            this.initTableTools();
         },
         
         switchTab(tabName) {
@@ -5508,6 +5668,7 @@ renderCashModal(card) {
             }
 
             const overlay = document.getElementById('ki-modal');
+            this.enhanceTables(overlay);
             overlay.style.visibility = 'visible';
             overlay.setAttribute('aria-hidden', 'false');
             overlay.classList.add('visible');
