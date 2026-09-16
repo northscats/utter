@@ -160,6 +160,31 @@
         return prefix === 'breakdown' ? String(index) : `${prefix}:${index}`;
     };
 
+    const cashNcfMetric = card => {
+        if (!card || card.id !== 'cash' || !Array.isArray(card.series) ||
+                card.series.length < 2) return null;
+        const series = card.series.map((point, index, points) => ({
+            ...point,
+            value: index > 0 && hasNumericValue(point.value) &&
+                hasNumericValue(points[index - 1].value)
+                ? Number(point.value) - Number(points[index - 1].value)
+                : null
+        }));
+        const knownBalances = card.series.filter(point =>
+            hasNumericValue(point && point.value));
+        const value = knownBalances.length > 1
+            ? Number(knownBalances[knownBalances.length - 1].value) -
+                Number(knownBalances[0].value)
+            : null;
+        return {
+            id: '__ncf__',
+            label: 'NCF за выбранный период',
+            value,
+            unit: card.unit,
+            series
+        };
+    };
+
     const metricSeriesItems = card => {
         const result = [];
         const seen = new Set();
@@ -177,6 +202,17 @@
             });
         };
         add(card, 'main', 0, true);
+        const ncf = cashNcfMetric(card);
+        if (ncf) {
+            seen.add('__ncf__');
+            result.push({
+                id: '__ncf__',
+                label: ncf.label,
+                item: ncf,
+                data: ncf.series,
+                isMain: false
+            });
+        }
         (card.breakdown || []).forEach((item, index) =>
             add(item, 'breakdown', index, false));
         ['components', 'details', 'analytics'].forEach(category => {
@@ -211,6 +247,17 @@
             });
         };
         if (card.series && card.series.length) add(card, 'main', 0, true);
+        const ncf = cashNcfMetric(card);
+        if (ncf) {
+            seen.add('__ncf__');
+            result.push({
+                id: '__ncf__',
+                label: ncf.label,
+                item: ncf,
+                hasSeries: true,
+                isMain: false
+            });
+        }
         (card.breakdown || []).forEach((item, index) =>
             add(item, 'breakdown', index, false));
         ['components', 'details', 'analytics'].forEach(category => {
@@ -4818,7 +4865,7 @@
                 ...item, data: aggregateSeries(item.data)
             }));
             const mainCashSeries = selected.find(series => series.id === '__main__');
-            if (mainCashSeries) {
+            if (mainCashSeries && !selected.some(series => series.id === '__ncf__')) {
                 const ncfData = (mainCashSeries.data || []).map((point, index, points) => ({
                     ...point,
                     value: index > 0 && hasNumericValue(point.value) &&
