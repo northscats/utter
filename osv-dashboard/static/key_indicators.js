@@ -2055,7 +2055,7 @@
                 source: card.source
             });
 
-            document.getElementById('ki-modal-title').textContent = 'Выручка по сегментам (сч. 90.01)';
+            document.getElementById('ki-modal-title').textContent = 'Выручка по видам деятельности и группам';
             this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Фактическая выручка предприятия.</strong>
