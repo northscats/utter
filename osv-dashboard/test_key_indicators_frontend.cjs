@@ -70,14 +70,16 @@ async function checkBootstrap(configuration) {
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
     {type: 'number', value: 1234.5});
-  const sortableRows = ['12,5%', '2,0%', '8,3%'].map((text, index) => ({
-    index, cells: [{dataset: {}, textContent: text}]
+  const sortableRows = ['12,5%', '2,0%', '8,3%', 'ИТОГО'].map((text, index) => ({
+    index,
+    classList: {contains: () => false},
+    cells: [{dataset: {}, textContent: text}]
   }));
   const sortedRows = [];
   app.sortTable({
     tBodies: [{rows: sortableRows, appendChild: row => sortedRows.push(row)}]
   }, 0, 'asc');
-  assert.deepEqual(sortedRows.map(row => row.index), [1, 2, 0]);
+  assert.deepEqual(sortedRows.map(row => row.index), [1, 2, 0, 3]);
   app.mountSharedDynamics = () => {};
   const collectionBase = {
     id: 'collection', title: 'Собираемость', value: 60, unit: '%',
@@ -108,6 +110,12 @@ async function checkBootstrap(configuration) {
   const previousData = app.state.data;
   app.state.data = {period: {start: '2026-01-01', end: '2026-06-30', label: '2026'}};
   assert.equal(app.displayedPeriodLabel(), '01.01.2026 — 30.06.2026');
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(app.chartPeriodBounds([
+      Date.UTC(2025, 11, 29), Date.UTC(2026, 8, 1)
+    ]))),
+    {start: Date.UTC(2026, 0, 1), end: Date.UTC(2026, 5, 30)},
+    'chart bounds must use the exact selected period instead of bucket edges');
   app.updateModalSubtitle();
   assert.equal(nodes.get('ki-modal-subtitle').textContent,
     'Детализация по данным ОСВ · 01.01.2026 — 30.06.2026');

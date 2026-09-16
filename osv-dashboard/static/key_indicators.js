@@ -63,6 +63,25 @@
         return match ? Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1])) : null;
     };
 
+    const chartPeriodBounds = dates => {
+        const validDates = (dates || []).filter(value =>
+            value !== null && Number.isFinite(value));
+        const fallbackStart = validDates.length ? Math.min(...validDates) : null;
+        const fallbackEnd = validDates.length ? Math.max(...validDates) : null;
+        const period = state.data && state.data.period || {};
+        const requestedStart = chartDate({
+            date: period.start || period.date_from
+        });
+        const requestedEnd = chartDate({
+            date: period.end || period.date
+        });
+        if (requestedStart !== null && requestedEnd !== null &&
+                requestedStart <= requestedEnd) {
+            return {start: requestedStart, end: requestedEnd};
+        }
+        return {start: fallbackStart, end: fallbackEnd};
+    };
+
     // Keep non-ОСВ/annual callers index-based.  Daily ОСВ series carry an
     // exact date, so a missing calendar day occupies its real horizontal
     // distance rather than being compressed next to its neighbours.
@@ -78,8 +97,9 @@
                     : index * width / (series.length - 1)
             };
         }
-        const first = Math.min(...dates);
-        const last = Math.max(...dates);
+        const bounds = chartPeriodBounds(dates);
+        const first = bounds.start;
+        const last = bounds.end;
         const span = Math.max(1, Math.round((last - first) / 86400000));
         return {
             calendar: true,
@@ -681,10 +701,31 @@
             return {type: 'text', value: raw.toLocaleLowerCase('ru-RU')};
         },
 
+        chartPeriodBounds(dates) {
+            return chartPeriodBounds(dates);
+        },
+
+        isTableSummaryRow(row) {
+            if (!row) return false;
+            if (row.classList && (
+                    row.classList.contains('total-row') ||
+                    row.classList.contains('revenue-mapping-total'))) {
+                return true;
+            }
+            const firstCellText = row.cells && row.cells[0]
+                ? String(row.cells[0].textContent || '').trim()
+                : '';
+            return /^итого(?:\s|$)/i.test(firstCellText);
+        },
+
         sortTable(table, columnIndex, direction) {
             const body = table && table.tBodies && table.tBodies[0];
             if (!body) return;
-            const rows = Array.from(body.rows).map((row, index) => ({
+            const allRows = Array.from(body.rows);
+            const summaryRows = allRows.filter(
+                row => this.isTableSummaryRow(row));
+            const rows = allRows.filter(
+                row => !this.isTableSummaryRow(row)).map((row, index) => ({
                 row,
                 index,
                 sort: this.tableSortValue(row.cells[columnIndex])
@@ -705,6 +746,7 @@
                 return comparison ? comparison * sign : left.index - right.index;
             });
             rows.forEach(item => body.appendChild(item.row));
+            summaryRows.forEach(row => body.appendChild(row));
         },
 
         enhanceTable(table) {
@@ -4558,13 +4600,18 @@
                 return value + dayMs;
             };
             const isoDate = value => new Date(value).toISOString().slice(0, 10);
-            const rangeStart = bucketStart(Math.min(...rawDates));
-            const rangeEnd = bucketStart(Math.max(...rawDates));
+            const selectedBounds = chartPeriodBounds(rawDates);
+            const minDate = selectedBounds.start;
+            const maxDate = selectedBounds.end;
+            const rangeStart = bucketStart(minDate);
+            const rangeEnd = bucketStart(maxDate);
             const aggregateSeries = (data) => {
                 const buckets = new Map();
                 (data || []).forEach(point => {
                     const timestamp = chartDate(point);
-                    if (timestamp === null || !hasNumericValue(point.value)) return;
+                    if (timestamp === null || timestamp < minDate ||
+                            timestamp > maxDate ||
+                            !hasNumericValue(point.value)) return;
                     const key = bucketStart(timestamp);
                     const previous = buckets.get(key);
                     if (!previous || timestamp >= previous.timestamp) {
@@ -4574,10 +4621,15 @@
                 const result = [];
                 for (let cursor = rangeStart; cursor <= rangeEnd; cursor = nextBucket(cursor)) {
                     const known = buckets.get(cursor);
+                    const displayDate = known
+                        ? known.timestamp
+                        : Math.min(maxDate, Math.max(minDate, cursor));
                     result.push(known
-                        ? {...known.point, date: isoDate(cursor), bucket_source_date:
-                            known.point.date || known.point.label}
-                        : {date: isoDate(cursor), label: isoDate(cursor), value: null,
+                        ? {...known.point, date: isoDate(displayDate),
+                            bucket_date: isoDate(cursor), bucket_source_date:
+                                known.point.date || known.point.label}
+                        : {date: isoDate(displayDate), bucket_date: isoDate(cursor),
+                            label: isoDate(displayDate), value: null,
                             granularity: timelineMode});
                 }
                 return result;
@@ -4585,10 +4637,6 @@
             const selected = rawSelected.map(item => ({
                 ...item, data: aggregateSeries(item.data)
             }));
-            const allDates = selected.flatMap(item => item.data
-                .map(point => chartDate(point)).filter(value => value !== null));
-            const minDate = Math.min(...allDates);
-            const maxDate = Math.max(...allDates);
             const span = Math.max(1, (maxDate - minDate) / dayMs);
             const width = 900, height = 270, left = 52, right = 18,
                 top = 38, bottom = 48;
@@ -4653,8 +4701,11 @@
                     const previousY = y(previous.value).toFixed(1);
                     const currentX = x(current.point).toFixed(1);
                     const currentY = y(current.value).toFixed(1);
-                    const consecutive = nextBucket(chartDate(previous.point)) ===
-                        chartDate(current.point);
+                    const previousBucket = chartDate({
+                        date: previous.point.bucket_date || previous.point.date});
+                    const currentBucket = chartDate({
+                        date: current.point.bucket_date || current.point.date});
+                    const consecutive = nextBucket(previousBucket) === currentBucket;
                     if (consecutive) {
                         solid += ` M ${previousX} ${previousY} L ${currentX} ${currentY}`;
                         areaSegment.push(current);
@@ -4724,6 +4775,12 @@
                 svg += `<text class="cash-date-tick" x="${cx.toFixed(1)}" y="${height - 13}" `
                     + `text-anchor="middle" font-size="10" fill="#4B5563">${esc(formatDate(chartDate(point)))}</text>`;
             });
+            if (minDate !== maxDate) {
+                svg += `<text class="cash-date-tick" x="${left}" y="${height - 1}" `
+                    + `text-anchor="start" font-size="10" fill="#334155">${esc(formatDate(minDate))}</text>`;
+                svg += `<text class="cash-date-tick" x="${width - right}" y="${height - 1}" `
+                    + `text-anchor="end" font-size="10" fill="#334155">${esc(formatDate(maxDate))}</text>`;
+            }
             svg += '</svg>';
             const mainLegend = selected.some(series => series.id === '__main__')
                 ? '<span class="cash-modal-chart-legend-main"><i></i>Денежные средства '
@@ -4832,8 +4889,9 @@
                     if (d) allDates.push(d);
                 });
             });
-            let minDate = Math.min(...allDates);
-            let maxDate = Math.max(...allDates);
+            const selectedBounds = chartPeriodBounds(allDates);
+            let minDate = selectedBounds.start;
+            let maxDate = selectedBounds.end;
             const dayMs = 86400000;
             const timelineMode = state.modalChart.timelineMode || 'week';
             const bucketStart = value => {
@@ -4854,13 +4912,15 @@
                 }
                 return value + dayMs;
             };
-            minDate = bucketStart(minDate);
-            maxDate = bucketStart(maxDate);
+            const bucketRangeStart = bucketStart(minDate);
+            const bucketRangeEnd = bucketStart(maxDate);
             const aggregateSeries = data => {
                 const buckets = new Map();
                 (data || []).forEach(point => {
                     const timestamp = chartDate(point);
-                    if (timestamp === null || !hasNumericValue(point.value)) return;
+                    if (timestamp === null || timestamp < minDate ||
+                            timestamp > maxDate ||
+                            !hasNumericValue(point.value)) return;
                     const key = bucketStart(timestamp);
                     const previous = buckets.get(key);
                     if (!previous || timestamp >= previous.timestamp) {
@@ -4868,11 +4928,20 @@
                     }
                 });
                 const result = [];
-                for (let cursor = minDate; cursor <= maxDate; cursor = nextBucket(cursor)) {
+                for (let cursor = bucketRangeStart;
+                        cursor <= bucketRangeEnd;
+                        cursor = nextBucket(cursor)) {
                     const known = buckets.get(cursor);
+                    const displayDate = known
+                        ? known.timestamp
+                        : Math.min(selectedBounds.end,
+                            Math.max(selectedBounds.start, cursor));
                     result.push(known
-                        ? {...known.point, date: new Date(cursor).toISOString().slice(0, 10)}
-                        : {date: new Date(cursor).toISOString().slice(0, 10),
+                        ? {...known.point,
+                            date: new Date(displayDate).toISOString().slice(0, 10),
+                            bucket_date: new Date(cursor).toISOString().slice(0, 10)}
+                        : {date: new Date(displayDate).toISOString().slice(0, 10),
+                            bucket_date: new Date(cursor).toISOString().slice(0, 10),
                             label: '', value: null, granularity: timelineMode});
                 }
                 return result;
@@ -4888,7 +4957,7 @@
             };
 
             let min = 0, max = 0;
-            compatible.forEach(s => {
+            displaySeries.forEach(s => {
                 s.data.forEach(item => {
                     if (hasNumericValue(item.value)) {
                         const v = Number(item.value);
@@ -4961,7 +5030,11 @@
                         const px = getX(prev, prev.index, s.data);
                         const py = getY(prev.v);
 
-                        const isConsecutive = nextBucket(chartDate(prev)) === chartDate(curr);
+                        const previousBucket = chartDate({
+                            date: prev.bucket_date || prev.date});
+                        const currentBucket = chartDate({
+                            date: curr.bucket_date || curr.date});
+                        const isConsecutive = nextBucket(previousBucket) === currentBucket;
                         if (isConsecutive) {
                             pathSolid += ` L ${cx.toFixed(1)} ${cy.toFixed(1)}`;
                         } else {
@@ -5061,6 +5134,16 @@
                 svg += `<text class="metric-date-tick" x="${cx.toFixed(1)}" y="${height - 10}" `
                     + `text-anchor="middle" font-size="10" fill="#475569">${esc(label)}</text>`;
             });
+            if (minDate !== maxDate) {
+                const firstLabel = dateFormatter.format(new Date(minDate))
+                    .replace(/\s*г\.$/, '');
+                const lastLabel = dateFormatter.format(new Date(maxDate))
+                    .replace(/\s*г\.$/, '');
+                svg += `<text class="metric-date-tick" x="${left}" y="${height - 1}" `
+                    + `text-anchor="start" font-size="10" fill="#334155">${esc(firstLabel)}</text>`;
+                svg += `<text class="metric-date-tick" x="${width - right}" y="${height - 1}" `
+                    + `text-anchor="end" font-size="10" fill="#334155">${esc(lastLabel)}</text>`;
+            }
 
             svg += '</svg>';
             htmlOverlay += '</div>';
