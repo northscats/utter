@@ -21,6 +21,7 @@
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
         modalCharts: {}
     };
+    const periodSelectionStorageKey = 'brain4sales:key-indicators:period-selection';
 
     const metricChartColor = id => {
         if (id === '__main__') return '#2563EB';
@@ -591,6 +592,7 @@
         init() {
             const urlParams = new URLSearchParams(window.location.search);
             const initialMode = urlParams.get('mode') || 'operational';
+            this.restorePeriodSelection();
 
             if (initialMode === 'annual') {
                 state.mode = 'annual';
@@ -614,6 +616,42 @@
             this.initRichTooltip();
             if (state.mode === 'operational') {
                 this.fetchData();
+            }
+        },
+
+        restorePeriodSelection() {
+            let saved;
+            try {
+                if (!window.localStorage) return false;
+                saved = JSON.parse(
+                    window.localStorage.getItem(periodSelectionStorageKey) || 'null');
+            } catch (error) {
+                return false;
+            }
+            const validPeriods = new Set(['year', 'quarter', 'month', 'day']);
+            const validDate = value =>
+                value === null || value === undefined ||
+                /^\d{4}-\d{2}-\d{2}$/.test(String(value));
+            if (!saved || !validPeriods.has(saved.period) ||
+                    !validDate(saved.date) || !validDate(saved.dateFrom)) {
+                return false;
+            }
+            state.period = saved.period;
+            state.date = saved.date || null;
+            state.dateFrom = saved.dateFrom || null;
+            return true;
+        },
+
+        savePeriodSelection() {
+            try {
+                if (!window.localStorage) return;
+                window.localStorage.setItem(periodSelectionStorageKey, JSON.stringify({
+                    period: state.period,
+                    date: state.date,
+                    dateFrom: state.dateFrom
+                }));
+            } catch (error) {
+                // Private mode or a browser storage policy may deny access.
             }
         },
         
@@ -1223,10 +1261,11 @@
                 const unavailablePeriod = data &&
                     (unavailablePeriodErrors.has(data.error) ||
                      unavailablePeriodErrors.has(data.message));
-                if (response.status === 400 && companySwitchToken !== null &&
-                    !skipPeriodSelection && unavailablePeriod) {
+                if (response.status === 400 && !skipPeriodSelection &&
+                    unavailablePeriod) {
                     if (reqId !== state.reqId ||
-                        companySwitchToken !== state.companySwitchToken) return;
+                        (companySwitchToken !== null &&
+                         companySwitchToken !== state.companySwitchToken)) return;
                     return this.fetchData(companySwitchToken, true, {
                         period: requestedPeriod,
                         date: requestedDate,
@@ -1249,6 +1288,7 @@
                     state.period = data.period.kind || state.period;
                     state.date = data.period.date || null;
                     state.dateFrom = data.period.date_from || data.period.date || null;
+                    this.savePeriodSelection();
                 }
                 if (fallbackSelection && companySwitchToken !== null &&
                     state.companySwitching) {
@@ -1985,6 +2025,7 @@
             const vatFormatted = this.formatValue(vat, 'RUB');
             const definitions = this.revenueSegmentDefinitions();
             const segmentData = state.data.revenue_segments || {};
+            const yearOverYear = card.year_over_year || null;
             const segmentRows = definitions.map(definition => {
                 const saved = (segmentData.categories || []).find(row => row.id === definition.id);
                 return {
@@ -2070,7 +2111,7 @@
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
                 </div>
-                <div class="modal-section-title">Детализация выручки по сегментам</div>
+                <div class="modal-section-title">Детализация выручки по группам</div>
                 ${(unclassified.length || conflicts.length || unknownAmounts.length || !segmentData.reconciled) ? `<div class="revenue-classification-note">
                     ${unclassified.length ? `Новые аналитики без категории: ${esc(unclassified.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}.` : ''}
                     ${conflicts.length ? ` Конфликты: ${esc(conflicts.map(row => row.message + ' — ' + row.analytic_label).join('; '))}.` : ''}
@@ -2079,7 +2120,7 @@
                 </div>` : ''}
                 ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.display_analytics || []) : ''}
                 <div class="revenue-table-wrap"><table class="cash-table revenue-table">
-                    <thead><tr><th>Сегмент</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
+                    <thead><tr><th>Группа</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
                     <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>
                 </table></div>
                 <div class="revenue-missing-grid">
@@ -2091,14 +2132,19 @@
                         deviation: 'Расчёт невозможен', deviationClass: 'missing', source: 'требуется регистр взаиморасчётов 1С'
                     }, true)}
                     ${this.cashMetricCard('План выручки', 'Нужны данные', 'утверждённый план по сегментам', planTooltip, true)}
-                    ${this.cashMetricCard('Сравнение с АПГ', 'Нужны данные', 'аналогичный период прошлого года', {
+                    ${this.cashMetricCard('Сравнение с АПГ',
+                        yearOverYear ? `${yearOverYear.delta >= 0 ? '+' : ''}${this.formatValue(yearOverYear.delta, 'RUB').val} млн ₽` : 'Нужны данные',
+                        yearOverYear ? `${yearOverYear.percent === null ? '—' : `${yearOverYear.percent >= 0 ? '+' : ''}${yearOverYear.percent.toFixed(1)}%`} · ${yearOverYear.basis === 'net' ? 'без НДС' : 'брутто'}` : 'аналогичный период прошлого года', {
                         title: 'Изменение к аналогичному периоду', description: 'Сравнение факта с тем же календарным периодом предыдущего года.',
                         formula: 'Δ АПГ = Факт текущего периода − Факт аналогичного периода прошлого года',
                         detail: 'Периоды должны быть полностью покрыты и рассчитаны в одинаковой базе НДС.',
-                        required: 'Полные ОСВ счёта 90 за текущий и аналогичный период прошлого года с одинаковой аналитикой 90.01 и 90.03.',
-                        norm: 'Индивидуальный норматив не задан', fact: 'Н/Д',
-                        deviation: 'АПГ не рассчитан', deviationClass: 'missing', source: 'требуются сопоставимые периоды ОСВ счёта 90'
-                    }, true)}
+                        required: yearOverYear ? null : 'Полные ОСВ счёта 90 за текущий и аналогичный период прошлого года с одинаковой аналитикой 90.01 и 90.03.',
+                        norm: 'Индивидуальный норматив не задан',
+                        fact: yearOverYear ? `${this.formatValue(yearOverYear.current, 'RUB').val} млн ₽ против ${this.formatValue(yearOverYear.previous, 'RUB').val} млн ₽` : 'Н/Д',
+                        deviation: yearOverYear ? `${yearOverYear.delta >= 0 ? '+' : ''}${this.formatValue(yearOverYear.delta, 'RUB').val} млн ₽` : 'АПГ не рассчитан',
+                        deviationClass: yearOverYear ? (yearOverYear.delta >= 0 ? 'good' : 'warning') : 'missing',
+                        source: yearOverYear ? 'сопоставимые периоды ОСВ счёта 90' : 'требуются сопоставимые периоды ОСВ счёта 90'
+                    }, !yearOverYear, '', yearOverYear && yearOverYear.delta < 0 ? 'cash-value-negative' : '')}
                 </div>
                 `;
         },

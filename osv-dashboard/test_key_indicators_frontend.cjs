@@ -9,8 +9,14 @@ async function checkBootstrap(configuration) {
   const nodes = new Map();
   const requests = [];
   const listeners = new Map();
+  const stored = new Map();
   const context = vm.createContext({
-    window: {},
+    window: {
+      localStorage: {
+        getItem: key => stored.has(key) ? stored.get(key) : null,
+        setItem: (key, value) => stored.set(key, value),
+      },
+    },
     AbortController,
     Intl,
     console,
@@ -58,6 +64,17 @@ async function checkBootstrap(configuration) {
   if (configuration) {
     assert.equal(requests[0], '/company/11/key-indicators/data?period=year');
     assert.equal(renders, 1, 'valid configuration must reach rendering');
+    stored.set('brain4sales:key-indicators:period-selection', JSON.stringify({
+      period: 'month', date: '2026-06-30', dateFrom: '2026-01-31',
+    }));
+    assert.equal(app.restorePeriodSelection(), true);
+    assert.equal(app.state.period, 'month');
+    assert.equal(app.state.date, '2026-06-30');
+    assert.equal(app.state.dateFrom, '2026-01-31');
+    app.savePeriodSelection();
+    assert.deepEqual(
+      JSON.parse(stored.get('brain4sales:key-indicators:period-selection')),
+      {period: 'month', date: '2026-06-30', dateFrom: '2026-01-31'});
   } else {
     assert.equal(requests.length, 0);
     assert.match(nodes.get('ki-error-text').textContent, /адрес источника/);
@@ -194,6 +211,8 @@ async function checkBootstrap(configuration) {
   assert.equal(nodes.get('ki-quarter-buttons').style.display, 'none');
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
     'negative cash balance changes must use the carrot color class');
+  assert.match(script, /<th>Группа<\/th>/,
+    'the former Segment table must be labeled Group');
 }
 
 (async () => {

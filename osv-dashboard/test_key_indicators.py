@@ -53,6 +53,56 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cards['revenue']['value'], 100)
         self.assertIn('брутто', cards['revenue']['formula'])
 
+    def test_cumulative_reports_restore_vat_and_year_over_year(self):
+        raw = account('90', [
+            day('2025-09-15', '90.01', obk=100),
+        ])
+        raw['balance_reports'] = [
+            {
+                'period': 'за 2025 г.',
+                'top': dict(obd=20, obk=100),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=100),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=20, obk=0),
+                ],
+            },
+            {
+                'period': 'за 01.01.2025 - 15.09.2026',
+                'top': dict(obd=50, obk=300),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=300),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=50, obk=0),
+                ],
+            },
+            {
+                # A narrower report accepted later must not replace the
+                # complete account 90 report for the same interval.
+                'period': 'за 01.01.2025 - 15.09.2026',
+                'top': dict(obd=0, obk=999),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=999),
+                ],
+            },
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='year', date='2026-09-15')
+        revenue = {card['id']: card for card in result['cards']}['revenue']
+        details = {item['label']: item['value']
+                   for item in revenue['details']}
+        self.assertEqual(details['Выручка брутто'], 200)
+        self.assertEqual(details['НДС'], 30)
+        self.assertEqual(revenue['value'], 170)
+        self.assertEqual(revenue['year_over_year']['current'], 200)
+        self.assertEqual(revenue['year_over_year']['previous'], 100)
+        self.assertEqual(revenue['year_over_year']['delta'], 100)
+        self.assertEqual(revenue['year_over_year']['basis'], 'gross')
+
     def test_month_range_sums_from_selected_start_through_end(self):
         rows = [
             day('2026-08-31', '90.01', obk=10),

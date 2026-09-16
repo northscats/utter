@@ -453,10 +453,24 @@ def _report_bounds(report):
     return _period_bounds(report.get('period'))
 
 
-def _report_precedence(report, index):
+def _report_scope_score(report, account):
+    """Prefer a complete parent-account report over one narrow subaccount."""
+    prefix = re.escape(str(account))
+    children = set()
+    for row in report.get('rows') or []:
+        for key in ('label', 'p0', 'p1', 'p2', 'p3',
+                    'path1', 'path2', 'path3'):
+            match = re.match(rf'^({prefix}\.\d+)', str(row.get(key) or ''))
+            if match:
+                children.add(match.group(1))
+    return len(children)
+
+
+def _report_precedence(report, index, account=None):
     """Sort key where a later source revision wins an equal interval."""
+    scope = _report_scope_score(report, account) if account is not None else 0
     updated = str(report.get('source_updated_at') or '')
-    return updated, index
+    return scope, updated, index
 
 
 def _period_report_selection(source, account, start, end):
@@ -490,7 +504,10 @@ def _period_report_selection(source, account, start, end):
         if item[1] == start and item[2] == end
     ]
     if exact:
-        return [max(exact, key=lambda item: _report_precedence(item[3], item[0]))[3]]
+        return [max(
+            exact,
+            key=lambda item: _report_precedence(item[3], item[0], account),
+        )[3]]
 
     # Keep only the latest revision of each interval.  Different intervals
     # can still overlap; the search below accepts only a disjoint tiling.
@@ -499,14 +516,16 @@ def _period_report_selection(source, account, start, end):
         span = (item[1], item[2])
         previous = latest_by_span.get(span)
         if previous is None or _report_precedence(
-                item[3], item[0]) > _report_precedence(previous[3], previous[0]):
+                item[3], item[0], account) > _report_precedence(
+                    previous[3], previous[0], account):
             latest_by_span[span] = item
     by_start = defaultdict(list)
     for item in latest_by_span.values():
         by_start[item[1]].append(item)
     for candidates in by_start.values():
         candidates.sort(
-            key=lambda item: (item[2], _report_precedence(item[3], item[0])),
+            key=lambda item: (
+                item[2], _report_precedence(item[3], item[0], account)),
             reverse=True)
 
     memo = {}
@@ -564,10 +583,79 @@ def _period_rows(source, account, start, end):
     return rows
 
 
+def _cumulative_difference_rows(source, account, start, end):
+    """Derive one interval from cumulative reports with the same start."""
+    acc = source.get('accounts', {}).get(str(account))
+    if not acc or start <= Date.min:
+        return None
+    baseline_end = start - timedelta(days=1)
+    indexed = [
+        (index, report, *_report_bounds(report))
+        for index, report in enumerate(acc.get('balance_reports') or [])
+        if isinstance(report, dict) and all(_report_bounds(report))
+    ]
+    pairs = []
+    for current_index, current, current_start, current_end in indexed:
+        if current_end != end or current_start >= start:
+            continue
+        baselines = [
+            item for item in indexed
+            if item[2] == current_start and item[3] == baseline_end
+        ]
+        if baselines:
+            baseline = max(
+                baselines,
+                key=lambda item: _report_precedence(
+                    item[1], item[0], account))
+            pairs.append((current_index, current, baseline[0], baseline[1]))
+    if not pairs:
+        return None
+    _, current, _, baseline = max(
+        pairs,
+        key=lambda item: _report_precedence(item[1], item[0], account))
+
+    identity_keys = (
+        'label', 'lvl', 'p0', 'p1', 'p2', 'p3',
+        'path1', 'path2', 'path3')
+    def identity(row):
+        return tuple(str(row.get(key) or '') for key in identity_keys)
+
+    baseline_rows = {
+        identity(row): row for row in baseline.get('rows') or []
+        if isinstance(row, dict)
+    }
+    result = []
+    for row in current.get('rows') or []:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        previous = baseline_rows.get(identity(row), {})
+        for side in ('obd', 'obk'):
+            known = row.get(f'{side}_known') is not False and \
+                previous.get(f'{side}_known') is not False
+            item[f'{side}_known'] = known
+            item[side] = (
+                round(float(row.get(side) or 0) -
+                      float(previous.get(side) or 0), 2)
+                if known else 0.0)
+        item['date'] = end.isoformat()
+        item['month'] = end.strftime('%Y-%m')
+        item['_period_aggregate'] = True
+        item['_period_start'] = start.isoformat()
+        item['_period_end'] = end.isoformat()
+        item['_period_derived_from_cumulative'] = True
+        result.append(item)
+    return result
+
+
 def _movement_rows(source, account, start, end):
     """Use report totals when they cover the whole interval, else daily rows."""
     report_rows = _period_rows(source, account, start, end)
-    return report_rows if report_rows is not None else _daily(
+    if report_rows is not None:
+        return report_rows
+    cumulative_rows = _cumulative_difference_rows(
+        source, account, start, end)
+    return cumulative_rows if cumulative_rows is not None else _daily(
         source, account, start, end)
 
 
@@ -2453,6 +2541,35 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               details=[{'label': 'План инвестпрограммы', 'value': None, 'unit': 'RUB',
                         'reason': 'План отсутствует в ОСВ'}]),
     ]
+    previous_year_start = start.replace(year=start.year - 1)
+    try:
+        previous_year_end = end.replace(year=end.year - 1)
+    except ValueError:
+        previous_year_end = end.replace(year=end.year - 1, day=28)
+    previous_year_pl = _pl_facts(
+        source, previous_year_start, previous_year_end)
+    previous_year_value = previous_year_pl['revenue']
+    comparison_basis = 'net'
+    current_comparison_value = revenue
+    if vat is None or previous_year_pl['vat'] is None:
+        comparison_basis = 'gross'
+        current_comparison_value = gross_rev
+        previous_year_value = previous_year_pl['gross']
+    if current_comparison_value is not None and previous_year_value is not None:
+        year_delta = round(
+            current_comparison_value - previous_year_value, 2)
+        card_map_for_yoy = {card['id']: card for card in cards}
+        card_map_for_yoy['revenue']['year_over_year'] = {
+            'current': current_comparison_value,
+            'previous': previous_year_value,
+            'delta': year_delta,
+            'percent': (
+                round(year_delta / previous_year_value * 100, 2)
+                if previous_year_value else None),
+            'basis': comparison_basis,
+            'start': previous_year_start.isoformat(),
+            'end': previous_year_end.isoformat(),
+        }
     card_map = {c['id']: c for c in cards}
     if vat is None and revenue is not None:
         card_map['revenue']['title'] = 'Выручка брутто (НДС недоступен)'

@@ -494,8 +494,8 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .metric-chart-point:hover, .metric-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .revenue-chart-point { cursor:help; outline:none; }
 .revenue-chart-point:hover, .revenue-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
-.revenue-table-wrap { overflow-x:auto; margin-bottom:16px; }
-.revenue-table { min-width:790px; }
+.revenue-table-wrap { overflow-x:auto; margin-bottom:16px; width:100%; max-width:100%; min-width:0; }
+.revenue-table { min-width:520px; width:100%; }
 .revenue-table th:first-child { width:31%; }
 .revenue-table .cash-value-missing { font-size:10px; white-space:nowrap; }
 .revenue-classification-note {
