@@ -728,7 +728,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
 
     def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
@@ -1664,7 +1664,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
 
     def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
@@ -2161,7 +2161,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
 
     def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):

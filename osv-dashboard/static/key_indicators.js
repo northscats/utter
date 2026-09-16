@@ -27,7 +27,6 @@
 
     const metricChartColor = id => {
         if (id === '__main__') return '#2563EB';
-        if (id === 'ncf') return '#10B981';
         const colors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6',
             '#EC4899', '#06B6D4', '#F43F5E'];
         let hash = 0;
@@ -41,7 +40,6 @@
 
     const cardDefinitions = [
         { id: 'cash', icon: '<span aria-hidden="true">₽</span>' },
-        { id: 'ncf', icon: svgIcon('M4 14l5-5 4 4 7-7M20 6v5h-5') },
         { id: 'revenue', icon: svgIcon('M3 3v18h18M3 16l6-6 4 4 8-8') },
         { id: 'collection', icon: svgIcon('M3 10h18M7 15h1m4 0h1M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z') },
         { id: 'ar', icon: svgIcon('M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4') },
@@ -1584,7 +1582,7 @@
             if (!state.data.cards) return;
             
             let html = '';
-            const orderedIds = ['cash', 'ncf', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            const orderedIds = ['cash', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
             (state.data.cards || []).forEach(card => {
                 if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
             });
@@ -4577,9 +4575,6 @@
             bdTitle.style.display = 'block';
             bdTitle.textContent = 'Состав показателя';
             chTitle.style.display = 'block';
-            chTitle.textContent = card.id === 'cash'
-                ? 'Динамика денежных средств за выбранный период, млн ₽'
-                : 'Динамика';
             chCont.style.display = 'block';
             if (chTitle.parentElement && chTitle.parentElement.dataset &&
                 chTitle.parentElement.dataset.layoutKey === 'dynamics') {
@@ -4816,24 +4811,9 @@
                 }
                 return result;
             };
-            let selected = rawSelected.map(item => ({
+            const selected = rawSelected.map(item => ({
                 ...item, data: aggregateSeries(item.data)
             }));
-            const mainCashSeries = selected.find(series => series.id === '__main__');
-            if (mainCashSeries && !selected.some(series => series.id === '__ncf__')) {
-                const ncfData = (mainCashSeries.data || []).map((point, index, points) => ({
-                    ...point,
-                    value: index > 0 && hasNumericValue(point.value) &&
-                        hasNumericValue(points[index - 1].value)
-                        ? Number(point.value) - Number(points[index - 1].value)
-                        : null
-                }));
-                selected = [
-                    ...selected.filter(series => series.id === '__main__'),
-                    {id: '__ncf__', label: 'NCF за период', data: ncfData},
-                    ...selected.filter(series => series.id !== '__main__')
-                ];
-            }
             const span = Math.max(1, (maxDate - minDate) / dayMs);
             const width = 900, height = 270, left = 52, right = 18,
                 top = 38, bottom = 48;
@@ -4864,8 +4844,6 @@
                 '#EC4899', '#06B6D4', '#F43F5E'];
             const stableColor = id => {
                 if (id === '__main__') return '#2563EB';
-                if (id === '__ncf__') return '#10B981';
-                if (id === '__minimum__') return '#E11D48';
                 let hash = 0;
                 String(id).split('').forEach(char => {
                     hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
@@ -4923,11 +4901,7 @@
             };
 
             let svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" `
-                + `role="img" aria-label="Динамика денежных средств">`
-                + '<defs><linearGradient id="cash-area-gradient" x1="0" y1="0" x2="0" y2="1">'
-                + '<stop offset="0%" stop-color="#3B82F6" stop-opacity=".22"/>'
-                + '<stop offset="100%" stop-color="#3B82F6" stop-opacity=".04"/>'
-                + '</linearGradient></defs>';
+                + `role="img" aria-label="Динамика денежных средств">`;
             [0, 0.25, 0.5, 0.75, 1].forEach(tick => {
                 const py = top + plotHeight * tick;
                 const value = maxValue - (maxValue - minValue) * tick;
@@ -4936,32 +4910,20 @@
                 svg += `<text x="${left - 7}" y="${py + 4}" fill="#6B7280" `
                     + `font-size="10" text-anchor="end">${esc(this.formatValue(value, selectedUnit).val)}</text>`;
             });
-            const tickSeriesForGrid = selected[0] ? selected[0].data : [];
-            const verticalStep = Math.max(1, Math.ceil(tickSeriesForGrid.length / 12));
-            tickSeriesForGrid.forEach((point, index) => {
-                if (!chartDate(point) || (index % verticalStep !== 0 &&
-                        index !== tickSeriesForGrid.length - 1)) return;
-                const px = x(point);
-                svg += `<line x1="${px.toFixed(1)}" y1="${top}" x2="${px.toFixed(1)}" `
-                    + `y2="${height - bottom}" stroke="#E5E7EB" stroke-width="1"/>`;
-            });
 
             const overlays = [];
             selected.forEach(series => {
                 const paths = pathsFor(series);
                 const color = stableColor(series.id);
                 const isActive = series.id === active.id;
-                const isCashCompanion = series.id === '__ncf__' ||
-                    series.id === '__minimum__';
-                const widthPx = series.id === '__main__' ? 3 : (isActive ? 3 : 2.5);
-                if (series.id === '__main__' && paths.area) {
-                    svg += `<path d="${paths.area}" fill="url(#cash-area-gradient)" `
+                const widthPx = isActive ? 3.5 : 2;
+                if (series.id === '__main__' && isActive && paths.area) {
+                    svg += `<path d="${paths.area}" fill="#3B82F6" opacity="0.12" `
                         + `stroke="none" class="cash-modal-area"/>`;
                 }
                 svg += `<path d="${paths.solid}" fill="none" stroke="${color}" `
                     + `stroke-width="${widthPx}" stroke-linejoin="round" `
-                    + `stroke-linecap="round" opacity="${isActive || isCashCompanion ? 1 : 0.58}" `
-                    + `class="cash-modal-line"/>`;
+                    + `opacity="${isActive ? 1 : 0.65}" class="cash-modal-line"/>`;
                 if (paths.dashed) {
                     svg += `<path d="${paths.dashed}" fill="none" stroke="${color}" `
                         + `stroke-width="${widthPx}" stroke-dasharray="5 4" `
@@ -4971,8 +4933,8 @@
                     const cx = x(item.point);
                     const cy = y(item.value);
                     svg += `<circle class="cash-modal-point" data-series-id="${esc(series.id)}" `
-                        + `cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${series.id === '__main__' ? 4 : 3.5}" `
-                        + `fill="#fff" fill-opacity=".72" stroke="${color}" stroke-width="2"/>`;
+                        + `cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${isActive ? 4 : 3}" `
+                        + `fill="${isActive ? color : '#fff'}" stroke="${color}" stroke-width="2"/>`;
                     overlays.push(`<div class="cash-chart-point-overlay" tabindex="0" `
                         + `style="left:${((cx - 8) / width) * 100}%;top:${((cy - 8) / height) * 100}%;"`
                         + ` aria-label="${esc(`${series.label} — ${item.point.date || item.point.label}: ${this.formatValue(item.value, selectedUnit).val}`)}">`
@@ -4998,14 +4960,14 @@
             }
             svg += '</svg>';
             const mainLegend = selected.some(series => series.id === '__main__')
-                ? '<span class="cash-modal-chart-legend-main"><i></i>Остаток денежных средств</span>'
+                ? '<span class="cash-modal-chart-legend-main"><i></i>Денежные средства '
+                    + '(сч. 50, 51, 52, 55)</span>'
                 : '';
             const legend = '<div class="cash-modal-chart-legend" role="group" '
                 + 'aria-label="Легенда графика">'
                 + mainLegend
                 + selected.filter(series => series.id !== '__main__').map(series =>
-                    `<span class="${series.id === '__ncf__' ? 'cash-modal-chart-legend-ncf' : ''}">`
-                    + `<i style="--legend-color:${stableColor(series.id)}"></i>${esc(series.label)}</span>`
+                    `<span><i style="background:${stableColor(series.id)}"></i>${esc(series.label)}</span>`
                 ).join('')
                 + '</div>';
             container.innerHTML = legend
