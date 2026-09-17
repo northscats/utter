@@ -4,7 +4,8 @@ from datetime import date, timedelta
 import time
 
 from key_indicators import (build_indicator_source, build_key_indicators,
-                            revenue_analytic_key, _period_bounds)
+                            revenue_analytic_key, _period_bounds,
+                            _revenue_activity_groups)
 
 
 def account(acc, daily=(), rows=(), top=None, period='за январь 2026 г.'):
@@ -150,6 +151,39 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(revenue['year_over_year']['previous'], 100)
         self.assertEqual(revenue['year_over_year']['delta'], 100)
         self.assertEqual(revenue['year_over_year']['basis'], 'gross')
+
+    def test_revenue_yoy_uses_confirmed_net_totals_when_vat_exists_for_both_periods(self):
+        raw = account('90')
+        raw['balance_reports'] = [
+            {
+                'period': 'за 1 полугодие 2025 г.',
+                'top': dict(obd=40000000, obk=231929419.40),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=231929419.40),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=40000000, obk=0),
+                ],
+            },
+            {
+                'period': 'за 1 полугодие 2026 г.',
+                'top': dict(obd=92094976.73, obk=510714933.29),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=510714933.29),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=92094976.73, obk=0),
+                ],
+            },
+        ]
+        revenue = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='year', date='2026-06-30')['cards']}['revenue']
+        self.assertEqual(revenue['value'], 418619956.56)
+        self.assertEqual(revenue['year_over_year']['previous'], 191929419.40)
+        self.assertEqual(revenue['year_over_year']['delta'], 226690537.16)
+        self.assertEqual(revenue['year_over_year']['percent'], 118.11)
+        self.assertEqual(revenue['year_over_year']['basis'], 'net')
 
     def test_cumulative_report_can_subtract_tiled_prefix_for_quarter_vat(self):
         raw = account('90')
@@ -786,6 +820,69 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(population['value'], 100)
         self.assertTrue(segments['reconciled'])
         self.assertEqual(segments['unclassified'], [])
+
+    def test_revenue_activity_groups_use_matching_leaf_rows(self):
+        rows = [
+            {
+                'date': '2026-09-15', 'account': '90.01.1',
+                'label': 'Теплоснабжение',
+                'hierarchy_path': ['90', '90.01', '90.01.1', '<...>',
+                                   'Теплоснабжение'],
+                'obk': 120, 'obk_known': True,
+            },
+            {
+                'date': '2026-09-15', 'account': '90.03',
+                'label': 'Теплоснабжение',
+                'hierarchy_path': ['90', '90.03', '<...>',
+                                   'Теплоснабжение'],
+                'obd': 20, 'obd_known': True,
+            },
+            {
+                'date': '2026-09-15', 'account': '90.01.1',
+                'label': '<...>',
+                'hierarchy_path': ['90', '90.01', '90.01.1', '<...>'],
+                'obk': 120, 'obk_known': True,
+            },
+        ]
+        result = _revenue_activity_groups(rows, 120, 20, 100)
+        self.assertTrue(result['reconciled'])
+        self.assertEqual(result['rows'], [{
+            'id': revenue_analytic_key(['Теплоснабжение']),
+            'label': 'Теплоснабжение',
+            'gross': 120.0,
+            'vat': 20.0,
+            'value': 100.0,
+            'basis': 'net',
+        }])
+
+    def test_revenue_activity_groups_reject_crossed_parent_paths(self):
+        def row(account_name, parent, side, amount):
+            account_path = '90.01.1' if account_name == '90.01.1' else '90.03'
+            return {
+                'date': '2026-09-15', 'account': account_name,
+                'label': 'Теплоснабжение',
+                'hierarchy_path': ['90', account_path, parent,
+                                   'Теплоснабжение'],
+                side: amount, f'{side}_known': True,
+            }
+
+        crossed = _revenue_activity_groups([
+            row('90.01.1', 'Котельная А', 'obk', 120),
+            row('90.03', 'Котельная Б', 'obd', 20),
+        ], 120, 20, 100)
+        self.assertFalse(crossed['reconciled'])
+        self.assertEqual(crossed['rows'], [])
+
+        matched = _revenue_activity_groups([
+            row('90.01.1', 'Котельная А', 'obk', 120),
+            row('90.03', 'Котельная А', 'obd', 20),
+            row('90.01.1', 'Котельная Б', 'obk', 60),
+            row('90.03', 'Котельная Б', 'obd', 10),
+        ], 180, 30, 150)
+        self.assertTrue(matched['reconciled'])
+        self.assertEqual(matched['rows'][0]['gross'], 180)
+        self.assertEqual(matched['rows'][0]['vat'], 30)
+        self.assertEqual(matched['rows'][0]['value'], 150)
 
     def test_unmapped_and_conflicting_analytics_are_explicit(self):
         rows = [

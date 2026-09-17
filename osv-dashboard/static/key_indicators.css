@@ -611,6 +611,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .revenue-chart-point:hover, .revenue-chart-point:focus { stroke:#fff; stroke-width:3px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .revenue-table-wrap { overflow-x:auto; margin-bottom:16px; width:100%; max-width:100%; min-width:0; }
 .revenue-table { min-width:520px; width:100%; }
+.revenue-table:has(th:nth-child(5)) { min-width:820px; }
 .revenue-table th:first-child { width:31%; }
 .revenue-table .cash-value-missing { font-size:10px; white-space:nowrap; }
 .revenue-classification-note {
@@ -642,6 +643,36 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0;
 }
 .revenue-line-chart { margin-top:4px; }
+.revenue-metric-toggle { text-align:left; font:inherit; color:inherit; }
+.revenue-metric-toggle:focus-visible { outline:3px solid #2563EB; outline-offset:2px; }
+.revenue-interactive-chart {
+  margin:16px 0; padding:14px; border:1px solid #D7DEE8; border-radius:8px;
+  background:#F8FAFC;
+}
+.revenue-chart-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+.revenue-chart-panel { min-width:0; padding:14px; border:1px solid #E2E8F0; border-radius:8px; background:#fff; }
+.revenue-chart-panel h3 { margin:0 0 12px; color:#334155; font-size:11px; text-transform:uppercase; letter-spacing:.35px; }
+.revenue-struct-row { display:grid; grid-template-columns:minmax(125px,1fr) minmax(80px,2fr) auto; gap:10px; align-items:center; margin:10px 0; }
+.revenue-struct-label strong,.revenue-struct-label span { display:block; }
+.revenue-struct-label strong { font-size:11px; color:#1E293B; }
+.revenue-struct-label span { margin-top:2px; color:#64748B; font-size:9px; }
+.revenue-bar-track { height:22px; overflow:hidden; border-radius:4px; background:#EEF2F7; }
+.revenue-bar-track span { display:block; height:100%; min-width:3px; background:#2563EB; }
+.revenue-struct-row.gross .revenue-bar-track span { background:#2563EB; }
+.revenue-struct-row.vat .revenue-bar-track span { background:#F59E0B; }
+.revenue-struct-row.total .revenue-bar-track span,.revenue-struct-row.current .revenue-bar-track span { background:#10B981; }
+.revenue-struct-row.previous .revenue-bar-track span { background:#64748B; }
+.revenue-struct-row b { color:#172033; font:700 11px ui-monospace,monospace; white-space:nowrap; }
+.revenue-equation,.revenue-yoy-annotation { margin-top:12px; padding:9px 10px; border-radius:6px; background:#EFF6FF; color:#1E40AF; font:800 12px ui-monospace,monospace; text-align:center; }
+.revenue-yoy-annotation { background:#ECFDF5; color:#047857; }
+.revenue-chart-missing { display:flex; justify-content:space-between; gap:12px; padding:12px; border:1px dashed #F59E0B; border-radius:6px; background:#FFFBEB; color:#92400E; }
+.revenue-summary-table { min-width:780px; margin-bottom:16px; }
+@media (max-width:640px) {
+  .cash-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .revenue-chart-sections { grid-template-columns:1fr; }
+  .revenue-struct-row { grid-template-columns:minmax(110px,1fr) minmax(60px,1.2fr); }
+  .revenue-struct-row b { grid-column:1 / -1; text-align:right; }
+}
 .collection-summary {
   display:grid;
   grid-template-columns:repeat(4,minmax(0,1fr));

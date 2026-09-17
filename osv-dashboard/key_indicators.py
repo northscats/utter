@@ -864,6 +864,105 @@ def _analytic_identity(row):
         if parts else 'Без аналитики')
 
 
+def _revenue_activity_groups(rows, gross, vat, revenue):
+    """Build a factual activity split from matching leaf rows of 90.01/90.03."""
+    relevant = [
+        row for row in rows
+        if _has_prefix(row, '90.01') or _has_prefix(row, '90.03')
+    ]
+    paths_by_date = defaultdict(list)
+    for row in relevant:
+        path = tuple(str(item) for item in row.get('hierarchy_path') or [])
+        if path:
+            paths_by_date[str(row.get('date') or '')].append(path)
+
+    coordinates = defaultdict(lambda: {
+        'gross': 0.0, 'vat': 0.0,
+        'gross_known': True, 'vat_known': True,
+        'gross_seen': False, 'vat_seen': False,
+        'labels': set(),
+    })
+    for row in relevant:
+        path = tuple(str(item) for item in row.get('hierarchy_path') or [])
+        if path and any(
+                len(other) > len(path) and other[:len(path)] == path
+                for other in paths_by_date[str(row.get('date') or '')]):
+            continue
+        parts = list(path) if path else _analytic_parts(row)
+        coordinate = tuple(
+            part for part in (str(item).strip() for item in parts)
+            if part and part not in ('<...>', 'Без аналитики')
+            and not re.match(r'^\d{2}(?:\.\d+)*$', part))
+        label = str(row.get('label') or '').strip()
+        if not path:
+            label = coordinate[0] if coordinate else label
+        if not label or label == '<...>' or re.match(
+                r'^\d{2}(?:\.\d+)*$', label) or not coordinate:
+            continue
+        target = coordinates[coordinate]
+        target['labels'].add(label)
+        if _has_prefix(row, '90.01'):
+            target['gross_seen'] = True
+            target['gross_known'] = (
+                target['gross_known'] and row.get('obk_known') is not False)
+            target['gross'] += float(row.get('obk') or 0)
+        elif _has_prefix(row, '90.03'):
+            target['vat_seen'] = True
+            target['vat_known'] = (
+                target['vat_known'] and row.get('obd_known') is not False)
+            target['vat'] += float(row.get('obd') or 0)
+
+    matched = defaultdict(lambda: {'gross': 0.0, 'vat': 0.0})
+    coordinates_complete = bool(coordinates)
+    for item in coordinates.values():
+        complete = (
+            item['gross_seen'] and item['vat_seen']
+            and item['gross_known'] and item['vat_known']
+            and len(item['labels']) == 1)
+        coordinates_complete = coordinates_complete and complete
+        if not complete:
+            continue
+        label = next(iter(item['labels']))
+        matched[label]['gross'] += item['gross']
+        matched[label]['vat'] += item['vat']
+
+    rows_out = []
+    for label, item in matched.items():
+        gross_value = round(item['gross'], 2)
+        vat_value = round(item['vat'], 2)
+        value = round(gross_value - vat_value, 2)
+        rows_out.append({
+            'id': revenue_analytic_key([label]),
+            'label': label,
+            'gross': gross_value,
+            'vat': vat_value,
+            'value': value,
+            'basis': 'net' if value is not None else 'gross',
+        })
+    rows_out.sort(
+        key=lambda item: (
+            item['value'] is None,
+            -(item['value'] or item['gross'] or 0),
+            item['label']))
+
+    known = coordinates_complete and bool(rows_out)
+    gross_sum = round(sum(item['gross'] or 0 for item in rows_out), 2)
+    vat_sum = round(sum(item['vat'] or 0 for item in rows_out), 2)
+    value_sum = round(sum(item['value'] or 0 for item in rows_out), 2)
+    reconciled = (
+        known and gross is not None and vat is not None and revenue is not None
+        and abs(gross_sum - gross) <= 0.01
+        and abs(vat_sum - vat) <= 0.01
+        and abs(value_sum - revenue) <= 0.01)
+    return {
+        'rows': rows_out,
+        'gross_total': gross_sum if known else None,
+        'vat_total': vat_sum if known else None,
+        'total': value_sum if known else None,
+        'reconciled': reconciled,
+    }
+
+
 def _known_sum(rows, side):
     if any(row.get(f'{side}_known') is False for row in rows):
         return None
@@ -2892,7 +2991,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         }
     card_map = {c['id']: c for c in cards}
     if vat is None and revenue is not None:
-        card_map['revenue']['title'] = 'Выручка брутто (НДС недоступен)'
+        card_map['revenue']['title'] = 'Выручка с НДС (НДС недоступен)'
     for cid, account_list in (
             ('cash', ('50', '51', '52', '55')),
             ('ar', ('62',)), ('ap', ('60',)),
@@ -3870,6 +3969,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     )
     revenue_segments = {
         'categories': segment_rows,
+        'activity_groups': _revenue_activity_groups(
+            d90, gross_rev, vat, revenue),
         'analytics': discovered,
         'display_analytics': display_analytics,
         'unclassified': unclassified,

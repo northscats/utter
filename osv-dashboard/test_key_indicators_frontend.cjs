@@ -27,16 +27,38 @@ async function checkBootstrap(configuration) {
         if (!nodes.has(id)) {
           const classes = new Set();
           const attributes = new Map();
+          const children = {};
           nodes.set(id, {
-            style: {}, textContent: '',
+            style: {}, textContent: '', innerHTML: '', dataset: {},
             classList: {
               add: name => classes.add(name), remove: name => classes.delete(name),
               contains: name => classes.has(name),
+              toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
             },
             setAttribute: (name, value) => attributes.set(name, value),
             getAttribute: name => attributes.get(name),
             addEventListener() {},
-            querySelectorAll() { return []; },
+            querySelectorAll(selector) {
+              if (selector !== '[data-revenue-metric]') return [];
+              return [...this.innerHTML.matchAll(/data-revenue-metric="([^"]+)"[^>]*aria-pressed="([^"]+)"/g)]
+                .map(match => {
+                  const key = match[1];
+                  if (!children[key]) {
+                    const attrs = new Map([['aria-pressed', match[2]]]);
+                    const childClasses = new Set();
+                    const handlers = {};
+                    children[key] = {
+                      dataset: {revenueMetric: key},
+                      classList: {toggle: (name, enabled) => enabled ? childClasses.add(name) : childClasses.delete(name)},
+                      setAttribute: (name, value) => attrs.set(name, value),
+                      getAttribute: name => attrs.get(name),
+                      addEventListener: (name, fn) => { handlers[name] = fn; },
+                      click: () => handlers.click && handlers.click(),
+                    };
+                  }
+                  return children[key];
+                });
+            },
           });
         }
         return nodes.get(id);
@@ -149,6 +171,7 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ИСТОЧНИКИ НАЧИСЛЕНИЙ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /1С: Расчёты/);
   const previousData = app.state.data;
+  if (configuration) {
   app.state.data = {
     period: {start: '2026-01-01', end: '2026-06-30', label: '2026'},
     cards: [{id: 'revenue', value: 1000000000, title: 'Выручка'}],
@@ -256,6 +279,82 @@ async function checkBootstrap(configuration) {
     script,
     /cash-summary-sub">\$\{esc\((?:total|gross|cash)Formatted\.u\)/,
     'summary cards must not place money units on the line below the value');
+  app.state.data = {
+    period: {start: '2026-01-01', end: '2026-06-30'},
+    revenue_segments: {
+      categories: [], reconciled: false,
+      activity_groups: {reconciled: true, rows: [{
+        id: 'heat', label: 'Теплоснабжение',
+        gross: 329_991_202.01, vat: 59_506_610.29, value: 270_484_591.72,
+      }]},
+    },
+  };
+  const revenueCard = {
+    id: 'revenue', title: 'Выручка', value: 418_619_956.56, unit: 'RUB',
+    source: 'ОСВ счёта 90', details: [
+      {label: 'Выручка брутто', value: 510_714_933.29, unit: 'RUB'},
+      {label: 'НДС', value: 92_094_976.73, unit: 'RUB'},
+    ],
+    year_over_year: {
+      current: 418_619_956.56, previous: 191_929_419.40,
+      delta: 226_690_537.16, percent: 118.11, basis: 'net',
+      start: '2025-01-01', end: '2025-06-30',
+    },
+  };
+  app.renderRevenueModal(revenueCard);
+  const revenueHtml = nodes.get('ki-revenue-modal-content').innerHTML;
+  assert.match(revenueHtml, /data-revenue-metric="total" aria-pressed="true"/);
+  assert.match(revenueHtml, /data-revenue-metric="yoy" aria-pressed="true"/);
+  assert.match(revenueHtml, />Выручка с НДС</);
+  assert.match(revenueHtml, />Выручка без НДС</);
+  assert.match(nodes.get('ki-revenue-chart').innerHTML, /418,62 млн ₽/);
+  assert.match(nodes.get('ki-revenue-chart').innerHTML, /191,93 млн ₽/);
+  assert.match(nodes.get('ki-revenue-chart').innerHTML, /\+226,69 млн ₽ · \+118\.11%/);
+  assert.doesNotMatch(nodes.get('ki-revenue-chart').innerHTML, /<path|Динамика|revenue-chart-line/);
+  const switches = nodes.get('ki-revenue-modal-content').querySelectorAll('[data-revenue-metric]');
+  switches.find(button => button.dataset.revenueMetric === 'gross').click();
+  switches.find(button => button.dataset.revenueMetric === 'vat').click();
+  assert.match(nodes.get('ki-revenue-chart').innerHTML,
+    /510,71 млн ₽ − 92,09 млн ₽ = 418,62 млн ₽/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /НДС \(вычитается\)/);
+  assert.match(revenueHtml, /Вид деятельности/);
+  assert.match(revenueHtml, /Теплоснабжение/);
+  assert.match(revenueHtml, /329,99/);
+  assert.match(revenueHtml, /59,51/);
+  assert.match(revenueHtml, /270,48/);
+  assert.doesNotMatch(revenueHtml, /Новые аналитики без категории/);
+  assert.match(revenueHtml, /Подтверждённая выручка по совпадающим листовым путям аналитики 90\.01 и 90\.03/);
+  assert.doesNotMatch(revenueHtml, /Нужен утверждённый классификатор соответствия аналитик/);
+  switches.find(button => button.dataset.revenueMetric === 'yoy').click();
+  assert.doesNotMatch(nodes.get('ki-revenue-summary-table').innerHTML, /Сравнение с АПГ \(/);
+  assert.doesNotMatch(nodes.get('ki-revenue-summary-table').innerHTML, /191,93 млн ₽/);
+  switches.find(button => button.dataset.revenueMetric === 'yoy').click();
+  app.state.data.revenue_segments.activity_groups = {reconciled: false, rows: []};
+  const missingRevenue = {...revenueCard, details: [
+    {label: 'Выручка брутто', value: 510_714_933.29},
+    {label: 'НДС', value: null, reason: 'Строки 90.03 отсутствуют'},
+  ], value: 510_714_933.29, year_over_year: null};
+  app.renderRevenueModal(missingRevenue);
+  assert.match(nodes.get('ki-revenue-chart').innerHTML, /Нужны данные/);
+  assert.doesNotMatch(nodes.get('ki-revenue-chart').innerHTML, /Аналогичный период прошлого года<\/strong>/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
+    /Сравнение с АПГ \(база не подтверждена\)/);
+  const zeroBaseRevenue = {...missingRevenue, year_over_year: {
+    current: 510_714_933.29, previous: 0, delta: 510_714_933.29,
+    percent: null, basis: 'gross', start: '2025-01-01', end: '2025-06-30',
+  }};
+  assert.doesNotThrow(() => app.renderRevenueModal(zeroBaseRevenue));
+  assert.match(nodes.get('ki-revenue-chart').innerHTML, /процент не рассчитывается при нулевой базе/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
+    /Выручка без НДС \(база не подтверждена\)/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /Сравнение с АПГ \(брутто\)/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
+    /Не рассчитывается при нулевой базе/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /510,71 млн ₽/);
+  assert.match(script,
+    /activeContainer !== cashContent &&\s*activeContainer !== revenueContent/,
+    'the legacy shared dynamics chart must not mount inside the revenue modal');
+  }
   app.renderRevenueLineChart({series: [
     {date: '2026-01-31', label: 'Январь', value: 1_000_000, granularity: 'month'},
     {date: '2026-02-28', label: 'Февраль', value: 2_000_000, granularity: 'month'},

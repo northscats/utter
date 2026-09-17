@@ -24,7 +24,8 @@
         tooltipsEnabled: true,
         chartJobs: {},
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
-        modalCharts: {}
+        modalCharts: {},
+        revenueSelection: new Set(['total', 'yoy'])
     };
     const periodSelectionStorageKey = () => {
         const configuredId = Number(config && config.companyId);
@@ -2166,16 +2167,17 @@
             const vatDetail = (card.details || []).find(item => item.label === 'НДС');
             const gross = grossDetail && grossDetail.value !== null ? Number(grossDetail.value) : null;
             const vat = vatDetail && vatDetail.value !== null ? Number(vatDetail.value) : null;
-            const revenueMainId = metricSeriesIdForItem(card, card);
-            const grossSeriesId = metricSeriesIdForItem(card, grossDetail);
-            const vatSeriesId = metricSeriesIdForItem(card, vatDetail);
             const total = card.value !== null ? Number(card.value) : null;
             const totalFormatted = this.formatValue(total, 'RUB');
             const grossFormatted = this.formatValue(gross, 'RUB');
             const vatFormatted = this.formatValue(vat, 'RUB');
             const definitions = this.revenueSegmentDefinitions();
             const segmentData = state.data.revenue_segments || {};
+            const activityData = segmentData.activity_groups || {};
+            const activityRows = activityData.reconciled ? (activityData.rows || []) : [];
+            const showActivityRows = activityRows.length > 0;
             const yearOverYear = card.year_over_year || null;
+            const selected = state.revenueSelection;
             const segmentRows = definitions.map(definition => {
                 const saved = (segmentData.categories || []).find(row => row.id === definition.id);
                 return {
@@ -2188,9 +2190,9 @@
             const unknownAmounts = segmentData.unknown_amounts || [];
             const totalTooltip = this.metricTooltipData(card);
             const grossTooltip = this.metricTooltipData(card, {
-                title: 'Выручка брутто',
+                title: 'Выручка с НДС',
                 description: 'Начисленная выручка до вычета НДС.',
-                formula: 'Выручка брутто = ОбК(90.01*)',
+                formula: 'Выручка с НДС = ОбК(90.01*)',
                 detail: 'Суммируются только конечные аналитические строки 90.01, без одновременного сложения родительских итогов.',
                 fact: gross === null ? 'Н/Д' : `${grossFormatted.val} ${grossFormatted.u}`,
                 required: gross === null ? 'Суточная ОСВ счёта 90 с аналитическими строками точного префикса 90.01 и кредитовым оборотом.' : null,
@@ -2221,16 +2223,30 @@
             };
             const collectionRequired = 'Регистр начислений и оплат: потребитель, договор, расчётный период, документ начисления, дата и сумма оплаты, распределение платежа, аванс, корректировка и сторно.';
             let rowsHtml = '';
-            segmentRows.forEach(segment => {
-                const share = segment.value !== null && total ? `${(segment.value / total * 100).toFixed(1)}%` : '—';
-                const tooltip = this.cashTooltip(this.revenueSegmentTooltip(segment, segment.value, share));
-                rowsHtml += `<tr class="cash-tooltip-host" tabindex="0">
-                    <td><div class="obj-name-wrap"><span>${esc(segment.label)}</span><span class="obj-code">${esc(segment.code)}</span></div>${tooltip}</td>
-                    <td>${segment.value === null ? 'Н/Д' : `${this.formatValue(segment.value, 'RUB').val}`}</td>
-                    <td>${esc(share)}</td>
-                </tr>`;
-            });
-            const tableTooltip = this.cashTooltip({
+            if (showActivityRows) {
+                activityRows.forEach(row => {
+                    const share = row.value !== null && total
+                        ? `${(row.value / total * 100).toFixed(1)}%` : '—';
+                    rowsHtml += `<tr>
+                        <td>${esc(row.label)}</td>
+                        <td>${row.gross === null ? 'Нужны данные' : esc(this.formatValue(row.gross, 'RUB').val)}</td>
+                        <td>${row.vat === null ? 'Нужны данные' : esc(this.formatValue(row.vat, 'RUB').val)}</td>
+                        <td>${row.value === null ? 'Нужны данные' : esc(this.formatValue(row.value, 'RUB').val)}</td>
+                        <td>${esc(share)}</td>
+                    </tr>`;
+                });
+            } else {
+                segmentRows.forEach(segment => {
+                    const share = segment.value !== null && total ? `${(segment.value / total * 100).toFixed(1)}%` : '—';
+                    const tooltip = this.cashTooltip(this.revenueSegmentTooltip(segment, segment.value, share));
+                    rowsHtml += `<tr class="cash-tooltip-host" tabindex="0">
+                        <td><div class="obj-name-wrap"><span>${esc(segment.label)}</span><span class="obj-code">${esc(segment.code)}</span></div>${tooltip}</td>
+                        <td>${segment.value === null ? 'Н/Д' : `${this.formatValue(segment.value, 'RUB').val}`}</td>
+                        <td>${esc(share)}</td>
+                    </tr>`;
+                });
+            }
+            const consumerTableTooltip = {
                 title: 'Итого выручка',
                 description: 'Общая бухгалтерская выручка за выбранный период.',
                 formula: vat === null ? 'ОбК(90.01*), брутто' : 'ОбК(90.01*) − ОбД(90.03*)',
@@ -2244,34 +2260,69 @@
                 fact: `${totalFormatted.val} ${totalFormatted.u}`,
                 deviation: card.delta ? `${this.formatValue(card.delta.value, 'RUB').val} млн ₽ к предыдущему сопоставимому периоду` : 'Нет сопоставимого периода',
                 source: card.source
-            });
+            };
+            const activityTableTooltip = {
+                title: 'Итого по видам деятельности',
+                description: 'Подтверждённая выручка по совпадающим листовым путям аналитики 90.01 и 90.03.',
+                formula: 'Выручка без НДС = Брутто 90.01 − НДС 90.03',
+                detail: 'Каждый листовой путь 90.01 сопоставлен с тем же полным путём 90.03; служебные узлы счетов и «<...>» не образуют отдельные группы.',
+                required: null,
+                norm: 'Сумма строк должна совпадать с итогом периода',
+                fact: `${grossFormatted.val} ${grossFormatted.u} − ${vatFormatted.val} ${vatFormatted.u} = ${totalFormatted.val} ${totalFormatted.u}`,
+                deviation: 'Сверка выполнена',
+                deviationClass: 'good',
+                source: card.source
+            };
+            const tableTooltip = this.cashTooltip(
+                showActivityRows ? activityTableTooltip : consumerTableTooltip);
 
             document.getElementById('ki-modal-title').textContent = 'Выручка по видам деятельности и группам';
             this.updateModalSubtitle();
+            const toggle = (id, label, formatted, sub, tooltip, missing) => `
+                <button type="button" class="cash-summary-card cash-chart-mode-card cash-tooltip-host revenue-metric-toggle ${selected.has(id) ? 'cash-chart-mode-selected' : ''}"
+                    data-revenue-metric="${id}" aria-pressed="${selected.has(id) ? 'true' : 'false'}">
+                    <span class="cash-summary-label">${label}</span>
+                    <span class="cash-summary-value ${missing ? 'cash-value-missing' : ''}">${missing ? 'Нужны данные' : formatted}</span>
+                    <span class="cash-summary-sub">${sub}</span>${this.cashTooltip(tooltip)}
+                </button>`;
+            const yoyTooltip = {
+                title: 'Сравнение с АПГ',
+                description: `Два подтверждённых итога за сопоставимые периоды в базе ${yearOverYear
+                    ? (yearOverYear.basis === 'net' ? 'без НДС' : 'брутто')
+                    : 'которая будет указана после получения данных'}.`,
+                formula: 'Δ АПГ = текущий период − аналогичный период прошлого года',
+                detail: `Текущий период: ${this.displayedPeriodLabel()}. Изменение является аннотацией, а не отдельной выручкой.`,
+                required: yearOverYear ? null : 'Полные ОСВ счёта 90 за оба сопоставимых периода в одинаковой базе НДС.',
+                fact: yearOverYear ? `${this.formatValue(yearOverYear.current, 'RUB').val} млн ₽ против ${this.formatValue(yearOverYear.previous, 'RUB').val} млн ₽` : 'Н/Д',
+                source: 'сопоставимые итоговые обороты ОСВ счёта 90'
+            };
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Фактическая выручка предприятия.</strong>
                     Выручка без НДС рассчитывается как ОбК(90.01*) − ОбД(90.03*). Если 90.03 отсутствует, факт показывается как брутто.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${revenueMainId ? `data-series-id="${esc(revenueMainId)}"` : ''}><div class="cash-summary-label">Выручка общая</div>
-                        <div class="cash-summary-value cash-value-ok">${esc(totalFormatted.val)} <span class="metric-inline-unit">${esc(totalFormatted.u)}</span></div><div class="cash-summary-sub">${vat === null ? 'брутто' : 'без НДС'}</div>${this.cashTooltip(totalTooltip)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${grossSeriesId ? `data-series-id="${esc(grossSeriesId)}"` : ''}><div class="cash-summary-label">Выручка брутто</div>
-                        <div class="cash-summary-value">${esc(grossFormatted.val)} <span class="metric-inline-unit">${esc(grossFormatted.u)}</span></div><div class="cash-summary-sub">ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${vatSeriesId ? `data-series-id="${esc(vatSeriesId)}"` : ''}><div class="cash-summary-label">НДС</div>
-                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : `${esc(vatFormatted.val)} <span class="metric-inline-unit">${esc(vatFormatted.u)}</span>`}</div><div class="cash-summary-sub">${vat === null ? esc(vatDetail && vatDetail.reason || 'нет аналитики 90.03') : 'ОбД 90.03'}</div>${this.cashTooltip(vatTooltip)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
-                        <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
+                    ${toggle('gross', 'Выручка с НДС', `${esc(grossFormatted.val)} <span class="metric-inline-unit">${esc(grossFormatted.u)}</span>`, 'ОбК 90.01', grossTooltip, gross === null)}
+                    ${toggle('vat', 'НДС', `${esc(vatFormatted.val)} <span class="metric-inline-unit">${esc(vatFormatted.u)}</span>`, vat === null ? esc(vatDetail && vatDetail.reason || 'нет аналитики 90.03') : 'вычитается · ОбД 90.03', vatTooltip, vat === null)}
+                    ${toggle('total', 'Выручка без НДС', `${esc(totalFormatted.val)} <span class="metric-inline-unit">${esc(totalFormatted.u)}</span>`, vat === null ? 'база не подтверждена' : 'ОбК 90.01 − ОбД 90.03', totalTooltip, total === null)}
+                    ${toggle('yoy', 'Сравнение с АПГ', yearOverYear
+                        ? (yearOverYear.percent === null ? '—' : `${yearOverYear.percent >= 0 ? '+' : ''}${esc(yearOverYear.percent.toFixed(2))}%`)
+                        : '', 'два сопоставимых периода', yoyTooltip, !yearOverYear)}
                 </div>
+                <div id="ki-revenue-chart" class="revenue-interactive-chart" aria-live="polite"></div>
+                <div id="ki-revenue-summary-table"></div>
                 <div class="modal-section-title">Детализация выручки по группам</div>
-                ${(unclassified.length || conflicts.length || unknownAmounts.length || !segmentData.reconciled) ? `<div class="revenue-classification-note">
+                ${!showActivityRows && (unclassified.length || conflicts.length || unknownAmounts.length || !segmentData.reconciled) ? `<div class="revenue-classification-note">
                     ${unclassified.length ? `Новые аналитики без категории: ${esc(unclassified.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}.` : ''}
                     ${conflicts.length ? ` Конфликты: ${esc(conflicts.map(row => row.message + ' — ' + row.analytic_label).join('; '))}.` : ''}
                     ${unknownAmounts.length ? ` Нет суммы по аналитикам: ${esc(unknownAmounts.map(row => `${row.account}: ${row.analytic_label}`).join(', '))}. Значения не заменены нулём.` : ''}
                     ${segmentData.reconciliation_difference !== null && segmentData.reconciliation_difference !== undefined && Math.abs(segmentData.reconciliation_difference) > 0.01 ? ` Расхождение с общей выручкой: ${esc(this.formatValue(segmentData.reconciliation_difference, 'RUB').val)} млн ₽.` : ''}
                 </div>` : ''}
-                ${config.canEditRevenueMappings ? this.renderRevenueMappingEditor(segmentData.display_analytics || []) : ''}
+                ${config.canEditRevenueMappings && !showActivityRows ? this.renderRevenueMappingEditor(segmentData.display_analytics || []) : ''}
                 <div class="revenue-table-wrap"><table class="cash-table revenue-table" data-ki-table-sync="revenue-analytics">
-                    <thead><tr><th>Группа</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
-                    <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>
+                    ${showActivityRows
+                        ? `<thead><tr><th>Вид деятельности</th><th>Брутто, млн ₽</th><th>НДС, млн ₽</th><th>Без НДС, млн ₽</th><th>Доля</th></tr></thead>
+                           <tbody>${rowsHtml}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(grossFormatted.val)}</td><td>${esc(vatFormatted.val)}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>`
+                        : `<thead><tr><th>Группа</th><th>Выручка, млн ₽</th><th>Доля</th></tr></thead>
+                           <tbody>${rowsHtml}<tr class="cash-tooltip-host" tabindex="0"><td>ИТОГО${tableTooltip}</td><td>${esc(totalFormatted.val)}</td><td>100%</td></tr></tbody>`}
                 </table></div>
                 <div class="revenue-missing-grid">
                     ${this.cashMetricCard('Уровень сбора', 'Нужны данные', 'оплаты / начисления', {
@@ -2297,6 +2348,86 @@
                     }, !yearOverYear, '', yearOverYear && yearOverYear.delta < 0 ? 'cash-value-negative' : '')}
                 </div>
                 `;
+            this.bindRevenueChart(card);
+            this.renderRevenueChart(card);
+        },
+
+        bindRevenueChart(card) {
+            const container = document.getElementById('ki-revenue-modal-content');
+            if (!container) return;
+            container.querySelectorAll('[data-revenue-metric]').forEach(button => {
+                button.addEventListener('click', () => {
+                    const id = button.dataset.revenueMetric;
+                    if (state.revenueSelection.has(id)) state.revenueSelection.delete(id);
+                    else state.revenueSelection.add(id);
+                    button.setAttribute('aria-pressed', state.revenueSelection.has(id) ? 'true' : 'false');
+                    button.classList.toggle('cash-chart-mode-selected', state.revenueSelection.has(id));
+                    this.renderRevenueChart(card);
+                });
+            });
+        },
+
+        renderRevenueChart(card) {
+            const chart = document.getElementById('ki-revenue-chart');
+            const table = document.getElementById('ki-revenue-summary-table');
+            if (!chart || !table) return;
+            const details = Object.fromEntries((card.details || []).map(item => [item.label, item.value]));
+            const values = {
+                gross: hasNumericValue(details['Выручка брутто']) ? Number(details['Выручка брутто']) : null,
+                vat: hasNumericValue(details['НДС']) ? Number(details['НДС']) : null,
+                total: hasNumericValue(card.value) ? Number(card.value) : null
+            };
+            const yoy = card.year_over_year || null;
+            const selected = state.revenueSelection;
+            const million = value => `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const structureIds = ['gross', 'vat', 'total'].filter(id => selected.has(id));
+            const max = Math.max(1, ...structureIds.map(id => values[id]).filter(hasNumericValue),
+                ...(selected.has('yoy') && yoy ? [yoy.current, yoy.previous] : []));
+            const bar = (label, value, kind, note = '') => value === null
+                ? `<div class="revenue-chart-missing"><strong>${label}</strong><span>Нужны данные</span></div>`
+                : `<div class="revenue-struct-row ${kind}"><div class="revenue-struct-label"><strong>${label}</strong><span>${note}</span></div>
+                    <div class="revenue-bar-track"><span style="width:${Math.max(3, value / max * 100)}%"></span></div><b>${million(value)}</b></div>`;
+            const structure = structureIds.length ? `<section class="revenue-chart-panel" aria-label="Структура текущей выручки">
+                <h3>Структура текущей выручки</h3>
+                ${structureIds.map(id => bar(
+                    id === 'gross' ? 'Выручка с НДС' : id === 'vat' ? 'НДС' :
+                        'Выручка без НДС',
+                    values[id], id, id === 'vat' ? 'вычитается из брутто' : this.displayedPeriodLabel())).join('')}
+                ${structureIds.length === 3 && values.gross !== null && values.vat !== null && values.total !== null
+                    ? `<div class="revenue-equation">${million(values.gross)} − ${million(values.vat)} = ${million(values.total)}</div>` : ''}
+                </section>` : '';
+            const comparison = selected.has('yoy') ? `<section class="revenue-chart-panel revenue-yoy-panel" aria-label="Сравнение с аналогичным периодом">
+                <h3>Сравнение периодов · ${yoy
+                    ? (yoy.basis === 'net' ? 'без НДС' : 'брутто')
+                    : 'база не подтверждена'}</h3>
+                ${yoy ? `${bar('Текущий период', Number(yoy.current), 'current', this.displayedPeriodLabel())}
+                    ${bar('Аналогичный период прошлого года', Number(yoy.previous), 'previous', `${yoy.start} — ${yoy.end}`)}
+                    <div class="revenue-yoy-annotation">${yoy.delta >= 0 ? '+' : ''}${million(yoy.delta)} · ${yoy.percent === null
+                        ? 'процент не рассчитывается при нулевой базе'
+                        : `${yoy.percent >= 0 ? '+' : ''}${yoy.percent.toFixed(2)}%`}</div>`
+                    : '<div class="revenue-chart-missing"><strong>Сравнение с АПГ</strong><span>Нужны данные</span></div>'}
+                </section>` : '';
+            chart.innerHTML = structure || comparison ? `<div class="revenue-chart-sections">${structure}${comparison}</div>`
+                : '<div class="chart-empty">Выберите показатель для графика</div>';
+            const rows = [];
+            if (selected.has('gross')) rows.push(['Выручка с НДС', values.gross, null, null, null]);
+            if (selected.has('vat')) rows.push(['НДС (вычитается)', values.vat, null, null, null]);
+            if (selected.has('total')) rows.push([
+                values.vat === null ? 'Выручка без НДС (база не подтверждена)' : 'Выручка без НДС',
+                values.total, null, null, null]);
+            if (selected.has('yoy')) rows.push([
+                !yoy ? 'Сравнение с АПГ (база не подтверждена)' :
+                    (yoy.basis === 'gross' ? 'Сравнение с АПГ (брутто)' : 'Сравнение с АПГ (без НДС)'),
+                yoy ? yoy.current : null, yoy ? yoy.previous : null, yoy ? yoy.delta : null,
+                yoy ? yoy.percent : null,
+                yoy && yoy.percent === null && Number(yoy.previous) === 0
+                    ? 'Не рассчитывается при нулевой базе' : null]);
+            const cell = (value, percent = false, unavailableLabel = null) => value === null || value === undefined
+                ? `<span class="cash-value-missing">${unavailableLabel || 'Нужны данные'}</span>`
+                : `${value >= 0 && percent ? '+' : ''}${percent ? Number(value).toFixed(2) + '%' : million(value)}`;
+            table.innerHTML = `<div class="modal-section-title">Подтверждённые итоги</div><div class="cash-table-scroll" tabindex="0">
+                <table class="cash-table revenue-summary-table"><thead><tr><th>Показатель</th><th>Текущий период</th><th>АПГ</th><th>Изменение</th><th>Изменение, %</th></tr></thead>
+                <tbody>${rows.map(row => `<tr><td>${row[0]}</td><td>${cell(row[1])}</td><td>${cell(row[2])}</td><td>${cell(row[3])}</td><td>${cell(row[4], true, row[5])}</td></tr>`).join('')}</tbody></table></div>`;
         },
 
         renderRevenueMappingEditor(analytics) {
@@ -3438,7 +3569,7 @@
                 title: 'Себестоимость продаж к выручке',
                 description: 'Доля нетто-выручки, приходящаяся на себестоимость продаж.',
                 formula: 'ОбД(90.02) / [ОбК(90.01) − ОбД(90.03)] × 100%',
-                detail: 'Выручка брутто при отсутствии 90.03 не используется скрыто.',
+                detail: 'Выручка с НДС при отсутствии 90.03 не используется скрыто.',
                 required: costRatio === null ? 'ОСВ 90.01, 90.02 и 90.03 за один сопоставимый период.' : null,
                 fact: pct(costRatio),
                 deviation: costRatio === null ? 'Недостаточно данных' :
@@ -6328,7 +6459,8 @@ renderCashModal(card) {
                     [...state.modalChart.pinnedIds].filter(id => validIds.has(id)));
                 if (activeContainer === genericContent) {
                     this.updateMetricTileStates(genericContent);
-                } else if (activeContainer !== cashContent) {
+                } else if (activeContainer !== cashContent &&
+                        activeContainer !== revenueContent) {
                     this.mountSharedDynamics(card, activeContainer);
                     this.bindMetricTiles(card, activeContainer);
                 }
