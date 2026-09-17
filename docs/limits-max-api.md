@@ -22,6 +22,9 @@
 - [POST /subscriptions](https://dev.max.ru/docs-api/methods/POST/subscriptions):
   HTTPS `url`, `secret`, выбранные `update_types`. Секрет приходит в
   заголовке `X-Max-Bot-Api-Secret`.
+  Успешный `2xx` возвращает объект подписки; поле `success` не является
+  обязательным. Явное `success: false`, если оно присутствует, считается
+  отказом, как и любой HTTP-статус вне `2xx`.
 - [Update](https://dev.max.ru/docs-api/objects/Update):
   `update_type`, `timestamp`, объекты пользователя/сообщения и данные callback.
   Страница объекта перечисляет `message_callback`, а страница `/answers`

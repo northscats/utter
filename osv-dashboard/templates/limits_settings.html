@@ -14,7 +14,10 @@
 <p>Настройки MAX общие для модуля.</p>
 {% if max_connection_error %}<p class="settings-warning" role="alert">{{ max_connection_error }}</p>{% endif %}
 <p>Для запуска нужны токен, ID админ-группы и выбранный набор данных. Защита входящих команд настраивается автоматически.</p>
-<p>Подключайте бота из опубликованного приложения после обновления публикации. Адрес приёмника: <code style="overflow-wrap:anywhere">{{ max_webhook_url }}</code></p>
+<p>Подключайте бота из опубликованного приложения после обновления публикации. Адрес приёмника:
+  {% if max_webhook_url %}<code style="overflow-wrap:anywhere">{{ max_webhook_url }}</code>
+  {% else %}<strong>не настроен для этого окружения</strong>{% endif %}
+</p>
 <form method="post" action="{{ url_for('limit_max_settings') }}" class="settings-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="context_dataset" value="{{ dataset.id if dataset else '' }}">

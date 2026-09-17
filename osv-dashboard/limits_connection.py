@@ -1,13 +1,26 @@
 """Explicit operator-driven MAX connection; never runs on process startup."""
 import secrets
 import threading
+from urllib.parse import urlsplit
 
 from database import Setting, db
 from limits_max import MaxAPIError
 
-# Verified through deployment metadata; override for a different publication.
-DEFAULT_WEBHOOK_URL = 'https://gisuzter.replit.app/limit-notifications/max/webhook'
+WEBHOOK_PATH = '/limit-notifications/max/webhook'
 _connection_lock = threading.Lock()
+
+
+def public_webhook_url(*, configured=''):
+    """Return only an operator/deployment-controlled public receiver URL."""
+    return str(configured or '').strip()
+
+
+def _validate_webhook_url(url):
+    target = urlsplit(str(url or ''))
+    if (target.scheme != 'https' or not target.netloc or target.username
+            or target.password or target.query or target.fragment):
+        raise ValueError(
+            'Не настроен доверенный публичный HTTPS-адрес webhook для этой публикации.')
 
 
 def configure_connection(*, token, group_id, dataset_id, enabled,
@@ -31,11 +44,20 @@ def configure_connection(*, token, group_id, dataset_id, enabled,
         # Receiver must see the secret before MAX can begin sending events.
         db.session.commit()
         try:
+            # Validate before constructing the adapter or sending the secret.
+            # In particular, request Host headers never control this sink.
+            _validate_webhook_url(webhook_url)
             adapter = adapter_factory()
             db.session.commit()  # close settings-read transaction before I/O
             adapter.check_webhook_receiver(webhook_url, secret)
+            # This validates both the token and the configured moderation chat
+            # before MAX is allowed to start delivering updates.
+            adapter.get_chat_admins(group_id)
             result = adapter.subscribe_webhook(webhook_url, secret)
-            if not isinstance(result, dict) or result.get('success') is not True:
+            # MAX returns the created subscription object.  Some deployments
+            # include ``success: true`` and some do not.  _request has already
+            # rejected HTTP errors and an explicit ``success: false``.
+            if not isinstance(result, dict) or result.get('success') is False:
                 raise MaxAPIError('MAX не подтвердил регистрацию webhook.')
         except Exception as exc:
             db.session.rollback()
@@ -54,8 +76,20 @@ def configure_connection(*, token, group_id, dataset_id, enabled,
                 message = (
                     'Опубликованный обработчик MAX сейчас недоступен или ответил неверно. '
                     'Проверьте публикацию и повторите включение из опубликованного приложения.')
+            elif code == 'tls_verification':
+                message = 'Не удалось проверить TLS-сертификат MAX. Подключение не включено.'
             elif status == 401:
                 message = 'MAX отклонил токен: проверьте, что это действующий токен выбранного бота.'
+            elif status in (403, 404):
+                message = (
+                    'MAX не подтвердил доступ бота к указанной админ-группе. '
+                    'Проверьте ID группы и права бота.')
+            elif code == 'rejected':
+                message = (
+                    'MAX отклонил регистрацию webhook. Проверьте права бота, '
+                    'адрес приёмника и повторите включение.')
+            elif isinstance(exc, ValueError):
+                message = str(exc)
             else:
                 message = (
                     'Webhook не зарегистрирован в MAX. Проверьте токен бота и повторите включение. '

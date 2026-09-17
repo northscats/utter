@@ -4,6 +4,7 @@ import ssl
 import unittest
 from urllib.error import HTTPError
 
+from limits_connection import public_webhook_url
 from limits_max import MaxClient, MaxAPIError, MaxUnknownOutcome, event_key, verify_webhook_secret
 
 
@@ -21,6 +22,12 @@ class Transport:
 
 
 class MaxAdapterTests(unittest.TestCase):
+    def test_public_webhook_url_only_uses_trusted_configuration(self):
+        self.assertEqual('', public_webhook_url())
+        self.assertEqual(
+            'https://override.example/max',
+            public_webhook_url(configured='https://override.example/max'))
+
     def test_receiver_preflight_uses_secret_not_bot_token_and_verified_tls(self):
         transport = Transport({'ready': True})
         client = MaxClient('synthetic-bot-token', transport)
@@ -101,6 +108,18 @@ class MaxAdapterTests(unittest.TestCase):
         self.assertFalse(verify_webhook_secret('', ''))
         payload = {'update_type': 'bot_started', 'timestamp': 1, 'user': {'user_id': 1}}
         self.assertEqual(event_key(payload), event_key(dict(reversed(list(payload.items())))))
+
+    def test_subscription_accepts_real_object_without_success_flag(self):
+        response = {'url': 'https://example.com/limit-notifications/max/webhook',
+                    'update_types': ['message_created']}
+        client = MaxClient('fake', Transport(response))
+        self.assertEqual(response, client.subscribe_webhook(response['url'], 'fake-secret'))
+
+    def test_explicit_subscription_rejection_is_an_error(self):
+        with self.assertRaises(MaxAPIError) as caught:
+            MaxClient('fake', Transport({'success': False})).subscribe_webhook(
+                'https://example.com/limit-notifications/max/webhook', 'fake-secret')
+        self.assertEqual('rejected', caught.exception.code)
 
 
 if __name__ == '__main__':

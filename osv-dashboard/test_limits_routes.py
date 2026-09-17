@@ -4,7 +4,7 @@ import hashlib
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from datetime import date, datetime, timezone, timedelta
 
 _TEMP = tempfile.TemporaryDirectory(prefix='limits_routes_')
@@ -263,11 +263,18 @@ class LimitsRouteTests(unittest.TestCase):
         with app.app_context():
             self.assertEqual(saved, Setting.get('limits_max_token'))
 
+    @patch.dict(app.config, {
+        'LIMITS_MAX_WEBHOOK_URL':
+        'https://current-installation.example/limit-notifications/max/webhook',
+    })
     def test_enable_generates_secret_registers_webhook_and_authenticates_events(self):
         from app import decrypt_value
         client = self.client(1)
         with patch('app._limits_adapter') as factory:
-            factory.return_value.subscribe_webhook.return_value = {'success': True}
+            factory.return_value.subscribe_webhook.return_value = {
+                'url': 'https://localhost/limit-notifications/max/webhook',
+                'update_types': ['message_created'],
+            }
             response = client.post('/limit-notifications/max-settings', data={
                 'enabled':'1', 'token':'synthetic-auto-token', 'group_chat_id':'-123',
                 'bot_dataset_id':'1', 'context_dataset':'1'})
@@ -279,6 +286,7 @@ class LimitsRouteTests(unittest.TestCase):
                 self.assertNotEqual(secret,stored)
                 self.assertEqual('1',Setting.get('limits_max_enabled'))
             factory.return_value.check_webhook_receiver.assert_called_once()
+            factory.return_value.get_chat_admins.assert_called_once_with('-123')
             factory.return_value.subscribe_webhook.assert_called_once()
             self.assertEqual(secret,factory.return_value.subscribe_webhook.call_args.args[1])
         page=client.get('/limit-notifications/settings').get_data(as_text=True)
@@ -297,6 +305,10 @@ class LimitsRouteTests(unittest.TestCase):
                 'enabled':'1','group_chat_id':'-123','bot_dataset_id':'1'})
             self.assertEqual(secret,factory.return_value.subscribe_webhook.call_args.args[1])
 
+    @patch.dict(app.config, {
+        'LIMITS_MAX_WEBHOOK_URL':
+        'https://current-installation.example/limit-notifications/max/webhook',
+    })
     def test_connection_failure_never_enables_or_exposes_secret(self):
         client=self.client(1)
         for result in ({'success':False},TimeoutError('synthetic-private-error')):
@@ -321,6 +333,48 @@ class LimitsRouteTests(unittest.TestCase):
             client.post('/limit-notifications/max-settings',data={'group_chat_id':'-123'})
             factory.assert_not_called()
 
+    def test_connection_uses_current_installation_and_reports_group_rejection(self):
+        from limits_max import MaxAPIError
+        client = self.client(1)
+        with patch.dict(os.environ, {
+                'LIMITS_MAX_WEBHOOK_URL':
+                'https://current-installation.example/limit-notifications/max/webhook',
+        }), patch('app._limits_adapter') as factory:
+            factory.return_value.get_chat_admins.side_effect = MaxAPIError(
+                'synthetic', status=404, code='http_error')
+            response = client.post(
+                '/limit-notifications/max-settings',
+                data={'enabled':'1', 'token':'synthetic-token',
+                      'group_chat_id':'-999', 'bot_dataset_id':'1'})
+            factory.return_value.check_webhook_receiver.assert_called_once_with(
+                'https://current-installation.example/limit-notifications/max/webhook',
+                ANY)
+            factory.return_value.subscribe_webhook.assert_not_called()
+        page = client.get(response.headers['Location']).get_data(as_text=True)
+        self.assertIn('не подтвердил доступ бота', page)
+
+    def test_spoofed_host_never_reaches_max_adapter(self):
+        client = self.client(1)
+        session_cookie = client.get_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'))
+        client.set_cookie(
+            app.config.get('SESSION_COOKIE_NAME', 'session'),
+            session_cookie.value, domain='attacker.example')
+        with patch.dict(os.environ, {}, clear=False), \
+                patch('app._limits_adapter') as factory:
+            os.environ.pop('LIMITS_MAX_WEBHOOK_URL', None)
+            response = client.post(
+                '/limit-notifications/max-settings',
+                headers={'Host': 'attacker.example', 'X-Forwarded-Proto': 'https'},
+                data={'enabled':'1', 'token':'synthetic-token',
+                      'group_chat_id':'-999', 'bot_dataset_id':'1'})
+            factory.assert_not_called()
+        page = client.get(response.headers['Location']).get_data(as_text=True)
+        self.assertIn('Не настроен доверенный публичный HTTPS-адрес', page)
+
+    @patch.dict(app.config, {
+        'LIMITS_MAX_WEBHOOK_URL':
+        'https://current-installation.example/limit-notifications/max/webhook',
+    })
     def test_connection_explains_outdated_publication_and_dataset(self):
         from limits_max import MaxAPIError
         client = self.client(1)
