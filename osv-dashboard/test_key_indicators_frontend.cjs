@@ -280,6 +280,15 @@ async function checkBootstrap(configuration) {
   assert.equal(app.state.dateFrom, '2025-03-01');
   assert.equal(app.state.date, '2026-06-30');
   assert.equal(nodes.get('ki-period-picker-button').textContent, 'Выбрать период');
+  app.state.data.period.options = [
+    {value: '2026-09-15', label: '15.09.2026'},
+  ];
+  app.onPeriodPickerButton();
+  app.selectPeriodMonth('2026-09-01');
+  app.selectPeriodMonth('2026-09-01');
+  assert.equal(nodes.get('ki-date-select').value, '15.09.2026',
+    'the current partial month must end on the last available data date');
+  app.cancelPeriodPicker();
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
     'negative cash balance changes must use the carrot color class');
   assert.match(script, /<th>Группа<\/th>/,
