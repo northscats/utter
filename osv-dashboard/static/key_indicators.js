@@ -1032,6 +1032,25 @@
                 });
             });
 
+            [
+                ['ki-date-from-select', 'from'],
+                ['ki-date-select', 'to']
+            ].forEach(([id, edge]) => {
+                const field = document.getElementById(id);
+                if (!field) return;
+                field.addEventListener('wheel', event => {
+                    if (!state.periodPickerOpen) return;
+                    event.preventDefault();
+                    this.shiftPeriodDay(edge, event.deltaY > 0 ? 1 : -1);
+                }, {passive: false});
+                field.addEventListener('keydown', event => {
+                    if (!state.periodPickerOpen ||
+                            !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                    event.preventDefault();
+                    this.shiftPeriodDay(edge, event.key === 'ArrowDown' ? 1 : -1);
+                });
+            });
+
             const modal = document.getElementById('ki-modal');
             modal.setAttribute('tabindex', '-1');
             modal.setAttribute('aria-labelledby', 'ki-modal-title');
@@ -1358,6 +1377,29 @@
             this.renderPeriodPicker();
         },
 
+        shiftPeriodDay(edge, offset) {
+            const key = edge === 'from' ? 'pendingDateFrom' : 'pendingDate';
+            const current = state[key];
+            if (!state.periodPickerOpen || !current || !offset) return;
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(current);
+            if (!match) return;
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+            let nextDay = Math.max(1, Math.min(lastDay, day + offset));
+            if (edge === 'from' && state.pendingDate &&
+                    state.pendingDate.slice(0, 7) === current.slice(0, 7)) {
+                nextDay = Math.min(nextDay, Number(state.pendingDate.slice(8, 10)));
+            }
+            if (edge === 'to' && state.pendingDateFrom &&
+                    state.pendingDateFrom.slice(0, 7) === current.slice(0, 7)) {
+                nextDay = Math.max(nextDay, Number(state.pendingDateFrom.slice(8, 10)));
+            }
+            state[key] = `${match[1]}-${match[2]}-${String(nextDay).padStart(2, '0')}`;
+            this.renderPeriodPicker();
+        },
+
         shiftPeriodPickerYears(offset) {
             state.pickerYearStart = (state.pickerYearStart || new Date().getFullYear()) + offset;
             this.renderPeriodPicker();
@@ -1402,7 +1444,8 @@
                         (maxMonth && month > maxMonth);
                     const inRange = state.pendingDateFrom && state.pendingDate &&
                         value >= state.pendingDateFrom && value <= state.pendingDate;
-                    const edge = value === state.pendingDateFrom || value === state.pendingDate;
+                    const edge = month === String(state.pendingDateFrom || '').slice(0, 7) ||
+                        month === String(state.pendingDate || '').slice(0, 7);
                     return `<button type="button" class="period-picker-month${inRange ? ' in-range' : ''}${edge ? ' range-edge' : ''}"
                         ${disabled ? 'disabled' : ''}
                         onclick="window.KI_App.selectPeriodMonth('${value}')"

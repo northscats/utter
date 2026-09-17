@@ -259,11 +259,18 @@ async function checkBootstrap(configuration) {
   app.selectPeriodMonth('2026-06-01');
   assert.equal(nodes.get('ki-date-select').value, '01.06.2026');
   assert.equal(fetched, 0, 'selecting the second month must not load data');
+  app.shiftPeriodDay('from', 1);
+  app.shiftPeriodDay('to', 2);
+  assert.equal(nodes.get('ki-date-from-select').value, '02.03.2025');
+  assert.equal(nodes.get('ki-date-select').value, '03.06.2026');
+  app.shiftPeriodDay('from', -20);
+  assert.equal(nodes.get('ki-date-from-select').value, '01.03.2025',
+    'scrolling must not leave the selected start month');
   app.onPeriodPickerButton();
   assert.equal(fetched, 1, 'data must load only after confirmation');
   assert.equal(app.state.period, 'day');
   assert.equal(app.state.dateFrom, '2025-03-01');
-  assert.equal(app.state.date, '2026-06-01');
+  assert.equal(app.state.date, '2026-06-03');
   assert.equal(nodes.get('ki-period-picker-button').textContent, 'Выбрать период');
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
     'negative cash balance changes must use the carrot color class');
