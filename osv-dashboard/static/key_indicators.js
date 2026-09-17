@@ -2266,7 +2266,7 @@
             if (!analytics.length) return '';
             const rubAmount = value => new Intl.NumberFormat('ru-RU', {
                 minimumFractionDigits: 2, maximumFractionDigits: 2
-            }).format(value / 1000);
+            }).format(value / 1000000);
             const percent = value => new Intl.NumberFormat('ru-RU', {
                 minimumFractionDigits: 2, maximumFractionDigits: 2
             }).format(value) + '%';
@@ -2281,7 +2281,7 @@
                     esc(percent(knownTotal ? Number(item.gross_amount) / knownTotal * 100 : 0))}</td></tr>`).join('');
             return `<div class="modal-section-title">Сопоставление аналитик предприятия</div>
                 <div class="revenue-table-wrap"><table class="cash-table revenue-mapping-table" data-ki-table-sync="revenue-analytics">
-                <thead><tr><th>Вид деятельности</th><th>Сумма с НДС, тыс. руб.</th><th>Доля, %</th></tr></thead>
+                <thead><tr><th>Вид деятельности</th><th>Сумма с НДС, млн ₽</th><th>Доля, %</th></tr></thead>
                 <tbody>${rows}<tr class="revenue-mapping-total"><td>Итого</td>
                 <td class="num">${hasKnownAmount ? esc(rubAmount(knownTotal)) : 'Нет данных'}</td>
                 <td class="num">${hasKnownAmount ? '100,00%' : 'Нет данных'}</td></tr></tbody></table></div>`;

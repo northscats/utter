@@ -254,6 +254,10 @@ async function checkBootstrap(configuration) {
     'negative cash balance changes must use the carrot color class');
   assert.match(script, /<th>Группа<\/th>/,
     'the former Segment table must be labeled Group');
+  assert.match(script, /Сумма с НДС, млн ₽/,
+    'revenue analytics amounts must be labeled in millions of rubles');
+  assert.ok(script.includes('.format(value / 1000000)'),
+    'revenue analytics amounts must be scaled to millions');
   assert.match(script, /metric-inline-unit/,
     'money units must be rendered inline with metric values');
   assert.doesNotMatch(
