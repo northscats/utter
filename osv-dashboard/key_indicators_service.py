@@ -27,15 +27,61 @@ from source_passport import (
 
 _CONTROL_SNAPSHOT_ROOT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'control_snapshots')
+_UPLOADED_CONTROL_ROOT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), 'uploads')
 
 
 def _is_trusted_control_path(path):
-    root = os.path.realpath(_CONTROL_SNAPSHOT_ROOT)
     candidate = os.path.realpath(path)
+    legacy_root = os.path.realpath(_CONTROL_SNAPSHOT_ROOT)
     try:
-        return os.path.commonpath((root, candidate)) == root
+        if os.path.commonpath((legacy_root, candidate)) == legacy_root:
+            return True
+        relative = os.path.relpath(
+            candidate, os.path.realpath(_UPLOADED_CONTROL_ROOT))
+        parts = relative.split(os.sep)
+        return (len(parts) == 3 and parts[0].isdigit()
+                and parts[1] == 'control_snapshots')
     except ValueError:
         return False
+
+
+def _control_period_key(path):
+    try:
+        parsed = parse_consolidated_osv(path)
+        if not parsed:
+            return None
+        start, end = _period_bounds(next(iter(parsed.values())).get('period', ''))
+        return (
+            start.isoformat() if start else None,
+            end.isoformat() if end else None,
+        )
+    except Exception:
+        return None
+
+
+def _control_source_paths(company_id):
+    """Uploaded controls supersede bundled legacy controls for the same period."""
+    legacy_dir = os.path.join(_CONTROL_SNAPSHOT_ROOT, str(int(company_id)))
+    uploaded_dir = os.path.join(
+        _UPLOADED_CONTROL_ROOT, str(int(company_id)), 'control_snapshots')
+    uploaded = [
+        entry.path for entry in os.scandir(uploaded_dir)
+        if entry.is_file() and entry.name.lower().endswith(('.xls', '.xlsx'))
+    ] if os.path.isdir(uploaded_dir) else []
+    uploaded_periods = {
+        key for key in (_control_period_key(path) for path in uploaded) if key
+    }
+    legacy = []
+    if os.path.isdir(legacy_dir):
+        for entry in os.scandir(legacy_dir):
+            if (not entry.is_file()
+                    or not entry.name.lower().endswith(('.xls', '.xlsx'))):
+                continue
+            period = _control_period_key(entry.path)
+            if period is None or period not in uploaded_periods:
+                legacy.append(entry.path)
+    return legacy + uploaded
 
 
 class SourceBusyError(Exception):
@@ -605,13 +651,7 @@ def load_company_source(company_id, uploads_root):
     for path in fallback_paths:
         if path not in paths:
             paths.append(path)
-    control_dir = os.path.join(_CONTROL_SNAPSHOT_ROOT, str(int(company_id)))
-    control_paths = []
-    if os.path.isdir(control_dir):
-        control_paths = [
-            entry.path for entry in os.scandir(control_dir)
-            if entry.is_file() and entry.name.lower().endswith(('.xls', '.xlsx'))
-        ]
+    control_paths = _control_source_paths(company_id)
     for path in control_paths:
         if path not in paths:
             paths.append(path)

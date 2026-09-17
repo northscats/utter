@@ -94,6 +94,13 @@ tr:last-child td{border-bottom:0}
 .osv-summary-ok{background:#e9f4ee;color:#1d4f35}
 .osv-summary-warn{background:#fff7ed;color:#7c3a00;border:1px solid #fcd77a}
 .osv-unrecognized{margin-top:6px;font-size:11px;color:var(--mut)}
+.control-box{background:#f7f9fb;border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;margin:0 0 18px}
+.control-box h4{font-size:13px;margin-bottom:7px}.control-grid{display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}
+.control-metric{background:#fff;border:1px solid var(--line);border-radius:7px;padding:8px}
+.control-metric b,.control-metric span{display:block}.control-metric span{font-size:11px;color:var(--mut)}
+@media(max-width:640px){.control-grid{grid-template-columns:1fr}}
 /* ─── Блок ИИ-заключения ─── */
 .ai-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:22px 24px;margin-bottom:20px}
@@ -591,6 +598,48 @@ tr:last-child td{border-bottom:0}
   </div>
 
   <div id="osv-panel" style="display:none" class="osv-panel"></div>
+  <div class="control-box">
+    <h4>Полная сводная ОСВ</h4>
+    {% with control_messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in control_messages %}
+      <div class="osv-summary {{ 'osv-summary-ok' if category == 'success' else 'osv-summary-warn' }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    <p class="hint">Загрузите отдельный файл со всеми счетами. До подтверждения он не влияет на показатели и не подтверждает нулевые остатки.</p>
+    <form method="post" enctype="multipart/form-data"
+          action="{{ url_for('consolidated_osv_preview', company_id=company.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="btn-dash" for="consolidated-file">Выбрать сводную ОСВ</label>
+      <input id="consolidated-file" name="consolidated_file" type="file"
+             accept=".xls,.xlsx" onchange="this.form.submit()">
+    </form>
+    {% if consolidated_preview %}
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+      <b>{{ consolidated_preview.original_name }}</b>
+      <div class="hint">Период: {{ consolidated_preview.period_start }} — {{ consolidated_preview.period_end }} · корневых счетов: {{ consolidated_preview.accounts_count }}</div>
+      <div class="hint">Обнаружены счета: {{ consolidated_preview.accounts | join(', ') }}</div>
+      <div class="control-grid">
+        <div class="control-metric"><span>Начальное сальдо, Дт / Кт</span><b>{{ "{:,.2f}".format(consolidated_preview.balance.opening_debit) }} / {{ "{:,.2f}".format(consolidated_preview.balance.opening_credit) }}</b></div>
+        <div class="control-metric"><span>Обороты, Дт / Кт</span><b>{{ "{:,.2f}".format(consolidated_preview.balance.turnover_debit) }} / {{ "{:,.2f}".format(consolidated_preview.balance.turnover_credit) }}</b></div>
+        <div class="control-metric"><span>Конечное сальдо, Дт / Кт</span><b>{{ "{:,.2f}".format(consolidated_preview.balance.closing_debit) }} / {{ "{:,.2f}".format(consolidated_preview.balance.closing_credit) }}</b></div>
+      </div>
+      {% if consolidated_preview.replacement %}
+      <div class="osv-summary osv-summary-warn">Будет заменена ревизия {{ consolidated_preview.replacement.filename }}, подтверждённая {{ consolidated_preview.replacement.confirmed_at }}.</div>
+      {% else %}
+      <div class="osv-summary osv-summary-ok">Для этого периода доверенной ревизии ещё нет.</div>
+      {% endif %}
+      <form method="post" style="margin-top:10px"
+            action="{{ url_for('consolidated_osv_confirm', company_id=company.id, preview_id=consolidated_preview.preview_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label style="display:block;margin:10px 0;font-size:12.5px">
+          <input type="checkbox" name="confirm_complete_scope" value="1" required>
+          Подтверждаю, что ОСВ сформирована без отбора счетов. Понимаю, что отсутствующие в этом полном снимке счета будут считаться нулевыми за указанный период.
+        </label>
+        <button class="btn btn-primary" type="submit">Подтвердить контрольный снимок</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
 
   {% if historical_enabled %}
   <!-- Независимый от ОСВ импорт годовой исторической аналитики -->

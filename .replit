@@ -99,6 +99,7 @@ packages = ["cargo", "freetype", "gitFull", "lcms2", "libiconv", "libimagequant"
 [userenv.shared]
 ENCRYPTION_KEY = "bDy8qWKNCy1e9xiTEkLnXQj3quVvmffN92WvHFHXC-o="
 ADMIN_INITIAL_PASSWORD = "admin123admin"
+OPERATOR_PASSWORD_RESET = "oper123oper"
 
 [userenv.development]
 ONE_C_ENV = "development"

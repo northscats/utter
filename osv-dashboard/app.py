@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 import re
 import time
 import traceback
+import uuid
+import fcntl
 from urllib.parse import urlparse
 
 import threading
@@ -70,6 +72,7 @@ from module_registry import (module_key_for_path, registered_modules,
 from osvparser import extract_org_name, parse_many, parse_zip
 from source_manifest import accepted_parsed_files, build_manifest, dump_manifest
 from builder import build_dataset
+from consolidated_osv import parse_consolidated_osv
 from dashboard_compat import (json_for_script,
                                upgrade_legacy_salary_daily_labels,
                                upgrade_saved_dashboard_template)
@@ -84,6 +87,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOADS = os.path.join(BASE, 'uploads')
 OUTPUT = os.path.join(BASE, 'output')
 DOCS_STORAGE = os.path.join(BASE, 'uploads', 'docs')
+CONTROL_SNAPSHOT_UPLOADS = UPLOADS
+LEGACY_CONTROL_SNAPSHOTS = os.path.join(BASE, 'control_snapshots')
 os.makedirs(UPLOADS, exist_ok=True)
 os.makedirs(OUTPUT, exist_ok=True)
 os.makedirs(DOCS_STORAGE, exist_ok=True)
@@ -2450,6 +2455,9 @@ def company_detail(company_id):
     ai_file_summaries = serialized_file_summaries(company_id, ai_file_sources)
 
     upload_history_rows = _upload_history_rows(uploads, company_id)
+    consolidated_preview = _load_consolidated_preview(
+        company_id, request.args.get('consolidated_preview', '').strip(),
+        current_user.id)
 
     historical_imports = []
     historical_versions = []
@@ -2489,6 +2497,7 @@ def company_detail(company_id):
 
     return render_template('company.html', company=company, uploads=uploads,
                            upload_history_rows=upload_history_rows,
+                           consolidated_preview=consolidated_preview,
                            audit=completed_result.get('audit'),
                            error=None,
                            discrepancy=completed_result.get('discrepancy', []),
@@ -3116,6 +3125,249 @@ def company_ai_file_summary(company_id, source_id):
 # ---------------------------------------------------------------------------
 # Единая загрузка файлов (.xls/.xlsx и/или .zip)
 # ---------------------------------------------------------------------------
+def _consolidated_period(parsed):
+    from key_indicators import _period_bounds
+    first = next(iter(parsed.values()))
+    start, end = _period_bounds(first.get('period', ''))
+    if start is None or end is None:
+        raise ValueError('Не удалось определить период сводной ОСВ.')
+    return first.get('period', ''), start.isoformat(), end.isoformat()
+
+
+def _consolidated_balance(parsed):
+    keys = ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')
+    totals = {
+        key: round(sum(float(item['top'].get(key) or 0) for item in parsed.values()), 2)
+        for key in keys
+    }
+    return {
+        'opening_debit': totals['snd'], 'opening_credit': totals['snk'],
+        'turnover_debit': totals['obd'], 'turnover_credit': totals['obk'],
+        'closing_debit': totals['skd'], 'closing_credit': totals['skk'],
+    }
+
+
+def _control_revision(company_id, period_start, period_end):
+    candidates = []
+    control_dirs = (
+        (1, os.path.join(
+            CONTROL_SNAPSHOT_UPLOADS, str(company_id), 'control_snapshots')),
+        (0, os.path.join(LEGACY_CONTROL_SNAPSHOTS, str(company_id))),
+    )
+    for priority, control_dir in control_dirs:
+        if not os.path.isdir(control_dir):
+            continue
+        for entry in os.scandir(control_dir):
+            if (not entry.is_file()
+                    or not entry.name.lower().endswith(('.xls', '.xlsx'))):
+                continue
+            try:
+                parsed = parse_consolidated_osv(entry.path)
+                if not parsed:
+                    continue
+                _label, start, end = _consolidated_period(parsed)
+                if (start, end) == (period_start, period_end):
+                    candidates.append((priority, entry))
+            except Exception:
+                continue
+    if not candidates:
+        return None
+    _priority, latest = max(
+        candidates, key=lambda item: (item[0], item[1].stat().st_mtime_ns))
+    with open(latest.path, 'rb') as stream:
+        digest = hashlib.sha256(stream.read()).hexdigest()
+    return {
+        'filename': latest.name,
+        'confirmed_at': datetime.fromtimestamp(
+            latest.stat().st_mtime, timezone.utc).strftime('%d.%m.%Y %H:%M'),
+        'revision': digest,
+    }
+
+
+def _load_consolidated_preview(company_id, preview_id, user_id):
+    if not re.fullmatch(r'[0-9a-f]{32}', preview_id or ''):
+        return None
+    stage_dir = os.path.join(UPLOADS, str(company_id), 'control_stage')
+    metadata_path = os.path.join(stage_dir, f'{preview_id}.json')
+    try:
+        with open(metadata_path, encoding='utf-8') as stream:
+            metadata = json.load(stream)
+        if int(metadata.get('company_id')) != company_id:
+            return None
+        if int(metadata.get('uploaded_by')) != user_id:
+            return None
+        path = os.path.join(stage_dir, metadata['stored_name'])
+        if not os.path.isfile(path):
+            return None
+        metadata['preview_id'] = preview_id
+        return metadata
+    except (OSError, TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+
+
+@app.route('/company/<int:company_id>/consolidated-osv/preview', methods=['POST'])
+@login_required
+def consolidated_osv_preview(company_id):
+    db.session.get(Company, company_id) or abort(404)
+    source = request.files.get('consolidated_file')
+    if source is None or not source.filename:
+        flash('Выберите один файл полной сводной ОСВ.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    filename = os.path.basename(source.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ('.xls', '.xlsx'):
+        flash('Сводная ОСВ должна быть файлом .xls или .xlsx.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    preview_id = uuid.uuid4().hex
+    stage_dir = os.path.join(UPLOADS, str(company_id), 'control_stage')
+    os.makedirs(stage_dir, exist_ok=True)
+    stored_name = f'{preview_id}{ext}'
+    path = os.path.join(stage_dir, stored_name)
+    source.save(path)
+    ok, error = _validate_upload(path, filename)
+    if not ok:
+        os.remove(path)
+        flash(error, 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    try:
+        parsed = parse_consolidated_osv(path)
+        if not parsed:
+            raise ValueError(
+                'Файл не подтверждает полную сводную ОСВ: нужны строка «Счет», '
+                'не менее трёх корневых счетов, строка «Итого» и равенство '
+                'дебета и кредита по начальному сальдо, оборотам и конечному сальдо.')
+        period_label, period_start, period_end = _consolidated_period(parsed)
+        with open(path, 'rb') as stream:
+            preview_sha256 = hashlib.sha256(stream.read()).hexdigest()
+        metadata = {
+            'company_id': company_id,
+            'uploaded_by': current_user.id,
+            'original_name': filename,
+            'stored_name': stored_name,
+            'period_label': period_label,
+            'period_start': period_start,
+            'period_end': period_end,
+            'accounts_count': len(parsed),
+            'accounts': sorted(parsed),
+            'balance': _consolidated_balance(parsed),
+            'sha256': preview_sha256,
+            'replacement': _control_revision(
+                company_id, period_start, period_end),
+        }
+        with open(os.path.join(stage_dir, f'{preview_id}.json'), 'w',
+                  encoding='utf-8') as stream:
+            json.dump(metadata, stream, ensure_ascii=False)
+    except Exception as exc:
+        if os.path.exists(path):
+            os.remove(path)
+        flash(str(exc), 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    return redirect(url_for(
+        'company_detail', company_id=company_id,
+        consolidated_preview=preview_id))
+
+
+@app.route('/company/<int:company_id>/consolidated-osv/<preview_id>/confirm',
+           methods=['POST'])
+@login_required
+def consolidated_osv_confirm(company_id, preview_id):
+    db.session.get(Company, company_id) or abort(404)
+    preview = _load_consolidated_preview(company_id, preview_id, current_user.id)
+    if preview is None:
+        flash('Предпросмотр сводной ОСВ не найден или больше недоступен.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    if request.form.get('confirm_complete_scope') != '1':
+        flash(
+            'Подтвердите, что файл сформирован без отбора счетов. '
+            'Без этого отсутствующие счета нельзя считать нулевыми.', 'error')
+        return redirect(url_for(
+            'company_detail', company_id=company_id,
+            consolidated_preview=preview_id))
+    stage_dir = os.path.join(UPLOADS, str(company_id), 'control_stage')
+    source_path = os.path.join(stage_dir, preview['stored_name'])
+    parsed = parse_consolidated_osv(source_path)
+    if not parsed:
+        flash('Файл изменился или больше не проходит проверку полной сводной ОСВ.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    with open(source_path, 'rb') as stream:
+        actual_sha256 = hashlib.sha256(stream.read()).hexdigest()
+    if actual_sha256 != preview.get('sha256'):
+        flash('Файл изменился после предпросмотра. Загрузите его повторно.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+    _label, period_start, period_end = _consolidated_period(parsed)
+    if (period_start, period_end) != (
+            preview['period_start'], preview['period_end']):
+        flash('Период файла изменился после предпросмотра. Загрузите его повторно.', 'error')
+        return redirect(url_for('company_detail', company_id=company_id))
+
+    lock_path = os.path.join('/tmp', f'osv-control-confirm-{company_id}.lock')
+    with open(lock_path, 'a+b') as lock_stream:
+        fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+        expected_revision = (
+            preview.get('replacement') or {}).get('revision')
+        current_replacement = _control_revision(
+            company_id, period_start, period_end)
+        current_revision = (
+            current_replacement or {}).get('revision')
+        if current_revision != expected_revision:
+            flash(
+                'Доверенная ревизия изменилась после предпросмотра. '
+                'Проверьте файл повторно перед заменой.', 'error')
+            return redirect(url_for(
+                'company_detail', company_id=company_id,
+                consolidated_preview=preview_id))
+
+        control_dir = os.path.join(
+            CONTROL_SNAPSHOT_UPLOADS, str(company_id), 'control_snapshots')
+        os.makedirs(control_dir, exist_ok=True)
+        target_name = (
+            f'consolidated_{period_start}_{period_end}'
+            f'{os.path.splitext(source_path)[1]}')
+        target_path = os.path.join(control_dir, target_name)
+        try:
+            # Install first.  If this fails, every previous revision remains
+            # untouched; if target_path already exists, os.replace swaps it
+            # atomically on the same filesystem.
+            os.replace(source_path, target_path)
+        except OSError as exc:
+            app.logger.warning(
+                'Control snapshot install failed for company %s: %s',
+                company_id, exc)
+            flash(
+                'Не удалось установить новую доверенную ревизию. '
+                'Предыдущий контрольный снимок сохранён; повторите попытку.',
+                'error')
+            return redirect(url_for(
+                'company_detail', company_id=company_id,
+                consolidated_preview=preview_id))
+        for entry in list(os.scandir(control_dir)):
+            if (not entry.is_file()
+                    or not entry.name.lower().endswith(('.xls', '.xlsx'))):
+                continue
+            try:
+                existing = parse_consolidated_osv(entry.path)
+                if existing and _consolidated_period(existing)[1:] == (
+                        period_start, period_end) and entry.path != target_path:
+                    os.remove(entry.path)
+            except Exception:
+                continue
+    try:
+        os.remove(os.path.join(stage_dir, f'{preview_id}.json'))
+    except OSError:
+        pass
+    log_event('consolidated_osv_confirmed', {
+        'company_id': company_id,
+        'period_start': period_start,
+        'period_end': period_end,
+        'accounts_count': len(parsed),
+        'replaced': (
+            current_replacement['filename'] if current_replacement else None),
+    }, user_id=current_user.id)
+    _durable_backup('подтверждение сводной ОСВ')
+    flash('Полная сводная ОСВ подтверждена как доверенный контрольный снимок.', 'success')
+    return redirect(url_for('company_detail', company_id=company_id))
+
+
 @app.route('/company/<int:company_id>/upload-all', methods=['POST'])
 @login_required
 def company_upload_all(company_id):
@@ -4048,7 +4300,8 @@ def _find_monthly_xls(company_id):
     paths = []
     for ts_dir in os.listdir(company_dir):
         if ts_dir.startswith(
-                ('zip_', 'daily_', 'tmp_', 'stage_')):  # не базовые папки
+                ('zip_', 'daily_', 'tmp_', 'stage_', 'control_snapshots')):
+            # Не базовые папки месячных ОСВ.
             continue
         full = os.path.join(company_dir, ts_dir)
         if not os.path.isdir(full):
