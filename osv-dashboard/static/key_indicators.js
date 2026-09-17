@@ -249,9 +249,11 @@
         });
         known.forEach((current, knownIndex) => {
             const previous = knownIndex ? known[knownIndex - 1] : null;
-            const consecutive = previous && (timeline.calendar
-                ? timeline.day(current.index) - timeline.day(previous.index) === 1
-                : current.index - previous.index === 1);
+            const consecutive = previous && (
+                declaredGranularity === 'day' && timeline.calendar
+                    ? timeline.day(current.index) - timeline.day(previous.index) === 1
+                    : current.index - previous.index === 1
+            );
             const kind = previous && declaredGranularity &&
                 declaredGranularity !== 'day' && !consecutive
                 ? 'none'

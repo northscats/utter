@@ -36,6 +36,7 @@ async function checkBootstrap(configuration) {
             setAttribute: (name, value) => attributes.set(name, value),
             getAttribute: name => attributes.get(name),
             addEventListener() {},
+            querySelectorAll() { return []; },
           });
         }
         return nodes.get(id);
@@ -253,6 +254,15 @@ async function checkBootstrap(configuration) {
     'negative cash balance changes must use the carrot color class');
   assert.match(script, /<th>Группа<\/th>/,
     'the former Segment table must be labeled Group');
+  app.renderRevenueLineChart({series: [
+    {date: '2026-01-31', label: 'Январь', value: 1_000_000, granularity: 'month'},
+    {date: '2026-02-28', label: 'Февраль', value: 2_000_000, granularity: 'month'},
+    {date: '2026-03-31', label: 'Март', value: 3_000_000, granularity: 'month'},
+  ]});
+  assert.match(
+    nodes.get('ki-revenue-line-chart').innerHTML,
+    /<path d="[^"]* L [^"]*" class="revenue-chart-line-solid"/,
+    'adjacent monthly revenue points must be connected by a solid line');
 }
 
 (async () => {
