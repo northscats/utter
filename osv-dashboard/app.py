@@ -381,6 +381,19 @@ def _ensure_limits_recovery() -> None:
             db.session.commit()
             for row in LimitVersion.query.filter_by(status='queued').all():
                 _limit_parse_in_background(row.id)
+            from limits_connection import (
+                configured_webhook_url, configuration_complete,
+                reconcile_connection, start_reconciler)
+            # Revalidate synchronously under the same cross-process guard used
+            # by dispatch. Never reset shared state outside that guard.
+            if configuration_complete():
+                reconcile_connection(
+                    encrypt=encrypt_value, decrypt=decrypt_value,
+                    adapter_factory=_limits_adapter,
+                    webhook_url=configured_webhook_url(app))
+            start_reconciler(
+                app, encrypt_value, decrypt_value, _limits_adapter,
+                lambda: configured_webhook_url(app))
             from limits_bot import start_worker
             start_worker(app, _limits_adapter, lambda: _limits_history_ready.is_set())
         while True:
@@ -7784,21 +7797,25 @@ def limit_max_webhook():
         return jsonify(error='Недействительный секрет webhook'), 403
     if request.method == 'GET':
         return jsonify(ready=True), 200
-    if request.content_length and request.content_length > 256 * 1024:
-        return jsonify(error='Событие превышает допустимый размер'), 413
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify(error='Ожидается JSON-событие MAX'), 400
-    try:
-        from limits_bot import ingest_event
-        event, created = ingest_event(payload)
-    except ValueError:
-        db.session.rollback()
-        return jsonify(error='Неверная структура события MAX'), 400
-    except Exception:
-        db.session.rollback()
-        app.logger.error('limits MAX event persistence failed')
-        return jsonify(error='Временная ошибка сохранения события'), 503
+    from limits_connection import _serialized_connection, registration_active
+    with _serialized_connection(blocking=False) as acquired:
+        if not acquired or not registration_active():
+            return jsonify(error='Интеграция MAX временно не готова'), 503
+        if request.content_length and request.content_length > 256 * 1024:
+            return jsonify(error='Событие превышает допустимый размер'), 413
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error='Ожидается JSON-событие MAX'), 400
+        try:
+            from limits_bot import ingest_event
+            event, created = ingest_event(payload)
+        except ValueError:
+            db.session.rollback()
+            return jsonify(error='Неверная структура события MAX'), 400
+        except Exception:
+            db.session.rollback()
+            app.logger.error('limits MAX event persistence failed')
+            return jsonify(error='Временная ошибка сохранения события'), 503
     # This endpoint deliberately does not send MAX messages or do group lookups.
     # A durable event is sufficient for provider retry semantics.
     g.skip_durable_backup = True
@@ -7808,36 +7825,31 @@ def limit_max_webhook():
 @admin_required
 def limit_max_settings():
     """Store connection material encrypted; never return token/secret to browser."""
-    from limits_connection import configure_connection, public_webhook_url
+    from limits_connection import configure_connection, configured_webhook_url
     from limits_max import MaxAPIError
     token = request.form.get('token', '').strip()
     group_id = request.form.get('group_chat_id', '').strip()
     dataset_id = request.form.get('bot_dataset_id', type=int)
-    enabled = request.form.get('enabled') == '1'
     if group_id and not re.fullmatch(r'-?\d+', group_id):
         abort(400, description='ID группы MAX должен быть целым числом.')
     if dataset_id:
         _limit_dataset_or_404(dataset_id)
-    if enabled and (not (token or Setting.get('limits_max_token'))
-                    or not group_id or not dataset_id):
-        flash('Для включения нужны токен MAX, ID админ-группы и выбранный набор данных.', 'error')
-        return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
     try:
-        configured_webhook = (app.config.get('LIMITS_MAX_WEBHOOK_URL')
-                              or os.environ.get('LIMITS_MAX_WEBHOOK_URL', '')).strip()
-        webhook_url = public_webhook_url(configured=configured_webhook)
+        webhook_url = configured_webhook_url(app)
         configure_connection(token=token, group_id=group_id, dataset_id=dataset_id,
-            enabled=enabled, encrypt=encrypt_value, decrypt=decrypt_value,
+            encrypt=encrypt_value, decrypt=decrypt_value,
             adapter_factory=_limits_adapter,
             webhook_url=webhook_url)
     except MaxAPIError:
-        flash('Настройки сохранены, но MAX не подтвердил подключение. Отправки выключены.', 'error')
+        flash('Настройки сохранены. Причина и время автоматического повтора указаны ниже.', 'error')
         return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
     log_event('limits_max_settings_changed', {'token_changed': bool(token),
                                               'group_configured': bool(group_id)})
-    flash('Настройки сохранены. ' + (
-        'MAX подтвердил регистрацию webhook. Бот включён.'
-        if enabled else 'Отправки MAX выключены.'), 'success')
+    from limits_connection import connection_status
+    if connection_status()['active']:
+        flash('Настройки сохранены. MAX подтвердил регистрацию webhook; бот работает постоянно.', 'success')
+    else:
+        flash('Настройки сохранены не полностью. Укажите токен, ID админ-группы и набор данных.', 'error')
     return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
 
 @app.route('/limit-notifications/moderation/<int:request_id>/decide', methods=['POST'])
@@ -8082,18 +8094,18 @@ def limit_version_review(version_id):
 @app.route('/limit-notifications/settings')
 @admin_required
 def limit_settings():
-    from limits_connection import public_webhook_url
+    from limits_connection import configured_webhook_url, connection_status
     datasets = LimitDataset.query.order_by(LimitDataset.updated_at.desc()).all()
     dataset_id = request.args.get('dataset', type=int)
     dataset = _limit_dataset_or_404(dataset_id) if dataset_id else (datasets[0] if datasets else None)
-    configured_webhook = (app.config.get('LIMITS_MAX_WEBHOOK_URL')
-                          or os.environ.get('LIMITS_MAX_WEBHOOK_URL', '')).strip()
-    webhook_url = public_webhook_url(configured=configured_webhook)
+    webhook_url = configured_webhook_url(app)
+    max_status = connection_status()
     return render_template('limits_settings.html', datasets=datasets, dataset=dataset,
         max_connected=bool(Setting.get('limits_max_token', '')),
-        max_connection_error=Setting.get('limits_max_connection_error', ''),
+        max_connection_error=max_status['error'],
+        max_status=max_status,
         max_webhook_url=webhook_url,
-        max_enabled=Setting.get('limits_max_enabled') == '1',
+        max_enabled=max_status['active'],
         max_group_id=Setting.get('limits_max_group_chat_id', ''),
         bot_dataset_id=Setting.get('limits_bot_dataset_id', ''))
 

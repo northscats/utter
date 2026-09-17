@@ -69,6 +69,9 @@ class LimitsBotTests(unittest.TestCase):
             db.session.add(LimitObject(dataset_id=dataset.id, uin='100.200'))
             Setting.set('limits_bot_dataset_id', str(dataset.id))
             Setting.set('limits_max_enabled', '1')
+            Setting.set('limits_max_token', 'encrypted-test-token')
+            Setting.set('limits_max_group_chat_id', 'moderators')
+            Setting.set('limits_max_webhook_registered', '1')
             db.session.commit()
             self.dataset_id = dataset.id
 

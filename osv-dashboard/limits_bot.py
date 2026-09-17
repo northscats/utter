@@ -481,7 +481,7 @@ def _claim_event():
     return row
 
 
-def process_event_once(adapter, group_chat_id=None):
+def _process_event_once(adapter, group_chat_id=None):
     """Claim and process one event.  DB updates plus outbox are one commit."""
     event = _claim_event()
     if event is None:
@@ -805,8 +805,19 @@ def _process_bot_outbound_once(adapter):
     return 1
 
 
+def process_event_once(adapter, group_chat_id=None):
+    from limits_connection import _serialized_connection, registration_active
+    with _dispatch_lock, _serialized_connection() as acquired:
+        if not acquired or not registration_active():
+            return False
+        return _process_event_once(adapter, group_chat_id)
+
+
 def process_bot_outbound_once(adapter):
-    with _dispatch_lock:
+    from limits_connection import _serialized_connection, registration_active
+    with _dispatch_lock, _serialized_connection() as acquired:
+        if not acquired or not registration_active():
+            return False
         return _process_bot_outbound_once(adapter)
 
 
@@ -959,14 +970,17 @@ def _process_alert_once(adapter):
 
 
 def process_alert_once(adapter):
-    with _dispatch_lock:
+    from limits_connection import _serialized_connection, registration_active
+    with _dispatch_lock, _serialized_connection() as acquired:
+        if not acquired or not registration_active():
+            return False
         return _process_alert_once(adapter)
 
 
 def run_worker_once(adapter, group_chat_id=None, limit=DEFAULT_BATCH_SIZE):
     """Run a bounded, transport-safe worker pass; it never creates an adapter."""
-    enabled = str(Setting.get('limits_max_enabled', '') or '').lower() in ('1', 'true', 'yes', 'on')
-    if not enabled or adapter is None or not adapter.is_configured:
+    from limits_connection import registration_active
+    if not registration_active() or adapter is None or not adapter.is_configured:
         return {'events': 0, 'bot_messages': 0, 'alerts': 0, 'configured': False}
     result = {'events': 0, 'bot_messages': 0, 'alerts': 0, 'configured': True}
     for _ in range(max(1, int(limit))):
@@ -1013,10 +1027,8 @@ def start_worker(app, adapter_factory=None, ready_check=None, interval_seconds=2
                 if state['ready_check'] is not None and not state['ready_check']():
                     continue
                 try:
-                    # Do not instantiate a transport, and consequently do not
-                    # expose a decrypted token, while MAX is explicitly disabled.
-                    enabled = str(Setting.get('limits_max_enabled', '') or '').lower()
-                    if enabled not in ('1', 'true', 'yes', 'on'):
+                    from limits_connection import registration_active
+                    if not registration_active():
                         continue
                     # The first ready pass also converts abandoned ``sending``
                     # rows to visible ``unknown`` before any possible send.

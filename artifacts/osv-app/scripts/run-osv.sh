@@ -16,4 +16,10 @@ if [[ -z "${PORT:-}" ]]; then
 fi
 
 cd "${APP_DIR}"
+# Production userenv is not guaranteed to reach every artifact launch wrapper.
+# Supply the checked-in canonical deployment URL only in an actual deployment;
+# preview must never inherit it.
+if [[ "${REPLIT_DEPLOYMENT:-}" == "1" && -z "${LIMITS_MAX_WEBHOOK_URL:-}" ]]; then
+  export LIMITS_MAX_WEBHOOK_URL="https://gisuzter.replit.app/limit-notifications/max/webhook"
+fi
 exec python3 -m gunicorn -c gunicorn.conf.py app:app

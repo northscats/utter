@@ -1,10 +1,12 @@
 import io
 import json
 import ssl
+import threading
+import time
 import unittest
 from urllib.error import HTTPError
 
-from limits_connection import public_webhook_url
+from limits_connection import _serialized_connection, public_webhook_url
 from limits_max import MaxClient, MaxAPIError, MaxUnknownOutcome, event_key, verify_webhook_secret
 
 
@@ -27,6 +29,26 @@ class MaxAdapterTests(unittest.TestCase):
         self.assertEqual(
             'https://override.example/max',
             public_webhook_url(configured='https://override.example/max'))
+
+    def test_connection_registration_lock_serializes_threads(self):
+        entered = []
+        first_inside = threading.Event()
+
+        def contender(name, wait=0):
+            with _serialized_connection():
+                entered.append(name)
+                if name == 'first':
+                    first_inside.set()
+                    time.sleep(wait)
+
+        first = threading.Thread(target=contender, args=('first', .05))
+        second = threading.Thread(target=contender, args=('second',))
+        first.start()
+        self.assertTrue(first_inside.wait(1))
+        second.start()
+        first.join(1)
+        second.join(1)
+        self.assertEqual(['first', 'second'], entered)
 
     def test_receiver_preflight_uses_secret_not_bot_token_and_verified_tls(self):
         transport = Transport({'ready': True})

@@ -3,8 +3,10 @@ import json
 import hashlib
 import os
 import tempfile
+import threading
+import time
 import unittest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 from datetime import date, datetime, timezone, timedelta
 
 _TEMP = tempfile.TemporaryDirectory(prefix='limits_routes_')
@@ -15,7 +17,7 @@ os.environ.setdefault('ENCRYPTION_KEY', 'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA
 from app import app, init_db, _limits_history_ready
 from database import (db, User, UserModuleAccess, Setting, LimitDataset, LimitObject,
                       LimitVersion, LimitVersionTombstone, LimitSubscription,
-                      LimitRecipient, LimitDelivery, LimitComparison)
+                       LimitRecipient, LimitDelivery, LimitComparison, LimitMaxEvent)
 from limits_views import objects_context, object_context
 from werkzeug.datastructures import MultiDict
 
@@ -238,8 +240,10 @@ class LimitsRouteTests(unittest.TestCase):
             self.assertIn('/limit-notifications/datasets/1/subscribers', html)
             self.assertIn('/limit-notifications/settings?dataset=1', html)
         settings = client.get('/limit-notifications/settings?dataset=1')
-        self.assertIn('name="token"', settings.get_data(as_text=True))
-        self.assertNotIn('name="webhook_secret"', settings.get_data(as_text=True))
+        settings_html = settings.get_data(as_text=True)
+        self.assertIn('name="token"', settings_html)
+        self.assertNotIn('name="webhook_secret"', settings_html)
+        self.assertNotIn('name="enabled"', settings_html)
         self.assertIn('no-store', settings.headers['Cache-Control'])
         self.assertEqual(403, self.client(2).get('/limit-notifications/settings').status_code)
         response = client.post('/limit-notifications/max-settings', data={'context_dataset':'1'})
@@ -267,7 +271,7 @@ class LimitsRouteTests(unittest.TestCase):
         'LIMITS_MAX_WEBHOOK_URL':
         'https://current-installation.example/limit-notifications/max/webhook',
     })
-    def test_enable_generates_secret_registers_webhook_and_authenticates_events(self):
+    def test_complete_settings_generate_secret_and_keep_bot_always_on(self):
         from app import decrypt_value
         client = self.client(1)
         with patch('app._limits_adapter') as factory:
@@ -276,7 +280,7 @@ class LimitsRouteTests(unittest.TestCase):
                 'update_types': ['message_created'],
             }
             response = client.post('/limit-notifications/max-settings', data={
-                'enabled':'1', 'token':'synthetic-auto-token', 'group_chat_id':'-123',
+                'token':'synthetic-auto-token', 'group_chat_id':'-123',
                 'bot_dataset_id':'1', 'context_dataset':'1'})
             self.assertEqual(302, response.status_code)
             with app.app_context():
@@ -297,12 +301,17 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertEqual(403,client.get(endpoint).status_code)
         headers={'X-Max-Bot-Api-Secret':secret}
         self.assertEqual({'ready':True},client.get(endpoint,headers=headers).get_json())
+        with patch('limits_connection._serialized_connection') as guard:
+            guard.return_value.__enter__.return_value = False
+            guard.return_value.__exit__.return_value = False
+            self.assertEqual(
+                503, client.post(endpoint, json=payload, headers=headers).status_code)
         self.assertEqual(200,client.post(endpoint,json=payload,headers=headers).status_code)
         self.assertTrue(client.post(endpoint,json=payload,headers=headers).get_json()['duplicate'])
         with patch('app._limits_adapter') as factory:
             factory.return_value.subscribe_webhook.return_value = {'success':True}
             client.post('/limit-notifications/max-settings',data={
-                'enabled':'1','group_chat_id':'-123','bot_dataset_id':'1'})
+                'group_chat_id':'-123','bot_dataset_id':'1'})
             self.assertEqual(secret,factory.return_value.subscribe_webhook.call_args.args[1])
 
     @patch.dict(app.config, {
@@ -318,20 +327,149 @@ class LimitsRouteTests(unittest.TestCase):
                 else:
                     factory.return_value.subscribe_webhook.return_value=result
                 response=client.post('/limit-notifications/max-settings',data={
-                    'enabled':'1','token':'synthetic-token','group_chat_id':'-123','bot_dataset_id':'1'})
+                    'token':'synthetic-token','group_chat_id':'-123','bot_dataset_id':'1'})
                 self.assertEqual(302,response.status_code)
                 with app.app_context():
                     self.assertEqual('0',Setting.get('limits_max_enabled'))
                     self.assertTrue(Setting.get('limits_max_connection_error'))
+                    self.assertTrue(Setting.get('limits_max_last_attempt_at'))
+                    self.assertTrue(Setting.get('limits_max_retry_at'))
                 self.assertNotIn('synthetic-private-error',client.get(response.headers['Location']).get_data(as_text=True))
         with patch('app._limits_adapter') as factory:
             factory.return_value.check_webhook_receiver.side_effect=RuntimeError('wrong installation')
             client.post('/limit-notifications/max-settings',data={
-                'enabled':'1','group_chat_id':'-123','bot_dataset_id':'1'})
+                'group_chat_id':'-123','bot_dataset_id':'1'})
             factory.return_value.subscribe_webhook.assert_not_called()
         with patch('app._limits_adapter') as factory:
             client.post('/limit-notifications/max-settings',data={'group_chat_id':'-123'})
             factory.assert_not_called()
+
+    def test_legacy_complete_settings_create_secret_and_retry_automatically(self):
+        from app import decrypt_value, encrypt_value
+        from limits_bot import ingest_event
+        from limits_connection import reconcile_connection, start_reconciler
+
+        adapter = MagicMock()
+        adapter.subscribe_webhook.side_effect = [
+            TimeoutError('temporary private detail'),
+            {'success': True},
+        ]
+        with app.app_context(), patch('limits_connection.RETRY_DELAYS', (0,)):
+            Setting.set('limits_max_token', encrypt_value('legacy-token'))
+            Setting.set('limits_max_group_chat_id', '-123')
+            Setting.set('limits_bot_dataset_id', '1')
+            # Legacy complete-but-disabled settings intentionally have no secret.
+            ingest_event({'update_type': 'bot_started', 'timestamp': 77,
+                          'user': {'user_id': 7}})
+            db.session.commit()
+            self.assertFalse(reconcile_connection(
+                encrypt=encrypt_value, decrypt=decrypt_value,
+                adapter_factory=lambda: adapter,
+                webhook_url='https://current.example/limit-notifications/max/webhook'))
+            stored_secret = Setting.get('limits_max_webhook_secret')
+            self.assertTrue(decrypt_value(stored_secret))
+            self.assertEqual('received', LimitMaxEvent.query.one().status)
+
+            state = start_reconciler(
+                app, encrypt_value, decrypt_value, lambda: adapter,
+                lambda: 'https://current.example/limit-notifications/max/webhook',
+                interval_seconds=1)
+        try:
+            deadline = time.time() + 3
+            while time.time() < deadline:
+                with app.app_context():
+                    db.session.expire_all()
+                    if Setting.get('limits_max_webhook_registered') == '1':
+                        break
+                time.sleep(.05)
+            with app.app_context():
+                self.assertEqual('1', Setting.get('limits_max_webhook_registered'))
+                self.assertEqual(stored_secret, Setting.get('limits_max_webhook_secret'))
+                self.assertEqual('received', LimitMaxEvent.query.one().status)
+                self.assertEqual('', Setting.get('limits_max_retry_at'))
+        finally:
+            state['stop'].set()
+            state['thread'].join(2)
+            app.extensions.pop('limits_max_reconciler', None)
+
+    def test_changed_settings_pause_worker_before_reconciliation(self):
+        from app import decrypt_value, encrypt_value
+        from limits_bot import run_worker_once
+        from limits_connection import configure_connection, registration_active
+
+        adapter = MagicMock()
+        adapter.is_configured = True
+        with app.app_context():
+            Setting.set('limits_max_token', encrypt_value('old-token'))
+            Setting.set('limits_max_group_chat_id', '-100')
+            Setting.set('limits_bot_dataset_id', '1')
+            Setting.set('limits_max_webhook_registered', '1')
+            Setting.set('limits_max_enabled', '1')
+            db.session.commit()
+
+            def delayed_reconciliation(**_kwargs):
+                self.assertFalse(registration_active())
+                result = run_worker_once(adapter)
+                self.assertFalse(result['configured'])
+                adapter.send_message.assert_not_called()
+                return False
+
+            with patch('limits_connection.reconcile_connection',
+                       side_effect=delayed_reconciliation):
+                configure_connection(
+                    token='new-token', group_id='-200', dataset_id=1,
+                    encrypt=encrypt_value, decrypt=decrypt_value,
+                    adapter_factory=lambda: adapter,
+                    webhook_url='https://current.example/limit-notifications/max/webhook')
+            self.assertEqual('0', Setting.get('limits_max_webhook_registered'))
+
+    def test_startup_reconciliation_waits_for_inflight_dispatch(self):
+        from app import decrypt_value, encrypt_value
+        from limits_connection import _serialized_connection, reconcile_connection
+
+        adapter = MagicMock()
+        adapter.subscribe_webhook.return_value = {'success': True}
+        with app.app_context():
+            Setting.set('limits_max_token', encrypt_value('saved-token'))
+            Setting.set('limits_max_group_chat_id', '-100')
+            Setting.set('limits_bot_dataset_id', '1')
+            Setting.set('limits_max_webhook_secret', encrypt_value('saved-secret'))
+            Setting.set('limits_max_webhook_registered', '1')
+            Setting.set('limits_max_enabled', '1')
+            db.session.commit()
+
+        dispatch_inside = threading.Event()
+        release_dispatch = threading.Event()
+        reconciliation_done = threading.Event()
+
+        def inflight_dispatch():
+            with app.app_context(), _serialized_connection():
+                dispatch_inside.set()
+                release_dispatch.wait(2)
+
+        def startup_reconciliation():
+            with app.app_context():
+                reconcile_connection(
+                    encrypt=encrypt_value, decrypt=decrypt_value,
+                    adapter_factory=lambda: adapter,
+                    webhook_url='https://current.example/limit-notifications/max/webhook')
+                reconciliation_done.set()
+
+        dispatch = threading.Thread(target=inflight_dispatch)
+        startup = threading.Thread(target=startup_reconciliation)
+        dispatch.start()
+        self.assertTrue(dispatch_inside.wait(1))
+        startup.start()
+        time.sleep(.05)
+        self.assertFalse(reconciliation_done.is_set())
+        with app.app_context():
+            self.assertEqual('1', Setting.get('limits_max_webhook_registered'))
+        release_dispatch.set()
+        dispatch.join(2)
+        startup.join(2)
+        self.assertTrue(reconciliation_done.is_set())
+        with app.app_context():
+            self.assertEqual('1', Setting.get('limits_max_webhook_registered'))
 
     def test_connection_uses_current_installation_and_reports_group_rejection(self):
         from limits_max import MaxAPIError
@@ -344,7 +482,7 @@ class LimitsRouteTests(unittest.TestCase):
                 'synthetic', status=404, code='http_error')
             response = client.post(
                 '/limit-notifications/max-settings',
-                data={'enabled':'1', 'token':'synthetic-token',
+                data={'token':'synthetic-token',
                       'group_chat_id':'-999', 'bot_dataset_id':'1'})
             factory.return_value.check_webhook_receiver.assert_called_once_with(
                 'https://current-installation.example/limit-notifications/max/webhook',
@@ -365,11 +503,13 @@ class LimitsRouteTests(unittest.TestCase):
             response = client.post(
                 '/limit-notifications/max-settings',
                 headers={'Host': 'attacker.example', 'X-Forwarded-Proto': 'https'},
-                data={'enabled':'1', 'token':'synthetic-token',
+                data={'token':'synthetic-token',
                       'group_chat_id':'-999', 'bot_dataset_id':'1'})
             factory.assert_not_called()
         page = client.get(response.headers['Location']).get_data(as_text=True)
-        self.assertIn('Не настроен доверенный публичный HTTPS-адрес', page)
+        self.assertIn('Адрес webhook не передан в запущенную публикацию', page)
+        self.assertIn('LIMITS_MAX_WEBHOOK_URL', page)
+        self.assertIn('заново опубликуйте приложение', page)
 
     @patch.dict(app.config, {
         'LIMITS_MAX_WEBHOOK_URL':
@@ -382,7 +522,7 @@ class LimitsRouteTests(unittest.TestCase):
             factory.return_value.check_webhook_receiver.side_effect = MaxAPIError(
                 'synthetic', status=404, code='receiver_outdated')
             response = client.post('/limit-notifications/max-settings', data={
-                'enabled':'1', 'token':'synthetic-token', 'group_chat_id':'-123',
+                'token':'synthetic-token', 'group_chat_id':'-123',
                 'bot_dataset_id':'1', 'context_dataset':'1'})
         page = client.get(response.headers['Location']).get_data(as_text=True)
         self.assertIn('проверочный адрес MAX', page)

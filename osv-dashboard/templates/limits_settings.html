@@ -9,20 +9,22 @@
 <p class="settings-notice {{ category }}">{{ message }}</p>
 {% endfor %}
 <section class="settings-panel">
-<h2>Управление интеграцией MAX</h2>
-<p>{{ 'MAX активен' if max_enabled else ('MAX настроен (выключен)' if max_connected else 'MAX не подключён') }}</p>
+<h2>Интеграция MAX</h2>
+<p><strong>{{ 'Работает' if max_status.state == 'working' else ('Подключается повторно' if max_status.state == 'reconnecting' else 'Не настроен') }}</strong></p>
+{% if max_status.last_success_at %}<p>Последнее успешное подключение: {{ max_status.last_success_at }}</p>{% endif %}
+{% if max_status.last_attempt_at %}<p>Последняя попытка: {{ max_status.last_attempt_at }}</p>{% endif %}
+{% if max_status.retry_at %}<p>Следующая автоматическая попытка: {{ max_status.retry_at }}</p>{% endif %}
 <p>Настройки MAX общие для модуля.</p>
 {% if max_connection_error %}<p class="settings-warning" role="alert">{{ max_connection_error }}</p>{% endif %}
-<p>Для запуска нужны токен, ID админ-группы и выбранный набор данных. Защита входящих команд настраивается автоматически.</p>
-<p>Подключайте бота из опубликованного приложения после обновления публикации. Адрес приёмника:
+<p>После сохранения токена, ID админ-группы и набора данных бот работает постоянно. Защита входящих команд и восстановление соединения выполняются автоматически.</p>
+<p>Канонический адрес текущей публикации:
   {% if max_webhook_url %}<code style="overflow-wrap:anywhere">{{ max_webhook_url }}</code>
   {% else %}<strong>не настроен для этого окружения</strong>{% endif %}
 </p>
 <form method="post" action="{{ url_for('limit_max_settings') }}" class="settings-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="context_dataset" value="{{ dataset.id if dataset else '' }}">
-  <label class="settings-check"><input type="checkbox" name="enabled" value="1" {% if max_enabled %}checked{% endif %}> Включить отправку и приём команд</label>
-  <p class="settings-warning">При включении приложение проверит приёмник и зарегистрирует webhook в MAX. После подтверждения начнутся реальные отправки накопленной очереди и обработка команд. Другой обработчик событий этого же бота может перестать получать события.</p>
+  <p class="settings-warning">Сохранение немедленно проверит приёмник, токен и группу и зарегистрирует webhook. Очередь и команды обрабатываются только после подтверждения. При временном сбое задания сохраняются, а подключение восстанавливается автоматически.</p>
   <label>Реестр объектов для подписок бота
     <select name="bot_dataset_id">
       <option value="">Не выбран (бот не сможет оформлять подписки)</option>
