@@ -352,6 +352,12 @@ tr:last-child td{border-bottom:0}
   border:1px solid var(--line);border-radius:8px;padding:10px 16px;
   margin-bottom:12px;font-size:12.5px;color:var(--ink)}
 .comp-summary b{color:var(--ink)}
+.control-compare{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+.control-compare th,.control-compare td{padding:7px 8px;border-bottom:1px solid var(--line);
+  text-align:right;white-space:nowrap}
+.control-compare th:first-child,.control-compare td:first-child{text-align:left}
+.control-delta-zero{color:var(--mut)}
+.control-delta-changed{color:var(--bad);font-weight:700}
 /* ── Компактная история загрузок ── */
 .upload-history-table{table-layout:fixed;width:100%}
 .upload-history-table th,.upload-history-table td{
@@ -625,8 +631,29 @@ tr:last-child td{border-bottom:0}
       </div>
       {% if consolidated_preview.replacement %}
       <div class="osv-summary osv-summary-warn">Будет заменена ревизия {{ consolidated_preview.replacement.filename }}, подтверждённая {{ consolidated_preview.replacement.confirmed_at }}.</div>
+      {% if consolidated_preview.comparison %}
+      <table class="control-compare">
+        <thead>
+          <tr><th>Ключевая сумма</th><th>Новая Дт / Кт</th><th>Текущая Дт / Кт</th><th>Расхождение Дт / Кт</th></tr>
+        </thead>
+        <tbody>
+          {% for row in consolidated_preview.comparison.rows %}
+          {% set changed = (row.delta_debit|abs >= 0.01 or row.delta_credit|abs >= 0.01) %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ "{:,.2f}".format(row.new_debit) }} / {{ "{:,.2f}".format(row.new_credit) }}</td>
+            <td>{{ "{:,.2f}".format(row.old_debit) }} / {{ "{:,.2f}".format(row.old_credit) }}</td>
+            <td class="{{ 'control-delta-changed' if changed else 'control-delta-zero' }}">{{ "{:+,.2f}".format(row.delta_debit) }} / {{ "{:+,.2f}".format(row.delta_credit) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="osv-summary {{ 'osv-summary-warn' if consolidated_preview.comparison.has_differences else 'osv-summary-ok' }}">
+        {{ 'Есть расхождения с текущей подтверждённой ОСВ.' if consolidated_preview.comparison.has_differences else 'Расхождений по контрольным суммам нет.' }}
+      </div>
+      {% endif %}
       {% else %}
-      <div class="osv-summary osv-summary-ok">Для этого периода доверенной ревизии ещё нет.</div>
+      <div class="osv-summary osv-summary-ok">Для этого периода доверенной ревизии ещё нет — расхождения рассчитать нельзя.</div>
       {% endif %}
       <form method="post" style="margin-top:10px"
             action="{{ url_for('consolidated_osv_confirm', company_id=company.id, preview_id=consolidated_preview.preview_id) }}">

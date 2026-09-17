@@ -24,6 +24,29 @@ CONTROL = os.path.join(
 
 
 class ConsolidatedOsvTests(unittest.TestCase):
+    def test_balance_comparison_reports_each_control_difference(self):
+        current = {
+            'opening_debit': 100, 'opening_credit': 50,
+            'turnover_debit': 300, 'turnover_credit': 250,
+            'closing_debit': 150, 'closing_credit': 75,
+        }
+        previous = {
+            'balance': {
+                'opening_debit': 90, 'opening_credit': 50,
+                'turnover_debit': 310, 'turnover_credit': 230,
+                'closing_debit': 150, 'closing_credit': 80,
+            },
+        }
+        comparison = app_module._consolidated_balance_comparison(
+            current, previous)
+        self.assertTrue(comparison['has_differences'])
+        self.assertEqual(
+            [(row['delta_debit'], row['delta_credit'])
+             for row in comparison['rows']],
+            [(10.0, 0.0), (-10.0, 20.0), (0.0, -5.0)])
+        self.assertIsNone(
+            app_module._consolidated_balance_comparison(current, None))
+
     def test_parser_splits_complete_snapshot_by_root_account(self):
         parsed = parse_consolidated_osv(CONTROL)
         self.assertIn('60', parsed)
@@ -244,6 +267,8 @@ class ConsolidatedOsvConfirmationTests(unittest.TestCase):
         body = page.get_data(as_text=True)
         self.assertIn('Будет заменена ревизия', body)
         self.assertIn('consolidated_2026-01-01_2026-06-30.xls', body)
+        self.assertIn('Расхождение Дт / Кт', body)
+        self.assertIn('Расхождений по контрольным суммам нет', body)
 
     def test_changed_staged_file_cannot_be_confirmed(self):
         preview_id = self._preview()

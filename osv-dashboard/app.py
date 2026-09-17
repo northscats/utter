@@ -3147,6 +3147,37 @@ def _consolidated_balance(parsed):
     }
 
 
+def _consolidated_balance_comparison(balance, replacement):
+    previous = (replacement or {}).get('balance')
+    if not previous:
+        return None
+    rows = []
+    for key, label in (
+            ('opening', 'Начальное сальдо'),
+            ('turnover', 'Обороты'),
+            ('closing', 'Конечное сальдо')):
+        new_debit = float(balance[f'{key}_debit'])
+        new_credit = float(balance[f'{key}_credit'])
+        old_debit = float(previous[f'{key}_debit'])
+        old_credit = float(previous[f'{key}_credit'])
+        rows.append({
+            'label': label,
+            'new_debit': new_debit,
+            'new_credit': new_credit,
+            'old_debit': old_debit,
+            'old_credit': old_credit,
+            'delta_debit': round(new_debit - old_debit, 2),
+            'delta_credit': round(new_credit - old_credit, 2),
+        })
+    return {
+        'rows': rows,
+        'has_differences': any(
+            abs(row['delta_debit']) >= 0.01
+            or abs(row['delta_credit']) >= 0.01
+            for row in rows),
+    }
+
+
 def _control_revision(company_id, period_start, period_end):
     candidates = []
     control_dirs = (
@@ -3167,12 +3198,12 @@ def _control_revision(company_id, period_start, period_end):
                     continue
                 _label, start, end = _consolidated_period(parsed)
                 if (start, end) == (period_start, period_end):
-                    candidates.append((priority, entry))
+                    candidates.append((priority, entry, parsed))
             except Exception:
                 continue
     if not candidates:
         return None
-    _priority, latest = max(
+    _priority, latest, parsed = max(
         candidates, key=lambda item: (item[0], item[1].stat().st_mtime_ns))
     with open(latest.path, 'rb') as stream:
         digest = hashlib.sha256(stream.read()).hexdigest()
@@ -3181,6 +3212,7 @@ def _control_revision(company_id, period_start, period_end):
         'confirmed_at': datetime.fromtimestamp(
             latest.stat().st_mtime, timezone.utc).strftime('%d.%m.%Y %H:%M'),
         'revision': digest,
+        'balance': _consolidated_balance(parsed),
     }
 
 
@@ -3239,6 +3271,9 @@ def consolidated_osv_preview(company_id):
         period_label, period_start, period_end = _consolidated_period(parsed)
         with open(path, 'rb') as stream:
             preview_sha256 = hashlib.sha256(stream.read()).hexdigest()
+        balance = _consolidated_balance(parsed)
+        replacement = _control_revision(
+            company_id, period_start, period_end)
         metadata = {
             'company_id': company_id,
             'uploaded_by': current_user.id,
@@ -3249,10 +3284,11 @@ def consolidated_osv_preview(company_id):
             'period_end': period_end,
             'accounts_count': len(parsed),
             'accounts': sorted(parsed),
-            'balance': _consolidated_balance(parsed),
+            'balance': balance,
             'sha256': preview_sha256,
-            'replacement': _control_revision(
-                company_id, period_start, period_end),
+            'replacement': replacement,
+            'comparison': _consolidated_balance_comparison(
+                balance, replacement),
         }
         with open(os.path.join(stage_dir, f'{preview_id}.json'), 'w',
                   encoding='utf-8') as stream:
