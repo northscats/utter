@@ -1391,8 +1391,12 @@
                 state.pendingDateFrom = value;
                 state.pendingDate = null;
             } else {
-                [state.pendingDateFrom, state.pendingDate] =
-                    [state.pendingDateFrom, value].sort();
+                const [fromMonth, toMonth] =
+                    [state.pendingDateFrom.slice(0, 7), value.slice(0, 7)].sort();
+                const [year, month] = toMonth.split('-').map(Number);
+                const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+                state.pendingDateFrom = `${fromMonth}-01`;
+                state.pendingDate = `${toMonth}-${String(lastDay).padStart(2, '0')}`;
             }
             this.renderPeriodPicker();
         },
