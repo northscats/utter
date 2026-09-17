@@ -1,6 +1,7 @@
 // Execute the real cash renderers and tooltip handlers without browser/DB state.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const nodePath = require('node:path');
 const vm = require('node:vm');
 const nodes = new Map();
 function element(id) {
@@ -43,6 +44,8 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8'), context);
 const cashCss = fs.readFileSync(`${__dirname}/static/key_indicators.css`, 'utf8');
+const cashBrowserTest = fs.readFileSync(
+    nodePath.join(__dirname, 'test_cash_indicators_browser.py'), 'utf8');
 const app = context.window.KI_App;
 const tips = [];
 app.showRichTooltip = tip => tips.push(tip);
@@ -181,6 +184,16 @@ assert.match(cashCss, /\.cash-table th\s*\{[^}]*background:#173A66;[^}]*color:#f
 assert.match(cashCss, /\.cash-table\s*\{[^}]*min-width:760px;/s);
 assert.match(cashCss, /\.cash-total-row td\s*\{[^}]*border-top:2px solid #2563EB;/s);
 assert.match(cashCss, /\.cash-table-scroll:focus-visible/);
+assert.match(cashBrowserTest, /page\.locator\('\.cash-table-scroll'\)\.screenshot/);
+assert.match(cashBrowserTest, /tableScroll'\] > dimensions\['tableClient'/);
+for (const snapshotName of [
+    'cash-table-full.png',
+    'cash-table-partial.png',
+    'cash-modal-narrow.png',
+]) {
+    assert.ok(fs.existsSync(nodePath.join(__dirname, '..', 'screenshots', snapshotName)),
+        `missing reviewed cash visual reference: ${snapshotName}`);
+}
 assert.match(html, /0,00 \/ 0,00 <span class="metric-inline-unit">млн ₽/);
 assert.match(html, /id="ki-cash-line-chart"/);
 assert.match(html, /Изменение остатка/);
