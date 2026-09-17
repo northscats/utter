@@ -33,8 +33,10 @@ class AnalogRoutesTest(unittest.TestCase):
         os.environ['INITIAL_ADMIN_PASSWORD'] = 'analog-admin-passphrase-2026'
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         init_db()
-        cls.conclusion = next(ROOT.glob('*signature_*.xml')).read_bytes()
-        cls.ssr = next(ROOT.glob('*.gge')).read_bytes()
+        cls.conclusion = (ROOT / '50-1-1-2-018685-2026_26-04-29_11-32-17_signature_1789461292785.xml').read_bytes()
+        cls.ssr = (ROOT / 'ССР_Кривцово_1789461305316.gge').read_bytes()
+        cls.conclusion_101 = (ROOT / '56-1-1-2-044346-2024_24-08-06_09-12-42_signature_1789537746147.xml').read_bytes()
+        cls.ssr_101 = (ROOT / 'Сводный_сметный_расчет_1789537733540.gge').read_bytes()
 
     def setUp(self):
         self.client = app.test_client()
@@ -56,9 +58,78 @@ class AnalogRoutesTest(unittest.TestCase):
             session['_fresh'] = True
             session['password_version'] = version
 
-    def files(self, conclusion=None):
+    def files(self, conclusion=None, ssr=None):
         return {'conclusion': (BytesIO(conclusion or self.conclusion), 'conclusion.xml'),
-                'ssr': (BytesIO(self.ssr), 'summary.gge')}
+                'ssr': (BytesIO(ssr or self.ssr), 'summary.gge')}
+
+    def test_summary_estimate_101_preview_and_confirm(self):
+        response = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(self.conclusion_101, self.ssr_101),
+            content_type='multipart/form-data')
+        self.assertEqual(response.status_code, 200)
+        preview = response.get_json()
+        self.assertTrue(preview['can_confirm'], preview['diagnostics'])
+        pair = preview['preview']
+        self.assertEqual(pair['ssr']['schema_version'], '1.01')
+        self.assertEqual(pair['ssr']['price_quarter'], 4)
+        self.assertEqual(pair['ssr']['summary']['total'], '31372.62')
+        self.assertEqual(len(pair['ssr']['chapters']), 14)
+        self.assertEqual(len(pair['ssr']['items']), 17)
+        html = self.client.get(
+            f"/analog-search/imports/{preview['import_id']}/preview")
+        self.assertEqual(html.status_code, 200)
+        page = html.get_data(as_text=True)
+        self.assertIn('31372.62', page)
+        self.assertIn('2023 / квартал 4', page)
+
+        confirmed = self.client.post(
+            f"/analog-search/import/{preview['import_id']}/confirm", json={})
+        self.assertEqual(confirmed.status_code, 200)
+        passport_id = confirmed.get_json()['passport_id']
+        with app.app_context():
+            version = AnalogPassportVersion.query.filter_by(
+                passport_id=passport_id).order_by(
+                    AnalogPassportVersion.version_no.desc()).first()
+            passport = version.passport
+            self.assertEqual(version.schema_version, '1.01')
+            self.assertEqual((version.price_year, version.price_quarter), (2023, 4))
+            self.assertEqual(version.total_cost, Decimal('31372.62'))
+            self.assertEqual(passport.capacity_kw, Decimal('1800.000000'))
+            payload = json.loads(version.payload_json)
+            self.assertEqual(len(payload['ssr']['chapters']), 14)
+            self.assertEqual(len(payload['ssr']['items']), 17)
+        passport_page = self.client.get(
+            f'/analog-search/passports/{passport_id}').get_data(as_text=True)
+        self.assertIn('1.8 мВт', passport_page)
+        self.assertIn('Сводный сметный расчёт (GGE)', passport_page)
+        self.assertIn('Конструктивные решения.gsfx', passport_page)
+        self.assertIn('WorkersSalary', passport_page)
+        self.assertIn('111.13', passport_page)
+        self.assertIn('ГРАНД-Смета', passport_page)
+
+    def test_html_confirm_redirects_to_analog_search(self):
+        response = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(self.conclusion_101, self.ssr_101 + b'\n '),
+            content_type='multipart/form-data')
+        preview = response.get_json()
+        confirmed = self.client.post(
+            f"/analog-search/import/{preview['import_id']}/confirm",
+            data={}, follow_redirects=False)
+        self.assertEqual(confirmed.status_code, 302)
+        self.assertEqual(confirmed.headers['Location'], '/analog-search/simple')
+
+        duplicate = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(self.conclusion_101, self.ssr_101 + b'\n '),
+            content_type='multipart/form-data',
+            headers={'Accept': 'text/html'},
+            follow_redirects=False)
+        self.assertEqual(duplicate.status_code, 302)
+        self.assertEqual(duplicate.headers['Location'], '/analog-search/simple')
+        page = self.client.get('/analog-search/simple').get_data(as_text=True)
+        self.assertIn('Объект уже находится в общей таблице аналогов', page)
 
     def test_preview_confirm_duplicate_and_raw_paths(self):
         conclusion = self.conclusion + b'\n'
@@ -85,10 +156,9 @@ class AnalogRoutesTest(unittest.TestCase):
             self.assertEqual(
                 passport.address,
                 'Солнечногорский район, с.п. Кривцовское, д. Кривцово')
-            self.assertEqual(
-                passport.capacity_kw,
-                (Decimal('6.53') * Decimal('1162.222222222222')).quantize(
-                    Decimal('0.000001')))
+            self.assertIsNone(passport.capacity_kw)
+            self.assertEqual(passport.teps[-1].value_text, '6,53')
+            self.assertEqual(passport.teps[-1].unit, 'Гкал')
         duplicate = self.client.post('/analog-search/import/preview',
                                      data=self.files(conclusion),
                                      content_type='multipart/form-data')
@@ -187,13 +257,107 @@ class AnalogRoutesTest(unittest.TestCase):
                          r'/analog-search/imports/\d+/preview$')
         response = self.client.get(preview_url)
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Подтвердить импорт', response.get_data(as_text=True))
+        self.assertIn('Загрузить данные в общую таблицу аналогов',
+                      response.get_data(as_text=True))
         html = response.get_data(as_text=True)
         self.assertIn('analog-preview-page', html)
         self.assertIn('Солнечногорский район, с.п. Кривцовское, д. Кривцово', html)
         self.assertIn('Технико-экономические показатели', html)
         self.assertIn('Мощность котельной', html)
         self.assertIn('6,53 Гкал', html)
+        self.assertIn('Климатический район, подрайон', html)
+        self.assertIn('Геологические условия', html)
+        self.assertIn('Сейсмическая активность (баллов)', html)
+
+    def test_module_entry_offers_both_search_modes(self):
+        page = self.client.get('/analog-search')
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        self.assertIn('Упрощённый поиск', html)
+        self.assertIn('Поиск по нормативно-правовому акту', html)
+        self.assertIn('/analog-search/simple', html)
+        self.assertIn('/analog-search/regulatory', html)
+
+    def test_regulatory_search_applies_135pr_mandatory_criteria(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Нормативный аналог', object_type='тепловая сеть',
+                climate_zone='IIВ', work_type='Строительство',
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1,
+                conclusion_number=f'normative-{passport.id}',
+                examination_result='positive',
+                source_hash=f'normative:{passport.id}',
+                ssr_hash=f'normative:{passport.id}',
+                imported_by=self.admin_id)
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.add_all([
+                AnalogNetworkAttribute(
+                    passport_id=passport.id, version_id=version.id,
+                    key='length_m', value='100', value_number=Decimal('100'),
+                    unit='м'),
+                AnalogNetworkAttribute(
+                    passport_id=passport.id, version_id=version.id,
+                    key='diameter_mm', value='200',
+                    value_number=Decimal('200'), unit='мм'),
+            ])
+            db.session.commit()
+            passport_id = passport.id
+
+        response = self.client.post(
+            '/analog-search/regulatory/search',
+            json={'work_type': 'Строительство', 'length_m': '105',
+                  'diameter_mm': '210', 'climate_region': 'II',
+                  'climate_subzone': 'В'})
+        self.assertEqual(response.status_code, 200)
+        item = next(row for row in response.get_json()['items']
+                    if row['id'] == passport_id)
+        self.assertTrue(item['suitable'])
+        self.assertEqual(item['algorithm_version'], '135pr-604pr-v1')
+
+    def test_regulatory_page_contains_all_filters_from_reference_html(self):
+        page = self.client.get('/analog-search/regulatory')
+        self.assertEqual(page.status_code, 200)
+        html = page.get_data(as_text=True)
+        for label in (
+                'Год сметного уровня цен', 'Пропускная способность, Гкал/ч',
+                'Инженерно-геологические условия', 'Материал трубопроводов',
+                'Температура подачи', 'Байпас требуется',
+                'Прокладка в сборных каналах', 'Замена запорной арматуры',
+                'Наличие водяного перехода', 'Типы ЗОУИТ',
+                'Ориентировочная стоимость на 1 м'):
+            self.assertIn(label, html)
+
+    def test_climate_filter_supports_region_and_exact_subregion(self):
+        with app.app_context():
+            for zone in ('IIА', 'IIВ', 'IIIА'):
+                db.session.add(AnalogPassport(
+                    title=f'climate-filter-fixture-{zone}',
+                    object_type='котельная', climate_zone=zone,
+                    created_by=self.admin_id))
+            db.session.commit()
+
+        region = self.client.get(
+            '/analog-search/api/search',
+            query_string={'q': 'climate-filter-fixture',
+                          'climate_region': 'II'}).get_json()
+        self.assertEqual(region['total'], 2)
+        self.assertEqual(
+            {item['climate_zone'] for item in region['items']},
+            {'IIА', 'IIВ'})
+
+        exact = self.client.get(
+            '/analog-search/api/search',
+            query_string={'q': 'climate-filter-fixture',
+                          'climate_region': 'III',
+                          'climate_zone': 'IIВ'}).get_json()
+        self.assertEqual(exact['total'], 1)
+        self.assertEqual(exact['items'][0]['climate_zone'], 'IIВ')
 
     def test_admin_can_remove_passport_from_analogs_table(self):
         with app.app_context():
@@ -205,7 +369,7 @@ class AnalogRoutesTest(unittest.TestCase):
             db.session.commit()
             passport_id = passport.id
 
-        page = self.client.get('/analog-search')
+        page = self.client.get('/analog-search/simple')
         html = page.get_data(as_text=True)
         self.assertIn('Аналог для удаления', html)
         self.assertIn(
@@ -216,10 +380,10 @@ class AnalogRoutesTest(unittest.TestCase):
             f'/analog-search/passports/{passport_id}/archive',
             headers={'Accept': 'text/html'}, follow_redirects=False)
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.headers['Location'], '/analog-search')
+        self.assertEqual(response.headers['Location'], '/analog-search/simple')
         self.assertNotIn(
             'Аналог для удаления',
-            self.client.get('/analog-search').get_data(as_text=True))
+            self.client.get('/analog-search/simple').get_data(as_text=True))
         with app.app_context():
             self.assertTrue(db.session.get(AnalogPassport, passport_id).archived)
 
@@ -266,10 +430,9 @@ class AnalogRoutesTest(unittest.TestCase):
         passport_id = confirmed.get_json()['passport_id']
         reopened = self.client.get(preview_url, follow_redirects=False)
         self.assertEqual(reopened.status_code, 302)
-        self.assertIn(f'/analog-search/passports/{passport_id}',
-                      reopened.headers['Location'])
+        self.assertEqual(reopened.headers['Location'], '/analog-search/simple')
 
-    def test_html_duplicate_redirects_to_existing_passport(self):
+    def test_reupload_restores_archived_analog_to_table(self):
         conclusion = self.conclusion + b'\n  \n'
         preview = self.client.post('/analog-search/import/preview',
                                    data=self.files(conclusion),
@@ -277,13 +440,28 @@ class AnalogRoutesTest(unittest.TestCase):
         confirmed = self.client.post(
             f"/analog-search/import/{preview['import_id']}/confirm", json={})
         passport_id = confirmed.get_json()['passport_id']
+        with app.app_context():
+            version_count = len(
+                db.session.get(AnalogPassport, passport_id).versions)
+        archived = self.client.post(
+            f'/analog-search/passports/{passport_id}/archive',
+            headers={'Accept': 'text/html'})
+        self.assertEqual(archived.status_code, 302)
+        with app.app_context():
+            self.assertTrue(db.session.get(AnalogPassport, passport_id).archived)
+
         duplicate = self.client.post(
             '/analog-search/import/preview', data=self.files(conclusion),
             content_type='multipart/form-data',
             headers={'Accept': 'text/html'})
         self.assertEqual(duplicate.status_code, 302)
-        self.assertIn(f'/analog-search/passports/{passport_id}',
-                      duplicate.headers['Location'])
+        self.assertEqual(duplicate.headers['Location'], '/analog-search/simple')
+        page = self.client.get('/analog-search/simple').get_data(as_text=True)
+        self.assertIn('снова добавлен в общую таблицу аналогов', page)
+        with app.app_context():
+            passport = db.session.get(AnalogPassport, passport_id)
+            self.assertFalse(passport.archived)
+            self.assertEqual(len(passport.versions), version_count)
 
     def test_html_xhr_parse_error_is_actionable_json(self):
         response = self.client.post(
@@ -298,7 +476,7 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertEqual(payload['diagnostics'][0]['code'], 'malformed_xml')
 
     def test_import_form_has_upload_and_processing_states(self):
-        page = self.client.get('/analog-search')
+        page = self.client.get('/analog-search/simple')
         html = page.get_data(as_text=True)
         self.assertIn('analog-import-progress', html)
         self.assertIn('xhr.upload.onprogress', html)

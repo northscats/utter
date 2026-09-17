@@ -3,8 +3,12 @@
 {% block content %}
 <a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
 <div class="eyebrow">Теплоснабжение</div>
-<h1>Поиск объектов-аналогов</h1>
+<h1>Упрощённый поиск объектов-аналогов</h1>
+<p><a href="{{ url_for('analog.index') }}">Изменить способ поиска</a></p>
 <p class="lead">Индексированный поиск по подтверждённым паспортам и стоимости ССР.</p>
+{% for category, message in get_flashed_messages(with_categories=true) %}
+  <div class="alert {{ category }}" role="status">{{ message }}</div>
+{% endfor %}
 <section class="panel">
   <form method="get" class="filters">
     <label>Тип объекта
@@ -12,7 +16,14 @@
         <option value="{{ value }}" {% if request.args.get('object_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
       {% endfor %}</select>
     </label>
-    <label>Климатический район <input name="climate_zone" value="{{ request.args.get('climate_zone','') }}" title="Районы IА–IVГ"></label>
+    <label>Климатический район
+      <select name="climate_region"><option value="">Все</option>{% for value in ('I', 'II', 'III', 'IV') %}
+        <option value="{{ value }}" {% if request.args.get('climate_region') == value %}selected{% endif %}>{{ value }}</option>
+      {% endfor %}</select>
+    </label>
+    <label>Точный район, подрайон
+      <input name="climate_zone" value="{{ request.args.get('climate_zone','') }}" placeholder="Например, IIВ" title="Если заполнено, имеет приоритет над списком">
+    </label>
     <label>Вид работ <select name="work_type"><option value="">Все</option>{% for value in work_types %}
       <option value="{{ value }}" {% if request.args.get('work_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
     {% endfor %}</select></label>
@@ -159,7 +170,7 @@
         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
         <td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td>
         <td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td>
-        <td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td>
+        <td>{{ row.capacity_display or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td>
         <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
         {% if current_user.is_admin %}<td>
           <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
@@ -171,7 +182,7 @@
     {% endfor %}
     <tr><th colspan="{{ 8 if current_user.is_admin else 7 }}">Плохие аналоги (отклонение мощности ABS &gt; 10%)</th></tr>
     {% for row in poor_rows %}
-      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_kw or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_display or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
       {% if current_user.is_admin %}<td>
         <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -184,7 +195,7 @@
   {% if pagination.pages > 1 %}<nav class="pagination">
     {% for page in pagination.iter_pages() %}{% if page %}
       {% set params = request.args.to_dict(flat=True) %}{% set _ = params.update({'page': page}) %}
-      <a href="{{ url_for('analog.index', **params) }}">{{ page }}</a>
+      <a href="{{ url_for('analog.simple_search', **params) }}">{{ page }}</a>
     {% else %}…{% endif %}{% endfor %}
   </nav>{% endif %}
 </section>

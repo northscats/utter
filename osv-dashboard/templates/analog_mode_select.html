@@ -1,0 +1,20 @@
+{% extends "modules.html" %}
+{% block title %}Поиск объектов-аналогов{% endblock %}
+{% block content %}
+<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+<div class="eyebrow">Теплоснабжение</div>
+<h1>Поиск объектов-аналогов</h1>
+<p class="lead">Выберите способ подбора объектов-аналогов.</p>
+<div class="grid">
+  <a class="card" href="{{ url_for('analog.simple_search') }}">
+    <h2>Упрощённый поиск</h2>
+    <p>Быстрый поиск по типу объекта, климатическому району, виду работ, мощности, названию и адресу.</p>
+    <span class="go">Открыть упрощённый поиск →</span>
+  </a>
+  <a class="card" href="{{ url_for('analog.advanced_page') }}">
+    <h2>Поиск по нормативно-правовому акту</h2>
+    <p>Подбор с обязательным вердиктом по приказу №135/пр и оценкой дополнительных показателей по приказу №604/пр.</p>
+    <span class="go">Открыть нормативный поиск →</span>
+  </a>
+</div>
+{% endblock %}

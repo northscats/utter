@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Тепловые сети — Показатели</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#1c2230;
+  --border:#2a3448;--border2:#354060;
+  --accent:#e85d26;--accent2:#ff7a45;--aglow:rgba(232,93,38,.18);
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --green:#3fb950;--blue:#58a6ff;--red:#f85149;--yellow:#d29922;
+  --purple:#a371f7;--inp:#0d1117;--r:8px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'Onest',sans-serif;background:var(--bg);color:var(--text);line-height:1.5;display:flex;flex-direction:column;}
+
+header{flex-shrink:0;background:var(--bg2);border-bottom:1px solid var(--border);padding:0 16px;display:flex;align-items:center;gap:10px;height:54px;z-index:50;}
+.lm{width:30px;height:30px;flex-shrink:0;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;}
+.lt{font-size:13px;font-weight:600;white-space:nowrap;}
+.ls{font-size:10px;color:var(--text3);white-space:nowrap;}
+.hsp{flex:1;min-width:0;}
+.nav-tabs{display:flex;gap:1px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;flex-shrink:0;}
+.nav-tab{background:none;border:none;color:var(--text3);font-family:'Onest',sans-serif;font-size:12px;font-weight:600;padding:6px 16px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.nav-tab.active{background:var(--accent);color:#fff;}
+.ha{display:flex;gap:6px;flex-shrink:0;}
+
+.shell{flex:1;display:flex;min-height:0;overflow:hidden;}
+
+aside{width:248px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;overflow:hidden;}
+.sbh{flex-shrink:0;padding:11px 13px 8px;border-bottom:1px solid var(--border);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text3);display:flex;align-items:center;justify-content:space-between;}
+.rc{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;font-family:'JetBrains Mono',monospace;}
+.sbl{flex:1;overflow-y:auto;padding:5px;}
+.sbl::-webkit-scrollbar{width:4px;}
+.sbl::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
+.ri{padding:8px 10px;border-radius:var(--r);cursor:pointer;border:1px solid transparent;transition:all .12s;margin-bottom:3px;min-width:0;}
+.ri:hover{background:var(--bg3);border-color:var(--border);}
+.ri.active{background:var(--aglow);border-color:var(--accent);}
+.ri-n{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--accent2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ri-s{font-size:10px;color:var(--text3);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sbf{flex-shrink:0;padding:8px;border-top:1px solid var(--border);}
+
+.content{flex:1;min-width:0;overflow-y:auto;background:var(--bg);}
+.content::-webkit-scrollbar{width:5px;}
+.content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
+.inner{max-width:880px;margin:0 auto;padding:22px 22px 80px;}
+
+.pgh{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+.pgt{font-size:18px;font-weight:700;}
+.pgs{font-size:11px;color:var(--text3);margin-top:2px;}
+.vt{display:flex;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;flex-shrink:0;}
+.vt button{background:none;border:none;color:var(--text3);font-family:'Onest',sans-serif;font-size:11px;font-weight:500;padding:6px 14px;cursor:pointer;transition:all .12s;}
+.vt button.active{background:var(--accent);color:#fff;}
+
+.grp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--text3);padding:8px 2px 4px;border-top:1px solid var(--border);margin-top:4px;}
+.grp-label:first-child{border-top:none;margin-top:0;}
+
+.section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden;}
+.seh{padding:10px 15px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sei{width:22px;height:22px;flex-shrink:0;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;}
+.set{font-size:12px;font-weight:600;}
+.sec-badge{margin-left:auto;font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;border:1px solid currentColor;letter-spacing:.4px;white-space:nowrap;}
+.badge-req{color:var(--accent);border-color:var(--accent);}
+.badge-add{color:var(--blue);border-color:var(--blue);}
+.badge-cost{color:var(--green);border-color:var(--green);}
+.seb{padding:14px;display:flex;flex-direction:column;gap:12px;}
+
+.fr{display:grid;gap:12px;}
+.fr2{grid-template-columns:1fr 1fr;}
+.fr3{grid-template-columns:1fr 1fr 1fr;}
+.fr4{grid-template-columns:1fr 1fr 1fr 1fr;}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.field label{font-size:11px;font-weight:500;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.req{color:var(--accent);margin-left:2px;}
+
+input[type=text],input[type=number],select,textarea{
+  background:var(--inp);border:1px solid var(--border2);border-radius:var(--r);
+  color:var(--text);font-family:'Onest',sans-serif;font-size:13px;padding:7px 10px;
+  outline:none;width:100%;min-width:0;transition:border-color .12s,box-shadow .12s;
+}
+input[type=number]{-moz-appearance:textfield;}
+input[type=number]::-webkit-inner-spin-button{opacity:.6;}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--aglow);}
+select{cursor:pointer;}select option{background:var(--bg2);}
+textarea{resize:vertical;min-height:58px;font-size:12px;}
+
+.inp-wrap{display:flex;align-items:center;background:var(--inp);border:1px solid var(--border2);border-radius:var(--r);overflow:hidden;transition:border-color .12s,box-shadow .12s;}
+.inp-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--aglow);}
+.inp-wrap input{border:none!important;box-shadow:none!important;background:transparent;flex:1;}
+.inp-sfx{padding:0 9px;font-size:11px;color:var(--text3);white-space:nowrap;flex-shrink:0;}
+
+.cbg{display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:var(--inp);border:1px solid var(--border2);border-radius:var(--r);}
+.cbi{display:flex;align-items:center;gap:5px;cursor:pointer;padding:4px 9px;border-radius:6px;border:1px solid var(--border);font-size:11px;font-weight:500;color:var(--text2);user-select:none;transition:all .12s;white-space:nowrap;}
+.cbi:hover{border-color:var(--accent2);color:var(--text);}
+.cbi input{display:none;}
+.cbi.checked{background:var(--aglow);border-color:var(--accent);color:var(--accent2);}
+.cbd{width:12px;height:12px;flex-shrink:0;border-radius:3px;border:1.5px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:8px;}
+.cbi.checked .cbd::after{content:'✓';}
+
+.trow{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--inp);border:1px solid var(--border2);border-radius:var(--r);min-width:0;}
+.trl{flex:1;min-width:0;font-size:12px;font-weight:500;color:var(--text2);overflow:hidden;text-overflow:ellipsis;}
+.tsw{display:flex;flex-shrink:0;background:var(--bg3);border:1px solid var(--border2);border-radius:20px;overflow:hidden;}
+.tsw button{background:none;border:none;color:var(--text3);font-family:'Onest',sans-serif;font-size:11px;font-weight:500;padding:4px 11px;cursor:pointer;border-radius:20px;transition:all .12s;white-space:nowrap;}
+.tsw button.on{background:var(--green);color:#fff;}
+.tsw button.off{background:var(--border);color:var(--text2);}
+
+.extra{padding:12px;background:var(--bg3);border:1px dashed var(--border2);border-radius:var(--r);display:flex;flex-direction:column;gap:10px;animation:fi .18s ease;}
+@keyframes fi{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+.exl{font-size:10px;font-weight:600;color:var(--accent2);text-transform:uppercase;letter-spacing:.8px;}
+.dv{height:1px;background:var(--border);}
+.fac{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px;}
+
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:var(--r);font-family:'Onest',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;transition:all .12s;white-space:nowrap;}
+.bp{background:var(--accent);color:#fff;border-color:var(--accent);}
+.bp:hover{background:var(--accent2);}
+.bs{background:var(--bg3);border-color:var(--border2);color:var(--text2);}
+.bs:hover{border-color:var(--accent);color:var(--accent2);}
+.bg_{background:rgba(63,185,80,.13);border-color:var(--green);color:var(--green);}
+.bg_:hover{background:rgba(63,185,80,.22);}
+.bb{background:rgba(88,166,255,.12);border-color:var(--blue);color:var(--blue);}
+.bb:hover{background:rgba(88,166,255,.22);}
+.br{background:rgba(248,81,73,.12);border-color:var(--red);color:var(--red);}
+.br:hover{background:rgba(248,81,73,.22);}
+.bpu{background:rgba(163,113,247,.12);border-color:var(--purple);color:var(--purple);}
+.bpu:hover{background:rgba(163,113,247,.22);}
+.bsm{padding:5px 11px;font-size:11px;}
+.bico{padding:5px 7px;}
+
+.tw{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:11px;min-width:1000px;}
+th{background:var(--bg3);border:1px solid var(--border);padding:7px 9px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;position:sticky;top:0;z-index:2;}
+td{border:1px solid var(--border);padding:6px 9px;color:var(--text2);vertical-align:middle;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+tr:hover td{background:var(--bg3);}
+.tda{display:flex;gap:4px;}
+
+.emp{text-align:center;padding:44px 20px;}
+.empi{font-size:38px;margin-bottom:10px;opacity:.35;}
+.empt{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px;}
+.emps{font-size:11px;color:var(--text3);}
+
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,.5);transform:translateY(100px);opacity:0;transition:all .28s cubic-bezier(.34,1.56,.64,1);z-index:999;max-width:320px;}
+.toast.show{transform:translateY(0);opacity:1;}
+.toast.success{border-color:var(--green);}
+.toast.error{border-color:var(--red);}
+.toast.info{border-color:var(--blue);}
+
+/* ═══ РЕЗУЛЬТАТЫ АНАЛОГА ═══ */
+.analog-result{display:none;margin-top:22px;}
+.analog-result.show{display:block;animation:fi .25s ease;}
+
+.verdict-banner{border-radius:12px;padding:18px 22px;margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+.verdict-banner.accepted{background:rgba(63,185,80,.1);border:2px solid var(--green);}
+.verdict-banner.rejected{background:rgba(248,81,73,.1);border:2px solid var(--red);}
+.verdict-icon{font-size:32px;flex-shrink:0;}
+.verdict-title{font-size:16px;font-weight:700;}
+.verdict-sub{font-size:11px;color:var(--text2);margin-top:3px;}
+.verdict-score-wrap{margin-left:auto;text-align:right;flex-shrink:0;}
+.verdict-pct{font-size:30px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1;}
+.verdict-pct-label{font-size:10px;color:var(--text3);margin-top:2px;}
+
+.score-bar-track{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin:10px 0 16px;}
+.score-bar-fill{height:100%;border-radius:3px;transition:width .8s cubic-bezier(.4,0,.2,1);}
+
+.mandatory-status{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.ms-item{display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid;}
+.ms-pass{background:rgba(63,185,80,.1);border-color:var(--green);color:var(--green);}
+.ms-fail{background:rgba(248,81,73,.1);border-color:var(--red);color:var(--red);}
+.ms-skip{background:var(--bg3);border-color:var(--border);color:var(--text3);}
+
+/* Критерий группа */
+.cg{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden;}
+.cg-head{padding:9px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+.cg-ico{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.cg-ico.pass{background:rgba(63,185,80,.2);color:var(--green);}
+.cg-ico.fail{background:rgba(248,81,73,.2);color:var(--red);}
+.cg-ico.warn{background:rgba(210,153,34,.2);color:var(--yellow);}
+.cg-ico.info{background:rgba(88,166,255,.15);color:var(--blue);}
+.cg-title{font-size:12px;font-weight:600;}
+.cg-tag{margin-left:auto;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap;}
+.tag-req{color:var(--accent);border-color:var(--accent);}
+.tag-add{color:var(--blue);border-color:var(--blue);}
+.cg-body{padding:0;}
+
+.cmp-t{width:100%;border-collapse:collapse;font-size:11px;}
+.cmp-t th{background:transparent;border:none;border-bottom:1px solid var(--border);padding:5px 12px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;}
+.cmp-t td{border:none;border-bottom:1px dashed var(--border);padding:7px 12px;color:var(--text2);vertical-align:middle;}
+.cmp-t tr:last-child td{border-bottom:none;}
+.cmp-t tr:hover td{background:var(--bg3);}
+.cf{font-weight:500;color:var(--text);white-space:nowrap;}
+.cq{color:var(--blue);}
+.cr{color:var(--text);}
+.cd{font-family:'JetBrains Mono',monospace;font-size:10px;}
+.dok{color:var(--green);}
+.dw{color:var(--yellow);}
+.df{color:var(--red);}
+.ic-p{color:var(--green);}
+.ic-f{color:var(--red);}
+.ic-w{color:var(--yellow);}
+.ic-s{color:var(--text3);}
+
+/* Top list */
+.top-list{display:flex;flex-direction:column;gap:7px;margin-bottom:16px;}
+.top-item{background:var(--bg2);border:1px solid var(--border);border-radius:9px;padding:10px 13px;display:flex;align-items:center;gap:11px;cursor:pointer;transition:all .12s;}
+.top-item:hover{border-color:var(--accent2);}
+.top-item.sel{border-color:var(--blue);background:rgba(88,166,255,.04);}
+.top-rank{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;flex-shrink:0;}
+.rk1{background:rgba(232,93,38,.25);color:var(--accent2);}
+.rk2{background:rgba(88,166,255,.2);color:var(--blue);}
+.rk3{background:rgba(63,185,80,.18);color:var(--green);}
+.rkn{background:var(--bg3);color:var(--text3);}
+.top-info{flex:1;min-width:0;}
+.top-num{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--accent2);}
+.top-sub{font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tv{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;flex-shrink:0;}
+.tv-y{background:rgba(63,185,80,.15);color:var(--green);}
+.tv-n{background:rgba(248,81,73,.12);color:var(--red);}
+.top-pct{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;flex-shrink:0;min-width:36px;text-align:right;}
+.phi{color:var(--green);}
+.pmd{color:var(--yellow);}
+.plo{color:var(--text3);}
+
+/* Cost block */
+.cost-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:2px;}
+.cost-card{background:var(--bg3);border-radius:8px;padding:11px 13px;}
+.cost-card.highlight{background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.3);}
+.cc-label{font-size:10px;color:var(--text3);margin-bottom:4px;}
+.cc-val{font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--text);}
+.cc-sub{font-size:10px;color:var(--text3);margin-top:2px;}
+
+.hidden{display:none!important;}
+.sia{background:rgba(232,93,38,.15);}
+.sib{background:rgba(88,166,255,.15);}
+.sig{background:rgba(63,185,80,.15);}
+.siy{background:rgba(210,153,34,.15);}
+.sip{background:rgba(163,113,247,.15);}
+.sir{background:rgba(248,81,73,.12);}
+.sim{background:rgba(63,185,80,.08);}
+
+@media(max-width:740px){
+  aside{display:none;}
+  .inner{padding:14px 10px 60px;}
+  .fr2,.fr3,.fr4{grid-template-columns:1fr;}
+  .cost-cards{grid-template-columns:1fr;}
+}
+@media(max-width:500px){.trow{flex-wrap:wrap;}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="lm">Т</div>
+  <div><div class="lt">Тепловые сети — Показатели</div><div class="ls">Учёт объектов · Приказ № 135/пр</div></div>
+  <div class="hsp"></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchPage('db')">📋 База объектов</button>
+    <button class="nav-tab"        onclick="switchPage('analog')">🔍 Подбор аналога</button>
+  </div>
+  <div class="hsp" style="max-width:10px"></div>
+  <div class="ha" id="dbAct">
+    <button class="btn bpu bsm" onclick="saveProject()" title="Сохранить проект">💾</button>
+    <button class="btn bs  bsm" onclick="loadProject()" title="Открыть проект">📂</button>
+    <button class="btn bb  bsm" onclick="importExcel()" title="Импорт Excel">📥</button>
+    <button class="btn bg_ bsm" onclick="exportExcel()" title="Экспорт Excel">📤</button>
+  </div>
+  <input type="file" id="fXlsx" accept=".xlsx,.xls" style="display:none" onchange="handleXlsx(event)">
+  <input type="file" id="fProj" accept=".json"       style="display:none" onchange="handleProject(event)">
+</header>
+
+<div class="shell">
+<aside id="sidebar">
+  <div class="sbh">Объекты <span class="rc" id="recCnt">0</span></div>
+  <div class="sbl" id="sbl"></div>
+  <div class="sbf"><button class="btn bp" style="width:100%;font-size:12px" onclick="newRecord()">＋ Новый объект</button></div>
+</aside>
+
+<div class="content">
+
+<!-- ══════════ PAGE 1: БАЗА ══════════ -->
+<div id="pagDb" class="inner">
+  <div class="pgh">
+    <div><div class="pgt" id="pgt">Новый объект</div><div class="pgs" id="pgs">Тепловая сеть</div></div>
+    <div style="display:flex;gap:8px">
+      <div class="vt">
+        <button class="active" id="bForm"  onclick="setView('form')">Форма</button>
+        <button               id="bTable" onclick="setView('table')">Таблица</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="formView">
+
+  <div class="grp-label">Идентификация объекта</div>
+  <div class="section">
+    <div class="seh"><div class="sei sia">🔖</div><div class="set">Реквизиты</div></div>
+    <div class="seb">
+      <div class="fr fr4">
+        <div class="field"><label>Номер экспертизы<span class="req">*</span></label><input type="text" id="f_num" placeholder="ЭК-2024-001"></div>
+        <div class="field"><label>№ заключения гос. экспертизы</label><input type="text" id="f_conc" placeholder="№ заключения"></div>
+        <div class="field"><label>Год сметного уровня цен</label><input type="number" id="f_pyear" placeholder="2024" min="2000" max="2099"></div>
+        <div class="field"><label>Тип объекта<span class="req">*</span></label>
+          <select id="f_otype">
+            <option value="">— выберите —</option>
+            <option>Строительство</option>
+            <option>Реконструкция</option>
+            <option>Капитальный ремонт</option>
+          </select>
+        </div>
+      </div>
+      <div class="fr fr2">
+        <div class="field"><label>Наименование объекта</label><input type="text" id="f_name" placeholder="Тепловая сеть от ТК-1 до ТК-5"></div>
+        <div class="field"><label>Адрес / местоположение</label><input type="text" id="f_addr" placeholder="г. Москва, ул. Ленина"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grp-label">Обязательные критерии аналогичности — Приказ № 135/пр</div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sig">📐</div><div class="set">Крит. 2–3: Протяжённость и мощность</div><span class="sec-badge badge-req">ОБЯЗАТЕЛЬНЫЙ · ≤10%</span></div>
+    <div class="seb">
+      <div class="fr fr3">
+        <div class="field"><label>Протяжённость трассы, м<span class="req">*</span></label>
+          <div class="inp-wrap"><input type="number" id="f_len" placeholder="0" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        <div class="field"><label>Пропускная способность, Гкал/ч</label>
+          <div class="inp-wrap"><input type="number" id="f_cap" placeholder="0" min="0" step="0.01"><span class="inp-sfx">Гкал/ч</span></div></div>
+        <div class="field"><label>Диаметр сети (по большему), мм</label>
+          <div class="inp-wrap"><input type="number" id="f_diam" placeholder="0" min="0"><span class="inp-sfx">мм</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sib">🌡</div><div class="set">Крит. 4: Природно-климатические условия</div><span class="sec-badge badge-req">ОБЯЗАТЕЛЬНЫЙ · точное совпадение</span></div>
+    <div class="seb">
+      <div class="fr fr4">
+        <div class="field"><label>Климатический район<span class="req">*</span></label>
+          <select id="f_czone"><option value="">—</option><option>I</option><option>II</option><option>III</option><option>IV</option></select></div>
+        <div class="field"><label>Подрайон<span class="req">*</span></label>
+          <select id="f_csub"><option value="">—</option><option>А</option><option>Б</option><option>В</option><option>Г</option></select></div>
+        <div class="field"><label>Ветровой район</label>
+          <select id="f_wind"><option value="">—</option><option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option><option>VI</option><option>VII</option></select></div>
+        <div class="field"><label>Снеговой район</label>
+          <select id="f_snow"><option value="">—</option><option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option><option>VI</option><option>VII</option><option>VIII</option></select></div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Сейсмичность, баллов</label>
+          <select id="f_seis"><option value="">—</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></div>
+        <div class="field"><label>Инж.-геологические условия</label>
+          <select id="f_geo"><option value="">—</option><option>Простые</option><option>Средней сложности</option><option>Сложные</option></select></div>
+        <div class="field"><label>Глубина залегания трассы, м</label>
+          <div class="inp-wrap"><input type="number" id="f_depth" placeholder="0" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grp-label">Дополнительные критерии — Конструктивные решения (Приказ № 604/пр)</div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sip">🔧</div><div class="set">Трубопровод и прокладка</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="fr fr2">
+        <div class="field"><label>Тип прокладки</label>
+          <select id="f_lay"><option value="">—</option><option>Подземная бесканальная</option><option>Подземная канальная</option><option>Подземная комбинированная</option><option>Наземная</option><option>Надземная</option><option>Комбинированная подземная и надземная</option></select></div>
+          <div class="field"><label>Система трубопроводов</label>
+          <select id="f_psys"><option value="">—</option><option>2-трубная</option><option>4-трубная</option><option>6-трубная</option></select></div>
+        <div class="field"><label>Материал трубопроводов</label>
+          <div class="cbg" id="cbg_mat">
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ППУ"><div class="cbd"></div>ППУ</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ППМИ"><div class="cbd"></div>ППМИ</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Полимеры"><div class="cbd"></div>Полимеры</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Оцинк. сталь"><div class="cbd"></div>Оцинк. сталь</label>
+          </div>
+        </div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Тип изоляции</label>
+          <select id="f_insul"><option value="">—</option><option>ППУ</option><option>ППМИ</option><option>Мин. вата</option><option>Пенополистирол</option></select></div>
+        <div class="field"><label>Температура подачи, °С</label>
+          <div class="inp-wrap"><input type="number" id="f_tsup" placeholder="95" min="0" max="200"><span class="inp-sfx">°С</span></div></div>
+        <div class="field"><label>Температура обратки, °С</label>
+          <div class="inp-wrap"><input type="number" id="f_tret" placeholder="70" min="0" max="200"><span class="inp-sfx">°С</span></div></div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Давление теплоносителя, МПа</label>
+          <div class="inp-wrap"><input type="number" id="f_pres" placeholder="1.6" min="0" step="0.1"><span class="inp-sfx">МПа</span></div></div>
+        <div class="field"><label>Количество тепловых камер, шт</label>
+          <div class="inp-wrap"><input type="number" id="f_cham" placeholder="0" min="0"><span class="inp-sfx">шт</span></div></div>
+        <div class="field"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei siy">🔀</div><div class="set">Байпас</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Байпас требуется?</span>
+        <div class="tsw"><button id="bypass_y" onclick="setTgl('bypass',true)">Да</button><button id="bypass_n" class="off" onclick="setTgl('bypass',false)">Нет</button></div></div>
+      <div class="extra hidden" id="bypass_x">
+        <div class="exl">Параметры байпаса</div>
+        <div class="fr fr2">
+          <div class="field"><label>Диаметр (по большему), мм</label><div class="inp-wrap"><input type="number" id="f_byd" placeholder="мм" min="0"><span class="inp-sfx">мм</span></div></div>
+          <div class="field"><label>Протяжённость, м</label><div class="inp-wrap"><input type="number" id="f_byl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sip">🏗</div><div class="set">Прокладка в сборных каналах</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Бесканальная прокладка — протяжённость</span>
+        <div class="inp-wrap" style="width:180px"><input type="number" id="f_bcl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Прокладка в сборных каналах?</span>
+        <div class="tsw"><button id="channel_y" onclick="setTgl('channel',true)">Да</button><button id="channel_n" class="off" onclick="setTgl('channel',false)">Нет</button></div></div>
+      <div class="extra hidden" id="channel_x">
+        <div class="exl">Параметры канала</div>
+        <div class="fr fr2">
+          <div class="field"><label>Протяжённость (всего), м</label><div class="inp-wrap"><input type="number" id="f_chl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Тип канала</label><select id="f_cht"><option value="">—</option><option>Монолитный</option><option>Сборный</option></select></div>
+        </div>
+        <div class="fr fr3">
+          <div class="field"><label>Канал монолитный, м</label><div class="inp-wrap"><input type="number" id="f_chl_m" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Канал сборный, м</label><div class="inp-wrap"><input type="number" id="f_chl_s" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Протяжённость футляров, м</label><div class="inp-wrap"><input type="number" id="f_futl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sig">🔩</div><div class="set">Арматура, переходы, охранные зоны</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Замена запорной арматуры</span>
+        <div class="tsw"><button id="valve_y" onclick="setTgl('valve',true)">Да</button><button id="valve_n" class="off" onclick="setTgl('valve',false)">Нет</button></div></div>
+      <div class="extra hidden" id="valve_x">
+        <div class="exl">Параметры арматуры</div>
+        <div class="fr fr2">
+          <div class="field"><label>Количество единиц, шт</label><div class="inp-wrap"><input type="number" id="f_vlvc" placeholder="шт" min="0" step="1"><span class="inp-sfx">шт</span></div></div>
+          <div class="field"><label>Примечание</label><input type="text" id="f_vlvn" placeholder="тип, диаметр и т.д."></div>
+        </div>
+      </div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Наличие водяного перехода</span>
+        <div class="tsw"><button id="water_y" onclick="setTgl('water',true)">Да</button><button id="water_n" class="off" onclick="setTgl('water',false)">Нет</button></div></div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Попадание в охранные зоны смежных коммуникаций</span>
+        <div class="tsw"><button id="comm_y" onclick="setTgl('comm',true)">Да</button><button id="comm_n" class="off" onclick="setTgl('comm',false)">Нет</button></div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sia">🗺</div><div class="set">ЗОУИТ</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Наличие ЗОУИТ</span>
+        <div class="tsw"><button id="zouit_y" onclick="setTgl('zouit',true)">Имеются</button><button id="zouit_n" class="off" onclick="setTgl('zouit',false)">Нет</button></div></div>
+      <div class="extra hidden" id="zouit_x">
+        <div class="cbg" id="cbg_zouit">
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ГУКН"><div class="cbd"></div>ГУКН</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Лесфонд"><div class="cbd"></div>Лесфонд</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Автодор"><div class="cbd"></div>Автодор</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ВПП"><div class="cbd"></div>ВПП</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Водоохр. зона"><div class="cbd"></div>Водоохр. зона</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Рыбоохр. зона"><div class="cbd"></div>Рыбоохр. зона</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Зона 0 отм."><div class="cbd"></div>Зона 0 отм.</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Зона РЖД"><div class="cbd"></div>Зона РЖД</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grp-label">Стоимостные показатели (Приказ № 604/пр · НМЦК)</div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sim">💰</div><div class="set">Сметная стоимость</div><span class="sec-badge badge-cost">НМЦК</span></div>
+    <div class="seb">
+      <div class="fr fr3">
+        <div class="field"><label>Полная сметная стоимость, тыс. руб.</label>
+          <div class="inp-wrap"><input type="number" id="f_ctot" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р.</span></div></div>
+        <div class="field"><label>в т.ч. СМР, тыс. руб.</label>
+          <div class="inp-wrap"><input type="number" id="f_csmr" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р.</span></div></div>
+        <div class="field"><label>в т.ч. Оборудование, тыс. руб.</label>
+          <div class="inp-wrap"><input type="number" id="f_ceq"  placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р.</span></div></div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Стоимость на 1 м трассы, тыс. руб./м</label>
+          <div class="inp-wrap"><input type="number" id="f_cpm" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р./м</span></div></div>
+        <div class="field"><label>Индекс пересчёта к тек. ценам</label>
+          <div class="inp-wrap"><input type="number" id="f_idx" placeholder="1.000" min="0" step="0.001"><span class="inp-sfx">×</span></div></div>
+        <div class="field"><label>Стоимость с индексом, тыс. руб.</label>
+          <div class="inp-wrap"><input type="number" id="f_cidx" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р.</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sir">📄</div><div class="set">Документальное подтверждение</div><span class="sec-badge badge-cost">НМЦК</span></div>
+    <div class="seb">
+      <div class="fr fr2">
+        <div class="field"><label>Положительное заключение гос. экспертизы</label>
+          <div class="tsw" style="border-radius:var(--r);overflow:hidden;width:fit-content">
+            <button id="gex_y" onclick="setTgl('gex',true)">Имеется</button>
+            <button id="gex_n" class="off" onclick="setTgl('gex',false)">Нет</button>
+          </div>
+        </div>
+        <div class="field"><label>Сметная документация в составе ПД</label>
+          <div class="tsw" style="border-radius:var(--r);overflow:hidden;width:fit-content">
+            <button id="smeta_y" onclick="setTgl('smeta',true)">Есть</button>
+            <button id="smeta_n" class="off" onclick="setTgl('smeta',false)">Нет</button>
+          </div>
+        </div>
+      </div>
+      <div class="field"><label>Примечание / обоснование НМЦК</label>
+        <textarea id="f_note" placeholder="Дополнительные сведения, особенности применения..."></textarea></div>
+    </div>
+  </div>
+
+  <div class="fac">
+    <button class="btn bs" onclick="clearForm()">Очистить</button>
+    <button class="btn br bsm hidden" id="delBtn" onclick="deleteRecord()">🗑 Удалить</button>
+    <button class="btn bp" onclick="saveRecord()">💾 Сохранить объект</button>
+  </div>
+  </div><!-- /formView -->
+
+  <div id="tableView" class="hidden">
+    <div class="tw"><table id="tbl"><thead id="tblH"></thead><tbody id="tblB"></tbody></table></div>
+    <div class="emp hidden" id="tblEmp"><div class="empi">📊</div><div class="empt">Нет данных</div><div class="emps">Добавьте объекты через форму</div></div>
+  </div>
+</div><!-- /pagDb -->
+
+<!-- ══════════ PAGE 2: АНАЛОГ ══════════ -->
+<div id="pagAnalog" class="inner hidden">
+  <div class="pgh">
+    <div><div class="pgt">🔍 Подбор объекта-аналога</div>
+    <div class="pgs">Приказ № 135/пр — вердикт по обязательным критериям · % совпадения по всем показателям · <span id="aDbCnt">В базе: 0 объектов</span></div></div>
+  </div>
+
+  <!-- ── Идентификация ── -->
+  <div class="grp-label">Идентификация</div>
+  <div class="section">
+    <div class="seh"><div class="sei sia">🔖</div><div class="set">Реквизиты объекта поиска</div></div>
+    <div class="seb">
+      <div class="fr fr4">
+        <div class="field"><label>Год сметного уровня цен</label><input type="number" id="a_pyear" placeholder="2024" min="2000" max="2099"></div>
+        <div class="field"><label>Тип объекта</label>
+          <select id="a_otype">
+            <option value="">— любой —</option>
+            <option>Строительство</option>
+            <option>Реконструкция</option>
+            <option>Капитальный ремонт</option>
+          </select>
+        </div>
+        <div class="field"><label>Наименование / описание</label><input type="text" id="a_name" placeholder="Описание объекта"></div>
+        <div class="field"><label>Адрес / местоположение</label><input type="text" id="a_addr" placeholder="г. ..."></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Обязательные ── -->
+  <div class="grp-label">Обязательные критерии — Приказ № 135/пр</div>
+  <div class="section">
+    <div class="seh"><div class="sei sig">📐</div><div class="set">Крит. 2–3: Протяжённость и мощность</div><span class="sec-badge badge-req">ОБЯЗАТЕЛЬНЫЙ · ≤10%</span></div>
+    <div class="seb">
+      <div class="fr fr3">
+        <div class="field"><label>Протяжённость трассы, м<span class="req">*</span></label>
+          <div class="inp-wrap"><input type="number" id="a_len" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        <div class="field"><label>Пропускная способность, Гкал/ч</label>
+          <div class="inp-wrap"><input type="number" id="a_cap" placeholder="Гкал/ч" min="0" step="0.01"><span class="inp-sfx">Гкал/ч</span></div></div>
+        <div class="field"><label>Диаметр сети (по большему), мм</label>
+          <div class="inp-wrap"><input type="number" id="a_diam" placeholder="мм" min="0"><span class="inp-sfx">мм</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sib">🌡</div><div class="set">Крит. 4: Природно-климатические условия</div><span class="sec-badge badge-req">ОБЯЗАТЕЛЬНЫЙ · точное совпадение</span></div>
+    <div class="seb">
+      <div class="fr fr4">
+        <div class="field"><label>Климатический район</label>
+          <select id="a_czone"><option value="">— любой —</option><option>I</option><option>II</option><option>III</option><option>IV</option></select></div>
+        <div class="field"><label>Подрайон</label>
+          <select id="a_csub"><option value="">— любой —</option><option>А</option><option>Б</option><option>В</option><option>Г</option></select></div>
+        <div class="field"><label>Ветровой район</label>
+          <select id="a_wind"><option value="">— любой —</option><option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option><option>VI</option><option>VII</option></select></div>
+        <div class="field"><label>Снеговой район</label>
+          <select id="a_snow"><option value="">— любой —</option><option>I</option><option>II</option><option>III</option><option>IV</option><option>V</option><option>VI</option><option>VII</option><option>VIII</option></select></div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Сейсмичность, баллов</label>
+          <select id="a_seis"><option value="">— любой —</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select></div>
+        <div class="field"><label>Инж.-геологические условия</label>
+          <select id="a_geo"><option value="">— любой —</option><option>Простые</option><option>Средней сложности</option><option>Сложные</option></select></div>
+        <div class="field"><label>Глубина залегания трассы, м</label>
+          <div class="inp-wrap"><input type="number" id="a_depth" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Дополнительные ── -->
+  <div class="grp-label">Дополнительные критерии — Конструктивные решения</div>
+  <div class="section">
+    <div class="seh"><div class="sei sip">🔧</div><div class="set">Трубопровод и прокладка</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="fr fr2">
+        <div class="field"><label>Тип прокладки</label>
+          <select id="a_lay"><option value="">— любой —</option><option>Подземная бесканальная</option><option>Подземная канальная</option><option>Подземная комбинированная</option><option>Наземная</option><option>Надземная</option><option>Комбинированная подземная и надземная</option></select></div>
+          <div class="field"><label>Система трубопроводов</label>
+          <select id="a_psys"><option value="">— любой —</option><option>2-трубная</option><option>4-трубная</option><option>6-трубная</option></select></div>
+        <div class="field"><label>Материал трубопроводов</label>
+          <div class="cbg" id="a_cbg_mat">
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ППУ"><div class="cbd"></div>ППУ</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ППМИ"><div class="cbd"></div>ППМИ</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Полимеры"><div class="cbd"></div>Полимеры</label>
+            <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Оцинк. сталь"><div class="cbd"></div>Оцинк. сталь</label>
+          </div>
+        </div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Тип изоляции</label>
+          <select id="a_insul"><option value="">— любой —</option><option>ППУ</option><option>ППМИ</option><option>Мин. вата</option><option>Пенополистирол</option></select></div>
+        <div class="field"><label>Температура подачи, °С</label>
+          <div class="inp-wrap"><input type="number" id="a_tsup" placeholder="°С" min="0" max="200"><span class="inp-sfx">°С</span></div></div>
+        <div class="field"><label>Температура обратки, °С</label>
+          <div class="inp-wrap"><input type="number" id="a_tret" placeholder="°С" min="0" max="200"><span class="inp-sfx">°С</span></div></div>
+      </div>
+      <div class="fr fr3">
+        <div class="field"><label>Давление теплоносителя, МПа</label>
+          <div class="inp-wrap"><input type="number" id="a_pres" placeholder="МПа" min="0" step="0.1"><span class="inp-sfx">МПа</span></div></div>
+        <div class="field"><label>Количество тепловых камер, шт</label>
+          <div class="inp-wrap"><input type="number" id="a_cham" placeholder="шт" min="0"><span class="inp-sfx">шт</span></div></div>
+        <div class="field"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei siy">🔀</div><div class="set">Байпас</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Байпас требуется?</span>
+        <div class="tsw"><button id="a_bypass_y" onclick="setATgl('bypass',true)">Да</button><button id="a_bypass_n" class="off" onclick="setATgl('bypass',false)">Нет</button></div></div>
+      <div class="extra hidden" id="a_bypass_x">
+        <div class="exl">Параметры байпаса</div>
+        <div class="fr fr2">
+          <div class="field"><label>Диаметр (по большему), мм</label><div class="inp-wrap"><input type="number" id="a_byd" placeholder="мм" min="0"><span class="inp-sfx">мм</span></div></div>
+          <div class="field"><label>Протяжённость, м</label><div class="inp-wrap"><input type="number" id="a_byl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sip">🏗</div><div class="set">Прокладка в сборных каналах</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Бесканальная прокладка — протяжённость</span>
+        <div class="inp-wrap" style="width:180px"><input type="number" id="a_bcl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Прокладка в сборных каналах?</span>
+        <div class="tsw"><button id="a_channel_y" onclick="setATgl('channel',true)">Да</button><button id="a_channel_n" class="off" onclick="setATgl('channel',false)">Нет</button></div></div>
+      <div class="extra hidden" id="a_channel_x">
+        <div class="exl">Параметры канала</div>
+        <div class="fr fr2">
+          <div class="field"><label>Протяжённость (всего), м</label><div class="inp-wrap"><input type="number" id="a_chl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Тип канала</label><select id="a_cht"><option value="">— любой —</option><option>Монолитный</option><option>Сборный</option></select></div>
+        </div>
+        <div class="fr fr3">
+          <div class="field"><label>Канал монолитный, м</label><div class="inp-wrap"><input type="number" id="a_chl_m" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Канал сборный, м</label><div class="inp-wrap"><input type="number" id="a_chl_s" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+          <div class="field"><label>Протяжённость футляров, м</label><div class="inp-wrap"><input type="number" id="a_futl" placeholder="м" min="0" step="0.1"><span class="inp-sfx">м</span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sig">🔩</div><div class="set">Арматура, переходы, охранные зоны</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Замена запорной арматуры</span>
+        <div class="tsw"><button id="a_valve_y" onclick="setATgl('valve',true)">Да</button><button id="a_valve_n" class="off" onclick="setATgl('valve',false)">Нет</button></div></div>
+      <div class="extra hidden" id="a_valve_x">
+        <div class="exl">Параметры арматуры</div>
+        <div class="fr fr2">
+          <div class="field"><label>Количество единиц, шт</label><div class="inp-wrap"><input type="number" id="a_vlvc" placeholder="шт" min="0" step="1"><span class="inp-sfx">шт</span></div></div>
+          <div class="field"><label>Примечание</label><input type="text" id="a_vlvn" placeholder="тип, диаметр и т.д."></div>
+        </div>
+      </div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Наличие водяного перехода</span>
+        <div class="tsw"><button id="a_water_y" onclick="setATgl('water',true)">Да</button><button id="a_water_n" class="off" onclick="setATgl('water',false)">Нет</button></div></div>
+      <div class="dv"></div>
+      <div class="trow"><span class="trl">Попадание в охранные зоны смежных коммуникаций</span>
+        <div class="tsw"><button id="a_comm_y" onclick="setATgl('comm',true)">Да</button><button id="a_comm_n" class="off" onclick="setATgl('comm',false)">Нет</button></div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="seh"><div class="sei sia">🗺</div><div class="set">ЗОУИТ</div><span class="sec-badge badge-add">ДОПОЛНИТЕЛЬНЫЙ</span></div>
+    <div class="seb">
+      <div class="trow"><span class="trl">Наличие ЗОУИТ</span>
+        <div class="tsw"><button id="a_zouit_y" onclick="setATgl('zouit',true)">Имеются</button><button id="a_zouit_n" class="off" onclick="setATgl('zouit',false)">Нет</button></div></div>
+      <div class="extra hidden" id="a_zouit_x">
+        <div class="cbg" id="a_cbg_zouit">
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ГУКН"><div class="cbd"></div>ГУКН</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Лесфонд"><div class="cbd"></div>Лесфонд</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Автодор"><div class="cbd"></div>Автодор</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="ВПП"><div class="cbd"></div>ВПП</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Водоохр. зона"><div class="cbd"></div>Водоохр. зона</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Рыбоохр. зона"><div class="cbd"></div>Рыбоохр. зона</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Зона 0 отм."><div class="cbd"></div>Зона 0 отм.</label>
+          <label class="cbi" onclick="toggleCb(this)"><input type="checkbox" value="Зона РЖД"><div class="cbd"></div>Зона РЖД</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Стоимость для поиска -->
+  <div class="grp-label">Стоимостные показатели (для сравнения)</div>
+  <div class="section">
+    <div class="seh"><div class="sei sim">💰</div><div class="set">Ориентировочные стоимостные параметры</div><span class="sec-badge badge-cost">НМЦК</span></div>
+    <div class="seb">
+      <div class="fr fr3">
+        <div class="field"><label>Ориент. полная стоимость, тыс. руб.</label>
+          <div class="inp-wrap"><input type="number" id="a_ctot" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р.</span></div></div>
+        <div class="field"><label>Ориент. стоимость на 1 м, тыс. руб./м</label>
+          <div class="inp-wrap"><input type="number" id="a_cpm" placeholder="0" min="0" step="0.001"><span class="inp-sfx">т.р./м</span></div></div>
+        <div class="field"><label>Год сметных цен для сравнения</label>
+          <input type="number" id="a_cyear" placeholder="2024" min="2000" max="2099"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fac">
+    <button class="btn bs" onclick="clearAnalog()">Очистить</button>
+    <button class="btn bp" onclick="runSearch()" style="font-size:13px;padding:9px 22px">🔍 Найти аналог</button>
+  </div>
+
+  <div class="analog-result" id="analogResult"></div>
+</div><!-- /pagAnalog -->
+
+</div><!-- /content -->
+</div><!-- /shell -->
+<div class="toast" id="toast"><span id="tIco"></span><span id="tMsg"></span></div>
+
+<script>
+/* ═══ STATE ═══ */
+let records = JSON.parse(localStorage.getItem('ths_v4')||'[]');
+let curId = null, curView = 'form';
+
+const TGL  = {bypass:false,channel:false,valve:false,water:false,comm:false,zouit:false,gex:false,smeta:false};
+const ATGL = {bypass:false,channel:false,valve:false,water:false,comm:false,zouit:false};
+
+const COLS = [
+  {k:'num',   l:'№ экспертизы'},{k:'otype', l:'Тип объекта'},{k:'name',  l:'Наименование'},{k:'addr',  l:'Адрес'},
+  {k:'conc',  l:'№ заключения'},{k:'pyear', l:'Год цен'},
+  {k:'len',   l:'Протяжённость, м'},{k:'cap',l:'Мощность, Гкал/ч'},{k:'diam',l:'Диаметр, мм'},
+  {k:'czone', l:'Клим. район'},{k:'csub',l:'Подрайон'},{k:'wind',l:'Ветр. р.'},{k:'snow',l:'Снег. р.'},
+  {k:'seis',  l:'Сейсмика'},{k:'geo',l:'Геол. усл.'},{k:'depth',l:'Глубина, м'},
+  {k:'lay',   l:'Прокладка'},{k:'psys',l:'Система'},{k:'bcl',l:'Бесканальная, м'},{k:'mat',l:'Материал'},{k:'insul',l:'Изоляция'},
+  {k:'tsup',  l:'T под., °С'},{k:'tret',l:'T обр., °С'},{k:'pres',l:'Давл., МПа'},{k:'cham',l:'Тепл. кам.'},
+  {k:'bypass',l:'Байпас'},{k:'byd',l:'Байп. Ø'},{k:'byl',l:'Байп. дл.'},
+  {k:'chan',  l:'Канал'},{k:'chl',l:'Кан. дл.'},{k:'cht',l:'Тип кан.'},
+  {k:'valve', l:'Зап. арм.'},{k:'water',l:'Вод. пер.'},{k:'comm',l:'Охр. зоны'},
+  {k:'zouit', l:'ЗОУИТ'},{k:'ztyp',l:'Типы ЗОУИТ'},
+  {k:'ctot',  l:'Смета, т.р.'},{k:'csmr',l:'СМР, т.р.'},{k:'ceq',l:'Обор., т.р.'},
+  {k:'cpm',   l:'Стоим./м'},{k:'idx',l:'Индекс'},{k:'cidx',l:'С индексом, т.р.'},
+  {k:'gex',   l:'Гос. экспертиза'},{k:'smeta',l:'Смета в ПД'},{k:'note',l:'Примечание'},
+];
+
+/* ═══ HELPERS ═══ */
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+function persist(){localStorage.setItem('ths_v4',JSON.stringify(records));renderSidebar();updateCnt();}
+function v(id){return document.getElementById(id);}
+function toast(msg,type='success'){
+  const el=v('toast');v('tIco').textContent=type==='success'?'✅':type==='error'?'❌':'ℹ️';
+  v('tMsg').textContent=msg;el.className='toast show '+type;
+  clearTimeout(el._t);el._t=setTimeout(()=>el.className='toast',3200);
+}
+
+/* ═══ PAGE ═══ */
+function switchPage(pg){
+  document.querySelectorAll('.nav-tab').forEach((t,i)=>t.classList.toggle('active',(pg==='db'&&i===0)||(pg==='analog'&&i===1)));
+  v('pagDb').classList.toggle('hidden',pg!=='db');
+  v('pagAnalog').classList.toggle('hidden',pg!=='analog');
+  v('sidebar').style.display=pg==='db'?'':'none';
+  v('dbAct').style.display=pg==='db'?'':'none';
+  if(pg==='analog')updateCnt();
+}
+function updateCnt(){v('aDbCnt').textContent=`В базе: ${records.length} объект${records.length===1?'':'ов'}`;}
+
+/* ═══ DB TOGGLES ═══ */
+function setTgl(k,val){
+  TGL[k]=val;
+  const y=v(k+'_y'),n=v(k+'_n');
+  if(y)y.className=val?'on':'';if(n)n.className=val?'':'off';
+  const x=v(k+'_x');if(x)x.classList.toggle('hidden',!val);
+}
+/* ═══ ANALOG TOGGLES ═══ */
+function setATgl(k,val){
+  ATGL[k]=val;
+  const y=v('a_'+k+'_y'),n=v('a_'+k+'_n');
+  if(y)y.className=val?'on':'';if(n)n.className=val?'':'off';
+  const x=v('a_'+k+'_x');if(x)x.classList.toggle('hidden',!val);
+}
+
+/* ═══ CHECKBOXES ═══ */
+function toggleCb(lbl){const cb=lbl.querySelector('input');cb.checked=!cb.checked;lbl.classList.toggle('checked',cb.checked);}
+function getChk(id){return[...document.querySelectorAll('#'+id+' input')].filter(c=>c.checked).map(c=>c.value).join(', ');}
+function setChk(id,str){
+  const vals=(str||'').split(',').map(s=>s.trim()).filter(Boolean);
+  document.querySelectorAll('#'+id+' input').forEach(c=>{
+    const on=vals.includes(c.value);c.checked=on;c.closest('.cbi').classList.toggle('checked',on);});
+}
+
+/* ═══ COLLECT DB ═══ */
+function collect(){
+  return{
+    num:v('f_num').value.trim(),otype:v('f_otype').value,name:v('f_name').value.trim(),addr:v('f_addr').value.trim(),
+    conc:v('f_conc').value.trim(),pyear:v('f_pyear').value,
+    len:v('f_len').value,cap:v('f_cap').value,diam:v('f_diam').value,
+    czone:v('f_czone').value,csub:v('f_csub').value,wind:v('f_wind').value,snow:v('f_snow').value,
+    seis:v('f_seis').value,geo:v('f_geo').value,depth:v('f_depth').value,
+    lay:v('f_lay').value,psys:v('f_psys').value,mat:getChk('cbg_mat'),insul:v('f_insul').value,
+    tsup:v('f_tsup').value,tret:v('f_tret').value,pres:v('f_pres').value,cham:v('f_cham').value,
+    bypass:TGL.bypass?'Да':'Нет',byd:TGL.bypass?v('f_byd').value:'',byl:TGL.bypass?v('f_byl').value:'',
+    chan:TGL.channel?'Да':'Нет',chl:TGL.channel?v('f_chl').value:'',cht:TGL.channel?v('f_cht').value:'',
+    chl_m:TGL.channel?v('f_chl_m').value:'',chl_s:TGL.channel?v('f_chl_s').value:'',futl:TGL.channel?v('f_futl').value:'',
+    bcl:v('f_bcl').value,
+    valve:TGL.valve?'Да':'Нет',vlvc:TGL.valve?v('f_vlvc').value:'',vlvn:TGL.valve?v('f_vlvn').value:'',
+    water:TGL.water?'Да':'Нет',comm:TGL.comm?'Да':'Нет',
+    zouit:TGL.zouit?'Имеются':'Нет',ztyp:TGL.zouit?getChk('cbg_zouit'):'',
+    ctot:v('f_ctot').value,csmr:v('f_csmr').value,ceq:v('f_ceq').value,
+    cpm:v('f_cpm').value,idx:v('f_idx').value,cidx:v('f_cidx').value,
+    gex:TGL.gex?'Имеется':'Нет',smeta:TGL.smeta?'Есть':'Нет',note:v('f_note').value.trim(),
+  };
+}
+
+function populate(r){
+  const sv=(id,k)=>{const el=v(id);if(el)el.value=r[k]||'';};
+  sv('f_num','num');sv('f_otype','otype');sv('f_name','name');sv('f_addr','addr');sv('f_conc','conc');sv('f_pyear','pyear');
+  sv('f_len','len');sv('f_cap','cap');sv('f_diam','diam');
+  sv('f_czone','czone');sv('f_csub','csub');sv('f_wind','wind');sv('f_snow','snow');
+  sv('f_seis','seis');sv('f_geo','geo');sv('f_depth','depth');
+  sv('f_lay','lay');sv('f_psys','psys');setChk('cbg_mat',r.mat);sv('f_insul','insul');
+  sv('f_tsup','tsup');sv('f_tret','tret');sv('f_pres','pres');sv('f_cham','cham');
+  setTgl('bypass',r.bypass==='Да');if(r.bypass==='Да'){sv('f_byd','byd');sv('f_byl','byl');}
+  setTgl('channel',r.chan==='Да');if(r.chan==='Да'){sv('f_chl','chl');sv('f_cht','cht');sv('f_chl_m','chl_m');sv('f_chl_s','chl_s');sv('f_futl','futl');}
+  if(v('f_bcl'))v('f_bcl').value=r.bcl||'';
+  setTgl('valve',r.valve==='Да');if(r.valve==='Да'){if(v('f_vlvc'))v('f_vlvc').value=r.vlvc||'';if(v('f_vlvn'))v('f_vlvn').value=r.vlvn||'';}
+  setTgl('water',r.water==='Да');setTgl('comm',r.comm==='Да');
+  setTgl('zouit',r.zouit==='Имеются');if(r.zouit==='Имеются')setChk('cbg_zouit',r.ztyp);
+  sv('f_ctot','ctot');sv('f_csmr','csmr');sv('f_ceq','ceq');
+  sv('f_cpm','cpm');sv('f_idx','idx');sv('f_cidx','cidx');
+  setTgl('gex',r.gex==='Имеется');setTgl('smeta',r.smeta==='Есть');
+  sv('f_note','note');
+}
+
+function clearForm(){
+  ['f_num','f_name','f_addr','f_conc','f_pyear','f_len','f_cap','f_diam','f_depth','f_cham',
+   'f_byd','f_byl','f_chl','f_chl_m','f_chl_s','f_futl','f_bcl','f_vlvc','f_vlvn','f_tsup','f_tret','f_pres','f_ctot','f_csmr','f_ceq','f_cpm','f_idx','f_cidx','f_note']
+    .forEach(id=>{const el=v(id);if(el)el.value='';});
+  ['f_czone','f_csub','f_wind','f_snow','f_seis','f_geo','f_lay','f_psys','f_insul','f_cht','f_otype']
+    .forEach(id=>{const el=v(id);if(el)el.value='';});
+  setChk('cbg_mat','');setChk('cbg_zouit','');
+  Object.keys(TGL).forEach(k=>setTgl(k,false));
+  curId=null;v('delBtn').classList.add('hidden');
+  v('pgt').textContent='Новый объект';v('pgs').textContent='Тепловая сеть';
+  renderSidebar();
+}
+
+function clearAnalog(){
+  ['a_pyear','a_name','a_addr','a_len','a_cap','a_diam','a_depth','a_tsup','a_tret','a_pres','a_cham',
+   'a_byd','a_byl','a_chl','a_chl_m','a_chl_s','a_futl','a_bcl','a_vlvc','a_vlvn','a_ctot','a_cpm','a_cyear']
+    .forEach(id=>{const el=v(id);if(el)el.value='';});
+  ['a_czone','a_csub','a_wind','a_snow','a_seis','a_geo','a_lay','a_psys','a_insul','a_cht','a_otype']
+    .forEach(id=>{const el=v(id);if(el)el.value='';});
+  setChk('a_cbg_mat','');setChk('a_cbg_zouit','');
+  Object.keys(ATGL).forEach(k=>setATgl(k,false));
+  v('analogResult').classList.remove('show');v('analogResult').innerHTML='';
+}
+
+function newRecord(){clearForm();setView('form');}
+
+function saveRecord(){
+  const d=collect();
+  if(!d.num){toast('Укажите номер экспертизы','error');return;}
+  if(curId){const i=records.findIndex(r=>r.id===curId);if(i>=0)records[i]={id:curId,...d};}
+  else{curId=uid();records.push({id:curId,...d});}
+  persist();v('delBtn').classList.remove('hidden');
+  v('pgt').textContent=d.num;v('pgs').textContent=d.name||'Тепловая сеть';
+  toast('Объект сохранён');
+}
+
+function deleteRecord(){
+  if(!curId||!confirm('Удалить объект?'))return;
+  records=records.filter(r=>r.id!==curId);persist();clearForm();toast('Объект удалён');
+}
+function deleteById(id){
+  if(!confirm('Удалить?'))return;
+  records=records.filter(r=>r.id!==id);if(curId===id)curId=null;
+  persist();renderTable();toast('Удалено');
+}
+function loadRecord(id){
+  const r=records.find(r=>r.id===id);if(!r)return;
+  curId=id;populate(r);v('delBtn').classList.remove('hidden');
+  v('pgt').textContent=r.num||r.name||'Объект';v('pgs').textContent=r.name||'Тепловая сеть';
+  setView('form');renderSidebar();
+}
+
+function renderSidebar(){
+  const list=v('sbl');v('recCnt').textContent=records.length;
+  if(!records.length){
+    list.innerHTML='<div class="emp" style="padding:28px 10px"><div class="empi">📋</div><div class="empt">Нет объектов</div><div class="emps">Добавьте первый</div></div>';return;
+  }
+  list.innerHTML=records.map(r=>`
+    <div class="ri ${r.id===curId?'active':''}" onclick="loadRecord('${r.id}')">
+      <div class="ri-n">${r.num||'—'}</div>
+      <div class="ri-s">${r.name||r.addr||''}${r.len?' · '+r.len+' м':''}</div>
+    </div>`).join('');
+}
+
+function setView(vv){
+  curView=vv;
+  v('formView').classList.toggle('hidden',vv!=='form');
+  v('tableView').classList.toggle('hidden',vv!=='table');
+  v('bForm').classList.toggle('active',vv==='form');
+  v('bTable').classList.toggle('active',vv==='table');
+  if(vv==='table')renderTable();
+}
+
+function renderTable(){
+  const head=v('tblH'),body=v('tblB'),empty=v('tblEmp'),tbl=v('tbl');
+  head.innerHTML='<tr>'+COLS.map(c=>`<th>${c.l}</th>`).join('')+'<th></th></tr>';
+  if(!records.length){tbl.style.display='none';empty.classList.remove('hidden');return;}
+  tbl.style.display='';empty.classList.add('hidden');
+  body.innerHTML=records.map(r=>`<tr>${COLS.map(c=>`<td title="${r[c.k]||''}">${r[c.k]||'—'}</td>`).join('')}
+    <td><div class="tda">
+      <button class="btn bs bsm bico" onclick="loadRecord('${r.id}')">✏️</button>
+      <button class="btn br bsm bico" onclick="deleteById('${r.id}')">🗑</button>
+    </div></td></tr>`).join('');
+}
+
+/* ═══ SAVE/LOAD/EXCEL ═══ */
+function saveProject(){
+  if(!records.length){toast('Нет данных','error');return;}
+  const blob=new Blob([JSON.stringify({v:4,saved:new Date().toISOString(),records},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='ТС_'+new Date().toLocaleDateString('ru').replace(/\./g,'-')+'.json';
+  a.click();URL.revokeObjectURL(a.href);toast('Проект сохранён');
+}
+function loadProject(){v('fProj').click();}
+function handleProject(e){
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const p=JSON.parse(ev.target.result);if(!Array.isArray(p.records))throw 0;
+      if(records.length&&!confirm(`Заменить ${records.length} записей?`))return;
+      records=p.records;curId=null;persist();clearForm();toast(`Загружено ${records.length} объектов`,'info');
+    }catch{toast('Ошибка файла','error');}
+  };r.readAsText(file);e.target.value='';
+}
+function exportExcel(){
+  if(!records.length){toast('Нет данных','error');return;}
+  const ws=XLSX.utils.aoa_to_sheet([COLS.map(c=>c.l),...records.map(r=>COLS.map(c=>r[c.k]||''))]);
+  ws['!cols']=COLS.map(()=>({wch:16}));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Тепловые сети');
+  XLSX.writeFile(wb,'ТС_'+new Date().toLocaleDateString('ru').replace(/\./g,'-')+'.xlsx');toast('Excel скачан');
+}
+function importExcel(){v('fXlsx').click();}
+function handleXlsx(e){
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const data=XLSX.utils.sheet_to_json(ws,{header:1});
+      if(!data.length){toast('Файл пустой','error');return;}
+      const hdrs=data[0];const cm={};
+      COLS.forEach(c=>{const i=hdrs.indexOf(c.l);if(i>=0)cm[c.k]=i;});
+      let added=0;
+      for(let i=1;i<data.length;i++){
+        const row=data[i];if(!row||!row.length)continue;
+        const rec={id:uid()};
+        COLS.forEach(c=>{rec[c.k]=cm[c.k]!==undefined?(row[cm[c.k]]||'').toString():'';});
+        if(!rec.num)continue;
+        if(!records.find(x=>x.num===rec.num)){records.push(rec);added++;}
+      }
+      persist();toast(`Импортировано: ${added}`,'info');
+    }catch{toast('Ошибка файла','error');}
+  };r.readAsBinaryString(file);e.target.value='';
+}
+
+/* ═══════════════════════════════════════════════════
+   SCORING ENGINE
+   % считается по ВСЕМ заполненным показателям.
+   Вердикт присваивается только по 4 крит. 135/пр.
+═══════════════════════════════════════════════════ */
+
+/* Процент отклонения по формуле Приказа */
+function pctDev(a,b){
+  if(!a||!b)return null;
+  const fa=parseFloat(a),fb=parseFloat(b);
+  if(isNaN(fa)||isNaN(fb)||fa===0)return null;
+  return Math.abs(fa-fb)/fa*100;
+}
+
+/* Числовой score: 0..1, tolerance в % */
+function numSc(a,b,tol){
+  const d=pctDev(a,b);
+  if(d===null)return{s:null,d:null};
+  return{s:Math.max(0,1-d/tol),d};
+}
+
+/* Точное совпадение */
+function exactSc(a,b){return a?(a===b?{s:1}:{s:0}):{s:null};}
+
+/* Булево (Да/Нет) */
+function boolSc(a,b){return a===b?{s:1}:{s:0};}
+
+/* Пересечение множеств */
+function setSc(qStr,rStr){
+  if(!qStr)return{s:null};
+  const qs=new Set(qStr.split(',').map(s=>s.trim()).filter(Boolean));
+  const rs=new Set((rStr||'').split(',').map(s=>s.trim()).filter(Boolean));
+  if(!qs.size)return{s:null};
+  let inter=0;qs.forEach(x=>{if(rs.has(x))inter++;});
+  return{s:inter/qs.size};
+}
+
+/* Иконки */
+function stIco(st){
+  if(st==='pass') return'<span class="ic-p">✓</span>';
+  if(st==='warn') return'<span class="ic-w">≈</span>';
+  if(st==='fail') return'<span class="ic-f">✗</span>';
+  return'<span class="ic-s">—</span>';
+}
+function devHtml(d,tol){
+  if(d===null||d===undefined)return'<span class="ic-s">—</span>';
+  const cls=d<=tol?'dok':d<=tol*2?'dw':'df';
+  return`<span class="cd ${cls}">${d.toFixed(1)}%</span>`;
+}
+function pctCls(p){return p>=75?'phi':p>=50?'pmd':'plo';}
+function barColor(p){return p>=75?'var(--green)':p>=50?'var(--yellow)':'var(--red)';}
+
+/* Collect analog query */
+function collectQ(){
+  return{
+    pyear:v('a_pyear').value,otype:v('a_otype').value,name:v('a_name').value.trim(),addr:v('a_addr').value.trim(),
+    len:v('a_len').value,cap:v('a_cap').value,diam:v('a_diam').value,
+    czone:v('a_czone').value,csub:v('a_csub').value,wind:v('a_wind').value,snow:v('a_snow').value,
+    seis:v('a_seis').value,geo:v('a_geo').value,depth:v('a_depth').value,
+    lay:v('a_lay').value,psys:v('a_psys').value,mat:getChk('a_cbg_mat'),insul:v('a_insul').value,
+    tsup:v('a_tsup').value,tret:v('a_tret').value,pres:v('a_pres').value,cham:v('a_cham').value,
+    bypass:ATGL.bypass?'Да':'Нет',
+    byd:ATGL.bypass?v('a_byd').value:'',byl:ATGL.bypass?v('a_byl').value:'',
+    chan:ATGL.channel?'Да':'Нет',
+    chl:ATGL.channel?v('a_chl').value:'',cht:ATGL.channel?v('a_cht').value:'',
+    chl_m:ATGL.channel?v('a_chl_m').value:'',chl_s:ATGL.channel?v('a_chl_s').value:'',futl:ATGL.channel?v('a_futl').value:'',
+    bcl:v('a_bcl').value,
+    valve:ATGL.valve?'Да':'Нет',water:ATGL.water?'Да':'Нет',comm:ATGL.comm?'Да':'Нет',
+    zouit:ATGL.zouit?'Имеются':'Нет',ztyp:ATGL.zouit?getChk('a_cbg_zouit'):'',
+    ctot:v('a_ctot').value,cpm:v('a_cpm').value,cyear:v('a_cyear').value,
+  };
+}
+
+/* ── MAIN SCORE FUNCTION ── */
+function scoreRecord(q,r){
+  /* Строим список всех критериев для % */
+  const crits=[];   // {label, s, w, qv, rv, dev, tol, mandatory, group}
+  let totalW=0, totalS=0;
+
+  function add(label,res,w,qv,rv,group,mandatory,tol){
+    if(res.s===null)return; // поле не заполнено — пропускаем
+    const st=res.s>=0.9?'pass':res.s>=0.5?'warn':'fail';
+    crits.push({label,s:res.s,w,qv:qv||'—',rv:rv||'—',dev:res.d??null,tol:tol??null,st,group,mandatory});
+    totalW+=w;totalS+=res.s*w;
+  }
+
+  /* ── ОБЯЗАТЕЛЬНЫЕ (группа mandatory) ── */
+  // Критерий 1: Назначение — всегда PASS (оба тепловые сети)
+  crits.push({label:'Назначение объекта',s:1,w:0,qv:'Тепловая сеть',rv:'Тепловая сеть',dev:null,tol:null,st:'pass',group:'Крит. 1: Назначение',mandatory:true});
+  // Тип объекта — в рамках Крит.1 (влияет на состав работ и сметные нормативы)
+  const resOtype=exactSc(q.otype,r.otype);
+  add('Тип объекта (вид работ)',resOtype,8,q.otype,r.otype,'Крит. 1: Назначение',true,null);
+
+  // Критерий 2–3: Протяжённость ≤10%
+  const resLen=numSc(q.len,r.len,10);
+  add('Протяжённость трассы, м',resLen,10,q.len?q.len+' м':null,r.len?r.len+' м':null,'Крит. 2–3: Протяжённость / Мощность',true,10);
+
+  const resCap=numSc(q.cap,r.cap,10);
+  add('Пропускная способность, Гкал/ч',resCap,8,q.cap,r.cap,'Крит. 2–3: Протяжённость / Мощность',true,10);
+
+  const resDiam=numSc(q.diam,r.diam,10);
+  add('Диаметр сети, мм',resDiam,6,q.diam?q.diam+' мм':null,r.diam?r.diam+' мм':null,'Крит. 2–3: Протяжённость / Мощность',true,10);
+
+  // Критерий 4: Климат — точное совпадение
+  add('Климатический район',exactSc(q.czone,r.czone),5,q.czone,r.czone,'Крит. 4: Климат',true,null);
+  add('Климатический подрайон',exactSc(q.csub,r.csub),5,q.csub,r.csub,'Крит. 4: Климат',true,null);
+  add('Ветровой район',exactSc(q.wind,r.wind),3,q.wind,r.wind,'Крит. 4: Климат',true,null);
+  add('Снеговой район',exactSc(q.snow,r.snow),3,q.snow,r.snow,'Крит. 4: Климат',true,null);
+  add('Сейсмичность, баллов',exactSc(q.seis,r.seis),3,q.seis,r.seis,'Крит. 4: Климат',true,null);
+  add('Инж.-геологические условия',exactSc(q.geo,r.geo),2,q.geo,r.geo,'Крит. 4: Климат',true,null);
+  add('Глубина залегания, м',numSc(q.depth,r.depth,30),2,q.depth?q.depth+' м':null,r.depth?r.depth+' м':null,'Крит. 4: Климат',true,30);
+
+  /* ── ДОПОЛНИТЕЛЬНЫЕ ── */
+  add('Тип прокладки',exactSc(q.lay,r.lay),4,q.lay,r.lay,'Конструктивные решения',false,null);
+  add('Материал трубопровода',setSc(q.mat,r.mat),4,q.mat,r.mat,'Конструктивные решения',false,null);
+  add('Тип изоляции',exactSc(q.insul,r.insul),3,q.insul,r.insul,'Конструктивные решения',false,null);
+  add('Температура подачи, °С',numSc(q.tsup,r.tsup,15),2,q.tsup?q.tsup+'°С':null,r.tsup?r.tsup+'°С':null,'Конструктивные решения',false,15);
+  add('Температура обратки, °С',numSc(q.tret,r.tret,15),2,q.tret?q.tret+'°С':null,r.tret?r.tret+'°С':null,'Конструктивные решения',false,15);
+  add('Давление теплоносителя, МПа',numSc(q.pres,r.pres,20),2,q.pres?q.pres+' МПа':null,r.pres?r.pres+' МПа':null,'Конструктивные решения',false,20);
+  add('Количество тепловых камер',numSc(q.cham,r.cham,30),1,q.cham,r.cham,'Конструктивные решения',false,30);
+
+  add('Байпас',boolSc(q.bypass,r.bypass),2,q.bypass,r.bypass,'Конструктивные решения',false,null);
+  if(q.bypass==='Да'&&r.bypass==='Да'){
+    add('Диаметр байпаса, мм',numSc(q.byd,r.byd,25),1,q.byd?q.byd+' мм':null,r.byd?r.byd+' мм':null,'Конструктивные решения',false,25);
+    add('Протяжённость байпаса, м',numSc(q.byl,r.byl,25),1,q.byl?q.byl+' м':null,r.byl?r.byl+' м':null,'Конструктивные решения',false,25);
+  }
+  add('Прокладка в канале',boolSc(q.chan,r.chan),2,q.chan,r.chan,'Конструктивные решения',false,null);
+  if(q.chan==='Да'&&r.chan==='Да'){
+    add('Тип канала',exactSc(q.cht,r.cht),1,q.cht,r.cht,'Конструктивные решения',false,null);
+    add('Протяжённость канала, м',numSc(q.chl,r.chl,25),1,q.chl?q.chl+' м':null,r.chl?r.chl+' м':null,'Конструктивные решения',false,25);
+  }
+  add('Замена запорной арматуры',boolSc(q.valve,r.valve),2,q.valve,r.valve,'Конструктивные решения',false,null);
+  add('Водяной переход',boolSc(q.water,r.water),2,q.water,r.water,'Конструктивные решения',false,null);
+  add('Охранные зоны коммуникаций',boolSc(q.comm,r.comm),2,q.comm,r.comm,'Конструктивные решения',false,null);
+  add('ЗОУИТ',boolSc(q.zouit,r.zouit),3,q.zouit,r.zouit,'Конструктивные решения',false,null);
+  if(q.zouit==='Имеются'&&r.zouit==='Имеются')
+    add('Типы ЗОУИТ',setSc(q.ztyp,r.ztyp),2,q.ztyp,r.ztyp,'Конструктивные решения',false,null);
+
+  /* Стоимость — сравниваем если указаны */
+  add('Полная сметная стоимость, т.р.',numSc(q.ctot,r.ctot,20),2,q.ctot?q.ctot+' т.р.':null,r.ctot?r.ctot+' т.р.':null,'Стоимостные показатели',false,20);
+  add('Стоимость на 1 м, т.р./м',numSc(q.cpm,r.cpm,20),2,q.cpm?q.cpm+' т.р./м':null,r.cpm?r.cpm+' т.р./м':null,'Стоимостные показатели',false,20);
+
+  /* Итоговый % по всем заполненным показателям */
+  const totalPct = totalW>0 ? Math.round(totalS/totalW*100) : 0;
+
+  /* ── ОБЯЗАТЕЛЬНЫЙ ВЕРДИКТ по 135/пр ── */
+  // Крит.1: назначение + тип объекта (если задан)
+  const c1pass    = !q.otype || q.otype===r.otype;
+  // Крит.2-3: протяжённость ≤10% (если задана)
+  const lenFilled = resLen.s!==null;
+  const lenPass   = !lenFilled || resLen.d<=10;
+  const capFilled = resCap.s!==null;
+  const capPass   = !capFilled || resCap.d<=10;
+  const diamFilled= resDiam.s!==null;
+  const diamPass  = !diamFilled || resDiam.d<=10;
+  const c23pass   = lenPass && capPass && diamPass;
+
+  // Крит.4: все заполненные климат-поля совпадают
+  const climCrits=crits.filter(c=>c.group==='Крит. 4: Климат'&&c.s!==null&&c.s!==undefined);
+  const c4pass   = !climCrits.length || climCrits.every(c=>c.s===1);
+
+  const mandatoryPass = c1pass && c23pass && c4pass;
+
+  /* Группируем критерии по группам для отображения */
+  const groups={};
+  crits.forEach(c=>{
+    if(!groups[c.group])groups[c.group]=[];
+    groups[c.group].push(c);
+  });
+
+  return{record:r, totalPct, mandatoryPass, crits, groups, c1pass, c23pass, c4pass};
+}
+
+/* ── RENDER RESULT ── */
+window._scored=[];
+
+function renderDetail(res){
+  const r=res.record;
+  const vCls=res.mandatoryPass?'accepted':'rejected';
+  const vIco=res.mandatoryPass?'✅':'❌';
+  const vTitle=res.mandatoryPass?'Объект признан аналогом':'Объект НЕ признан аналогом';
+  const vSub=res.mandatoryPass
+    ?'Все обязательные критерии Приказа № 135/пр соблюдены'
+    :'Нарушены обязательные критерии Приказа № 135/пр';
+  const bc=barColor(res.totalPct);
+
+  let html=`
+  <div class="verdict-banner ${vCls}">
+    <div class="verdict-icon">${vIco}</div>
+    <div>
+      <div class="verdict-title">${vTitle}</div>
+      <div class="verdict-sub">${r.num||''} ${r.name?'· '+r.name:''} ${r.addr?'· '+r.addr:''}</div>
+      <div class="verdict-sub" style="margin-top:3px">${vSub}</div>
+    </div>
+    <div class="verdict-score-wrap">
+      <div class="verdict-pct" style="color:${bc}">${res.totalPct}%</div>
+      <div class="verdict-pct-label">совпадение по всем показателям</div>
+    </div>
+  </div>
+  <div class="score-bar-track">
+    <div class="score-bar-fill" id="mainBar" style="width:0%;background:${bc}"></div>
+  </div>
+  <div class="mandatory-status">
+    <div class="ms-item ${res.c1pass?'ms-pass':'ms-fail'}">Крит. 1: Назначение / Тип объекта ${res.c1pass?'✓':'✗'}</div>
+    <div class="ms-item ${res.c23pass?'ms-pass':'ms-fail'}">Крит. 2–3: Протяжённость/Мощность ${res.c23pass?'✓':'✗'}</div>
+    <div class="ms-item ${res.c4pass?'ms-pass':res.crits.filter(c=>c.group==='Крит. 4: Климат'&&c.s!==null).length?'ms-fail':'ms-skip'}">Крит. 4: Климат ${res.c4pass?'✓':res.crits.filter(c=>c.group==='Крит. 4: Климат'&&c.s!==null).length?'✗':'не задан'}</div>
+  </div>`;
+
+  /* Render each group */
+  const groupOrder=['Крит. 1: Назначение','Крит. 2–3: Протяжённость / Мощность','Крит. 4: Климат','Конструктивные решения','Стоимостные показатели'];
+  groupOrder.forEach(gname=>{
+    const rows=res.groups[gname];
+    if(!rows||!rows.length)return;
+    const mandatory=rows[0].mandatory;
+    const allPass=rows.every(c=>c.s===1);
+    const anyFail=rows.some(c=>c.s===0);
+    const icoCls=allPass?'pass':anyFail?'fail':'warn';
+    const icoChar=allPass?'✓':anyFail?'✗':'≈';
+    const tagCls=mandatory?'tag-req':'tag-add';
+    const tagTxt=mandatory?'ОБЯЗАТЕЛЬНЫЙ':'ДОПОЛНИТЕЛЬНЫЙ';
+
+    html+=`
+    <div class="cg">
+      <div class="cg-head">
+        <div class="cg-ico ${icoCls}">${icoChar}</div>
+        <div class="cg-title">${gname}</div>
+        <span class="cg-tag ${tagCls}">${tagTxt}</span>
+      </div>
+      <div class="cg-body">
+        <table class="cmp-t">
+          <thead><tr><th>Параметр</th><th>Запрос</th><th>Аналог</th><th>Откл.</th><th>Итог</th></tr></thead>
+          <tbody>
+            ${rows.map(c=>`
+            <tr>
+              <td class="cf">${c.label}</td>
+              <td class="cq">${c.qv}</td>
+              <td class="cr">${c.rv}</td>
+              <td>${c.dev!==null&&c.dev!==undefined?devHtml(c.dev,c.tol||10):'—'}</td>
+              <td>${stIco(c.st)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  /* Cost block */
+  if(r.ctot){
+    const idx=parseFloat(r.idx)||1;
+    const cidx=r.cidx||(parseFloat(r.ctot)*idx).toFixed(3);
+    html+=`
+    <div class="cg">
+      <div class="cg-head"><div class="cg-ico info">₽</div><div class="cg-title">Стоимостные показатели объекта-аналога</div></div>
+      <div class="cg-body" style="padding:14px">
+        <div class="cost-cards">
+          <div class="cost-card">
+            <div class="cc-label">Смета (уровень ${r.pyear||'—'})</div>
+            <div class="cc-val">${parseFloat(r.ctot).toLocaleString('ru')} т.р.</div>
+            <div class="cc-sub">СМР: ${r.csmr?parseFloat(r.csmr).toLocaleString('ru')+' т.р.':'—'}</div>
+          </div>
+          <div class="cost-card">
+            <div class="cc-label">Индекс пересчёта</div>
+            <div class="cc-val">× ${r.idx||'1.000'}</div>
+            <div class="cc-sub">Стоим./м: ${r.cpm?r.cpm+' т.р./м':'—'}</div>
+          </div>
+          <div class="cost-card highlight">
+            <div class="cc-label" style="color:var(--green)">С учётом индекса</div>
+            <div class="cc-val" style="color:var(--green)">${parseFloat(cidx).toLocaleString('ru')} т.р.</div>
+            <div class="cc-sub">Гос. экспертиза: <b style="color:${r.gex==='Имеется'?'var(--green)':'var(--red)'}">${r.gex||'—'}</b></div>
+          </div>
+        </div>
+        ${r.note?`<div style="margin-top:10px;padding:8px 10px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2)">${r.note}</div>`:''}
+      </div>
+    </div>`;
+  }
+
+  return html;
+}
+
+function runSearch(){
+  if(!records.length){toast('База пуста','error');return;}
+  const q=collectQ();
+  if(!q.len&&!q.cap&&!q.czone&&!q.mat&&!q.lay){
+    toast('Введите хотя бы один параметр','error');return;
+  }
+
+  const scored=records.map(r=>scoreRecord(q,r)).sort((a,b)=>b.totalPct-a.totalPct);
+  const top=scored.slice(0,5);
+  window._scored=top;
+
+  let html=`<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px">Топ ${top.length} объектов · % рассчитан по всем заполненным показателям · вердикт по Приказу № 135/пр</div>`;
+  html+=`<div class="top-list">`;
+  top.forEach((res,i)=>{
+    const rkCls=['rk1','rk2','rk3','rkn','rkn'][i];
+    html+=`<div class="top-item${i===0?' sel':''}" id="ti_${i}" onclick="showDetail(${i})">
+      <div class="top-rank ${rkCls}">${i+1}</div>
+      <div class="top-info">
+        <div class="top-num">${res.record.num||'—'}</div>
+        <div class="top-sub">${res.record.name||''} ${res.record.len?'· '+res.record.len+' м':''} ${res.record.lay?'· '+res.record.lay:''}</div>
+      </div>
+      <div class="tv ${res.mandatoryPass?'tv-y':'tv-n'}">${res.mandatoryPass?'✅ Аналог':'❌ Не аналог'}</div>
+      <div class="top-pct ${pctCls(res.totalPct)}">${res.totalPct}%</div>
+    </div>`;
+  });
+  html+=`</div>`;
+  html+=`<div id="detailCard">${renderDetail(top[0])}</div>`;
+
+  const el=v('analogResult');
+  el.innerHTML=html;el.classList.add('show');
+  setTimeout(()=>{const b=v('mainBar');if(b)b.style.width=top[0].totalPct+'%';},50);
+}
+
+function showDetail(idx){
+  const res=window._scored[idx];if(!res)return;
+  document.querySelectorAll('.top-item').forEach((el,i)=>el.classList.toggle('sel',i===idx));
+  v('detailCard').innerHTML=renderDetail(res);
+  setTimeout(()=>{const b=v('mainBar');if(b)b.style.width=res.totalPct+'%';},50);
+  v('detailCard').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ── INIT ── */
+renderSidebar();updateCnt();
+</script>
+</body>
+</html>

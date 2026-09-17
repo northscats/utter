@@ -13,7 +13,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
-from analog_parser import AnalogParseError, parse_pair
+from analog_parser import AnalogParseError, parse_gge, parse_pair
 from database import (AnalogClimateReference, AnalogCostIndexReference,
                        AnalogCostRow, AnalogDiagnostic, AnalogDocument,
                       AnalogImport, AnalogNetworkAttribute, AnalogOrganizationRole,
@@ -97,16 +97,90 @@ def _html_import_request():
     return request.accept_mimetypes.best == 'text/html'
 
 
-def _duplicate_import_response(existing):
-    passport_id = existing.version.passport_id
+def _duplicate_import_response(existing, pair=None):
+    passport = existing.version.passport
+    passport_id = passport.id
     message = 'Такая пара файлов уже импортирована'
+    climate_updated = False
+    if pair:
+        conclusion = pair.get('conclusion', {})
+        climate_details = conclusion.get('climate_details', {})
+        if climate_details:
+            extracted = {}
+            if passport.extracted_json:
+                try:
+                    extracted = json.loads(passport.extracted_json)
+                except (TypeError, ValueError):
+                    extracted = {}
+            extracted['climate_zone'] = conclusion.get('climate_zone', '')
+            extracted['climate_details'] = climate_details
+            passport.extracted_json = _json(extracted)
+            passport.climate_zone = conclusion.get('climate_zone', '')
+            passport.climate_subzone = ''
+            passport.natural_conditions = conclusion.get(
+                'natural_conditions', '')
+            climate_updated = True
+            db.session.add(AuditLog(
+                user_id=current_user.id,
+                action='analog_climate_reparsed',
+                details=_json({'passport_id': passport_id}),
+                ip=request.remote_addr))
+    if passport.archived and current_user.is_admin:
+        passport.archived = False
+        db.session.add(AuditLog(
+            user_id=current_user.id,
+            action='analog_passport_restored_by_reimport',
+            details=_json({'passport_id': passport_id,
+                           'source_hash': existing.source_hash,
+                           'ssr_hash': existing.ssr_hash}),
+            ip=request.remote_addr))
+        db.session.commit()
+        message = 'Удалённый ранее объект восстановлен из загруженных файлов'
+        if _html_import_request():
+            flash(f'{message} и снова добавлен в общую таблицу аналогов.',
+                  'success')
+            return redirect(url_for('analog.simple_search'))
+        return jsonify(status='restored', import_id=None,
+                       passport_id=passport_id,
+                       redirect_url=url_for('analog.simple_search'),
+                       message=message)
+    if passport.archived:
+        if climate_updated:
+            db.session.commit()
+        message = ('Эта пара файлов относится к удалённому объекту. '
+                   'Восстановить его может администратор')
+        if _html_import_request():
+            flash(message, 'warning')
+            return redirect(url_for('analog.simple_search'))
+        return jsonify(status='archived', import_id=None,
+                       passport_id=passport_id, message=message), 409
     if _html_import_request():
-        flash(f'{message}. Открыт существующий паспорт.', 'info')
-        return redirect(url_for('analog.passport_detail', passport_id=passport_id))
+        if climate_updated:
+            db.session.commit()
+        flash(f'{message}. Объект уже находится в общей таблице аналогов.', 'info')
+        return redirect(url_for('analog.simple_search'))
+    if climate_updated:
+        db.session.commit()
     return jsonify(status='duplicate', import_id=None, passport_id=passport_id,
                    redirect_url=url_for('analog.passport_detail',
                                         passport_id=passport_id),
                    message=message)
+
+
+def _capacity_display(passport):
+    current_id = passport.current_version_id
+    power = next((
+        item for item in passport.teps
+        if item.version_id == current_id and 'мощност' in (item.name or '').lower()
+    ), None)
+    if power is not None and power.value_text:
+        text = power.value_text.strip()
+        unit = (power.unit or '').strip()
+        if (unit and unit.lower() not in ('не указано', 'нет', '-')
+                and unit.lower() not in text.lower()):
+            text = f'{text} {unit}'
+        return text
+    return f'{passport.capacity_kw} кВт' if passport.capacity_kw is not None else ''
 
 
 def _result_row(passport, query_capacity=None):
@@ -120,7 +194,9 @@ def _result_row(passport, query_capacity=None):
         score = max(Decimal('0'), Decimal('100') - deviation)
     return {'id': passport.id, 'title': passport.title, 'address': passport.address,
             'object_type': passport.object_type, 'work_type': passport.work_type,
+            'climate_zone': passport.climate_zone,
             'capacity_kw': str(capacity) if capacity is not None else None,
+            'capacity_display': _capacity_display(passport),
             'deviation_percent': float(deviation) if deviation is not None else None,
             'similarity_percent': float(score), 'good': deviation is None or deviation <= 10,
             'adjusted_cost': (str(next((v.adjusted_cost for v in passport.versions
@@ -129,42 +205,158 @@ def _result_row(passport, query_capacity=None):
 
 
 def _advanced_score(passport, criteria):
-    """Weighted, deterministic matching; details explain every contribution."""
-    rules = (('object_type', 30, 'exact'), ('climate_zone', 20, 'exact'),
-             ('work_type', 20, 'exact'), ('capacity_kw', 30, 'numeric'),
-             ('diameter_mm', 10, 'network'),
-             ('pipe_diameter_mm', 10, 'network'),
-             ('laying_method', 10, 'network'),
-             ('pipe_system', 10, 'network'))
+    """Apply all filters from the agreed 135/pr + 604/pr search form."""
+    version = next((item for item in passport.versions
+                    if item.id == passport.current_version_id), None)
+    network = {
+        item.key: (item.value_number if item.value_number is not None
+                   else item.value)
+        for item in passport.network_attributes
+        if not passport.current_version_id
+        or item.version_id == passport.current_version_id
+    }
+    extracted = {}
+    if passport.extracted_json:
+        try:
+            extracted = json.loads(passport.extracted_json)
+        except (TypeError, ValueError):
+            extracted = {}
+    climate = extracted.get('climate_details', {})
+    zone = (passport.climate_zone or '').strip().upper()
+    region = next((value for value in ('IV', 'III', 'II', 'I')
+                   if zone.startswith(value)), '')
+    subzone = zone[len(region):] if region else ''
+    length = network.get('length_m')
+    capacity_gcal_h = network.get('capacity_gcal_h')
+    if capacity_gcal_h in (None, ''):
+        capacity_tep = next((
+            item for item in passport.teps
+            if (not passport.current_version_id
+                or item.version_id == passport.current_version_id)
+            and ('пропуск' in (item.name or '').lower()
+                 or 'гкал/ч' in (item.unit or '').lower())
+        ), None)
+        if capacity_tep is not None:
+            capacity_gcal_h = (capacity_tep.normalized_value
+                               if (capacity_tep.normalized_unit or '').lower()
+                               == 'гкал/ч' else capacity_tep.value)
+    total_cost = version.total_cost if version else None
+    cost_per_m = None
+    try:
+        if total_cost is not None and length is not None and Decimal(str(length)):
+            cost_per_m = Decimal(str(total_cost)) / Decimal(str(length))
+    except (InvalidOperation, TypeError, ZeroDivisionError):
+        pass
+    actuals = {
+        'price_year': version.price_year if version else None,
+        'work_type': passport.work_type,
+        'name': passport.title,
+        'address': passport.address,
+        'length_m': length,
+        'capacity_gcal_h': capacity_gcal_h,
+        'diameter_mm': network.get('diameter_mm'),
+        'climate_region': region,
+        'climate_subzone': subzone,
+        'wind_region': climate.get('wind_region'),
+        'snow_region': climate.get('snow_region'),
+        'seismicity': climate.get('seismicity'),
+        'geological_conditions': climate.get('geological_conditions'),
+        'depth_m': network.get('depth_m'),
+        'total_cost': total_cost,
+        'cost_per_m': cost_per_m,
+        'comparison_year': version.price_year if version else None,
+    }
+    actuals.update(network)
+    rules = (
+        ('price_year', 'Год сметного уровня цен', 2, 'exact', False),
+        ('work_type', 'Тип объекта', 8, 'exact', True),
+        ('name', 'Наименование / описание', 2, 'text', False),
+        ('address', 'Адрес / местоположение', 2, 'text', False),
+        ('length_m', 'Протяжённость трассы', 15, 'numeric10', True),
+        ('capacity_gcal_h', 'Пропускная способность', 10, 'numeric10', True),
+        ('diameter_mm', 'Диаметр сети', 10, 'numeric10', True),
+        ('climate_region', 'Климатический район', 8, 'exact', True),
+        ('climate_subzone', 'Подрайон', 7, 'exact', True),
+        ('wind_region', 'Ветровой район', 4, 'exact', True),
+        ('snow_region', 'Снеговой район', 4, 'exact', True),
+        ('seismicity', 'Сейсмичность', 4, 'exact', True),
+        ('geological_conditions', 'Инженерно-геологические условия', 4, 'exact', True),
+        ('depth_m', 'Глубина залегания трассы', 3, 'numeric20', False),
+        ('laying_method', 'Тип прокладки', 3, 'exact', False),
+        ('pipe_system', 'Система трубопроводов', 3, 'exact', False),
+        ('material', 'Материал трубопроводов', 3, 'set', False),
+        ('insulation', 'Тип изоляции', 2, 'exact', False),
+        ('supply_temp_c', 'Температура подачи', 2, 'numeric20', False),
+        ('return_temp_c', 'Температура обратки', 2, 'numeric20', False),
+        ('pressure_mpa', 'Давление теплоносителя', 2, 'numeric20', False),
+        ('chamber_count', 'Количество тепловых камер', 2, 'numeric20', False),
+        ('bypass', 'Наличие байпаса', 2, 'exact', False),
+        ('bypass_diameter_mm', 'Диаметр байпаса', 1, 'numeric20', False),
+        ('bypass_length_m', 'Протяжённость байпаса', 1, 'numeric20', False),
+        ('channelless_length_m', 'Бесканальная прокладка', 2, 'numeric20', False),
+        ('channel', 'Прокладка в сборных каналах', 2, 'exact', False),
+        ('channel_length_m', 'Протяжённость каналов', 1, 'numeric20', False),
+        ('channel_type', 'Тип канала', 1, 'exact', False),
+        ('monolithic_channel_length_m', 'Монолитный канал', 1, 'numeric20', False),
+        ('prefab_channel_length_m', 'Сборный канал', 1, 'numeric20', False),
+        ('casing_length_m', 'Протяжённость футляров', 1, 'numeric20', False),
+        ('valve_replacement', 'Замена запорной арматуры', 2, 'exact', False),
+        ('valve_count', 'Количество арматуры', 1, 'numeric20', False),
+        ('valve_note', 'Примечание по арматуре', 1, 'text', False),
+        ('water_crossing', 'Наличие водяного перехода', 2, 'exact', False),
+        ('communications_zone', 'Охранные зоны коммуникаций', 2, 'exact', False),
+        ('zouit', 'Наличие ЗОУИТ', 2, 'exact', False),
+        ('zouit_types', 'Типы ЗОУИТ', 2, 'set', False),
+        ('total_cost', 'Полная стоимость', 2, 'numeric20', False),
+        ('cost_per_m', 'Стоимость на 1 м', 2, 'numeric20', False),
+        ('comparison_year', 'Год цен для сравнения', 1, 'exact', False),
+    )
     details, total, weight = [], Decimal('0'), Decimal('0')
-    for field, field_weight, kind in rules:
+    for field, label, field_weight, kind, mandatory in rules:
         expected = criteria.get(field)
         if expected in (None, ''):
             continue
-        actual = getattr(passport, field, None)
-        if kind == 'network':
-            lookup = 'diameter_mm' if field == 'pipe_diameter_mm' else field
-            actual = next((item.value for item in passport.network_attributes
-                           if item.key == lookup and (
-                               not passport.current_version_id or
-                               item.version_id == passport.current_version_id)), None)
-            points = Decimal(field_weight) if str(actual).lower() == str(expected).lower() else Decimal('0')
-            reason = 'точное совпадение' if points else 'значения различаются'
-        elif kind == 'exact':
-            points = Decimal(field_weight) if str(actual).lower() == str(expected).lower() else Decimal('0')
-            reason = 'точное совпадение' if points else 'значения различаются'
-        else:
+        actual = actuals.get(field)
+        if kind.startswith('numeric'):
+            tolerance = Decimal('10') if kind == 'numeric10' else Decimal('20')
             try:
-                a, b = Decimal(str(actual)), Decimal(str(expected))
+                a = Decimal(str(actual))
+                b = Decimal(str(expected).replace(',', '.'))
                 delta = abs(a - b) / abs(b) * 100 if b else Decimal('100')
-                points = max(Decimal('0'), Decimal(field_weight) * (1 - delta / 100))
-                reason = f'отклонение {delta.quantize(Decimal("0.01"))}%'
+                matched = delta <= tolerance
+                points = max(Decimal('0'),
+                             Decimal(field_weight) * (1 - delta / tolerance))
+                reason = (f'отклонение {delta.quantize(Decimal("0.01"))}% '
+                          f'({"допустимо" if matched else "выше допуска"})')
             except (InvalidOperation, TypeError, ValueError, ZeroDivisionError):
-                points, reason = Decimal('0'), 'нет числового значения'
+                points, reason, matched = (
+                    Decimal('0'), 'нет данных для сравнения', False)
+        elif kind == 'text':
+            matched = (str(expected).strip().lower() in
+                       str(actual or '').strip().lower())
+            points = Decimal(field_weight) if matched else Decimal('0')
+            reason = 'содержит заданное значение' if matched else 'не совпадает'
+        elif kind == 'set':
+            wanted = {item.strip().lower() for item in str(expected).split(',')
+                      if item.strip()}
+            present = {item.strip().lower() for item in str(actual or '').split(',')
+                       if item.strip()}
+            overlap = len(wanted & present) / len(wanted) if wanted else 0
+            matched = overlap == 1
+            points = Decimal(str(field_weight * overlap))
+            reason = ('все значения совпадают' if matched else
+                      f'совпало {len(wanted & present)} из {len(wanted)}')
+        else:
+            matched = (str(actual or '').strip().lower() ==
+                       str(expected).strip().lower())
+            points = Decimal(field_weight) if matched else Decimal('0')
+            reason = 'совпадает' if matched else 'не совпадает'
         total += points
         weight += Decimal(field_weight)
-        details.append({'field': field, 'weight': field_weight,
+        details.append({'field': field, 'label': label,
+                        'weight': field_weight,
                         'points': float(points), 'reason': reason,
+                        'mandatory': mandatory, 'passed': matched,
                         'actual': str(actual) if actual is not None else None,
                         'expected': str(expected)})
     percent = total / weight * 100 if weight else Decimal('0')
@@ -208,10 +400,20 @@ def _suitability(passport, criteria):
 def _simple_query(args, capacity=None):
     """Build the one indexed query shared by HTML and JSON search."""
     query = AnalogPassport.query.filter_by(archived=False)
-    for field in ('object_type', 'climate_zone', 'work_type'):
+    for field in ('object_type', 'work_type'):
         value = args.get(field, '').strip()
         if value:
             query = query.filter(getattr(AnalogPassport, field) == value)
+    exact_climate = args.get('climate_zone', '').strip().upper()
+    climate_region = args.get('climate_region', '').strip().upper()
+    if exact_climate:
+        query = query.filter(func.upper(AnalogPassport.climate_zone) ==
+                             exact_climate)
+    elif climate_region in ('I', 'II', 'III', 'IV'):
+        accepted = [climate_region] + [
+            f'{climate_region}{suffix}' for suffix in ('А', 'Б', 'В', 'Г')]
+        query = query.filter(func.upper(AnalogPassport.climate_zone).in_(
+            accepted))
     text = args.get('q', '').strip()
     if text:
         query = query.filter(or_(AnalogPassport.title.ilike(f'%{text}%'),
@@ -229,6 +431,12 @@ def _simple_query(args, capacity=None):
 @analog_bp.get('')
 @login_required
 def index():
+    return render_template('analog_mode_select.html')
+
+
+@analog_bp.get('/simple')
+@login_required
+def simple_search():
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
     capacity = request.args.get('capacity_kw', type=str)
@@ -301,11 +509,11 @@ def import_preview():
             target = db.session.get(AnalogPassport, requested_target) or abort(404)
             if not current_user.is_admin and target.created_by != current_user.id:
                 abort(403)
+        pair = parse_pair(conclusion, ssr)
         existing = AnalogSource.query.filter_by(
             source_hash=source_hash, ssr_hash=ssr_hash).first()
         if existing:
-            return _duplicate_import_response(existing)
-        pair = parse_pair(conclusion, ssr)
+            return _duplicate_import_response(existing, pair)
         conclusion_path = _persist_raw(source_hash, 'conclusion.xml', conclusion)
         ssr_path = _persist_raw(ssr_hash, 'summary.gge', ssr)
         row = AnalogImport(source_hash=source_hash, ssr_hash=ssr_hash,
@@ -330,7 +538,7 @@ def import_preview():
             existing = AnalogSource.query.filter_by(
                 source_hash=source_hash, ssr_hash=ssr_hash).first()
             if existing:
-                return _duplicate_import_response(existing)
+                return _duplicate_import_response(existing, pair)
             raise
         if _html_import_request():
             return redirect(url_for('analog.import_preview_detail',
@@ -354,8 +562,9 @@ def import_preview_detail(import_id):
             version = AnalogPassportVersion.query.filter_by(
                 source_hash=row.source_hash, ssr_hash=row.ssr_hash).first()
             if version:
-                return redirect(url_for('analog.passport_detail',
-                                        passport_id=version.passport_id))
+                flash('Объект уже загружен и находится в общей таблице аналогов.',
+                      'info')
+                return redirect(url_for('analog.simple_search'))
         abort(410, description='Предпросмотр больше не доступен')
     return render_template('analog_preview.html', pair=row.preview,
                            import_id=row.id, diagnostics=row.diagnostics)
@@ -370,9 +579,8 @@ def import_confirm(import_id):
     if row.status == 'confirmed':
         version = AnalogPassportVersion.query.filter_by(
             source_hash=row.source_hash, ssr_hash=row.ssr_hash).first()
-        if request.accept_mimetypes.best == 'text/html' and version:
-            return redirect(url_for('analog.passport_detail',
-                                    passport_id=version.passport_id))
+        if not request.is_json and version:
+            return redirect(url_for('analog.simple_search'))
         return jsonify(status='duplicate', passport_id=version.passport_id if version else None)
     preview = row.preview
     diagnostics = row.diagnostics
@@ -403,7 +611,7 @@ def import_confirm(import_id):
                 object_type=values.get('object_type', 'котельная'),
                 work_type=(values.get('work_type') or conclusion.get('work_type', '')).lower(),
                 climate_zone=conclusion.get('climate_zone', ''),
-                climate_subzone=conclusion.get('climate_conditions', ''),
+                climate_subzone='',
                 cadastral_number=conclusion.get('cadastral_number', ''),
                 natural_conditions=conclusion.get('natural_conditions', ''),
                 construction_object=conclusion.get('construction_object', ''),
@@ -431,7 +639,7 @@ def import_confirm(import_id):
             examination_result='positive',
             expert_object_name=conclusion.get('expert_object_name', ''),
             source_hash=row.source_hash, ssr_hash=row.ssr_hash,
-            schema_version=conclusion.get('schema_version') or ssr.get('schema_version'),
+            schema_version=ssr.get('schema_version') or conclusion.get('schema_version'),
             cadastral_number=conclusion.get('cadastral_number', ''),
             natural_conditions=conclusion.get('natural_conditions', ''),
             construction_object=conclusion.get('construction_object', ''),
@@ -451,6 +659,7 @@ def import_confirm(import_id):
             'title': conclusion.get('expert_object_name', ''),
             'address': conclusion.get('address', ''), 'work_type': conclusion.get('work_type', ''),
             'climate_zone': conclusion.get('climate_zone', ''),
+            'climate_details': conclusion.get('climate_details', {}),
             'teps': conclusion.get('teps', [])})
         passport.provenance_json = _json({'source_hash': row.source_hash,
                                           'ssr_hash': row.ssr_hash})
@@ -500,15 +709,19 @@ def import_confirm(import_id):
                 key: item.get(key) for key in
                 ('ordinal', 'name', 'submitted_cost', 'approved_cost', 'change_cost',
                  'price_level', 'vat', 'footnote', 'change_reason', 'provenance')}))
+        power_tep = None
         for item in conclusion.get('teps', []):
             db.session.add(AnalogTep(passport_id=passport.id, version_id=version.id,
                 extracted_json=_json(item), effective_json=_json(item), **{
                 key: item.get(key) for key in
                 ('name', 'unit', 'value', 'normalized_value', 'normalized_unit',
                  'value_text', 'provenance')}))
-            if 'мощност' in item.get('name', '').lower() and item.get('value') is not None:
-                passport.capacity_kw = item.get('normalized_value') \
-                    if item.get('normalized_unit') == 'кВт' else None
+            if ('мощност' in item.get('name', '').lower()
+                    and item.get('value') is not None):
+                power_tep = item
+        if power_tep is not None:
+            passport.capacity_kw = power_tep.get('normalized_value') \
+                if power_tep.get('normalized_unit') == 'кВт' else None
         for item in ssr.get('chapters', []):
             db.session.add(AnalogSSRChapter(version_id=version.id,
                 extracted_json=_json(item), effective_json=_json(item), **{
@@ -516,6 +729,11 @@ def import_confirm(import_id):
                 ('number', 'name', 'building', 'mounting', 'equipment', 'other', 'total')}))
         for item in ssr.get('items', []):
             db.session.add(AnalogSSRItem(version_id=version.id,
+                details_json=_json({'details': item.get('details', {}),
+                                    'link': item.get('link', ''),
+                                    'costs': {key: item.get(key) for key in
+                                              ('building', 'mounting',
+                                               'equipment', 'other')}}),
                 extracted_json=_json(item), effective_json=_json(item), **{
                 key: item.get(key, '') for key in
                 ('chapter_number', 'item_type', 'ordinal', 'name', 'reason', 'total')}))
@@ -529,9 +747,8 @@ def import_confirm(import_id):
                                 details=_json({'import_id': row.id, 'passport_id': passport.id}),
                                 ip=request.remote_addr))
         db.session.commit()
-        if request.accept_mimetypes.best == 'text/html':
-            return redirect(url_for('analog.passport_detail',
-                                    passport_id=passport.id))
+        if not request.is_json:
+            return redirect(url_for('analog.simple_search'))
         return jsonify(status='confirmed', passport_id=passport.id,
                        version_id=version.id)
     except Exception:
@@ -551,9 +768,40 @@ def passport_detail(passport_id):
     if version is None and passport.versions:
         version = passport.versions[-1]
     version_id = version.id if version else None
+    gge = {}
+    if version and version.payload_json:
+        try:
+            gge = json.loads(version.payload_json).get('ssr', {})
+        except (TypeError, ValueError):
+            gge = {}
+    if version and version.source and version.source.raw_ssr_path:
+        source_path = os.path.realpath(os.path.join(
+            os.path.dirname(__file__), version.source.raw_ssr_path))
+        storage_root = os.path.realpath(ANALOG_STORAGE)
+        if (source_path.startswith(storage_root + os.sep)
+                and os.path.isfile(source_path)):
+            try:
+                with open(source_path, 'rb') as stream:
+                    gge = parse_gge(stream.read())
+            except (OSError, AnalogParseError):
+                pass
+    gge_items = {}
+    for item in gge.get('items', []):
+        gge_items.setdefault(item.get('chapter_number'), []).append(item)
+    gge_chapters = [{
+        **chapter, 'items': gge_items.get(chapter.get('number'), [])
+    } for chapter in gge.get('chapters', [])]
+    climate_details = {}
+    if passport.extracted_json:
+        try:
+            climate_details = json.loads(passport.extracted_json).get(
+                'climate_details', {})
+        except (TypeError, ValueError):
+            climate_details = {}
     data = {'id': passport.id, 'title': passport.title, 'address': passport.address,
             'object_type': passport.object_type, 'climate_zone': passport.climate_zone,
             'work_type': passport.work_type, 'capacity_kw': str(passport.capacity_kw or ''),
+            'capacity_display': _capacity_display(passport),
             'archived': passport.archived, 'versions': [
                 {'id': item.id, 'version_no': item.version_no,
                  'conclusion_number': item.conclusion_number,
@@ -580,6 +828,8 @@ def passport_detail(passport_id):
         return jsonify(data)
     return render_template(
         'analog_passport.html', passport=passport, version=version,
+        climate_details=climate_details,
+        capacity_display=_capacity_display(passport),
         organizations=[x for x in passport.organizations
                        if x.version_id == version_id],
         teps=[x for x in passport.teps if x.version_id == version_id],
@@ -587,7 +837,8 @@ def passport_detail(passport_id):
         costs=[x for x in passport.costs if x.version_id == version_id],
         diagnostics=[x for x in (version.diagnostics if version else [])],
         signatures=[x for x in (version.signatures if version else [])],
-        source=(version.source if version else None))
+        source=(version.source if version else None),
+        gge=gge, gge_chapters=gge_chapters)
 
 
 @analog_bp.post('/passports')
@@ -658,7 +909,8 @@ def archive(passport_id):
     db.session.add(AuditLog(user_id=current_user.id, action='analog_passport_archived',
                             details=_json({'passport_id': passport.id}), ip=request.remote_addr))
     db.session.commit()
-    return jsonify(status='archived') if request.is_json else redirect(url_for('analog.index'))
+    return (jsonify(status='archived') if request.is_json else
+            redirect(url_for('analog.simple_search')))
 
 
 @analog_bp.post('/passports/<int:passport_id>/reimport')
@@ -747,13 +999,28 @@ def climate_suggestion():
                    reference_version=item.reference_version,
                    reference_date=item.reference_date.isoformat())
 @analog_bp.post('/advanced/search')
+@analog_bp.post('/regulatory/search')
 @login_required
 def advanced_search():
     criteria = request.get_json(silent=True) or request.form.to_dict()
+    if not request.is_json:
+        for field in ('material', 'zouit_types'):
+            criteria[field] = ','.join(request.form.getlist(field))
     query = AnalogPassport.query.filter_by(archived=False)
     if criteria.get('object_type') and str(criteria.get('object_type_required', '')).lower() in (
             '1', 'true', 'yes', 'on'):
         query = query.filter_by(object_type=criteria['object_type'])
+    exact_climate = str(criteria.get('climate_zone', '')).strip().upper()
+    climate_region = str(criteria.get('climate_region', '')).strip().upper()
+    if exact_climate:
+        climate_match = (
+            func.upper(AnalogPassport.climate_zone) == exact_climate)
+    elif climate_region in ('I', 'II', 'III', 'IV'):
+        accepted = [climate_region] + [
+            f'{climate_region}{suffix}' for suffix in ('А', 'Б', 'В', 'Г')]
+        climate_match = func.upper(AnalogPassport.climate_zone).in_(accepted)
+    else:
+        climate_match = None
     for key in ('diameter_mm', 'pipe_diameter_mm', 'laying_method', 'pipe_system'):
         if criteria.get(key) and str(criteria.get(f'{key}_required', '')).lower() in (
                 '1', 'true', 'yes', 'on'):
@@ -763,64 +1030,37 @@ def advanced_search():
                 & (AnalogNetworkAttribute.version_id == AnalogPassport.current_version_id)
                 & (AnalogNetworkAttribute.key == stored_key)
                 & (AnalogNetworkAttribute.value == str(criteria[key]))))
-    score_terms = []
-    for field, field_weight in (('climate_zone', 20), ('work_type', 20)):
-        expected = criteria.get(field)
-        if expected:
-            score_terms.append(case((getattr(AnalogPassport, field) == expected,
-                                     field_weight), else_=0))
-    if criteria.get('object_type'):
-        score_terms.append(case((AnalogPassport.object_type == criteria['object_type'],
-                                 30), else_=0))
-    for key, field_weight in (('diameter_mm', 10), ('pipe_diameter_mm', 10),
-                              ('laying_method', 10), ('pipe_system', 10)):
-        if criteria.get(key):
-            stored_key = 'diameter_mm' if key == 'pipe_diameter_mm' else key
-            score_terms.append(case((exists().where(
-                (AnalogNetworkAttribute.passport_id == AnalogPassport.id)
-                & (AnalogNetworkAttribute.version_id == AnalogPassport.current_version_id)
-                & (AnalogNetworkAttribute.key == stored_key)
-                & (AnalogNetworkAttribute.value == str(criteria[key]))),
-                field_weight), else_=0))
-    capacity = criteria.get('capacity_kw')
-    if capacity:
-        try:
-            wanted = Decimal(str(capacity))
-            if wanted <= 0:
-                raise ValueError
-        except (InvalidOperation, TypeError, ValueError):
-            abort(400, description='Мощность должна быть положительным числом')
-        delta = func.abs(AnalogPassport.capacity_kw - wanted) / wanted
-        score_terms.append(case((AnalogPassport.capacity_kw.is_(None), 0),
-                                (delta >= 1, 0),
-                                else_=30 * (1 - delta)))
-    score = sum(score_terms) if score_terms else 0
-    query = query.order_by(score.desc(), AnalogPassport.id.asc())
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
-    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     rows = []
-    for passport in pagination.items:
+    for passport in query.all():
         similarity, details = _advanced_score(passport, criteria)
-        suitable, suitability_reasons = _suitability(passport, criteria)
+        mandatory = [item for item in details if item['mandatory']]
+        suitable = bool(mandatory) and all(item['passed'] for item in mandatory)
         suitability_reasons = [
-            f"{item['field']}: {item['reason']}" for item in details
-            if item['points'] < item['weight']]
+            f"{item['label']}: {item['reason']}" for item in mandatory
+            if not item['passed']]
         rows.append({'id': passport.id, 'title': passport.title,
                      'similarity_percent': similarity,
                      'details': details,
                      'suitable': suitable,
                      'suitability_reasons': suitability_reasons,
-                     'algorithm_version': 'weighted-v1'})
+                     'algorithm_version': '135pr-604pr-v1'})
+    rows.sort(key=lambda item: (-item['similarity_percent'], item['id']))
+    total = len(rows)
+    start = (page - 1) * per_page
+    rows = rows[start:start + per_page]
     if request.accept_mimetypes.best == 'text/html':
         return render_template('analog_advanced.html', rows=rows,
                                criteria=criteria, page=page,
-                               total=pagination.total)
+                               total=total)
     return jsonify(items=rows, page=page, per_page=per_page,
-                   total=pagination.total, algorithm_version='weighted-v1')
+                   total=total,
+                   algorithm_version='135pr-604pr-v1')
 
 
 @analog_bp.get('/advanced')
+@analog_bp.get('/regulatory')
 @login_required
 def advanced_page():
     return render_template('analog_advanced.html', rows=[], criteria={}, total=0)
@@ -831,18 +1071,30 @@ def advanced_page():
 def advanced_criteria():
     return jsonify(groups=[
         {'key': 'identity', 'title': 'Идентификация',
-         'fields': [{'name': 'object_type', 'required': True},
-                    {'name': 'work_type', 'required': False}]},
-        {'key': 'environment', 'title': 'Природные условия',
-         'fields': [{'name': 'climate_zone', 'required': False},
-                    {'name': 'climate_subzone', 'required': False}]},
-        {'key': 'capacity', 'title': 'Мощность',
-         'fields': [{'name': 'capacity_kw', 'required': False, 'unit': 'кВт'}]},
-        {'key': 'network', 'title': 'Тепловые сети',
-         'fields': [{'name': 'pipe_diameter_mm', 'required': False},
-                    {'name': 'laying_method', 'required': False},
-                    {'name': 'pipe_system', 'required': False}]},
-    ], algorithm_version='weighted-v1')
+         'fields': [{'name': name} for name in
+                    ('price_year', 'work_type', 'name', 'address')]},
+        {'key': 'mandatory', 'title': 'Обязательные критерии — 135/пр',
+         'fields': [{'name': name, 'required': True} for name in
+                    ('length_m', 'capacity_gcal_h', 'diameter_mm',
+                     'climate_region', 'climate_subzone', 'wind_region',
+                     'snow_region', 'seismicity',
+                     'geological_conditions')]},
+        {'key': 'construction', 'title': 'Конструктивные решения — 604/пр',
+         'fields': [{'name': name} for name in
+                    ('depth_m', 'laying_method', 'pipe_system', 'material',
+                     'insulation', 'supply_temp_c', 'return_temp_c',
+                     'pressure_mpa', 'chamber_count', 'bypass',
+                     'bypass_diameter_mm', 'bypass_length_m',
+                     'channelless_length_m', 'channel', 'channel_length_m',
+                     'channel_type', 'monolithic_channel_length_m',
+                     'prefab_channel_length_m', 'casing_length_m',
+                     'valve_replacement', 'valve_count', 'valve_note',
+                     'water_crossing', 'communications_zone', 'zouit',
+                     'zouit_types')]},
+        {'key': 'cost', 'title': 'Стоимостные показатели',
+         'fields': [{'name': name} for name in
+                    ('total_cost', 'cost_per_m', 'comparison_year')]},
+    ], algorithm_version='135pr-604pr-v1')
 
 
 @analog_bp.post('/passports/<int:passport_id>/versions/<int:version_id>/adjust')

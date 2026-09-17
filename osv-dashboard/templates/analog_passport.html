@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}{{ passport.title }}{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
+<a class="back" href="{{ url_for('analog.simple_search') }}">← Упрощённый поиск</a>
 <h1>{{ passport.title }}</h1>
 <section class="panel passport">
   {% if current_user.is_admin %}<form method="post" action="{{ url_for('analog.edit', passport_id=passport.id) }}">
@@ -33,13 +33,16 @@
   <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Архивировать</button></form>{% endif %}
   <dl><dt>Адрес</dt><dd>{{ passport.address or '—' }}</dd>
   <dt>Тип</dt><dd>{{ passport.object_type }}</dd>
-  <dt>Климат</dt><dd><span id="climate-value">{{ passport.climate_zone or '—' }} {{ passport.climate_subzone }}</span>
+  <dt>Климатический район, подрайон</dt><dd><span id="climate-value">{{ climate_details.get('climate_zone') or passport.climate_zone or '—' }}</span>
     {% if passport.climate_source %}<br><small>{{ passport.climate_source }} · версия {{ passport.climate_reference_version }} от {{ passport.climate_reference_date }}</small>{% endif %}
     {% if current_user.is_admin %}<br><button type="button" class="btn" id="suggest-climate">Предложить по адресу</button><span id="climate-suggestion"></span>{% endif %}</dd>
-  <dt>Мощность</dt><dd>{{ passport.capacity_kw or '—' }} кВт</dd>
+  <dt>Геологические условия</dt><dd>{{ climate_details.get('geological_conditions') or '—' }}</dd>
+  <dt>Ветровой район</dt><dd>{{ climate_details.get('wind_region') or '—' }}</dd>
+  <dt>Снеговой район</dt><dd>{{ climate_details.get('snow_region') or '—' }}</dd>
+  <dt>Сейсмическая активность (баллов)</dt><dd>{{ climate_details.get('seismicity') or '—' }}</dd>
+  <dt>Мощность</dt><dd>{{ capacity_display or '—' }}</dd>
    <dt>Вид работ</dt><dd>{{ passport.work_type or '—' }}</dd>
    <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
-   <dt>Природные условия</dt><dd>{{ passport.natural_conditions or '—' }}</dd>
    <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd></dl>
   <h2>Версии и происхождение</h2>
   <table><tr><th>Версия</th><th>Номер заключения</th><th>Итог ССР</th><th>С коэффициентом</th><th>Происхождение</th></tr>
@@ -92,10 +95,61 @@
   <h2>Таблица 3.2.1</h2>
   <table><tr><th>Строка</th><th>Наименование</th><th>Представление</th><th>Утверждение</th><th>Изменение</th><th>Причина</th></tr>
   {% for item in costs %}<tr><td>{{ item.ordinal }}</td><td>{{ item.name }}</td><td>{{ item.submitted_cost }}</td><td>{{ item.approved_cost }}</td><td>{{ item.change_cost }}</td><td>{{ item.price_level }} / НДС {{ item.vat }}<br>{{ item.footnote }}<br>{{ item.change_reason }}</td></tr>{% else %}<tr><td colspan="6">Нет данных</td></tr>{% endfor %}</table>
-  <h2>ССР: главы, позиции и подписи</h2>
-  {% if version %}<table><tr><th>Глава</th><th>Наименование</th><th>Итог</th></tr>{% for item in version.chapters %}<tr><td>{{ item.number }}</td><td>{{ item.name }}</td><td>{{ item.total }}</td></tr>{% endfor %}</table>
-  <ul>{% for item in version.items %}<li>{{ item.chapter_number }} / {{ item.ordinal }} — {{ item.name }}: {{ item.total }}</li>{% endfor %}</ul>
-  <ul>{% for item in signatures %}<li>{{ item.role }}: {{ item.name }}, {{ item.position }} {{ item.department }}</li>{% endfor %}</ul>{% endif %}
+  <h2>Сводный сметный расчёт (GGE)</h2>
+  {% if version %}
+  <div class="gge-summary">
+    <dl>
+      <dt>Наименование</dt><dd>{{ gge.get('name') or passport.title }}</dd>
+      <dt>Заказчик</dt><dd>{{ gge.get('customer') or '—' }}</dd>
+      <dt>Дата утверждения</dt><dd>{{ gge.get('approved_date') or version.approval_date or '—' }}</dd>
+      <dt>Формат файла</dt><dd>{{ gge.get('file_type') or 'ССР' }} {{ gge.get('schema_version') or version.schema_version }}</dd>
+      <dt>Программа</dt><dd>{{ gge.get('software_name') or '—' }} {{ gge.get('software_version') or '' }}</dd>
+      <dt>Уровень цен</dt><dd>{{ gge.get('price_year') or version.price_year or '—' }}{% if gge.get('price_month') %}, месяц {{ gge.get('price_month') }}{% elif version.price_quarter %}, квартал {{ version.price_quarter }}{% endif %}</dd>
+    </dl>
+    {% set total = gge.get('summary', {}) %}
+    <table><tr><th>Строительные работы</th><th>Монтажные работы</th><th>Оборудование</th><th>Прочие затраты</th><th>Всего</th></tr>
+      <tr><td>{{ total.get('building', 0) }}</td><td>{{ total.get('mounting', 0) }}</td><td>{{ total.get('equipment', 0) }}</td><td>{{ total.get('other', 0) }}</td><td><strong>{{ total.get('total', version.total_cost) }}</strong></td></tr>
+    </table>
+  </div>
+  <p><small>Нажмите на главу или позицию, чтобы раскрыть подробности.</small></p>
+  <div class="gge-browser">
+  {% for chapter in gge_chapters %}
+    <details class="gge-chapter" {% if chapter.get('items') %}open{% endif %}>
+      <summary><strong>Глава {{ chapter.get('number') }}{% if chapter.get('name') and chapter.get('name') != 'Глава ' ~ chapter.get('number') %}: {{ chapter.get('name') }}{% endif %}</strong>
+        <span>Итого: {{ chapter.get('total', 0) }}</span></summary>
+      <table><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr>
+        <tr><td>{{ chapter.get('building', 0) }}</td><td>{{ chapter.get('mounting', 0) }}</td><td>{{ chapter.get('equipment', 0) }}</td><td>{{ chapter.get('other', 0) }}</td><td>{{ chapter.get('total', 0) }}</td></tr>
+      </table>
+      {% for item in chapter.get('items', []) %}
+      <details class="gge-item">
+        <summary>{{ item.get('ordinal') or loop.index }}. {{ item.get('name') or item.get('item_type') }} — <strong>{{ item.get('total', 0) }}</strong></summary>
+        <dl><dt>Тип</dt><dd>{{ item.get('item_type') }}</dd><dt>Обоснование</dt><dd>{{ item.get('reason') or '—' }}</dd>
+          <dt>Связанный файл</dt><dd>{{ item.get('link') or '—' }}</dd></dl>
+        <table><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr>
+          <tr><td>{{ item.get('building', 0) }}</td><td>{{ item.get('mounting', 0) }}</td><td>{{ item.get('equipment', 0) }}</td><td>{{ item.get('other', 0) }}</td><td>{{ item.get('total', 0) }}</td></tr>
+        </table>
+        {% if item.get('details') %}<div class="gge-details">
+          {% for cost_type, values in item.get('details', {}).items() %}
+            <details><summary>{{ cost_type }}</summary>
+              {% if values is mapping %}<dl>{% for key, value in values.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% else %}<p>{{ values }}</p>{% endif %}
+            </details>
+          {% endfor %}
+        </div>{% endif %}
+      </details>
+      {% else %}<p>В главе нет позиций.</p>{% endfor %}
+    </details>
+  {% else %}<p>Детальная структура GGE недоступна. Загрузите исходную пару повторно.</p>{% endfor %}
+  </div>
+  <h3>Подписи ССР</h3>
+  <ul>{% for item in signatures %}<li>{{ item.role }}: {{ item.name }}, {{ item.position }} {{ item.department }}</li>{% else %}<li>Подписи в файле отсутствуют</li>{% endfor %}</ul>{% endif %}
+  <style>
+    .gge-summary dl,.gge-item dl,.gge-details dl{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:6px 14px}
+    .gge-summary dt,.gge-item dt,.gge-details dt{font-weight:700}.gge-summary dd,.gge-item dd,.gge-details dd{margin:0}
+    .gge-chapter,.gge-item,.gge-details details{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:10px;background:var(--panel)}
+    .gge-chapter>summary,.gge-item>summary,.gge-details summary{cursor:pointer;display:flex;justify-content:space-between;gap:16px}
+    .gge-item{margin-left:18px}.gge-details{margin-left:18px}
+    @media(max-width:700px){.gge-summary dl,.gge-item dl,.gge-details dl{grid-template-columns:1fr}.gge-item,.gge-details{margin-left:0}.gge-chapter>summary,.gge-item>summary{display:list-item}}
+  </style>
   <h2>Диагностика и происхождение</h2>
   {% for item in diagnostics %}<p class="alert {{ item.severity }}">{{ item.code }}: {{ item.message }}</p>{% endfor %}
   {% if source %}<p>Источники: {{ source.source_filename }} ({{ source.source_hash }}), {{ source.ssr_filename }} ({{ source.ssr_hash }}). Сырые байты сохранены по защищённым путям.</p>{% endif %}

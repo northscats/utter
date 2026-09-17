@@ -73,6 +73,15 @@ router = "path"
 [workflows.workflow.tasks.env]
 PORT = "8080"
 
+[[workflows.workflow]]
+name = "Run"
+mode = "sequential"
+author = 55001033
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = ""
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true

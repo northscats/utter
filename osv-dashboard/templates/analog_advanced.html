@@ -1,48 +1,94 @@
 {% extends "modules.html" %}
-{% block title %}Расширенный подбор аналогов{% endblock %}
+{% block title %}Поиск по нормативно-правовому акту{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
-<h1>Расширенный подбор</h1>
-<form class="panel filters" method="post" action="{{ url_for('analog.advanced_search') }}">
+<a class="back" href="{{ url_for('analog.index') }}">← Выбор способа поиска</a>
+<h1>Поиск по нормативно-правовому акту</h1>
+<p class="lead">Фильтры для тепловых сетей по приказам №135/пр и №604/пр.</p>
+<style>
+.npa-form{display:block}.npa-group{margin:0 0 24px}.npa-group>h2{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:var(--blue);margin:0 0 10px}
+.npa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.npa-wide{grid-column:1/-1}
+.npa-checks{display:flex;flex-wrap:wrap;gap:8px 18px}.npa-checks label{display:flex;grid-template-columns:auto 1fr;align-items:center}.npa-checks input{width:auto;min-height:auto}
+.criterion{font-size:12px;color:var(--mut);font-weight:600}.npa-actions{display:flex;gap:12px;justify-content:flex-end}
+</style>
+<form class="npa-form" method="post" action="{{ url_for('analog.advanced_search') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <fieldset><legend>Идентификация</legend>
-    <label>Тип <input id="object-type" name="object_type" value="{{ criteria.get('object_type','') }}"></label>
-    <label><input type="checkbox" name="object_type_required" value="1"> обязательно</label>
-    <label>Вид работ <input name="work_type" value="{{ criteria.get('work_type','') }}"></label>
-  </fieldset>
-  <fieldset><legend>Природные условия</legend>
-    <label>Климатический район <input name="climate_zone" value="{{ criteria.get('climate_zone','') }}"></label>
-    <label>Подрайон <input name="climate_subzone" value="{{ criteria.get('climate_subzone','') }}"></label>
-  </fieldset>
-  <fieldset><legend>Мощность и тепловые сети</legend>
-    <label class="area-field">Мощность, кВт <input name="capacity_kw" type="number" step="any"></label>
-    <label class="area-field"><input type="checkbox" name="capacity_kw_required" value="1"> мощность обязательна</label>
-    <div id="network-fields"><label>Диаметр, мм <input name="pipe_diameter_mm"></label>
-    <label><input type="checkbox" name="pipe_diameter_mm_required" value="1"> обязательно</label>
-    <label>Прокладка <input name="laying_method"></label>
-    <label><input type="checkbox" name="laying_method_required" value="1"> обязательно</label>
-    <label>Система труб <input name="pipe_system"></label></div>
-  </fieldset>
-  <button class="btn" type="submit">Подобрать и объяснить</button>
+
+  <section class="npa-group"><h2>Идентификация</h2><div class="panel npa-grid">
+    <label>Год сметного уровня цен<input type="number" name="price_year" min="2000" max="2099" value="{{ criteria.get('price_year','') }}"></label>
+    <label>Тип объекта<select name="work_type"><option value="">Любой</option>{% for value in ('Строительство','Реконструкция','Капитальный ремонт') %}<option {% if criteria.get('work_type') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+    <label>Наименование / описание<input name="name" value="{{ criteria.get('name','') }}"></label>
+    <label>Адрес / местоположение<input name="address" value="{{ criteria.get('address','') }}"></label>
+  </div></section>
+
+  <section class="npa-group"><h2>Обязательные критерии — Приказ №135/пр</h2>
+    <div class="panel"><h2>Критерии 2–3: протяжённость и мощность</h2><div class="npa-grid">
+      <label>Протяжённость трассы, м<input type="number" step="0.1" min="0" name="length_m" value="{{ criteria.get('length_m','') }}"><span class="criterion">Допустимое отклонение ≤10%</span></label>
+      <label>Пропускная способность, Гкал/ч<input type="number" step="0.01" min="0" name="capacity_gcal_h" value="{{ criteria.get('capacity_gcal_h','') }}"><span class="criterion">Допустимое отклонение ≤10%</span></label>
+      <label>Диаметр сети (по большему), мм<input type="number" step="1" min="0" name="diameter_mm" value="{{ criteria.get('diameter_mm','') }}"><span class="criterion">Допустимое отклонение ≤10%</span></label>
+    </div></div>
+    <div class="panel"><h2>Критерий 4: природно-климатические условия</h2><div class="npa-grid">
+      <label>Климатический район<select name="climate_region"><option value="">Любой</option>{% for value in ('I','II','III','IV') %}<option {% if criteria.get('climate_region') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Подрайон<select name="climate_subzone"><option value="">Любой</option>{% for value in ('А','Б','В','Г') %}<option {% if criteria.get('climate_subzone') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Ветровой район<select name="wind_region"><option value="">Любой</option>{% for value in ('I','II','III','IV','V','VI','VII') %}<option {% if criteria.get('wind_region') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Снеговой район<select name="snow_region"><option value="">Любой</option>{% for value in ('I','II','III','IV','V','VI','VII','VIII') %}<option {% if criteria.get('snow_region') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Сейсмичность, баллов<select name="seismicity"><option value="">Любая</option>{% for value in ('5','6','7','8','9') %}<option {% if criteria.get('seismicity') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Инженерно-геологические условия<select name="geological_conditions"><option value="">Любые</option>{% for value in ('Простые','Средней сложности','Сложные') %}<option {% if criteria.get('geological_conditions') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Глубина залегания трассы, м<input type="number" step="0.1" min="0" name="depth_m" value="{{ criteria.get('depth_m','') }}"></label>
+    </div></div>
+  </section>
+
+  <section class="npa-group"><h2>Дополнительные критерии — конструктивные решения, Приказ №604/пр</h2>
+    <div class="panel"><h2>Трубопровод и прокладка</h2><div class="npa-grid">
+      <label>Тип прокладки<select name="laying_method"><option value="">Любой</option>{% for value in ('Подземная бесканальная','Подземная канальная','Подземная комбинированная','Наземная','Надземная','Комбинированная подземная и надземная') %}<option {% if criteria.get('laying_method') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Система трубопроводов<select name="pipe_system"><option value="">Любая</option>{% for value in ('2-трубная','4-трубная','6-трубная') %}<option {% if criteria.get('pipe_system') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <div><label>Материал трубопроводов</label><div class="npa-checks">{% for value in ('ППУ','ППМИ','Полимеры','Оцинк. сталь') %}<label><input type="checkbox" name="material" value="{{ value }}" {% if value in criteria.get('material','') %}checked{% endif %}>{{ value }}</label>{% endfor %}</div></div>
+      <label>Тип изоляции<select name="insulation"><option value="">Любой</option>{% for value in ('ППУ','ППМИ','Мин. вата','Пенополистирол') %}<option {% if criteria.get('insulation') == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label>Температура подачи, °С<input type="number" name="supply_temp_c" min="0" max="200" value="{{ criteria.get('supply_temp_c','') }}"></label>
+      <label>Температура обратки, °С<input type="number" name="return_temp_c" min="0" max="200" value="{{ criteria.get('return_temp_c','') }}"></label>
+      <label>Давление теплоносителя, МПа<input type="number" step="0.1" min="0" name="pressure_mpa" value="{{ criteria.get('pressure_mpa','') }}"></label>
+      <label>Количество тепловых камер, шт<input type="number" min="0" name="chamber_count" value="{{ criteria.get('chamber_count','') }}"></label>
+    </div></div>
+    <div class="panel"><h2>Байпас</h2><div class="npa-grid">
+      <label>Байпас требуется?<select name="bypass"><option value="">Не учитывать</option><option {% if criteria.get('bypass') == 'Да' %}selected{% endif %}>Да</option><option {% if criteria.get('bypass') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+      <label>Диаметр байпаса, мм<input type="number" min="0" name="bypass_diameter_mm" value="{{ criteria.get('bypass_diameter_mm','') }}"></label>
+      <label>Протяжённость байпаса, м<input type="number" step="0.1" min="0" name="bypass_length_m" value="{{ criteria.get('bypass_length_m','') }}"></label>
+    </div></div>
+    <div class="panel"><h2>Прокладка в сборных каналах</h2><div class="npa-grid">
+      <label>Бесканальная прокладка, м<input type="number" step="0.1" min="0" name="channelless_length_m" value="{{ criteria.get('channelless_length_m','') }}"></label>
+      <label>Прокладка в сборных каналах?<select name="channel"><option value="">Не учитывать</option><option {% if criteria.get('channel') == 'Да' %}selected{% endif %}>Да</option><option {% if criteria.get('channel') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+      <label>Протяжённость каналов, м<input type="number" step="0.1" min="0" name="channel_length_m" value="{{ criteria.get('channel_length_m','') }}"></label>
+      <label>Тип канала<select name="channel_type"><option value="">Любой</option><option {% if criteria.get('channel_type') == 'Монолитный' %}selected{% endif %}>Монолитный</option><option {% if criteria.get('channel_type') == 'Сборный' %}selected{% endif %}>Сборный</option></select></label>
+      <label>Канал монолитный, м<input type="number" step="0.1" min="0" name="monolithic_channel_length_m" value="{{ criteria.get('monolithic_channel_length_m','') }}"></label>
+      <label>Канал сборный, м<input type="number" step="0.1" min="0" name="prefab_channel_length_m" value="{{ criteria.get('prefab_channel_length_m','') }}"></label>
+      <label>Протяжённость футляров, м<input type="number" step="0.1" min="0" name="casing_length_m" value="{{ criteria.get('casing_length_m','') }}"></label>
+    </div></div>
+    <div class="panel"><h2>Арматура, переходы, охранные зоны</h2><div class="npa-grid">
+      <label>Замена запорной арматуры<select name="valve_replacement"><option value="">Не учитывать</option><option {% if criteria.get('valve_replacement') == 'Да' %}selected{% endif %}>Да</option><option {% if criteria.get('valve_replacement') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+      <label>Количество единиц, шт<input type="number" min="0" name="valve_count" value="{{ criteria.get('valve_count','') }}"></label>
+      <label>Примечание по арматуре<input name="valve_note" value="{{ criteria.get('valve_note','') }}"></label>
+      <label>Наличие водяного перехода<select name="water_crossing"><option value="">Не учитывать</option><option {% if criteria.get('water_crossing') == 'Да' %}selected{% endif %}>Да</option><option {% if criteria.get('water_crossing') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+      <label>Охранные зоны смежных коммуникаций<select name="communications_zone"><option value="">Не учитывать</option><option {% if criteria.get('communications_zone') == 'Да' %}selected{% endif %}>Да</option><option {% if criteria.get('communications_zone') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+    </div></div>
+    <div class="panel"><h2>ЗОУИТ</h2><div class="npa-grid">
+      <label>Наличие ЗОУИТ<select name="zouit"><option value="">Не учитывать</option><option {% if criteria.get('zouit') == 'Имеются' %}selected{% endif %}>Имеются</option><option {% if criteria.get('zouit') == 'Нет' %}selected{% endif %}>Нет</option></select></label>
+      <div class="npa-wide"><label>Типы ЗОУИТ</label><div class="npa-checks">{% for value in ('ГУКН','Лесфонд','Автодор','ВПП','Водоохр. зона','Рыбоохр. зона','Зона 0 отм.','Зона РЖД') %}<label><input type="checkbox" name="zouit_types" value="{{ value }}" {% if value in criteria.get('zouit_types','') %}checked{% endif %}>{{ value }}</label>{% endfor %}</div></div>
+    </div></div>
+  </section>
+
+  <section class="npa-group"><h2>Стоимостные показатели</h2><div class="panel npa-grid">
+    <label>Ориентировочная полная стоимость, тыс. руб.<input type="number" step="0.001" min="0" name="total_cost" value="{{ criteria.get('total_cost','') }}"></label>
+    <label>Ориентировочная стоимость на 1 м, тыс. руб./м<input type="number" step="0.001" min="0" name="cost_per_m" value="{{ criteria.get('cost_per_m','') }}"></label>
+    <label>Год сметных цен для сравнения<input type="number" min="2000" max="2099" name="comparison_year" value="{{ criteria.get('comparison_year','') }}"></label>
+  </div></section>
+
+  <div class="npa-actions"><a class="btn" href="{{ url_for('analog.advanced_page') }}">Очистить</a><button class="btn" type="submit">Найти аналог</button></div>
 </form>
-<section class="panel"><h2>Результаты (пригодность отдельно от близости)</h2>
-{% for row in rows %}<article class="result"><h3>{{ row.title }} — близость {{ '%.2f'|format(row.similarity_percent) }}%</h3>
-  <p>Пригодность: {% if row.suitable %}<strong>подходит</strong>{% else %}<strong>не подходит</strong>{% endif %}</p>
-  {% if row.suitability_reasons %}<p>Причины проверки: {{ row.suitability_reasons|join('; ') }}</p>{% endif %}
-  <ul>{% for item in row.details %}<li>{{ item.field }}: {{ item.reason }} ({{ item.points }}/{{ item.weight }})</li>{% endfor %}</ul>
-</article>{% else %}<p>Задайте критерии.</p>{% endfor %}
+
+<section class="panel"><h2>Результаты нормативного подбора{% if total %} — {{ total }}{% endif %}</h2>
+{% for row in rows %}<article class="result"><h3><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a> — {{ '%.1f'|format(row.similarity_percent) }}%</h3>
+  <p>Приказ №135/пр: {% if row.suitable %}<strong>объект признан аналогом</strong>{% else %}<strong>объект не признан аналогом</strong>{% endif %}</p>
+  {% if row.suitability_reasons %}<p>Нарушенные обязательные критерии: {{ row.suitability_reasons|join('; ') }}</p>{% endif %}
+  <ul>{% for item in row.details %}<li>{{ item.label }}: {{ item.reason }}{% if item.mandatory %} · обязательный{% endif %} — искомое: {{ item.expected }}, в аналоге: {{ item.actual or 'нет данных' }}</li>{% endfor %}</ul>
+</article>{% else %}<p>Заполните критерии и нажмите «Найти аналог».</p>{% endfor %}
 </section>
-<script>
-(() => {
-  const type = document.getElementById('object-type');
-  const network = document.getElementById('network-fields');
-  const area = document.querySelectorAll('.area-field');
-  function toggle() {
-    const isNetwork = (type.value || '').toLowerCase().includes('сеть');
-    network.hidden = !isNetwork;
-    area.forEach(node => { node.hidden = isNetwork; });
-  }
-  type.addEventListener('input', toggle); toggle();
-})();
-</script>
 {% endblock %}

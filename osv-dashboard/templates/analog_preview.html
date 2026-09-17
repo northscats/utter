@@ -2,7 +2,7 @@
 {% block title %}Предварительный просмотр импорта{% endblock %}
 {% block content %}
 <div id="analog-preview-page">
-<a class="back" href="{{ url_for('analog.index') }}">← Поиск аналогов</a>
+<a class="back" href="{{ url_for('analog.simple_search') }}">← Упрощённый поиск</a>
 <h1>Проверка пары источников</h1>
 {% for item in diagnostics %}<div class="alert {{ item.severity }}">{{ item.message }}</div>{% endfor %}
 <section class="panel"><dl>
@@ -12,7 +12,11 @@
   <dt>Вид работ</dt><dd>{{ pair.conclusion.work_type }}</dd>
   <dt>Адрес</dt><dd>{{ pair.conclusion.address }}</dd>
   <dt>Регион источника</dt><dd>{{ pair.conclusion.region }}</dd>
-  <dt>Климатические условия</dt><dd>{{ pair.conclusion.climate_conditions }}</dd>
+  <dt>Климатический район, подрайон</dt><dd>{{ pair.conclusion.climate_details.climate_zone or '—' }}</dd>
+  <dt>Геологические условия</dt><dd>{{ pair.conclusion.climate_details.geological_conditions or '—' }}</dd>
+  <dt>Ветровой район</dt><dd>{{ pair.conclusion.climate_details.wind_region or '—' }}</dd>
+  <dt>Снеговой район</dt><dd>{{ pair.conclusion.climate_details.snow_region or '—' }}</dd>
+  <dt>Сейсмическая активность (баллов)</dt><dd>{{ pair.conclusion.climate_details.seismicity or '—' }}</dd>
   <dt>Кадастровый номер</dt><dd>{{ pair.conclusion.cadastral_number }}</dd>
   <dt>Итог ССР</dt><dd>{{ pair.ssr.summary.total }}</dd>
   <dt>Уровень цен</dt><dd>{{ pair.ssr.price_year }} / квартал {{ pair.ssr.price_quarter }}</dd>
@@ -28,17 +32,22 @@
   </tr>{% endfor %}</tbody>
 </table>
 {% endif %}
-{% if pair.can_confirm %}<form method="post" action="{{ url_for('analog.import_confirm', import_id=import_id) }}">
+{% if pair.can_confirm %}<form id="analog-confirm-form" method="post" action="{{ url_for('analog.import_confirm', import_id=import_id) }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label>Объект <input name="title" value="{{ pair.conclusion.expert_object_name }}"></label>
   <label>Адрес <input name="address" value="{{ pair.conclusion.address }}"></label>
   <label>Тип объекта <select name="object_type"><option>котельная</option><option>БМК</option><option>ЦТП</option><option>ТП</option><option>тепловая сеть</option></select></label>
   <label>Вид работ <input name="work_type" value="{{ pair.conclusion.work_type }}"></label>
-  <label>Климатические условия <input name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}"></label>
+  <input type="hidden" name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}">
   <label>Кадастровый номер <input name="cadastral_number" value="{{ pair.conclusion.cadastral_number }}"></label>
   <p>Результат заключения фиксирован: {{ pair.conclusion.examination_result }}</p>
-  <button class="btn" type="submit">Подтвердить импорт</button>
-</form>{% else %}<strong>Импорт заблокирован до исправления ошибок.</strong>{% endif %}
+  <p><strong>После загрузки объект появится в общей таблице модуля «Поиск объектов-аналогов».</strong></p>
+  <button class="btn" id="analog-confirm-button" type="submit">Загрузить данные в общую таблицу аналогов</button>
+</form>{% else %}
+  <p><strong>Импорт заблокирован до исправления ошибок, указанных выше.</strong></p>
+  <button class="btn" id="analog-confirm-button" type="button" disabled
+          title="Сначала исправьте ошибки проверки">Загрузить данные в общую таблицу аналогов</button>
+{% endif %}
 </section>
 </div>
 {% endblock %}

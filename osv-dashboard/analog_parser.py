@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Безопасный разбор заключения экспертизы и ССР 3.01.
+"""Безопасный разбор заключения экспертизы и ССР 1.01/3.01.
 
 Парсер не применяет XSLT, не разрешает сущности/сети и работает только с
 переданными байтами.  Извлечённые данные являются preview: до подтверждения
 они не попадают в паспорт.
 """
 import base64
+import difflib
 import hashlib
 import io
 import re
@@ -131,9 +132,13 @@ def _tei_rows(object_node):
     if object_node is None:
         return rows
     unit_aliases = {
-        'гкал': ('Гкал', Decimal('1162.222222222222'), 'кВт'),
+        # Гкал without "/ч" is energy, not power. Preserve it exactly instead
+        # of silently treating it as Гкал/ч.
+        'гкал': ('Гкал', Decimal('1'), 'Гкал'),
         'гкал/ч': ('Гкал/ч', Decimal('1162.222222222222'), 'кВт'),
         'квт': ('кВт', Decimal('1'), 'кВт'),
+        # Source documents commonly use lowercase "мВт" for megawatts.
+        'мвт': ('МВт', Decimal('1000'), 'кВт'),
     }
     for item in list(object_node):
         if item.tag.rsplit('}', 1)[-1] != 'TEI':
@@ -141,7 +146,14 @@ def _tei_rows(object_node):
         name = _direct_val(item, 'Name')
         unit = _direct_val(item, 'Measure') or _direct_val(item, 'Unit')
         value_text = _direct_val(item, 'Value')
-        value = _decimal(value_text)
+        value_match = re.match(
+            r'^\s*([+-]?\d+(?:[.,]\d+)?)\s*([а-яa-z/]+)?\s*$',
+            value_text, re.IGNORECASE)
+        embedded_unit = value_match.group(2) if value_match else ''
+        if embedded_unit and (not unit or unit.strip().lower() in
+                              ('не указано', 'нет', '-')):
+            unit = embedded_unit
+        value = _decimal(value_match.group(1) if value_match else value_text)
         normalized_value, normalized_unit = value, unit
         conversion = unit_aliases.get(unit.strip().lower())
         if value is not None and conversion:
@@ -178,6 +190,23 @@ def _hash(raw):
 
 def _norm_name(value):
     return re.sub(r'[^0-9а-яa-z]+', '', (value or '').lower())
+
+
+def _comparable_name(value):
+    """Remove non-identifying service wording while retaining object details."""
+    words = re.findall(r'[0-9а-яa-z]+', (value or '').lower())
+    return ''.join(word for word in words if word not in ('корректировка',))
+
+
+def _names_match(left, right):
+    a, b = _comparable_name(left), _comparable_name(right)
+    if not a or not b:
+        return True
+    if a in b or b in a:
+        return True
+    # Real files contain occasional transposed/missing letters. A high whole-name
+    # threshold tolerates those without accepting objects with different details.
+    return difflib.SequenceMatcher(None, a, b).ratio() >= 0.90
 
 
 def parse_conclusion(raw):
@@ -309,9 +338,26 @@ def parse_conclusion(raw):
                               'provenance': 'conclusionRaw/EstimatedCost'})
     object_node = _find(data_root, 'Object')
     tep_rows = _tei_rows(object_node)
-    climate = (_val(data_root, 'ClimateConditions') or
-               _val(data_root, 'ClimateDistrict') or
-               (_val(object_node, 'ClimateDistrict') if object_node is not None else ''))
+    climate_zone = (_val(data_root, 'ClimateDistrict') or
+                    (_val(object_node, 'ClimateDistrict')
+                     if object_node is not None else ''))
+    climate_details = {
+        'climate_zone': climate_zone,
+        'geological_conditions': _val(data_root, 'GeologicalConditions'),
+        'wind_region': _val(data_root, 'WindDistrict'),
+        'snow_region': _val(data_root, 'SnowDistrict'),
+        'seismicity': _val(data_root, 'SeismicActivity'),
+    }
+    climate_labels = (
+        ('Климатический район, подрайон', 'climate_zone'),
+        ('Геологические условия', 'geological_conditions'),
+        ('Ветровой район', 'wind_region'),
+        ('Снеговой район', 'snow_region'),
+        ('Сейсмическая активность (баллов)', 'seismicity'),
+    )
+    climate = '\n'.join(
+        f'{label}: {climate_details[key]}'
+        for label, key in climate_labels if climate_details[key])
     cadastral = _val(data_root, 'CadastralNumber')
     construction_object = _val(data_root, 'Object') or _val(data_root, 'ExaminationObject')
     return {
@@ -325,7 +371,8 @@ def parse_conclusion(raw):
         'work_type': work,
         'address': _object_address(object_node),
         'region': _object_region(object_node),
-        'climate_zone': _val(data_root, 'ClimateDistrict'),
+        'climate_zone': climate_zone,
+        'climate_details': climate_details,
         'climate_conditions': climate,
         'natural_conditions': climate,
         'cadastral_number': cadastral,
@@ -348,16 +395,49 @@ def _cost(node):
             for key in ('Building', 'Mounting', 'Equipment', 'Other', 'Total')}
 
 
+def _xml_details(node):
+    """Preserve every GGE detail leaf using source decimal strings."""
+    if node is None:
+        return {}
+    children = list(node)
+    if not children:
+        return (node.text or '').strip()
+    result = {}
+    for child in children:
+        key = child.tag.rsplit('}', 1)[-1]
+        value = _xml_details(child)
+        if key in result:
+            if not isinstance(result[key], list):
+                result[key] = [result[key]]
+            result[key].append(value)
+        else:
+            result[key] = value
+    return result
+
+
 def parse_gge(raw):
-    """Parse SummaryEstimate-3_01 without float arithmetic."""
+    """Parse supported SummaryEstimate schemas without float arithmetic."""
     root, raw = _safe_xml(raw, 'ССР')
     if root.tag.rsplit('}', 1)[-1] != 'Construction':
         raise AnalogParseError('ССР: ожидается элемент Construction', 'schema')
     meta = _find(root, 'Meta')
     file_meta = _find(meta, 'File') if meta is not None else None
-    version = _val(file_meta, 'Version') if file_meta is not None else ''
-    if version and version != '3.01':
-        raise AnalogParseError(f'ССР: неподдерживаемая версия {version}', 'schema')
+    file_version = _val(file_meta, 'Version') if file_meta is not None else ''
+    schema_location = next((
+        value for key, value in root.attrib.items()
+        if key.rsplit('}', 1)[-1] == 'noNamespaceSchemaLocation'
+    ), '')
+    schema_match = re.search(r'SummaryEstimate-(\d+_\d+)\.xsd$', schema_location,
+                             re.IGNORECASE)
+    declared_version = schema_match.group(1).replace('_', '.') if schema_match else ''
+    if file_version and declared_version and file_version != declared_version:
+        raise AnalogParseError(
+            f'ССР: версия файла {file_version} не совпадает со схемой {declared_version}',
+            'schema')
+    version = file_version or declared_version
+    if version not in ('1.01', '3.01'):
+        raise AnalogParseError(
+            f'ССР: неподдерживаемая версия {version or "не указана"}', 'schema')
     summary = _find(root, 'Summary')
     summary = _cost(summary) if summary is not None else {}
     chapters, items = [], []
@@ -367,17 +447,22 @@ def parse_gge(raw):
             continue
         ch_summary = _find(chapter, 'SubSummary') or _find(chapter, 'Summary')
         values = _cost(ch_summary) if ch_summary is not None else _cost(chapter)
-        chapters.append({'number': int(match.group(1)),
-                         'name': _val(chapter, 'ConstantNameChapter'),
+        chapter_number = int(match.group(1))
+        chapters.append({'number': chapter_number,
+                         'name': _val(chapter, 'ConstantNameChapter')
+                         or f'Глава {chapter_number}',
                          **values})
         for child in list(chapter):
             typ = child.tag.rsplit('}', 1)[-1]
             if typ not in ('LocalEstimate', 'Addition', 'Calculation'):
                 continue
             values = _cost(child)
-            items.append({'chapter_number': int(match.group(1)), 'item_type': typ,
+            items.append({'chapter_number': chapter_number, 'item_type': typ,
                           'ordinal': _val(child, 'Num'), 'name': _val(child, 'Name'),
-                          'reason': _val(child, 'Reason'), **values})
+                           'reason': _val(child, 'Reason'),
+                           'link': _val(child, 'Link'),
+                           'details': _xml_details(_find(child, 'Details')),
+                           **values})
     signatures = []
     signatures_node = _find(root, 'Signatures')
     if signatures_node is not None:
@@ -387,15 +472,23 @@ def parse_gge(raw):
                                'position': _val(item, 'Position'),
                                'department': _val(item, 'Department')})
     price = _find(root, 'PriceLevel')
+    price_month = int(_val(price, 'Month')) if _val(price, 'Month').isdigit() else None
+    price_quarter = int(_val(price, 'Quarter')) if _val(price, 'Quarter').isdigit() else None
+    if price_quarter is None and price_month is not None and 1 <= price_month <= 12:
+        price_quarter = (price_month - 1) // 3 + 1
     return {
         'name': _direct_val(root, 'Name'), 'customer': _direct_val(root, 'Customer'),
         'approved_date': _date(_direct_val(root, 'Approved')),
         'price_year': int(_val(price, 'Year')) if _val(price, 'Year').isdigit() else None,
-        'price_quarter': int(_val(price, 'Quarter')) if _val(price, 'Quarter').isdigit() else None,
+        'price_quarter': price_quarter,
         'basic_price': _val(price, 'BasicPrice').lower() == 'true',
+        'price_month': price_month,
+        'software_name': _val(_find(meta, 'Soft'), 'Name') if meta is not None else '',
+        'software_version': _val(_find(meta, 'Soft'), 'Version') if meta is not None else '',
+        'file_type': _val(file_meta, 'Type') if file_meta is not None else '',
         'summary': summary, 'chapters': chapters, 'items': items,
         'signatures': signatures,
-        'schema_version': version or '3.01', 'ssr_hash': _hash(raw),
+        'schema_version': version, 'ssr_hash': _hash(raw),
         'raw_size': len(raw),
     }
 
@@ -420,10 +513,9 @@ def parse_pair(conclusion, ssr):
         diagnostics.append({'severity': 'error', 'code': 'negative_conclusion',
                             'message': 'Отрицательное заключение нельзя импортировать'})
     if left['expert_object_name'] and right['name']:
-        a, b = left['expert_object_name'].lower(), right['name'].lower()
-        if _norm_name(a) not in _norm_name(b) and _norm_name(b) not in _norm_name(a):
+        if not _names_match(left['expert_object_name'], right['name']):
             diagnostics.append({'severity': 'error', 'code': 'name_mismatch',
-                                'message': 'Название объекта в заключении и ССР не совпадает'})
+                                'message': 'Название объекта в заключении и ССР описывает разные объекты'})
     total = right.get('summary', {}).get('total')
     if total is not None and total <= 0:
         diagnostics.append({'severity': 'error', 'code': 'missing_total',
