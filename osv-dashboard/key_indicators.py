@@ -291,10 +291,19 @@ def build_indicator_source(parsed_data):
                 'path3': str(item.get('path3') or ''),
                 'source_type': str(item.get('source_type') or 'unknown'),
             }
-            for key in ('snd', 'snk', 'skd', 'skk'):
+            for key in ('snd', 'snk', 'obd', 'obk', 'skd', 'skk'):
                 if item.get(key) is not None:
                     observation[key] = _number(item[key])
-            if any(key in observation for key in ('snd', 'snk', 'skd', 'skk')):
+            observation['obd_known'] = (
+                isinstance(item.get('obd'), (int, float))
+                and not isinstance(item.get('obd'), bool)
+            )
+            observation['obk_known'] = (
+                isinstance(item.get('obk'), (int, float))
+                and not isinstance(item.get('obk'), bool)
+            )
+            if any(key in observation for key in
+                   ('snd', 'snk', 'obd', 'obk', 'skd', 'skk')):
                 balance_observations.append(observation)
                 all_dates.add(observation['date'])
         acc_warnings = [str(x) for x in (raw.get('warnings') or [])]
@@ -409,8 +418,11 @@ def _group_balance_by_date(account):
     grouped = defaultdict(list)
     if not isinstance(account, dict):
         return grouped
-    observations = (account.get('balance_observations') or []) + \
-        (account.get('daily') or [])
+    # Exact DB observations are appended last so they supersede a monthly
+    # report row for the same date in the top-level balance/turnover index.
+    # Analytic rows remain available in ``daily`` for all other calculations.
+    observations = (account.get('daily') or []) + \
+        (account.get('balance_observations') or [])
     for row in observations:
         normalized = _iso(row.get('date'))
         if normalized:
@@ -1700,6 +1712,71 @@ def _cash_observation_snapshot(source, end):
     }
 
 
+def _cash_cumulative_series(source, start, end):
+    """Build separate debit and credit cumulative cash trajectories.
+
+    Each account must have an exact observation on the selected start date.
+    Once an account has a missing or unknown daily turnover, it is excluded
+    from that point onward so later values cannot conceal an invented gap.
+    """
+    index = source.get('_top_balance_index') or {}
+    state = {}
+    for account in _CASH_ACCOUNTS:
+        row = index.get(account, {}).get(start.isoformat())
+        if (row is not None
+                and all(key in row for key in ('snd', 'snk'))
+                and row.get('obd_known') is not False
+                and row.get('obk_known') is not False):
+            state[account] = {
+                'debit': row['snd'],
+                'credit': row['snk'],
+                'active': True,
+            }
+
+    result = []
+    cursor = start
+    while cursor <= end:
+        date_text = cursor.isoformat()
+        sources, reasons = {}, []
+        for account, account_state in state.items():
+            if not account_state['active']:
+                continue
+            row = index.get(account, {}).get(date_text)
+            if (row is None or row.get('obd_known') is False
+                    or row.get('obk_known') is False):
+                account_state['active'] = False
+                reasons.append(f'{account}: Нет точных дневных оборотов')
+                continue
+            account_state['debit'] += row.get('obd', 0)
+            account_state['credit'] += row.get('obk', 0)
+            sources[account] = row.get('source_type') or 'unknown'
+
+        accounts = [
+            account for account in _CASH_ACCOUNTS
+            if account in state and state[account]['active']
+        ]
+        missing_accounts = [
+            account for account in _CASH_ACCOUNTS if account not in accounts
+        ]
+        result.append({
+            'date': date_text,
+            'debit_value': round(sum(state[account]['debit']
+                                     for account in accounts), 2)
+            if accounts else None,
+            'credit_value': round(sum(state[account]['credit']
+                                      for account in accounts), 2)
+            if accounts else None,
+            'accounts': accounts,
+            'missing_accounts': missing_accounts,
+            'coverage': ('complete' if len(accounts) == len(_CASH_ACCOUNTS)
+                         else 'partial' if accounts else 'missing'),
+            'sources': sources,
+            'reasons': reasons,
+        })
+        cursor += timedelta(days=1)
+    return result
+
+
 def _previous_cash_endpoint(period, end):
     """Return the exact calendar endpoint immediately before ``end``."""
     if period == 'day':
@@ -2757,7 +2834,10 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               details=[{'label': 'План инвестпрограммы', 'value': None, 'unit': 'RUB',
                         'reason': 'План отсутствует в ОСВ'}]),
     ]
-    previous_year_start = start.replace(year=start.year - 1)
+    try:
+        previous_year_start = start.replace(year=start.year - 1)
+    except ValueError:
+        previous_year_start = start.replace(year=start.year - 1, day=28)
     try:
         previous_year_end = end.replace(year=end.year - 1)
     except ValueError:
@@ -3209,16 +3289,29 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # month-end observation, but it must never be copied to every day (or
     # used to imply a daily fluctuation).
     cash_daily_series = []
+    cash_cumulative_by_date = {
+        point['date']: point
+        for point in _cash_cumulative_series(source, start, end)
+    }
     cash_daily_values = {account: [] for account in _CASH_ACCOUNTS}
     cash_cursor = start
     while cash_cursor <= end:
         cash_point = _cash_observation_snapshot(source, cash_cursor)
         point_date = cash_cursor.isoformat()
+        cumulative_point = cash_cumulative_by_date[point_date]
         point_label = _options([cash_cursor], 'day')[0]['label']
         cash_daily_series.append({
             'label': point_label,
             'date': point_date,
             'value': cash_point['value'],
+            'debit_value': cumulative_point['debit_value'],
+            'credit_value': cumulative_point['credit_value'],
+            'cumulative_accounts': list(cumulative_point['accounts']),
+            'cumulative_missing_accounts': list(
+                cumulative_point['missing_accounts']),
+            'cumulative_coverage': cumulative_point['coverage'],
+            'cumulative_sources': dict(cumulative_point['sources']),
+            'cumulative_reasons': list(cumulative_point['reasons']),
             'accounts': list(cash_point['accounts']),
             'missing_accounts': list(cash_point['missing_accounts']),
             'coverage': cash_point['coverage'],
@@ -3239,6 +3332,42 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             })
         cash_cursor += timedelta(days=1)
     card_map['cash']['series'] = cash_daily_series
+    cash_previous_year_series = []
+    previous_cumulative_by_date = {
+        point['date']: point
+        for point in _cash_cumulative_series(
+            source, previous_year_start, previous_year_end)
+    }
+    cash_cursor = previous_year_start
+    while cash_cursor <= previous_year_end:
+        point_date = cash_cursor.isoformat()
+        cumulative_point = previous_cumulative_by_date[point_date]
+        cash_point = _cash_observation_snapshot(source, cash_cursor)
+        cash_previous_year_series.append({
+            'label': _options([cash_cursor], 'day')[0]['label'],
+            'date': point_date,
+            'value': cash_point['value'],
+            'debit_value': cumulative_point['debit_value'],
+            'credit_value': cumulative_point['credit_value'],
+            'cumulative_accounts': list(cumulative_point['accounts']),
+            'cumulative_missing_accounts': list(
+                cumulative_point['missing_accounts']),
+            'cumulative_coverage': cumulative_point['coverage'],
+            'cumulative_sources': dict(cumulative_point['sources']),
+            'cumulative_reasons': list(cumulative_point['reasons']),
+            'accounts': list(cash_point['accounts']),
+            'missing_accounts': list(cash_point['missing_accounts']),
+            'coverage': cash_point['coverage'],
+            'sources': dict(cash_point['sources']),
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        cash_cursor += timedelta(days=1)
+    card_map['cash']['previous_year_series'] = cash_previous_year_series
+    card_map['cash']['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
     for item in card_map['cash'].get('breakdown') or []:
         match = re.search(r'(\d{2})', str(item.get('label') or ''))
         account = match.group(1) if match else None

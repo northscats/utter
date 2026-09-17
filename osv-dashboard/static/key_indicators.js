@@ -5480,6 +5480,98 @@ renderCashModal(card) {
                 deviation: delta === null ? comparisonText : `${deltaText} · ${comparisonText}`,
                 source: 'конечные сальдо загруженных ОСВ по счетам 50, 51, 52 и 55'
             };
+            const cashApgLatest = [...(card.previous_year_series || [])]
+                .reverse().find(point => Number.isFinite(point.value));
+            const cashApgFormatted = this.formatValue(
+                cashApgLatest ? cashApgLatest.value : null, card.unit);
+            const cashApgCoverageText = this.cashCoverageText(
+                cashApgLatest || {coverage: 'missing', accounts: []});
+            const cashApgDate = cashApgLatest &&
+                (cashApgLatest.date || cashApgLatest.label);
+            const cashApgTipData = {
+                title: 'Денежные средства АПГ',
+                description: 'Остаток денежных средств на конечную дату аналогичного периода прошлого года.',
+                formula: 'Денежные средства АПГ = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                detail: `${cashApgCoverageText}. Отсутствующие счета не приняты за ноль.`,
+                required: cashApgLatest ? null : 'Нужны точные конечные сальдо за аналогичный период прошлого года.',
+                norm: 'Индивидуальный норматив предприятия не задан',
+                fact: cashApgLatest
+                    ? `${cashApgFormatted.val} ${cashApgFormatted.u} · на ${cashApgDate}`
+                    : 'Н/Д',
+                deviation: cashApgLatest
+                    ? 'Фактический остаток АПГ' : 'Расчёт невозможен',
+                source: 'конечные сальдо ОСВ по счетам 50, 51, 52 и 55 за прошлый год'
+            };
+            const cumulativeLatest = [...(card.series || [])].reverse().find(point =>
+                Number.isFinite(point.debit_value) &&
+                Number.isFinite(point.credit_value));
+            const compactMillions = value => Number.isFinite(value)
+                ? new Intl.NumberFormat('ru-RU', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(value / 1000000)
+                : '—';
+            const cumulativeDebit = compactMillions(
+                cumulativeLatest && cumulativeLatest.debit_value);
+            const cumulativeCredit = compactMillions(
+                cumulativeLatest && cumulativeLatest.credit_value);
+            const cumulativeCoverage = {
+                accounts: cumulativeLatest ? cumulativeLatest.cumulative_accounts || [] : [],
+                missing_accounts: cumulativeLatest
+                    ? cumulativeLatest.cumulative_missing_accounts || [] : accounts,
+                coverage: cumulativeLatest
+                    ? cumulativeLatest.cumulative_coverage || 'missing' : 'missing'
+            };
+            const cumulativeCoverageText = this.cashCoverageText(cumulativeCoverage);
+            const cumulativeDate = cumulativeLatest &&
+                (cumulativeLatest.date || cumulativeLatest.label);
+            const cumulativeTipData = {
+                title: 'Накопленный ДК',
+                description: 'Накопленные дебетовая и кредитовая величины денежных средств.',
+                formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
+                detail: `${cumulativeCoverageText}. Отсутствующие счета не приняты за ноль.${cumulativeDate ? ` Значения приведены на ${cumulativeDate}.` : ''}`,
+                required: cumulativeLatest ? null : 'Нужны точные начальные сальдо и дневные обороты по денежным счетам.',
+                norm: 'Норматив не установлен',
+                fact: cumulativeLatest
+                    ? `${cumulativeDebit} / ${cumulativeCredit} млн ₽`
+                    : 'Н/Д',
+                deviation: cumulativeLatest ? 'Информационный показатель' : 'Расчёт невозможен',
+                source: 'счета 50, 51, 52 и 55 по данным ОСВ'
+            };
+            const cumulativeApgLatest = [...(card.previous_year_series || [])]
+                .reverse().find(point =>
+                    Number.isFinite(point.debit_value) &&
+                    Number.isFinite(point.credit_value));
+            const cumulativeApgDebit = compactMillions(
+                cumulativeApgLatest && cumulativeApgLatest.debit_value);
+            const cumulativeApgCredit = compactMillions(
+                cumulativeApgLatest && cumulativeApgLatest.credit_value);
+            const cumulativeApgCoverage = {
+                accounts: cumulativeApgLatest
+                    ? cumulativeApgLatest.cumulative_accounts || [] : [],
+                missing_accounts: cumulativeApgLatest
+                    ? cumulativeApgLatest.cumulative_missing_accounts || [] : accounts,
+                coverage: cumulativeApgLatest
+                    ? cumulativeApgLatest.cumulative_coverage || 'missing' : 'missing'
+            };
+            const cumulativeApgCoverageText = this.cashCoverageText(
+                cumulativeApgCoverage);
+            const cumulativeApgDate = cumulativeApgLatest &&
+                (cumulativeApgLatest.date || cumulativeApgLatest.label);
+            const cumulativeApgTipData = {
+                title: 'Накопленный ДК АПГ',
+                description: 'Накопленные дебетовая и кредитовая величины за аналогичный период прошлого года.',
+                formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
+                detail: `${cumulativeApgCoverageText}. Период сдвинут на один год без изменения его продолжительности. Отсутствующие счета не приняты за ноль.`,
+                required: cumulativeApgLatest ? null : 'Нужны точные начальные сальдо и дневные обороты за аналогичный период прошлого года.',
+                norm: 'Норматив не установлен',
+                fact: cumulativeApgLatest
+                    ? `${cumulativeApgDebit} / ${cumulativeApgCredit} млн ₽`
+                    : 'Н/Д',
+                deviation: cumulativeApgLatest
+                    ? 'Фактические значения АПГ' : 'Расчёт невозможен',
+                source: 'счета 50, 51, 52 и 55 по данным ОСВ за прошлый год'
+            };
             const changeTipData = {
                 title: 'Изменение бухгалтерского остатка',
                 description: 'Изменение бухгалтерского остатка денежных средств между двумя сопоставимыми датами. Без статей ДДС это не полный отчёт о денежных потоках.',
@@ -5544,9 +5636,42 @@ renderCashModal(card) {
                     Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
                     Средства счёта 55 могут иметь ограничения по использованию.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0" data-series-id="__main__"><div class="cash-summary-label">Денежные средства</div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cash-current"
+                         onclick="window.KI_App.toggleCashChartMode('cash-current')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-current')}"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)} <span class="metric-inline-unit">${esc(cashFormatted.u)}</span></div>
                         <div class="cash-summary-sub">${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cash-apg"
+                         onclick="window.KI_App.toggleCashChartMode('cash-apg')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-apg')}"><div class="cash-summary-label">Денежные средства АПГ</div>
+                        <div class="cash-summary-value ${cashApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cashApgLatest
+                            ? `${esc(cashApgFormatted.val)} <span class="metric-inline-unit">${esc(cashApgFormatted.u)}</span>`
+                            : 'Нужны данные'}</div>
+                        <div class="cash-summary-sub">${esc(cashApgCoverageText)}${cashApgDate ? `<br>на ${esc(cashApgDate)}` : ''}</div>${this.cashTooltip(cashApgTipData)}</div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cumulative-current"
+                         onclick="window.KI_App.toggleCashChartMode('cumulative-current')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cumulative-current')}">
+                        <div class="cash-summary-label">Накопленный ДК</div>
+                        <div class="cash-summary-value ${cumulativeLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeLatest
+                            ? `${esc(cumulativeDebit)} / ${esc(cumulativeCredit)} <span class="metric-inline-unit">млн ₽</span>`
+                            : 'Нужны данные'}</div>
+                        <div class="cash-summary-sub">${esc(cumulativeCoverageText)}${cumulativeDate ? `<br>на ${esc(cumulativeDate)}` : ''}</div>
+                        ${this.cashTooltip(cumulativeTipData)}
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cumulative-apg"
+                         onclick="window.KI_App.toggleCashChartMode('cumulative-apg')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cumulative-apg')}">
+                        <div class="cash-summary-label">Накопленный ДК АПГ</div>
+                        <div class="cash-summary-value ${cumulativeApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeApgLatest
+                            ? `${esc(cumulativeApgDebit)} / ${esc(cumulativeApgCredit)} <span class="metric-inline-unit">млн ₽</span>`
+                            : 'Нужны данные'}</div>
+                        <div class="cash-summary-sub">${esc(cumulativeApgCoverageText)}${cumulativeApgDate ? `<br>на ${esc(cumulativeApgDate)}` : ''}</div>
+                        ${this.cashTooltip(cumulativeApgTipData)}
+                    </div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : delta < 0 ? 'cash-value-negative' : 'cash-value-ok'}">${esc(deltaText)}</div>
                         <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>
@@ -5562,6 +5687,17 @@ renderCashModal(card) {
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
                     <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
+                <div id="ki-cash-chart-title" class="modal-section-title">Накопленный ДК</div>
+                <div id="ki-cash-line-chart" class="cash-line-chart"></div>
+                <div class="cash-chart-legend" aria-label="Легенда графика">
+                    <span><i class="cash-chart-dot" style="background:#111827"></i>Денежные средства</span>
+                    <span><i class="cash-chart-dot" style="background:#DB2777"></i>Денежные средства АПГ</span>
+                    <span><i class="cash-chart-dot" style="background:#2563EB"></i>Накопленный дебет: СНд + ОД</span>
+                    <span><i class="cash-chart-dot" style="background:#059669"></i>Накопленный кредит: СНк + ОК</span>
+                    <span><i class="cash-chart-dot" style="background:rgba(34,197,94,.2)"></i>Интервал между значениями</span>
+                    <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Дебет АПГ</span>
+                    <span><i class="cash-chart-dot" style="background:#D97706"></i>Кредит АПГ</span>
+                </div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
                     ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
@@ -5574,113 +5710,288 @@ renderCashModal(card) {
                 `;
         },
 
-        renderCashLineChart(series) {
+        renderCashChartModes(card) {
+            if (!card) return;
+            if (!state.modalChart.cashModes || !state.modalChart.cashModes.size) {
+                state.modalChart.cashModes = new Set(['cumulative-current']);
+            } else if (state.modalChart.cashModes.has('current') ||
+                    state.modalChart.cashModes.has('apg')) {
+                state.modalChart.cashModes = new Set(
+                    [...state.modalChart.cashModes].map(mode =>
+                        mode === 'current' ? 'cumulative-current'
+                            : mode === 'apg' ? 'cumulative-apg' : mode));
+            }
+            const selected = state.modalChart.cashModes;
+            const modeLabels = {
+                'cash-current': 'Денежные средства',
+                'cash-apg': 'Денежные средства АПГ',
+                'cumulative-current': 'Накопленный ДК',
+                'cumulative-apg': 'Накопленный ДК АПГ'
+            };
+            const title = document.getElementById('ki-cash-chart-title');
+            if (title) title.textContent = [...selected]
+                .map(mode => modeLabels[mode]).filter(Boolean).join(' и ');
+            const root = document.getElementById('ki-cash-modal-content');
+            if (root && root.querySelectorAll) {
+                root.querySelectorAll('[data-cash-chart-mode]').forEach(tile => {
+                    const active = tile.dataset &&
+                        selected.has(tile.dataset.cashChartMode);
+                    if (tile.classList) {
+                        tile.classList.toggle('cash-chart-mode-selected', active);
+                    }
+                    if (tile.setAttribute) {
+                        tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    }
+                });
+            }
+            this.renderCashLineChart(
+                selected.has('cumulative-current') ? card.series || [] : [],
+                selected.has('cumulative-apg') ? card.previous_year_series || [] : [],
+                selected.has('cash-current') ? card.series || [] : [],
+                selected.has('cash-apg') ? card.previous_year_series || [] : []);
+        },
+
+        toggleCashChartMode(mode) {
+            const card = state.data && Array.isArray(state.data.cards)
+                ? state.data.cards.find(item => item.id === 'cash') : null;
+            const allowedModes = [
+                'cash-current', 'cash-apg',
+                'cumulative-current', 'cumulative-apg'
+            ];
+            if (!card || !allowedModes.includes(mode)) return;
+            if (!state.modalChart.cashModes) {
+                state.modalChart.cashModes = new Set(['cumulative-current']);
+            }
+            if (state.modalChart.cashModes.has(mode)) {
+                if (state.modalChart.cashModes.size > 1) {
+                    state.modalChart.cashModes.delete(mode);
+                }
+            } else {
+                state.modalChart.cashModes.add(mode);
+            }
+            this.renderCashChartModes(card);
+        },
+
+        renderCashLineChart(series, apgSeries = [], cashSeries = [], cashApgSeries = []) {
             const container = document.getElementById('ki-cash-line-chart');
             if (!container) return;
-            const points = series.map((item, index) => {
-                const previous = series[index - 1];
-                const comparison = item.comparison;
-                // Fail closed if a stale/incomplete response omits comparison metadata.
-                const comparable = !!(previous && comparison && comparison.comparable === true &&
-                    Number.isFinite(item.value) && Number.isFinite(previous.value) &&
-                    Number.isFinite(comparison.value) && item.date && previous.date &&
-                    comparison.date === item.date && comparison.previous_date === previous.date &&
-                    item.accounts && item.accounts.length && previous.accounts &&
-                    [...item.accounts].sort().join(',') === [...previous.accounts].sort().join(','));
-                return {
-                    ...item, index, comparable,
-                    value: Number.isFinite(item.value) ? item.value / 1000000 : null
-                };
-            });
-            const valid = points.filter(item => item.value !== null && Number.isFinite(item.value));
-            if (!valid.length) {
+            const mapPoints = items => items.map((item, index) => ({
+                ...item, index,
+                debit: Number.isFinite(item.debit_value) ? item.debit_value / 1000000 : null,
+                credit: Number.isFinite(item.credit_value) ? item.credit_value / 1000000 : null,
+                accounts: item.cumulative_accounts || [],
+                missing_accounts: item.cumulative_missing_accounts || ['50', '51', '52', '55'],
+                coverage: item.cumulative_coverage || 'missing',
+                sources: item.cumulative_sources || {},
+                reasons: item.cumulative_reasons || []
+            }));
+            const mapBalancePoints = items => items.map((item, index) => ({
+                ...item, index,
+                balance: Number.isFinite(item.value) ? item.value / 1000000 : null,
+                accounts: item.accounts || [],
+                missing_accounts: item.missing_accounts || ['50', '51', '52', '55'],
+                coverage: item.coverage || 'missing',
+                sources: item.sources || {},
+                reasons: []
+            }));
+            const groups = [
+                {
+                    id: 'current',
+                    points: mapPoints(series),
+                    debitColor: '#2563EB',
+                    creditColor: '#059669',
+                    areaColor: '#22C55E',
+                    dash: '',
+                    suffix: ''
+                },
+                {
+                    id: 'apg',
+                    points: mapPoints(apgSeries),
+                    debitColor: '#7C3AED',
+                    creditColor: '#D97706',
+                    areaColor: '#A78BFA',
+                    dash: ' stroke-dasharray="6 4"',
+                    suffix: ' АПГ'
+                }
+            ].filter(group => group.points.length);
+            const balanceGroups = [
+                {
+                    id: 'cash-current',
+                    points: mapBalancePoints(cashSeries),
+                    color: '#111827',
+                    dash: '',
+                    suffix: ''
+                },
+                {
+                    id: 'cash-apg',
+                    points: mapBalancePoints(cashApgSeries),
+                    color: '#DB2777',
+                    dash: ' stroke-dasharray="6 4"',
+                    suffix: ' АПГ'
+                }
+            ].filter(group => group.points.length);
+            const allGroups = [...groups, ...balanceGroups];
+            const valid = [
+                ...groups.flatMap(group => group.points).flatMap(item =>
+                    [item.debit, item.credit]),
+                ...balanceGroups.flatMap(group => group.points).map(item =>
+                    item.balance)
+            ].filter(Number.isFinite);
+            const validPointCount = groups.reduce((count, group) =>
+                count + group.points.filter(item =>
+                    Number.isFinite(item.debit) || Number.isFinite(item.credit)).length, 0)
+                + balanceGroups.reduce((count, group) =>
+                    count + group.points.filter(item =>
+                        Number.isFinite(item.balance)).length, 0);
+            if (!allGroups.length || !valid.length) {
                 container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
                 return;
             }
-            const changes = points.map((item, index) => ({
-                ...item, index,
-                value: item.comparable ? item.comparison.value / 1000000 : null
-            }));
-            const values = valid.map(item => item.value).concat(
-                changes.filter(item => item.value !== null).map(item => item.value));
+            const values = valid;
             const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;
             let min = Math.min(0, ...values), max = Math.max(0, ...values);
             if (min === max) max = min + 1;
-            const timeline = chartTimeline(points);
             const plotWidth = width - left - right;
-            const x = index => left + (timeline.calendar
-                ? timeline.x(index) * plotWidth
-                : timeline.x(index, plotWidth));
+            const xFor = (index, pointCount) => left + (
+                pointCount > 1 ? index / (pointCount - 1) : 0.5) * plotWidth;
             const y = value => top + (max - value) * (height - top - bottom) / (max - min);
             const sameAccounts = (first, second) =>
                 first && second && first.accounts && first.accounts.length &&
                 second.accounts && second.accounts.length &&
                 [...first.accounts].sort().join(',') === [...second.accounts].sort().join(',');
-            const balanceConnection = (previous, current, consecutive) => {
-                if (!sameAccounts(previous.point, current.point)) return 'none';
-                if (consecutive) return current.point.comparable ? 'solid' : 'none';
-                return 'gap';
+            const segmentsFor = (points, keys = ['debit', 'credit']) => {
+                const timeline = chartTimeline(points);
+                const consecutive = (previous, current) => (
+                    timeline.calendar
+                        ? timeline.day(current.index) - timeline.day(previous.index) === 1
+                        : current.index - previous.index === 1
+                );
+                const segments = [];
+                points.forEach((point, index) => {
+                    if (!keys.every(key => Number.isFinite(point[key]))) return;
+                    const entry = {point, index};
+                    const segment = segments[segments.length - 1];
+                    const previous = segment && segment[segment.length - 1];
+                    if (!previous || !consecutive(previous, entry) ||
+                            !sameAccounts(previous.point, point)) {
+                        segments.push([entry]);
+                    } else {
+                        segment.push(entry);
+                    }
+                });
+                return segments;
             };
-            const balancePaths = chartLinePaths(
-                points, x, y, item => item.value, timeline, balanceConnection);
-            const changePaths = chartLinePaths(
-                changes, x, y, item => item.value, timeline);
+            const curve = (segment, key, x, reverse = false, move = true) => {
+                const entries = reverse ? [...segment].reverse() : segment;
+                if (!entries.length) return '';
+                const first = entries[0];
+                let path = `${move ? 'M' : 'L'} ${x(first.index).toFixed(1)} ${y(first.point[key]).toFixed(1)}`;
+                for (let index = 1; index < entries.length; index += 1) {
+                    const previous = entries[index - 1];
+                    const current = entries[index];
+                    const x0 = x(previous.index), x1 = x(current.index);
+                    const y0 = y(previous.point[key]), y1 = y(current.point[key]);
+                    const control = (x1 - x0) / 3;
+                    path += ` C ${(x0 + control).toFixed(1)} ${y0.toFixed(1)}, ${(x1 - control).toFixed(1)} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+                }
+                return path;
+            };
             let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика денежных средств">`;
-            if (valid.length === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
+            if (validPointCount === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
                 const py = y(value);
                 svg += `<line x1="${left}" y1="${py}" x2="${width-right}" y2="${py}" stroke="#E5E7EB" stroke-dasharray="3 3"/>
                     <text x="${left-6}" y="${py+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(value.toFixed(1))}</text>`;
             });
-            svg += `<path d="${balancePaths.solid}" class="cash-chart-line-solid" fill="none" stroke="#3B82F6" stroke-width="3"/>`;
-            if (balancePaths.dashed) {
-                svg += `<path d="${balancePaths.dashed}" class="cash-chart-line-gap" fill="none" stroke="#3B82F6" stroke-width="3" stroke-dasharray="5 4"/>`;
-            }
-            svg += `<path d="${changePaths.solid}" class="cash-chart-change" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="5 4"/>`;
-            if (changePaths.dashed) {
-                svg += `<path d="${changePaths.dashed}" class="cash-chart-change-gap" fill="none" stroke="#10B981" stroke-width="2" stroke-dasharray="2 4" opacity="0.65"/>`;
-            }
-            if (balancePaths.dashed || changePaths.dashed) {
-                svg += `<text class="chart-gap-help" x="${width-right}" y="14" font-size="10" fill="#6B7280" text-anchor="end">Пунктир — пропуск данных, не факт</text>`;
-            }
-            points.forEach((item, index) => {
-                if (item.value !== null && Number.isFinite(item.value)) {
-                    svg += `<circle class="cash-chart-point" data-kind="balance" data-index="${index}" cx="${x(index)}" cy="${y(item.value)}" r="5" fill="${item.coverage === 'complete' ? '#3B82F6' : '#D97706'}" tabindex="0" aria-label="${esc(`Остаток на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+            const labelGroup = allGroups.find(group =>
+                group.id === 'current' || group.id === 'cash-current') || allGroups[0];
+            const labelStep = Math.max(1, Math.ceil(labelGroup.points.length / 8));
+            labelGroup.points.forEach((item, index) => {
+                if (index % labelStep === 0 || index === labelGroup.points.length - 1) {
+                    const px = xFor(index, labelGroup.points.length);
+                    svg += `<line class="cash-chart-grid-vertical" x1="${px}" y1="${top}" x2="${px}" y2="${height-bottom}" stroke="#E5E7EB"/>`;
                 }
-                if (changes[index].value !== null) {
-                    svg += `<circle class="cash-chart-point" data-kind="change" data-index="${index}" cx="${x(index)}" cy="${y(changes[index].value)}" r="4" fill="${changes[index].value < 0 ? '#F97316' : '#10B981'}" tabindex="0"/>`;
-                }
-                if (index % Math.max(1, Math.ceil(points.length / 8)) === 0 || index === points.length - 1)
-                    svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(item.label)}</text>`;
+            });
+            groups.forEach(group => {
+                const x = index => xFor(index, group.points.length);
+                const segments = segmentsFor(group.points);
+                const debitPath = segments.map(segment =>
+                    curve(segment, 'debit', x)).join(' ');
+                const creditPath = segments.map(segment =>
+                    curve(segment, 'credit', x)).join(' ');
+                segments.filter(segment => segment.length > 1).forEach(segment => {
+                    const area = `${curve(segment, 'debit', x)} ${curve(segment, 'credit', x, true, false)} Z`;
+                    svg += `<path d="${area}" class="cash-chart-area cash-chart-period-${group.id}" fill="${group.areaColor}" fill-opacity="${group.id === 'apg' ? '0.10' : '0.16'}"/>`;
+                });
+                svg += `<path d="${debitPath}" class="cash-chart-debit${group.id === 'apg' ? '-apg' : ''}" fill="none" stroke="${group.debitColor}" stroke-width="1.5"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+                svg += `<path d="${creditPath}" class="cash-chart-credit${group.id === 'apg' ? '-apg' : ''}" fill="none" stroke="${group.creditColor}" stroke-width="1.5"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+                group.points.forEach((item, index) => {
+                    if (Number.isFinite(item.debit)) {
+                        svg += `<circle class="cash-chart-hit-target" data-kind="debit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.debit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Накопленный дебет${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                    }
+                    if (Number.isFinite(item.credit)) {
+                        svg += `<circle class="cash-chart-hit-target" data-kind="credit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.credit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Накопленный кредит${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                    }
+                });
+            });
+            balanceGroups.forEach(group => {
+                const x = index => xFor(index, group.points.length);
+                const segments = segmentsFor(group.points, ['balance']);
+                const balancePath = segments.map(segment =>
+                    curve(segment, 'balance', x)).join(' ');
+                svg += `<path d="${balancePath}" class="cash-chart-balance${group.id === 'cash-apg' ? '-apg' : ''}" fill="none" stroke="${group.color}" stroke-width="2"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+                group.points.forEach((item, index) => {
+                    if (!Number.isFinite(item.balance)) return;
+                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Денежные средства${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                });
+            });
+            labelGroup.points.forEach((item, index) => {
+                if (index % labelStep === 0 || index === labelGroup.points.length - 1)
+                    svg += `<text x="${xFor(index, labelGroup.points.length)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(item.label)}</text>`;
             });
             container.innerHTML = svg + '</svg>';
             const pointTipData = point => {
                 const index = Number(point.dataset.index);
-                const isChange = point.dataset.kind === 'change';
-                const item = isChange ? changes[index] : points[index];
-                const comparisonText = this.cashComparisonText(points[index].comparison);
-                const coverageText = this.cashCoverageText(points[index]);
-                return isChange ? {
-                    title: `Изменение остатка — ${item.date}`,
-                    description: 'Разница бухгалтерских остатков на две точные даты, а не денежный поток NCF.',
-                    formula: 'Изменение = Остаток на текущую дату − Остаток на предыдущую дату',
-                    detail: `${comparisonText}. ${coverageText}.`,
+                const isCredit = point.dataset.kind === 'credit';
+                const isBalance = point.dataset.kind === 'balance';
+                const group = allGroups.find(item =>
+                    item.id === (point.dataset.period || 'current')) || allGroups[0];
+                const item = group.points[index];
+                const suffix = group.suffix;
+                const coverageText = this.cashCoverageText(item);
+                const missingText = item.reasons && item.reasons.length
+                    ? ` ${item.reasons.join('; ')}.` : '';
+                if (isBalance) return {
+                    title: `Денежные средства${suffix} — ${item.date || item.label}`,
+                    description: `Фактический остаток денежных средств${suffix} на точную дату.`,
+                    formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
                     norm: 'Индивидуальный норматив не задан',
-                    fact: `${item.value >= 0 ? '+' : ''}${item.value.toFixed(2)} млн ₽`,
-                    deviation: 'Фактическое изменение остатка',
-                    source: 'точные конечные сальдо ОСВ по денежным счетам на указанные даты'
+                    fact: `${item.balance.toFixed(2)} млн ₽`,
+                    deviation: `Фактический остаток денежных средств${suffix}`,
+                    source: 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55'
+                };
+                return isCredit ? {
+                    title: `Накопленный кредит${suffix} — ${item.date}`,
+                    description: 'Кредитовое сальдо на начало выбранного периода и кредитовые обороты нарастающим итогом.',
+                    formula: 'Кредит = Σ(СНк + накопленный ОК) по счетам 50, 51, 52, 55',
+                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
+                    norm: 'Индивидуальный норматив не задан',
+                    fact: `${item.credit.toFixed(2)} млн ₽`,
+                    deviation: 'Фактическое накопленное кредитовое значение',
+                    source: 'начальные кредитовые сальдо и точные дневные кредитовые обороты ОСВ'
                 } : {
-                    title: `Остаток денежных средств — ${item.date || item.label}`,
-                    description: 'Бухгалтерский остаток денежных средств на указанную дату.',
-                    formula: 'Остаток = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль. ${comparisonText}.`,
+                    title: `Накопленный дебет${suffix} — ${item.date || item.label}`,
+                    description: 'Дебетовое сальдо на начало выбранного периода и дебетовые обороты нарастающим итогом.',
+                    formula: 'Дебет = Σ(СНд + накопленный ОД) по счетам 50, 51, 52, 55',
+                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
                     norm: 'Индивидуальный норматив не задан',
-                    fact: `${item.value.toFixed(2)} млн ₽`,
-                    deviation: changes[index].value === null ? comparisonText : `${changes[index].value >= 0 ? '+' : ''}${changes[index].value.toFixed(2)} млн ₽ · ${comparisonText}`,
-                    source: 'конечные сальдо загруженных ОСВ по денежным счетам'
+                    fact: `${item.debit.toFixed(2)} млн ₽`,
+                    deviation: 'Фактическое накопленное дебетовое значение',
+                    source: 'начальные дебетовые сальдо и точные дневные дебетовые обороты ОСВ'
                 };
             };
-            container.querySelectorAll('.cash-chart-point').forEach(point => {
+            container.querySelectorAll('.cash-chart-hit-target').forEach(point => {
                 point.addEventListener('pointerenter', event => {
                     this._richTooltipHost = point;
                     this.showRichTooltip(pointTipData(point), event.clientX, event.clientY);
@@ -5697,7 +6008,7 @@ renderCashModal(card) {
         },
 
         openModal(cardId) {
-            const card = state.data && Array.isArray(state.data.cards) ?
+            let card = state.data && Array.isArray(state.data.cards) ?
                 state.data.cards.find(c => c.id === cardId) : null;
             if (!card) return;
 
@@ -5761,10 +6072,7 @@ renderCashModal(card) {
                 creditsContent.style.display = 'none';
                 cashContent.style.display = 'block';
                 this.renderCashModal(card);
-                // The cash headline tile is the shared chart's __main__
-                // series. Mount it after the specialised cash content so the
-                // existing account summary remains the source of selection.
-                this.mountSharedDynamics(card, cashContent);
+                this.renderCashChartModes(card);
             } else if (cardId === 'revenue') {
                 genericContent.style.display = 'none';
                 cashContent.style.display = 'none';
@@ -5977,7 +6285,7 @@ renderCashModal(card) {
                     [...state.modalChart.pinnedIds].filter(id => validIds.has(id)));
                 if (activeContainer === genericContent) {
                     this.updateMetricTileStates(genericContent);
-                } else {
+                } else if (activeContainer !== cashContent) {
                     this.mountSharedDynamics(card, activeContainer);
                     this.bindMetricTiles(card, activeContainer);
                 }

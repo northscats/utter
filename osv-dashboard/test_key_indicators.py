@@ -934,6 +934,131 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(cash['series'][0]['comparison']['previous_date'])
         self.assertFalse(cash['series'][0]['comparison']['comparable'])
 
+    def test_cash_series_has_independent_cumulative_debit_and_credit(self):
+        src = build_indicator_source({
+            '50': account('50', [
+                day('2026-01-01', snd=10, snk=2, obd=3, obk=4,
+                    skd=9, skk=2),
+                day('2026-01-02', snd=9, snk=2, obd=5, obk=1,
+                    skd=13, skk=2),
+            ]),
+            '51': account('51', [
+                day('2026-01-01', snd=20, snk=7, obd=2, obk=3,
+                    skd=12, skk=0),
+                day('2026-01-02', snd=12, snk=0, obd=0, obk=6,
+                    skd=6, skk=0),
+            ]),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-02', date_from='2026-01-01')['cards']}['cash']
+
+        self.assertEqual(
+            [(point['debit_value'], point['credit_value'])
+             for point in cash['series']],
+            [(35, 16), (40, 23)])
+        self.assertEqual(
+            cash['series'][0]['cumulative_accounts'], ['50', '51'])
+        self.assertEqual(cash['series'][0]['cumulative_coverage'], 'partial')
+
+    def test_cash_previous_year_series_uses_same_shifted_period(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2025-01-01', snd=40, snk=5, obd=10, obk=2,
+                    skd=43, skk=0),
+                day('2025-01-02', snd=43, snk=0, obd=7, obk=3,
+                    skd=47, skk=0),
+                day('2026-01-01', snd=100, snk=0, obd=20, obk=5,
+                    skd=115, skk=0),
+                day('2026-01-02', snd=115, snk=0, obd=10, obk=2,
+                    skd=123, skk=0),
+            ]),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-02', date_from='2026-01-01')['cards']}['cash']
+
+        self.assertEqual(
+            [point['date'] for point in cash['previous_year_series']],
+            ['2025-01-01', '2025-01-02'])
+        self.assertEqual(
+            [(point['debit_value'], point['credit_value'])
+             for point in cash['previous_year_series']],
+            [(50, 7), (57, 10)])
+        self.assertEqual(
+            [point['value'] for point in cash['previous_year_series']],
+            [43, 47])
+        self.assertEqual(cash['previous_year_period'], {
+            'start': '2025-01-01',
+            'end': '2025-01-02',
+        })
+
+    def test_cash_cumulative_prefers_exact_db_turnovers_over_monthly_row(self):
+        raw = account('51', [
+            day('2026-01-01', snd=10, snk=1, obd=0, obk=0,
+                skd=10, skk=1),
+            day('2026-01-02', snd=10, snk=1, obd=0, obk=0,
+                skd=10, skk=1),
+        ])
+        raw['balance_observations'] = [
+            dict(date='2026-01-01', snd=10, snk=1, obd=5, obk=2,
+                 skd=13, skk=1, source_type='reconciled_turnovers'),
+            dict(date='2026-01-02', snd=13, snk=1, obd=7, obk=3,
+                 skd=17, skk=1, source_type='reconciled_turnovers'),
+        ]
+        cash = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'51': raw}), 'day', '2026-01-02',
+            date_from='2026-01-01')['cards']}['cash']
+
+        self.assertEqual(
+            [(point['debit_value'], point['credit_value'])
+             for point in cash['series']],
+            [(15, 3), (22, 6)])
+        self.assertEqual(
+            cash['series'][0]['cumulative_sources'],
+            {'51': 'reconciled_turnovers'})
+
+    def test_cash_cumulative_series_stops_at_unknown_or_missing_day(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-01', snd=10, snk=0, obd=0, obk=0,
+                    skd=10, skk=0),
+                day('2026-01-03', snd=10, snk=0, obd=5, obk=0,
+                    skd=15, skk=0),
+            ]),
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-03', date_from='2026-01-01')['cards']}['cash']
+
+        self.assertEqual(
+            [point['debit_value'] for point in cash['series']],
+            [10, None, None])
+        self.assertEqual(
+            [point['credit_value'] for point in cash['series']],
+            [0, None, None])
+        self.assertEqual(cash['series'][1]['cumulative_coverage'], 'missing')
+
+    def test_cash_cumulative_series_restarts_at_selected_period(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-01', snd=100, snk=0, obd=10, obk=30,
+                    skd=80, skk=0),
+                day('2026-01-02', snd=80, snk=0, obd=5, obk=10,
+                    skd=75, skk=0),
+            ]),
+        })
+        full = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-02', date_from='2026-01-01')['cards']}['cash']
+        shortened = {item['id']: item for item in build_key_indicators(
+            src, 'day', '2026-01-02', date_from='2026-01-02')['cards']}['cash']
+
+        self.assertEqual(
+            (full['series'][-1]['debit_value'],
+             full['series'][-1]['credit_value']),
+            (115, 40))
+        self.assertEqual(
+            (shortened['series'][-1]['debit_value'],
+             shortened['series'][-1]['credit_value']),
+            (85, 10))
+
     def test_cash_day_delta_does_not_bridge_an_omitted_calendar_day(self):
         src = build_indicator_source({
             '51': account('51', [
