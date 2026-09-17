@@ -65,7 +65,7 @@ async function checkBootstrap(configuration) {
   if (configuration) {
     assert.equal(requests[0], '/company/11/key-indicators/data?period=year');
     assert.equal(renders, 1, 'valid configuration must reach rendering');
-    stored.set('brain4sales:key-indicators:period-selection', JSON.stringify({
+    stored.set('brain4sales:key-indicators:period-selection:11', JSON.stringify({
       period: 'month', date: '2026-06-30', dateFrom: '2026-01-31',
     }));
     assert.equal(app.restorePeriodSelection(), true);
@@ -74,7 +74,7 @@ async function checkBootstrap(configuration) {
     assert.equal(app.state.dateFrom, '2026-01-31');
     app.savePeriodSelection();
     assert.deepEqual(
-      JSON.parse(stored.get('brain4sales:key-indicators:period-selection')),
+      JSON.parse(stored.get('brain4sales:key-indicators:period-selection:11')),
       {period: 'month', date: '2026-06-30', dateFrom: '2026-01-31'});
   } else {
     assert.equal(requests.length, 0);

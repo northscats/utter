@@ -42,6 +42,7 @@ const context = vm.createContext({
     console, Intl, AbortController,
 });
 vm.runInContext(fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8'), context);
+const cashCss = fs.readFileSync(`${__dirname}/static/key_indicators.css`, 'utf8');
 const app = context.window.KI_App;
 const tips = [];
 app.showRichTooltip = tip => tips.push(tip);
@@ -169,6 +170,17 @@ assert.match(html, /data-cash-chart-mode="cumulative-current"/);
 assert.match(html, /data-cash-chart-mode="cumulative-apg"/);
 assert.match(html, /Денежные средства АПГ/);
 assert.match(html, /Накопленный ДК АПГ/);
+assert.match(html, /class="cash-table-scroll" tabindex="0" role="region"/);
+assert.match(html, /class="cash-total-row cash-tooltip-host"/);
+assert.match(html, /class="cash-account-name">Расчётные счета/);
+assert.match(html, /class="cash-data-state ok">Загружен/);
+assert.match(html, /class="cash-data-state missing">Нет данных/);
+assert.match(html, /class="cash-share-fill" style="width:100\.0%"/);
+assert.match(html, /class="cash-coverage-note">Частичный охват/);
+assert.match(cashCss, /\.cash-table th\s*\{[^}]*background:#173A66;[^}]*color:#fff;/s);
+assert.match(cashCss, /\.cash-table\s*\{[^}]*min-width:760px;/s);
+assert.match(cashCss, /\.cash-total-row td\s*\{[^}]*border-top:2px solid #2563EB;/s);
+assert.match(cashCss, /\.cash-table-scroll:focus-visible/);
 assert.match(html, /0,00 \/ 0,00 <span class="metric-inline-unit">млн ₽/);
 assert.match(html, /id="ki-cash-line-chart"/);
 assert.match(html, /Изменение остатка/);
@@ -243,4 +255,7 @@ app.renderCashModal({...card, ...snapshot('2026-01-01', 0, ['50', '51', '52', '5
 html = element('ki-cash-modal-content').innerHTML;
 assert.ok(!html.includes('100% известного итога'), 'zero denominator has no percentage');
 assert.match(html, /Полный охват/);
+assert.match(html, /cash-total-row[\s\S]*?<span class="cash-share-value">—<\/span>/);
+assert.ok(!/cash-total-row[\s\S]*?cash-share-fill/.test(html),
+    'zero total must not render a misleading total share bar');
 console.log('PASS: cash coverage, safe paths/deltas, exact-date tooltips, gaps, zero, day, months, quarter range, visible partial totals');

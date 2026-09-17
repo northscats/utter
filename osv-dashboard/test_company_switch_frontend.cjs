@@ -26,6 +26,7 @@ async function testOperationalSwitchIgnoresStaleResponse() {
     const nodes = new Map();
     const pending = [];
     const listeners = new Map();
+    const stored = new Map();
     const makeNode = id => {
         const classes = new Set(id === 'ki-modal' ? ['visible'] : []);
         return {
@@ -52,7 +53,11 @@ async function testOperationalSwitchIgnoresStaleResponse() {
             },
             parent: {},
             history: { replaceState() {} },
-            addEventListener(name, callback) { listeners.set(name, callback); }
+            addEventListener(name, callback) { listeners.set(name, callback); },
+            localStorage: {
+                getItem: key => stored.has(key) ? stored.get(key) : null,
+                setItem: (key, value) => stored.set(key, value),
+            }
         },
         URL,
         URLSearchParams,
@@ -134,6 +139,9 @@ async function testOperationalSwitchIgnoresStaleResponse() {
     app.state.dateFrom = '2024-01-01';
     app.state.quarterAnchor = '2024';
     nodes.get('ki-modal').classList.add('visible');
+    stored.set('brain4sales:key-indicators:period-selection:14', JSON.stringify({
+        period: 'quarter', date: '2024-03-31', dateFrom: '2024-01-01'
+    }));
     assert.equal(app.switchCompany(companyConfig(14, 'period fallback')), true);
     const periodRequest = pending.at(-1);
     assert.match(periodRequest.url, /period=quarter&date=2024-03-31&date_from=2024-01-01$/);
@@ -171,6 +179,13 @@ async function testOperationalSwitchIgnoresStaleResponse() {
         app.state.dateFrom = periodCase.dateFrom || null;
         app.state.modalCardId = 'revenue';
         nodes.get('ki-modal').classList.add('visible');
+        stored.set(
+            `brain4sales:key-indicators:period-selection:${periodCase.id}`,
+            JSON.stringify({
+                period: periodCase.period,
+                date: periodCase.date,
+                dateFrom: periodCase.dateFrom || null
+            }));
         assert.equal(app.switchCompany(companyConfig(periodCase.id, periodCase.name)), true);
         const request = pending.at(-1);
         assert.match(request.url, new RegExp(

@@ -22,7 +22,14 @@
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
         modalCharts: {}
     };
-    const periodSelectionStorageKey = 'brain4sales:key-indicators:period-selection';
+    const periodSelectionStorageKey = () => {
+        const configuredId = Number(config && config.companyId);
+        const urlMatch = String(config && config.dataUrl || '').match(
+            /\/company\/(\d+)\/key-indicators\/data(?:[/?#]|$)/);
+        const companyId = Number.isInteger(configuredId) && configuredId > 0
+            ? configuredId : urlMatch ? Number(urlMatch[1]) : 'default';
+        return `brain4sales:key-indicators:period-selection:${companyId}`;
+    };
     const tooltipPreferenceStorageKey = 'brain4sales:key-indicators:tooltips-enabled';
 
     const metricChartColor = id => {
@@ -530,6 +537,14 @@
                 layoutBaseUrl: normalized.layoutBaseURL,
                 layoutUrlTemplate: normalized.layoutBaseURL
             });
+            if (!this.restorePeriodSelection()) {
+                // A period date belongs to the company that supplied it.
+                // Keeping it for another company causes a costly failed
+                // calculation followed by an immediate retry.
+                state.date = null;
+                state.dateFrom = null;
+                state.quarterAnchor = null;
+            }
             // A cached/older switch payload may not yet contain this optional
             // URL.  Never retain the previous company's report endpoint.
             if (!normalized.aiReportUrl) delete config.aiReportUrl;
@@ -630,7 +645,7 @@
             try {
                 if (!window.localStorage) return false;
                 saved = JSON.parse(
-                    window.localStorage.getItem(periodSelectionStorageKey) || 'null');
+                    window.localStorage.getItem(periodSelectionStorageKey()) || 'null');
             } catch (error) {
                 return false;
             }
@@ -651,7 +666,7 @@
         savePeriodSelection() {
             try {
                 if (!window.localStorage) return;
-                window.localStorage.setItem(periodSelectionStorageKey, JSON.stringify({
+                window.localStorage.setItem(periodSelectionStorageKey(), JSON.stringify({
                     period: state.period,
                     date: state.date,
                     dateFrom: state.dateFrom
@@ -5437,7 +5452,11 @@ renderCashModal(card) {
             accounts.forEach(account => {
                 const value = Object.prototype.hasOwnProperty.call(parts, account) ? parts[account] : null;
                 const formatted = this.formatValue(value, card.unit);
-                const share = value !== null && total !== null && total !== 0 ? `${(value / total * 100).toFixed(1)}%` : '—';
+                const shareValue = value !== null && total !== null && total !== 0
+                    ? value / total * 100 : null;
+                const share = shareValue !== null ? `${shareValue.toFixed(1)}%` : '—';
+                const shareBarWidth = shareValue !== null
+                    ? Math.max(0, Math.min(100, shareValue)) : null;
                 const required = value === null
                     ? `ОСВ по счёту ${account} на выбранную дату с начальным и конечным дебетовым/кредитовым сальдо.`
                     : null;
@@ -5454,11 +5473,13 @@ renderCashModal(card) {
                 });
                 rows += `<tr class="cash-tooltip-host" tabindex="0"${breakdownSeriesIds[account]
                     ? ` data-series-id="${esc(breakdownSeriesIds[account])}"` : ''}>
-                    <td><div><strong>Счёт ${account}</strong> — ${esc(names[account])}${rowTooltip}</div></td>
-                    <td>${esc(formatted.val)} ${esc(formatted.u)}</td>
-                    <td>${esc(share)}</td>
-                    <td>${esc(comments[account])}</td>
-                    <td><span class="cash-data-state ${value === null ? 'missing' : 'ok'}">${value === null ? 'Нет данных' : 'Загружен'}</span></td>
+                    <td class="cash-account-cell"><div><strong>Счёт ${account}</strong><span class="cash-account-name">${esc(names[account])}</span>${rowTooltip}</div></td>
+                    <td class="cash-number-cell"><span class="cash-number-value">${esc(formatted.val)}</span> <span class="cash-number-unit">${esc(formatted.u)}</span></td>
+                    <td class="cash-share-cell"><span class="cash-share-value">${esc(share)}</span>${shareBarWidth !== null
+                        ? `<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:${shareBarWidth.toFixed(1)}%"></span></span>`
+                        : ''}</td>
+                    <td class="cash-comment-cell">${esc(comments[account])}</td>
+                    <td class="cash-status-cell"><span class="cash-data-state ${value === null ? 'missing' : 'ok'}">${value === null ? 'Нет данных' : 'Загружен'}</span></td>
                 </tr>`;
             });
 
@@ -5683,9 +5704,9 @@ renderCashModal(card) {
                         <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>
                 </div>
                 <div class="modal-section-title">Детализация по счетам денежных средств</div>
-                <div style="overflow-x:auto"><table class="cash-table">
+                <div class="cash-table-scroll" tabindex="0" role="region" aria-label="Детализация по счетам денежных средств"><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td>${esc(cashFormatted.val)} ${esc(cashFormatted.u)}</td><td>${total ? '100%' : '—'}${card.coverage === 'partial' ? '<br>Частичный охват' : ''}</td><td></td><td></td></tr></tbody>
+                    <tbody>${rows}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(cashFormatted.val)}</span> <span class="cash-number-unit">${esc(cashFormatted.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span>${total ? '<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:100%"></span></span>' : ''}${card.coverage === 'partial' ? '<span class="cash-coverage-note">Частичный охват</span>' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
                 <div id="ki-cash-chart-title" class="modal-section-title">Накопленный ДК</div>
                 <div id="ki-cash-line-chart" class="cash-line-chart"></div>
