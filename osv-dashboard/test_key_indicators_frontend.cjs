@@ -266,6 +266,15 @@ async function checkBootstrap(configuration) {
   app.shiftPeriodDay('from', -20);
   assert.equal(nodes.get('ki-date-from-select').value, '01.03.2025',
     'scrolling must not leave the selected start month');
+  app.cancelPeriodPicker();
+  assert.equal(nodes.get('ki-period-picker-button').textContent, 'Выбрать период');
+  assert.equal(nodes.get('ki-date-from-select').value, '01.01.2026');
+  assert.equal(nodes.get('ki-date-select').value, '30.06.2026');
+  assert.equal(fetched, 0, 'closing outside must cancel the draft without loading');
+  app.onPeriodPickerButton();
+  app.selectPeriodMonth('2025-03-01');
+  app.selectPeriodMonth('2026-06-01');
+  app.shiftPeriodDay('to', 2);
   app.onPeriodPickerButton();
   assert.equal(fetched, 1, 'data must load only after confirmation');
   assert.equal(app.state.period, 'day');

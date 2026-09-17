@@ -1051,6 +1051,13 @@
                 });
             });
 
+            document.addEventListener('pointerdown', event => {
+                if (!state.periodPickerOpen) return;
+                const control = document.getElementById('ki-period-selector');
+                if (control && control.contains(event.target)) return;
+                this.cancelPeriodPicker();
+            });
+
             const modal = document.getElementById('ki-modal');
             modal.setAttribute('tabindex', '-1');
             modal.setAttribute('aria-labelledby', 'ki-modal-title');
@@ -1058,6 +1065,11 @@
             // Capture at document level: initial focus may still be on the
             // opener while the dialog's visibility transition is beginning.
             document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && state.periodPickerOpen) {
+                    e.preventDefault();
+                    App.cancelPeriodPicker();
+                    return;
+                }
                 if (!modal.classList.contains('visible')) return;
                 if (e.key === 'Escape') {
                     e.preventDefault();
@@ -1364,6 +1376,14 @@
             this.invalidateAiReport('loading');
             this.renderPeriodPicker();
             this.fetchData();
+        },
+
+        cancelPeriodPicker() {
+            if (!state.periodPickerOpen) return;
+            state.periodPickerOpen = false;
+            state.pendingDateFrom = null;
+            state.pendingDate = null;
+            this.renderPeriodPicker();
         },
 
         selectPeriodMonth(value) {
