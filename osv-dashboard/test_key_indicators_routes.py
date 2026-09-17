@@ -128,6 +128,36 @@ class SourceAssemblyTests(unittest.TestCase):
         self.assertEqual(balances[0]['date'], '2026-06-21')
         self.assertEqual(balances[0]['source_type'], 'direct_daily_osv')
 
+    def test_consolidated_control_keeps_detailed_daily_rows(self):
+        detailed = os.path.join(_TMP.name, 'detailed.xls')
+        control = os.path.join(_TMP.name, 'osv_all_2026_h1_control.xls')
+        for path, mtime in ((detailed, 1), (control, 2)):
+            with open(path, 'wb') as target:
+                target.write(b'test')
+            os.utime(path, (mtime, mtime))
+        detailed_report = report(
+            '1 полугодие 2026', 30, ['2026-01-31', '2026-03-31'])
+        control_report = report('1 полугодие 2026', 30, [])
+
+        with patch.object(
+                service, '_is_trusted_control_path',
+                side_effect=lambda path: path == control), \
+                patch.object(
+                    service, 'parse_osv',
+                    side_effect=lambda path: copy.deepcopy(detailed_report)), \
+                patch.object(
+                    service, 'parse_consolidated_osv',
+                    side_effect=lambda path: {
+                        '51': copy.deepcopy(control_report)
+                    } if path == control else None):
+            source = service.assemble_source([detailed, control], [])
+
+        rows = source['accounts']['51']['daily']
+        self.assertEqual(
+            [row['date'] for row in rows],
+            ['2026-01-31', '2026-03-31'])
+        self.assertEqual(sum(row['obd'] for row in rows), 60)
+
     def test_unreadable_source_is_explicit_error(self):
         path = os.path.join(_TMP.name, 'broken.xls')
         with open(path, 'wb') as target:

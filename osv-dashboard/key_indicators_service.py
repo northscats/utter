@@ -506,7 +506,16 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
                 'end': period_end.isoformat() if period_end else None,
                 'source_file': name,
                 'source_updated_at': updated_at,
+                'accounts': sorted(
+                    str(parsed.get('acc') or '') for parsed in parsed_items
+                    if parsed.get('acc')),
             })
+            for parsed in parsed_items:
+                # A consolidated control ОСВ proves period totals and boundary
+                # balances, but normally has no day-level hierarchy.  It must
+                # not erase detailed daily movements accepted from account
+                # reports covering the same interval.
+                parsed['_consolidated_control'] = True
         source_manifest.append({
             'source_file': name,
             'path': path,
@@ -544,8 +553,11 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
         latest = copy.deepcopy(entries[-1])
         merged = []
         for report in entries:
+            report_daily = report.get('daily', [])
+            if report.get('_consolidated_control') and not report_daily:
+                continue
             merged = [row for row in merged if not _covered(row['date'], [report])]
-            merged.extend(report.get('daily', []))
+            merged.extend(report_daily)
         latest['daily'] = merged
         latest['balance_reports'] = [
             {key: copy.deepcopy(report.get(key)) for key in (

@@ -178,6 +178,34 @@ class ConsolidatedOsvTests(unittest.TestCase):
         self.assertEqual(_top_balance(
             source, '70', date(2026, 6, 30), credit=True)[0], 20.0)
 
+    def test_missing_account_is_confirmed_zero_inside_complete_snapshot(self):
+        source = {
+            'accounts': {
+                '66': {
+                    'report_start': '2025-01-01',
+                    'report_end': '2025-12-31',
+                    'top': {
+                        'snd': 0.0, 'snk': 99.0,
+                        'obd': 0.0, 'obk': 0.0,
+                        'skd': 0.0, 'skk': 99.0,
+                    },
+                    'daily': [],
+                    'balance_reports': [],
+                    'balance_observations': [],
+                },
+            },
+            '_complete_snapshots': [{
+                'start': '2026-01-01',
+                'end': '2026-06-30',
+                'accounts': ['50', '51', '60', '62', '70', '90'],
+            }],
+        }
+        from datetime import date
+        self.assertEqual(
+            _top_balance(
+                source, '66', date(2026, 3, 31), credit=True),
+            (0.0, None))
+
 
 class ConsolidatedOsvConfirmationTests(unittest.TestCase):
     def setUp(self):

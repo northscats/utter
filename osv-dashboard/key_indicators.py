@@ -1012,6 +1012,19 @@ def _complete_snapshot_at(source, boundary, key):
     )
 
 
+def _complete_snapshot_confirms_missing_account(source, account, boundary):
+    """Return true when a full control ОСВ proves an account stayed zero."""
+    account = str(account)
+    for item in source.get('_complete_snapshots') or []:
+        start = _iso(item.get('start'))
+        end = _iso(item.get('end'))
+        accounts = item.get('accounts')
+        if (start and end and start <= boundary <= end
+                and isinstance(accounts, list) and account not in accounts):
+            return True
+    return False
+
+
 def _latest_daily_subaccount_rows(source, account, sub, start, end):
     """Use explicit daily rows when the current full report covers the period."""
     acc = source['accounts'].get(account)
@@ -1679,6 +1692,9 @@ def _consumer_collection(accruals, allocations, mappings, norms,
 
 
 def _top_balance(source, account, end, credit=False):
+    if _complete_snapshot_confirms_missing_account(
+            source, account, end):
+        return 0.0, None
     acc = source['accounts'].get(account)
     if not acc:
         if _complete_snapshot_at(source, end, 'end'):
