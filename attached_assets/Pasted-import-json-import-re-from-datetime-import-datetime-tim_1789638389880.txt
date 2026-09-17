@@ -1,0 +1,553 @@
+import json
+import re
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ContextTypes, filters
+)
+import asyncio
+
+BOT_TOKEN = ""
+DATA_FILE = "SQL.json"
+USERS_FILE = "users.json"
+RSO_BASE_FILE = "rso_base.json"
+
+main_service_order = ['topographic_plan', 'tech_conditions', 'project_docs']
+service_names = {
+    'project_docs': '📋 Согласование проектной/рабочей документации',
+    'tech_conditions': '🔧 Получение технических условий на пересечение/параллельное следование',
+    'topographic_plan': '🗺️ Согласование инженерно-топографического плана'
+}
+
+status_labels = {
+    'today': '❗️ Сегодня',
+    '1_day': '⏳ 1 день',
+    '2_3_days': '⏳ 2-3 дня',
+    'overdue': '🚨 Просрочено'
+}
+
+user_states = {}
+
+CIO_TO_RSO = {
+    "Минэнерго": "Минэнерго",
+    "Мингосуправление": "Мингосуправления",
+    "МТДИ": "МТДИ",
+    "МинЖКХ": "МинЖКХ"
+}
+
+CIO_OPTIONS = ["Минэнерго", "Мингосуправление", "МТДИ", "МинЖКХ"]
+
+
+def normalize_rso_name(name: str) -> str:
+    """Нормализует название РСО для сравнения: убирает кавычки, приводит к нижнему регистру, убирает лишние пробелы."""
+    if not isinstance(name, str):
+        return ""
+    # Удаляем кавычки, «», пробелы по краям, приводим к нижнему регистру
+    name = name.replace("«", "").replace("»", "").replace('"', "").replace("'", "").strip()
+    return re.sub(r'\s+', ' ', name).lower()
+
+
+def get_subscription_display(user):
+    rso = user.get('rso_subscribed')
+    if isinstance(rso, dict) and rso.get('type') == 'cio':
+        return f"ЦИО: {rso['cio']}"
+    elif isinstance(rso, str):
+        return f"РСО: {rso}"
+    return None
+
+
+def get_main_menu(user=None):
+    subscribed_display = get_subscription_display(user) if user else None
+    menu = [
+        ["🗺️ Топоплан", "🔧 Техусловия"],
+        ["📋 Проектная документация"],
+        ["✍️ Подписаться на РСО", "👷 Куратор ЦИО"]
+    ]
+    if subscribed_display:
+        menu[2] = [f"❌ Отписаться от {subscribed_display}"]
+    return ReplyKeyboardMarkup(menu, resize_keyboard=True)
+
+
+def get_status_menu():
+    return ReplyKeyboardMarkup([
+        ["❗️ Сегодня", "⏳ 1 день"],
+        ["⏳ 2-3 дня", "🚨 Просрочено"],
+        ["🔙 Назад"]
+    ], resize_keyboard=True)
+
+
+def load_data():
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        # Добавляем нормализованное имя РСО для каждой заявки
+        for app in data:
+            app['approver_name_normalized'] = normalize_rso_name(app.get('approver_name', ''))
+        return data
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        print(f"❌ Ошибка загрузки {DATA_FILE}: {e}")
+        return []
+
+
+def load_users():
+    try:
+        with open(USERS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {}
+
+
+def save_users(users):
+    with open(USERS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+
+
+def load_rso_base():
+    try:
+        with open(RSO_BASE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        # Добавляем нормализованное имя для каждой РСО
+        for rso in data:
+            rso['name_normalized'] = normalize_rso_name(rso.get('name', ''))
+        return data
+    except:
+        return []
+
+
+def get_rso_name_by_inn(inn):
+    rso_list = load_rso_base()
+    for rso in rso_list:
+        if rso.get('inn') == inn.strip():
+            return rso.get('name')  # возвращаем оригинальное имя для отображения
+    return None
+
+
+def get_rso_names_by_cio(cio: str) -> list:
+    rso_list = load_rso_base()
+    target_cio = CIO_TO_RSO.get(cio)
+    if not target_cio:
+        return []
+    # Возвращаем оригинальные имена, но фильтруем по нормализованному curator
+    return [rso['name'] for rso in rso_list if rso.get('curator') == target_cio]
+
+
+def format_app_for_user(app, hide_rso=False, is_overdue=False):
+    """Форматирует заявку. Скрывает РСО, только если hide_rso=True."""
+    parts = [
+        f"📄 Номер и дата: {app.get('date_info', '—')}",
+    ]
+
+    if is_overdue:
+        parts.append(f"📅 Срок оказания: {app.get('service_deadline', '—')}")
+
+    if not hide_rso:
+        parts.append(f"🏢 Согласующая организация (РСО): {app.get('approver_name', '—')}")
+
+    parts.extend([
+        f"🏛️ Муниципалитет (МО): {app.get('municipality', '—')}",
+        f"📊 Статус: {app.get('process_status', '—')}",
+        f"🔗 <a href='{app.get('link', '#')}'>Ссылка на заявку</a>"
+    ])
+
+    return "\n".join(parts) + "\n" + ("—" * 30) + "\n"
+
+
+def build_summary_for_user(all_apps, rso_filter):
+    if rso_filter:
+        if isinstance(rso_filter, str):
+            # Нормализуем фильтр
+            rso_norm = normalize_rso_name(rso_filter)
+            all_apps = [a for a in all_apps if a.get('approver_name_normalized') == rso_norm]
+        elif isinstance(rso_filter, list):
+            # Нормализуем весь список
+            rso_norm_set = {normalize_rso_name(r) for r in rso_filter}
+            all_apps = [a for a in all_apps if a.get('approver_name_normalized') in rso_norm_set]
+
+    grouped = {}
+    for app in all_apps:
+        key = (app['service'], app['type'])
+        grouped.setdefault(key, []).append(app)
+
+    msg = "📊 <b>Аналитический свод</b>:\n\n"
+    totals = {'today': 0, '1_day': 0, '2_3_days': 0, 'overdue': 0}
+
+    for key in main_service_order:
+        cnt = {
+            'today': len(grouped.get((key, 'today'), [])),
+            '1_day': len(grouped.get((key, '1_day'), [])),
+            '2_3_days': len(grouped.get((key, '2_3_days'), [])),
+            'overdue': len(grouped.get((key, 'overdue'), []))
+        }
+        msg += f"{service_names[key]}:\n"
+        msg += f"   ⏳ 2-3 дня: {cnt['2_3_days']}\n"
+        msg += f"   ⏳ 1 день: {cnt['1_day']}\n"
+        msg += f"   ❗️ Сегодня: {cnt['today']}\n"
+        msg += f"   🚨 Просрочено: {cnt['overdue']}\n\n"
+        for k in totals:
+            totals[k] += cnt[k]
+
+    total_all = sum(totals.values())
+    msg += f"📊 <b>ОБЩИЕ ИТОГИ:</b>\n"
+    msg += f"   ⏳ Осталось 2-3 дня: {totals['2_3_days']}\n"
+    msg += f"   ⏳ Остался 1 день: {totals['1_day']}\n"
+    msg += f"   ❗️ Сегодня: {totals['today']}\n"
+    msg += f"   🚨 Просрочено: {totals['overdue']}\n"
+    msg += f"   📈 ВСЕГО: {total_all}\n"
+
+    if rso_filter:
+        if isinstance(rso_filter, list):
+            if len(rso_filter) == 1:
+                msg = f"📬 <b>Только для РСО:</b> {rso_filter[0]}\n\n" + msg
+            else:
+                msg = f"📬 <b>По вашему ЦИО (всего РСО: {len(rso_filter)})</b>\n\n" + msg
+        else:
+            msg = f"📬 <b>По вашему ЦИО</b>\n\n" + msg
+
+    return msg
+
+
+async def send_summary_to_user(bot, user_id_str, user_data, all_apps):
+    """Отправляет сводку конкретному пользователю"""
+    try:
+        chat_id = int(user_id_str)
+        rso = user_data.get('rso_subscribed')
+        if isinstance(rso, dict) and rso.get('type') == 'cio':
+            rso_list = get_rso_names_by_cio(rso['cio'])
+            msg = build_summary_for_user(all_apps, rso_list)
+        else:
+            msg = build_summary_for_user(all_apps, rso)
+        await bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+        return True, None
+    except Exception as e:
+        error_msg = str(e).lower()
+        return False, (user_id_str, error_msg)
+
+
+async def send_summary_with_retry(context: ContextTypes.DEFAULT_TYPE, retry_count=0, max_retries=3):
+    """Основная функция рассылки с механизмом повторных попыток"""
+    bot = context.bot
+    users = load_users()
+    all_apps = load_data()
+
+    if not all_apps:
+        print("⚠️ Нет данных для рассылки")
+        # Пробуем снова через минуту, если данных нет
+        if retry_count < max_retries:
+            print(f"🔄 Повторная попытка через 60 секунд (попытка {retry_count + 1}/{max_retries})")
+            await asyncio.sleep(60)
+            await send_summary_with_retry(context, retry_count + 1, max_retries)
+        return
+
+    failed_users = []
+    to_remove = []
+
+    print(f"📨 Начинаем рассылку для {len(users)} пользователей...")
+
+    for uid_str, user_data in users.items():
+        success, error_info = await send_summary_to_user(bot, uid_str, user_data, all_apps)
+
+        if not success:
+            user_id_str, error_msg = error_info
+            if "chat not found" in error_msg or "bot was blocked" in error_msg:
+                print(f"🗑️ Пользователь {user_id_str} недоступен — удаляем из базы.")
+                to_remove.append(user_id_str)
+            else:
+                print(f"❌ Ошибка отправки {user_id_str}: {error_msg}")
+                failed_users.append((user_id_str, user_data))
+
+        await asyncio.sleep(0.05)  # Задержка между отправками
+
+    # Удаляем недоступных пользователей
+    if to_remove:
+        for uid in to_remove:
+            users.pop(uid, None)
+        save_users(users)
+
+    # Если есть неудавшиеся отправки и не превышено максимальное количество попыток
+    if failed_users and retry_count < max_retries:
+        print(
+            f"🔄 {len(failed_users)} пользователей не получили рассылку. Повтор через 60 секунд (попытка {retry_count + 1}/{max_retries})")
+        await asyncio.sleep(60)
+
+        # Повторяем попытку для неудавшихся пользователей
+        for uid_str, user_data in failed_users:
+            success, error_info = await send_summary_to_user(bot, uid_str, user_data, all_apps)
+            if not success:
+                user_id_str, error_msg = error_info
+                if "chat not found" in error_msg or "bot was blocked" in error_msg:
+                    users.pop(user_id_str, None)
+
+        # Сохраняем обновленный список пользователей
+        save_users(users)
+    elif failed_users:
+        print(f"⚠️ Не удалось отправить рассылку {len(failed_users)} пользователям после {max_retries} попыток")
+
+    print("✅ Рассылка завершена")
+
+
+async def send_summary_job(context: ContextTypes.DEFAULT_TYPE):
+    """Задача для job_queue - обертка для совместимости"""
+    await send_summary_with_retry(context)
+
+
+async def analytical_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    users = load_users()
+    user = users.get(str(user_id), {})
+    all_apps = load_data()
+
+    if not all_apps:
+        await update.message.reply_text("📭 Нет данных для аналитического свода.")
+        return
+
+    rso_filter = user.get('rso_subscribed')
+    if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+        rso_list = get_rso_names_by_cio(rso_filter['cio'])
+        msg = build_summary_for_user(all_apps, rso_list)
+    else:
+        msg = build_summary_for_user(all_apps, rso_filter)
+
+    await update.message.reply_text(msg, parse_mode='HTML')
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    users = load_users()
+    user = users.get(str(user_id), {})
+    await update.message.reply_text(
+        "👋 Добро пожаловать!\n"
+        "Выберите действие:",
+        reply_markup=get_main_menu(user)
+    )
+
+
+async def instructions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "📘 <b>ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ БОТА</b>\n\n"
+        "1️⃣ <b>Подписка на РСО</b>\n"
+        "   • Нажмите «✍️ Подписаться на РСО»\n"
+        "   • Введите <b>ИНН</b> вашей организации\n\n"
+        "2️⃣ <b>Подписка на ЦИО</b>\n"
+        "   • Нажмите «👷 Куратор ЦИО»\n"
+        "   • Выберите ведомство\n"
+        "   • Получите все заявки по РСО, курируемым этим ЦИО\n\n"
+        "3️⃣ <b>Просмотр заявок</b>\n"
+        "   • Выберите услугу\n"
+        "   • Затем выберите статус\n\n"
+        "4️⃣ <b>Отписка</b>\n"
+        "   • Кнопка изменится на «❌ Отписаться...»\n\n"
+        "5️⃣ <b>Рассылка</b>: <b>9:00, 14:00, 17:00 по Московскому времени</b>\n"
+        "6️⃣ <b>Аналитический свод вручную</b>: отправьте <code>/analytical_summary</code>"
+    )
+    await update.message.reply_text(help_text, parse_mode='HTML', disable_web_page_preview=True)
+
+
+async def handle_cio_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    users = load_users()
+
+    if query.data.startswith("cio_"):
+        cio_name = query.data[4:]
+        users[str(user_id)]['rso_subscribed'] = {'type': 'cio', 'cio': cio_name}
+        save_users(users)
+        await query.edit_message_text(
+            f"✅ Вы подписаны на ЦИО: <b>{cio_name}</b>",
+            parse_mode='HTML'
+        )
+        user = users[str(user_id)]
+        await query.message.reply_text(
+            "Выберите действие:",
+            reply_markup=get_main_menu(user)
+        )
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
+    users = load_users()
+    if str(user_id) not in users:
+        users[str(user_id)] = {"added_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "active": True}
+    else:
+        users[str(user_id)]["active"] = True
+    save_users(users)
+
+    user = users[str(user_id)]
+    rso_subscribed = user.get('rso_subscribed')
+    is_subscribed = bool(rso_subscribed)
+
+    if user_id in user_states:
+        state = user_states[user_id]
+        if state['step'] == 'awaiting_inn':
+            del user_states[user_id]
+            inn = text.strip()
+            rso_name = get_rso_name_by_inn(inn)
+            if rso_name:
+                users[str(user_id)]['rso_subscribed'] = rso_name
+                save_users(users)
+                await update.message.reply_text(
+                    f"✅ Вы успешно подписаны на РСО:\n<b>{rso_name}</b>",
+                    parse_mode='HTML',
+                    reply_markup=get_main_menu(user)
+                )
+            else:
+                await update.message.reply_text(
+                    "❌ ИНН не найден в базе.\nПопробуйте снова или нажмите «Назад».",
+                    reply_markup=get_main_menu()
+                )
+            return
+
+    if text == "👷 Куратор ЦИО":
+        keyboard = [
+            [InlineKeyboardButton(f"{i + 1}\u20e3 {cio}", callback_data=f"cio_{cio}")]
+            for i, cio in enumerate(CIO_OPTIONS)
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Выберите ЦИО:", reply_markup=reply_markup)
+        return
+
+    if text == "✍️ Подписаться на РСО":
+        user_states[user_id] = {'step': 'awaiting_inn'}
+        await update.message.reply_text("⌨️ Введите ИНН вашей РСО:")
+        return
+
+    if text.startswith("❌ Отписаться от "):
+        users[str(user_id)]['rso_subscribed'] = None
+        save_users(users)
+        await update.message.reply_text("✅ Вы отписались.", reply_markup=get_main_menu())
+        return
+
+    if text == "🔙 Назад":
+        await update.message.reply_text("Выберите действие:", reply_markup=get_main_menu(user))
+        return
+
+    service_key = None
+    if text == "🗺️ Топоплан":
+        service_key = 'topographic_plan'
+    elif text == "🔧 Техусловия":
+        service_key = 'tech_conditions'
+    elif text == "📋 Проектная документация":
+        service_key = 'project_docs'
+
+    if service_key:
+        user_states[user_id] = {'step': 'status', 'service': service_key}
+        await update.message.reply_text(
+            f"Выбрано: {service_names[service_key]}\nВыберите статус:",
+            reply_markup=get_status_menu()
+        )
+        return
+
+    if user_id in user_states and user_states[user_id].get('step') == 'status':
+        status_map = {
+            "❗️ Сегодня": 'today',
+            "⏳ 1 день": '1_day',
+            "⏳ 2-3 дня": '2_3_days',
+            "🚨 Просрочено": 'overdue'
+        }
+        status = status_map.get(text)
+        if status:
+            service_key = user_states[user_id]['service']
+            all_apps = load_data()
+            if not all_apps:
+                await update.message.reply_text("📭 Нет данных.", reply_markup=get_status_menu())
+                return
+
+            filtered = [a for a in all_apps if a.get('service') == service_key and a.get('type') == status]
+
+            hide_rso = False  # по умолчанию — показываем РСО
+
+            rso_filter = rso_subscribed
+            if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+                # Подписка на ЦИО → фильтруем, но РСО показываем
+                allowed_rsos = get_rso_names_by_cio(rso_filter['cio'])
+                allowed_norm = {normalize_rso_name(r) for r in allowed_rsos}
+                filtered = [a for a in filtered if a.get('approver_name_normalized') in allowed_norm]
+                hide_rso = False
+            elif isinstance(rso_filter, str):
+                # Подписка на конкретную РСО → скрываем РСО
+                rso_norm = normalize_rso_name(rso_filter)
+                filtered = [a for a in filtered if a.get('approver_name_normalized') == rso_norm]
+                hide_rso = True
+            else:
+                # Без подписки → показываем РСО
+                hide_rso = False
+
+            if not filtered:
+                reply_text = f"Нет заявок:\n{service_names[service_key]} – {status_labels[status]}"
+                if isinstance(rso_filter, dict):
+                    reply_text += f"\n\n📬 По ЦИО: {rso_filter['cio']}"
+                elif rso_filter:
+                    reply_text += f"\n\n📬 Только для РСО: {rso_filter}"
+                await update.message.reply_text(reply_text, reply_markup=get_status_menu())
+            else:
+                full_text = f"📄 <b>{service_names[service_key]}</b>\n{status_labels[status]} – {len(filtered)} шт.\n\n"
+                for app in filtered:
+                    is_overdue = (status == 'overdue')
+                    full_text += format_app_for_user(app, hide_rso=hide_rso, is_overdue=is_overdue)
+
+                if isinstance(rso_filter, dict):
+                    full_text = f"📬 <b>По ЦИО:</b> {rso_filter['cio']} (РСО: {len(set(a['approver_name'] for a in filtered))})\n\n" + full_text
+                elif rso_filter:
+                    full_text = f"📬 <b>Только для РСО:</b> {rso_filter}\n\n" + full_text
+
+                while full_text:
+                    if len(full_text) <= 4000:
+                        await update.message.reply_text(
+                            full_text,
+                            parse_mode='HTML',
+                            reply_markup=get_status_menu(),
+                            disable_web_page_preview=True
+                        )
+                        break
+                    else:
+                        part = full_text[:4000]
+                        last_newline = part.rfind("\n", 0, 3800)
+                        if last_newline == -1:
+                            last_newline = 3800
+                        await update.message.reply_text(
+                            part[:last_newline],
+                            parse_mode='HTML',
+                            disable_web_page_preview=True
+                        )
+                        full_text = full_text[last_newline:].lstrip()
+            return
+
+    await update.message.reply_text("Пожалуйста, используйте кнопки меню.", reply_markup=get_main_menu(user))
+
+
+def main():
+    moscow_tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(moscow_tz)
+    print(f"🕒 Текущее время в Москве: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("🤖 Запуск Telegram-бота...")
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("instructions", instructions))
+    app.add_handler(CommandHandler("analytical_summary", analytical_summary))
+    app.add_handler(CallbackQueryHandler(handle_cio_selection, pattern=r'^cio_'))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    job_queue = app.job_queue
+
+    job_queue.run_daily(send_summary_job, time=time(hour=9, minute=0, tzinfo=moscow_tz))
+    job_queue.run_daily(send_summary_job, time=time(hour=14, minute=0, tzinfo=moscow_tz))
+    job_queue.run_daily(send_summary_job, time=time(hour=17, minute=0, tzinfo=moscow_tz))
+
+    print("✅ Планировщик рассылок настроен (9:00, 14:00, 17:00 по Москве)")
+    print("✅ Бот запущен! Доступные команды: /start, /instructions, /analytical_summary")
+
+    try:
+        app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    except KeyboardInterrupt:
+        print("\n🛑 Бот остановлен.")
+
+
+if __name__ == "__main__":
+    main()
