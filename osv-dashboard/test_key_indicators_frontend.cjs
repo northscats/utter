@@ -254,6 +254,12 @@ async function checkBootstrap(configuration) {
     'negative cash balance changes must use the carrot color class');
   assert.match(script, /<th>Группа<\/th>/,
     'the former Segment table must be labeled Group');
+  assert.match(script, /metric-inline-unit/,
+    'money units must be rendered inline with metric values');
+  assert.doesNotMatch(
+    script,
+    /cash-summary-sub">\$\{esc\((?:total|gross|cash)Formatted\.u\)/,
+    'summary cards must not place money units on the line below the value');
   app.renderRevenueLineChart({series: [
     {date: '2026-01-31', label: 'Январь', value: 1_000_000, granularity: 'month'},
     {date: '2026-02-28', label: 'Февраль', value: 2_000_000, granularity: 'month'},

@@ -2216,11 +2216,11 @@
                     Выручка без НДС рассчитывается как ОбК(90.01*) − ОбД(90.03*). Если 90.03 отсутствует, факт показывается как брутто.</div>
                 <div class="cash-summary-grid">
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${revenueMainId ? `data-series-id="${esc(revenueMainId)}"` : ''}><div class="cash-summary-label">Выручка общая</div>
-                        <div class="cash-summary-value cash-value-ok">${esc(totalFormatted.val)}</div><div class="cash-summary-sub">${esc(totalFormatted.u)} · ${vat === null ? 'брутто' : 'без НДС'}</div>${this.cashTooltip(totalTooltip)}</div>
+                        <div class="cash-summary-value cash-value-ok">${esc(totalFormatted.val)} <span class="metric-inline-unit">${esc(totalFormatted.u)}</span></div><div class="cash-summary-sub">${vat === null ? 'брутто' : 'без НДС'}</div>${this.cashTooltip(totalTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${grossSeriesId ? `data-series-id="${esc(grossSeriesId)}"` : ''}><div class="cash-summary-label">Выручка брутто</div>
-                        <div class="cash-summary-value">${esc(grossFormatted.val)}</div><div class="cash-summary-sub">${esc(grossFormatted.u)} · ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
+                        <div class="cash-summary-value">${esc(grossFormatted.val)} <span class="metric-inline-unit">${esc(grossFormatted.u)}</span></div><div class="cash-summary-sub">ОбК 90.01</div>${this.cashTooltip(grossTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" ${vatSeriesId ? `data-series-id="${esc(vatSeriesId)}"` : ''}><div class="cash-summary-label">НДС</div>
-                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : esc(vatFormatted.val)}</div><div class="cash-summary-sub">${vat === null ? esc(vatDetail && vatDetail.reason || 'нет аналитики 90.03') : `${esc(vatFormatted.u)} · ОбД 90.03`}</div>${this.cashTooltip(vatTooltip)}</div>
+                        <div class="cash-summary-value ${vat === null ? 'cash-value-missing' : ''}">${vat === null ? 'Нужны данные' : `${esc(vatFormatted.val)} <span class="metric-inline-unit">${esc(vatFormatted.u)}</span>`}</div><div class="cash-summary-sub">${vat === null ? esc(vatDetail && vatDetail.reason || 'нет аналитики 90.03') : 'ОбД 90.03'}</div>${this.cashTooltip(vatTooltip)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Отклонение от плана</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div><div class="cash-summary-sub">план отсутствует в ОСВ</div>${this.cashTooltip(planTooltip)}</div>
                 </div>
@@ -4643,7 +4643,7 @@
                     role="listitem" style="${trStyle}" tabindex="${hasSeries ? '0' : '-1'}"
                     data-series-id="${hasSeries ? id : ''}" data-series-label="${esc(label)}">
                     <div class="cash-analysis-label">${esc(label)}</div>
-                    <div class="cash-analysis-value">${esc(f.val)} ${f.u ? `<span style="color:#9CA3AF;font-size:10px;">${esc(f.u)}</span>` : ''}</div>
+                    <div class="cash-analysis-value">${esc(f.val)} ${f.u ? `<span class="metric-inline-unit">${esc(f.u)}</span>` : ''}</div>
                     ${isPinned ? '<span class="ki-metric-pinned">Закреплено</span>' : ''}
                     ${tooltip}
                 </div>`;
@@ -5545,8 +5545,8 @@ renderCashModal(card) {
                     Средства счёта 55 могут иметь ограничения по использованию.</div>
                 <div class="cash-summary-grid">
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0" data-series-id="__main__"><div class="cash-summary-label">Денежные средства</div>
-                        <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)}</div>
-                        <div class="cash-summary-sub">${esc(cashFormatted.u)} · ${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
+                        <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)} <span class="metric-inline-unit">${esc(cashFormatted.u)}</span></div>
+                        <div class="cash-summary-sub">${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : delta < 0 ? 'cash-value-negative' : 'cash-value-ok'}">${esc(deltaText)}</div>
                         <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>

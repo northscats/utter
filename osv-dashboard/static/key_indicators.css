@@ -232,7 +232,7 @@ select.date-display option { background: #1E3A5F; color: #fff; }
 .kpi-value {
   font-size: 22px; font-weight: 700; color: #111827;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  line-height: 1.1;
+  line-height: 1.1; white-space: nowrap;
 }
 .kpi-unit { font-size: 11px; color: #9CA3AF; font-weight: 400; margin-left: 3px; font-family: system-ui, -apple-system, sans-serif; }
 .kpi-delta { font-size: 10px; margin-top: 5px; display: flex; align-items: center; gap: 4px; font-weight: 500; }
@@ -411,7 +411,8 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   padding:12px; min-height:82px;
 }
 .cash-summary-label, .cash-analysis-label { color:#6B7280; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
-.cash-summary-value, .cash-analysis-value { color:#1F2937; font-size:22px; font-weight:800; margin-top:5px; }
+.cash-summary-value, .cash-analysis-value { color:#1F2937; font-size:22px; font-weight:800; margin-top:5px; white-space:nowrap; }
+.metric-inline-unit { color:#9CA3AF; font-size:10px; font-weight:400; font-family:system-ui,-apple-system,sans-serif; }
 .cash-summary-sub, .cash-analysis-sub { color:#6B7280; font-size:10px; margin-top:4px; line-height:1.35; }
 .cash-value-ok { color:#059669; }
 .cash-value-negative { color:#F97316; }
