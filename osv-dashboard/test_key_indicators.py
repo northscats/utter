@@ -954,6 +954,22 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(available[0]['value'], 15)
         self.assertEqual(available[0]['sources'], {'51': 'report_boundary'})
 
+    def test_day_period_accepts_custom_dates_inside_source_range(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-01', obd=10, skd=10),
+                day('2026-03-31', obd=20, skd=30),
+            ])
+        })
+        result = build_key_indicators(
+            src, 'day', '2026-03-01', date_from='2026-02-01')
+
+        self.assertEqual(result['period']['date_from'], '2026-02-01')
+        self.assertEqual(result['period']['date'], '2026-03-01')
+        self.assertEqual(result['period']['start'], '2026-02-01')
+        self.assertEqual(result['period']['end'], '2026-03-01')
+        self.assertEqual(result['period']['label'], '01.02.2026 — 01.03.2026')
+
     def test_cash_series_has_independent_cumulative_debit_and_credit(self):
         src = build_indicator_source({
             '50': account('50', [
@@ -1178,7 +1194,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cash['series'][1]['coverage'], 'missing')
         self.assertFalse(cash['series'][2]['comparison']['comparable'])
 
-    def test_cash_daily_series_rejects_period_only_endpoint(self):
+    def test_cash_daily_series_keeps_period_boundary_only_at_endpoint(self):
         src = build_indicator_source({
             '51': account(
                 '51', [], top=dict(snd=0, snk=0, obd=0, obk=0, skd=500, skk=0),
@@ -1186,11 +1202,14 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         })
         cash = {item['id']: item for item in build_key_indicators(
             src, 'month', '2026-01-31')['cards']}['cash']
-        # The headline may use the authentic report boundary, but the daily
-        # chart must not relabel that period aggregate as a daily point.
+        # The authentic report boundary is one real chart point. It must not
+        # be copied into any of the preceding daily slots.
         self.assertEqual(cash['value'], 500)
-        self.assertTrue(all(point['value'] is None for point in cash['series']))
-        self.assertIsNone(cash['series'][-1]['value'])
+        self.assertTrue(all(
+            point['value'] is None for point in cash['series'][:-1]))
+        self.assertEqual(cash['series'][-1]['value'], 500)
+        self.assertEqual(cash['series'][-1]['sources'],
+                         {'51': 'report_boundary'})
         self.assertEqual(cash['series'][-1]['granularity'], 'day')
 
     def test_cash_daily_series_uses_exact_rows_inclusive_and_keeps_zero(self):

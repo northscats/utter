@@ -2064,28 +2064,36 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         if fallback is None:
             raise ValueError('date must be YYYY-MM-DD')
         options = _options([fallback], period)
+    option_values = {x['value'] for x in options}
+    custom_day = period == 'day' and bool(dates)
     if date is None:
         endpoint = _iso(options[-1]['value'])
     else:
         endpoint = _iso(date)
-        if endpoint is None or date not in {x['value'] for x in options}:
+        if (endpoint is None or
+                (date not in option_values and not (
+                    custom_day and dates[0] <= endpoint <= dates[-1]))):
             raise ValueError('date is not an available option for selected period')
     start, end = _range(period, endpoint)
-    label = next(x['label'] for x in options if x['value'] == endpoint.isoformat())
+    period_label = next((x['label'] for x in options
+                         if x['value'] == endpoint.isoformat()),
+                        _options([endpoint], period)[0]['label'])
     range_start_endpoint = endpoint
     if period in ('day', 'month', 'quarter') and date_from is not None:
         range_start_endpoint = _iso(date_from)
-        option_values = {x['value'] for x in options}
-        if range_start_endpoint is None or date_from not in option_values:
+        if (range_start_endpoint is None or
+                (date_from not in option_values and not (
+                    custom_day and dates[0] <= range_start_endpoint <= dates[-1]))):
             raise ValueError('date_from is not an available option')
         if range_start_endpoint > endpoint:
             raise ValueError('date_from must not be after date')
         start, _ = _range(period, range_start_endpoint)
         start_label = next(
-            x['label'] for x in options if x['value'] == date_from)
-        label = (
-            label if range_start_endpoint == endpoint
-            else f'{start_label} — {label}')
+            (x['label'] for x in options if x['value'] == date_from),
+            _options([range_start_endpoint], period)[0]['label'])
+        period_label = (
+            period_label if range_start_endpoint == endpoint
+            else f'{start_label} — {period_label}')
     warnings = list(source.get('warnings') or [])
     loaded_accounts = list(source['accounts'])
     partial = bool(loaded_accounts) and not any(
@@ -3935,7 +3943,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                    'series_kind': series_kind,
                    'provenance': (
                        'period_aggregate' if aggregate_slots else 'daily'),
-                   'label': label,
+                    'label': period_label,
                    'start': start.isoformat(), 'end': end.isoformat(),
                    'options': options, 'available_kinds': available,
                    'warnings': list(dict.fromkeys(warnings))},

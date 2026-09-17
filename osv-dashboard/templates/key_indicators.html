@@ -57,15 +57,27 @@
           <button class="mode-btn active" data-mode="operational">ОСВ</button>
           <button class="mode-btn" data-mode="annual">Годовые</button>
         </div>
-        <div class="period-selector" id="ki-period-selector">
-          <button class="period-btn active" data-period="year">Год</button>
-          <button class="period-btn" data-period="quarter">Квартал</button>
-          <button class="period-btn" data-period="month">Месяц</button>
-          <button class="period-btn" data-period="day">День</button>
+        <div class="period-range-control" id="ki-period-selector">
+          <button type="button" id="ki-period-picker-button" class="period-picker-button"
+                  aria-expanded="false" aria-controls="ki-period-picker"
+                  onclick="window.KI_App.onPeriodPickerButton()">Выбрать период</button>
+          <label class="period-date-field">с
+            <input id="ki-date-from-select" type="text" readonly aria-label="Начало периода">
+          </label>
+          <label class="period-date-field">по
+            <input id="ki-date-select" type="text" readonly aria-label="Конец периода">
+          </label>
+          <div id="ki-period-picker" class="period-picker" hidden>
+            <div class="period-picker-head">
+              <button type="button" class="period-picker-nav" aria-label="Предыдущие годы"
+                      onclick="window.KI_App.shiftPeriodPickerYears(-3)">‹</button>
+              <div id="ki-period-picker-hint">Выберите месяц начала периода</div>
+              <button type="button" class="period-picker-nav" aria-label="Следующие годы"
+                      onclick="window.KI_App.shiftPeriodPickerYears(3)">›</button>
+            </div>
+            <div id="ki-period-years" class="period-picker-years"></div>
+          </div>
         </div>
-        <select id="ki-date-from-select" class="date-display" onchange="window.KI_App.onDateFromChange(this.value)" aria-label="Начало периода" style="display:none;"></select>
-        <select id="ki-date-select" class="date-display" onchange="window.KI_App.onDateChange(this.value)" aria-label="Конечная дата" style="display:none;"></select>
-        <div id="ki-quarter-buttons" class="quarter-buttons" role="group" aria-label="Выбор квартала" style="display:none;"></div>
         <select id="ki-annual-year-select" class="date-display" onchange="window.KI_AnnualApp.onYearChange(this.value)" style="display:none;"></select>
         <div id="ki-annual-year-buttons" class="annual-year-buttons" role="group" aria-label="Доступные годы" style="display:none;"></div>
       </div>

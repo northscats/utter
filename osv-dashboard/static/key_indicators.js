@@ -8,6 +8,10 @@
         date: null,
         dateFrom: null,
         quarterAnchor: null,
+        periodPickerOpen: false,
+        pendingDateFrom: null,
+        pendingDate: null,
+        pickerYearStart: null,
         data: null,
         lastFocused: null,
         modalCardId: null,
@@ -623,7 +627,8 @@
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
                 document.getElementById('ki-date-from-select').style.display = 'none';
-                document.getElementById('ki-quarter-buttons').style.display = 'none';
+                const quarterButtons = document.getElementById('ki-quarter-buttons');
+                if (quarterButtons) quarterButtons.style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'flex';
                 document.getElementById('ki-operational-container').style.display = 'none';
                 document.getElementById('ki-annual-container').style.display = 'block';
@@ -741,7 +746,8 @@
                 document.getElementById('ki-period-selector').style.display = 'none';
                 document.getElementById('ki-date-select').style.display = 'none';
                 document.getElementById('ki-date-from-select').style.display = 'none';
-                document.getElementById('ki-quarter-buttons').style.display = 'none';
+                const quarterButtons = document.getElementById('ki-quarter-buttons');
+                if (quarterButtons) quarterButtons.style.display = 'none';
                 document.querySelector('.tabs-bar').style.display = 'flex';
                 document.getElementById('tab-analytics').classList.add('active');
                 if (document.getElementById('tab-recommendations')) document.getElementById('tab-recommendations').classList.remove('active');
@@ -1025,17 +1031,6 @@
                 });
             });
 
-            document.querySelectorAll('.period-btn').forEach(btn => {
-                btn.addEventListener('click', e => {
-                    this.onPeriodChange(e.target.dataset.period);
-                });
-            });
-
-            document.getElementById('ki-quarter-buttons').addEventListener('click', e => {
-                const button = e.target.closest('.quarter-btn');
-                if (button && !button.disabled) this.onQuarterChange(button.dataset.value);
-            });
-
             const modal = document.getElementById('ki-modal');
             modal.setAttribute('tabindex', '-1');
             modal.setAttribute('aria-labelledby', 'ki-modal-title');
@@ -1312,6 +1307,110 @@
             this.invalidateAiReport('loading');
             this.fetchData();
         },
+
+        periodPickerBounds() {
+            const period = state.data && state.data.period || {};
+            const values = (period.options || []).map(option => option.value)
+                .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(String(value))).sort();
+            const first = values[0] || period.start || period.date_from || state.dateFrom;
+            const inferredFirst = period.kind === 'year' && first
+                ? `${String(first).slice(0, 4)}-01-01` : first;
+            return {
+                min: inferredFirst,
+                max: values[values.length - 1] || period.end || period.date || state.date
+            };
+        },
+
+        formatPeriodField(value) {
+            const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+            return match ? `${match[3]}.${match[2]}.${match[1]}` : '—';
+        },
+
+        onPeriodPickerButton() {
+            if (!state.periodPickerOpen) {
+                state.periodPickerOpen = true;
+                state.pendingDateFrom = null;
+                state.pendingDate = null;
+                const bounds = this.periodPickerBounds();
+                state.pickerYearStart = Number(String(bounds.max || '').slice(0, 4)) - 2;
+                this.renderPeriodPicker();
+                return;
+            }
+            if (!state.pendingDateFrom || !state.pendingDate) return;
+            state.periodPickerOpen = false;
+            state.period = 'day';
+            state.dateFrom = state.pendingDateFrom;
+            state.date = state.pendingDate;
+            this.invalidateAiReport('loading');
+            this.renderPeriodPicker();
+            this.fetchData();
+        },
+
+        selectPeriodMonth(value) {
+            if (!state.pendingDateFrom || state.pendingDate) {
+                state.pendingDateFrom = value;
+                state.pendingDate = null;
+            } else {
+                [state.pendingDateFrom, state.pendingDate] =
+                    [state.pendingDateFrom, value].sort();
+            }
+            this.renderPeriodPicker();
+        },
+
+        shiftPeriodPickerYears(offset) {
+            state.pickerYearStart = (state.pickerYearStart || new Date().getFullYear()) + offset;
+            this.renderPeriodPicker();
+        },
+
+        renderPeriodPicker() {
+            const picker = document.getElementById('ki-period-picker');
+            const yearsContainer = document.getElementById('ki-period-years');
+            const button = document.getElementById('ki-period-picker-button');
+            const from = document.getElementById('ki-date-from-select');
+            const to = document.getElementById('ki-date-select');
+            if (!picker || !yearsContainer || !button || !from || !to) return;
+            const bounds = this.periodPickerBounds();
+            const visibleFrom = state.pendingDateFrom || state.dateFrom ||
+                (state.data && state.data.period && state.data.period.start);
+            const visibleTo = state.periodPickerOpen
+                ? state.pendingDate
+                : state.date || (state.data && state.data.period && state.data.period.end);
+            from.value = this.formatPeriodField(visibleFrom);
+            to.value = this.formatPeriodField(visibleTo);
+            picker.hidden = !state.periodPickerOpen;
+            button.textContent = state.periodPickerOpen ? 'Загрузить период' : 'Выбрать период';
+            button.setAttribute('aria-expanded', String(state.periodPickerOpen));
+            button.disabled = state.periodPickerOpen &&
+                (!state.pendingDateFrom || !state.pendingDate);
+            const hint = document.getElementById('ki-period-picker-hint');
+            if (hint) hint.textContent = !state.pendingDateFrom || state.pendingDate
+                ? 'Выберите месяц начала периода'
+                : 'Выберите месяц окончания периода';
+            if (!state.periodPickerOpen) return;
+
+            const minMonth = String(bounds.min || '').slice(0, 7);
+            const maxMonth = String(bounds.max || '').slice(0, 7);
+            const startYear = state.pickerYearStart || Number(maxMonth.slice(0, 4)) - 2;
+            const monthNames = ['Янв','Фев','Мар','Апр','Май','Июн',
+                'Июл','Авг','Сен','Окт','Ноя','Дек'];
+            yearsContainer.innerHTML = [startYear, startYear + 1, startYear + 2].map(year => {
+                const months = monthNames.map((name, index) => {
+                    const month = `${year}-${String(index + 1).padStart(2, '0')}`;
+                    const value = `${month}-01`;
+                    const disabled = (minMonth && month < minMonth) ||
+                        (maxMonth && month > maxMonth);
+                    const inRange = state.pendingDateFrom && state.pendingDate &&
+                        value >= state.pendingDateFrom && value <= state.pendingDate;
+                    const edge = value === state.pendingDateFrom || value === state.pendingDate;
+                    return `<button type="button" class="period-picker-month${inRange ? ' in-range' : ''}${edge ? ' range-edge' : ''}"
+                        ${disabled ? 'disabled' : ''}
+                        onclick="window.KI_App.selectPeriodMonth('${value}')"
+                        aria-pressed="${edge || inRange ? 'true' : 'false'}">${name}</button>`;
+                }).join('');
+                return `<section><h3 class="period-picker-year-title">${year}</h3>
+                    <div class="period-picker-months">${months}</div></section>`;
+            }).join('');
+        },
         
         retry() {
             if (state.mode === 'annual') {
@@ -1470,84 +1569,7 @@
         },
         
         renderPeriodSelector() {
-            const p = state.period;
-            const dataP = state.data.period;
-            
-            document.querySelectorAll('.period-btn').forEach(btn => {
-                if (btn.dataset.period === p) btn.classList.add('active');
-                else btn.classList.remove('active');
-                
-                if (dataP && dataP.available_kinds) {
-                    if (!dataP.available_kinds.includes(btn.dataset.period)) btn.style.display = 'none';
-                    else btn.style.display = 'inline-block';
-                }
-            });
-            
-            const sel = document.getElementById('ki-date-select');
-            const fromSel = document.getElementById('ki-date-from-select');
-            const quarterButtons = document.getElementById('ki-quarter-buttons');
-            sel.setAttribute('aria-label', p === 'quarter' ? 'Год' : 'Конечная дата');
-            if (dataP && dataP.options && dataP.options.length > 0) {
-                sel.innerHTML = dataP.options.map(opt =>
-                    `<option value="${esc(opt.value)}" ${opt.value === dataP.date ? 'selected' : ''}>${p === 'month' || p === 'day' ? 'по ' : ''}${esc(opt.label)}</option>`
-                ).join('');
-                fromSel.innerHTML = dataP.options
-                    .filter(opt => opt.value <= dataP.date)
-                    .map(opt =>
-                        `<option value="${esc(opt.value)}" ${opt.value === dataP.date_from ? 'selected' : ''}>с ${esc(opt.label)}</option>`
-                    ).join('');
-                if (p === 'quarter') {
-                    const activeDate = new Date(`${dataP.date}T00:00:00`);
-                    const activeYear = activeDate.getFullYear();
-                    const activeQuarter = Math.floor(activeDate.getMonth() / 3) + 1;
-                    const optionsByYear = new Map();
-                    dataP.options.forEach(option => {
-                        const year = option.value.slice(0, 4);
-                        if (!optionsByYear.has(year)) optionsByYear.set(year, []);
-                        optionsByYear.get(year).push(option);
-                    });
-                    sel.innerHTML = Array.from(optionsByYear.keys()).sort().map(year => {
-                        const options = optionsByYear.get(year).slice()
-                            .sort((a, b) => a.value.localeCompare(b.value));
-                        const matchingQuarter = options.find(option =>
-                            Math.floor((Number(option.value.slice(5, 7)) - 1) / 3) + 1 === activeQuarter);
-                        const option = matchingQuarter || options[options.length - 1];
-                        return `<option value="${esc(option.value)}" ${Number(year) === activeYear ? 'selected' : ''}>${esc(year)}</option>`;
-                    }).join('');
-                    const byQuarter = new Map(
-                        dataP.options
-                            .filter(opt => new Date(`${opt.value}T00:00:00`).getFullYear() === activeYear)
-                            .map(opt => [Math.floor(new Date(`${opt.value}T00:00:00`).getMonth() / 3) + 1, opt])
-                    );
-                    quarterButtons.innerHTML = [1, 2, 3, 4].map(number => {
-                        const option = byQuarter.get(number);
-                        const active = option && option.value >= dataP.date_from
-                            && option.value <= dataP.date;
-                        return `<button type="button" class="quarter-btn${active ? ' active' : ''}"
-                            ${option ? `data-value="${esc(option.value)}"` : 'disabled'}
-                            aria-label="${number} квартал ${activeYear}"
-                            aria-pressed="${active ? 'true' : 'false'}">${number}</button>`;
-                    }).join('');
-                    quarterButtons.style.display = 'flex';
-                    quarterButtons.title = state.quarterAnchor
-                        ? 'Нажмите конечный квартал диапазона'
-                        : 'Нажмите начальный, затем конечный квартал диапазона';
-                    sel.style.display = 'inline-block';
-                    fromSel.style.display = 'none';
-                } else if (p === 'month' || p === 'day') {
-                    quarterButtons.style.display = 'none';
-                    fromSel.style.display = 'inline-block';
-                    sel.style.display = 'inline-block';
-                } else {
-                    quarterButtons.style.display = 'none';
-                    fromSel.style.display = 'none';
-                    sel.style.display = 'inline-block';
-                }
-            } else {
-                sel.style.display = 'none';
-                fromSel.style.display = 'none';
-                quarterButtons.style.display = 'none';
-            }
+            this.renderPeriodPicker();
         },
         
         renderWarnings() {

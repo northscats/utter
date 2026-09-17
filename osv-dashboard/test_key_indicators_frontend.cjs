@@ -208,48 +208,40 @@ async function checkBootstrap(configuration) {
   assert.equal(modal.style.visibility, 'hidden');
   assert.equal(modal.getAttribute('aria-hidden'), 'true');
 
-  app.state.period = 'quarter';
+  app.state.period = 'year';
+  app.state.dateFrom = '2026-01-01';
+  app.state.date = '2026-06-30';
   app.state.data = {period: {
-    kind: 'quarter', date: '2026-06-30', date_from: '2026-06-30',
+    kind: 'year', date: '2026-06-30', date_from: '2026-01-01',
+    start: '2026-01-01', end: '2026-06-30',
     options: [
-      {value: '2024-03-31', label: '1 квартал 2024'},
-      {value: '2025-03-31', label: '1 квартал 2025'},
-      {value: '2025-06-30', label: '2 квартал 2025'},
-      {value: '2026-03-31', label: '1 квартал 2026'},
-      {value: '2026-06-30', label: '2 квартал 2026'},
+      {value: '2024-12-31', label: '2024'},
+      {value: '2025-12-31', label: '2025'},
+      {value: '2026-06-30', label: '2026'},
     ],
   }};
   app.renderPeriodSelector();
-  const yearSelect = nodes.get('ki-date-select');
-  assert.equal(yearSelect.style.display, 'inline-block');
-  assert.equal(yearSelect.getAttribute('aria-label'), 'Год');
-  assert.match(yearSelect.innerHTML, /value="2025-06-30"[^>]*>2025</);
-  assert.match(yearSelect.innerHTML, /value="2024-03-31"[^>]*>2024</);
-  assert.match(yearSelect.innerHTML, /value="2026-06-30" selected>2026</);
-  assert.match(nodes.get('ki-quarter-buttons').innerHTML, /aria-label="2 квартал 2026"/);
+  assert.equal(nodes.get('ki-date-from-select').value, '01.01.2026');
+  assert.equal(nodes.get('ki-date-select').value, '30.06.2026');
   let fetched = 0;
   app.fetchData = () => { fetched++; };
-  app.state.date = '2026-06-30';
-  app.state.dateFrom = '2026-03-31';
-  app.state.quarterAnchor = '2026-03-31';
-  app.onDateChange('2025-06-30');
-  assert.equal(app.state.date, '2025-06-30');
-  assert.equal(app.state.dateFrom, '2025-06-30');
-  assert.equal(app.state.quarterAnchor, null);
-  assert.equal(fetched, 1);
-  app.state.data.period.date = '2025-06-30';
-  app.state.data.period.date_from = '2025-06-30';
-  app.renderPeriodSelector();
-  assert.match(nodes.get('ki-quarter-buttons').innerHTML, /aria-label="1 квартал 2025"/);
-  assert.doesNotMatch(nodes.get('ki-quarter-buttons').innerHTML, /квартал 2026/);
-  app.onQuarterChange('2025-03-31');
-  app.onQuarterChange('2025-06-30');
-  assert.equal(app.state.dateFrom, '2025-03-31');
-  assert.equal(app.state.date, '2025-06-30');
-  app.state.period = 'month';
-  app.renderPeriodSelector();
-  assert.equal(yearSelect.getAttribute('aria-label'), 'Конечная дата');
-  assert.equal(nodes.get('ki-quarter-buttons').style.display, 'none');
+  app.onPeriodPickerButton();
+  assert.equal(fetched, 0, 'opening the picker must not load data');
+  assert.equal(nodes.get('ki-period-picker-button').textContent, 'Загрузить период');
+  assert.match(nodes.get('ki-period-years').innerHTML, />Мар</);
+  app.selectPeriodMonth('2025-03-01');
+  assert.equal(nodes.get('ki-date-from-select').value, '01.03.2025');
+  assert.equal(nodes.get('ki-date-select').value, '—');
+  assert.equal(fetched, 0, 'selecting the first month must not load data');
+  app.selectPeriodMonth('2026-06-01');
+  assert.equal(nodes.get('ki-date-select').value, '01.06.2026');
+  assert.equal(fetched, 0, 'selecting the second month must not load data');
+  app.onPeriodPickerButton();
+  assert.equal(fetched, 1, 'data must load only after confirmation');
+  assert.equal(app.state.period, 'day');
+  assert.equal(app.state.dateFrom, '2025-03-01');
+  assert.equal(app.state.date, '2026-06-01');
+  assert.equal(nodes.get('ki-period-picker-button').textContent, 'Выбрать период');
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
     'negative cash balance changes must use the carrot color class');
   assert.match(script, /<th>Группа<\/th>/,
