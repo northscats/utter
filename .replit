@@ -43,10 +43,10 @@ artifactId = "artifacts/osv-app"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd /home/runner/workspace/osv-dashboard && python3 -m gunicorn -c gunicorn.conf.py app:app"
+args = "bash scripts/run-osv.sh"
 cwd = "./artifacts/osv-app"
 waitForPort = 21844
-ensurePreviewReachable = "/"
+ensurePreviewReachable = "/healthz"
 router = "path"
 
 [workflows.workflow.tasks.env]

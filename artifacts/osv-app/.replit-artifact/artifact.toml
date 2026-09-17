@@ -11,11 +11,11 @@ paths = [ "/", "/api/1c" ]
 localPort = 21844
 
 [services.development]
-run = "cd /home/runner/workspace/osv-dashboard && python3 -m gunicorn -c gunicorn.conf.py app:app"
+run = "bash scripts/run-osv.sh"
 
 [services.production]
-build = [ "python3", "/home/runner/workspace/osv-dashboard/check_runtime_dependencies.py" ]
-run = [ "bash", "-c", "cd /home/runner/workspace/osv-dashboard && exec python3 -m gunicorn -c gunicorn.conf.py app:app" ]
+build = [ "python3", "../../osv-dashboard/check_runtime_dependencies.py" ]
+run = [ "bash", "scripts/run-osv.sh" ]
 
 [services.production.health.startup]
 path = "/healthz"
