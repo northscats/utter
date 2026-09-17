@@ -7,6 +7,7 @@ PORT="${PORT:-21844}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-45}"
 LOG_FILE="$(mktemp -t osv-preview-validation.XXXXXX.log)"
 SERVER_PID=""
+SERVER_PID_FILE="${SERVER_PID_FILE:-}"
 
 cleanup() {
   local exit_code=$?
@@ -40,6 +41,9 @@ echo "Запуск ОСВ на назначенном порту ${PORT}"
   PORT="${PORT}" BASE_PATH="/" exec bash scripts/run-osv.sh
 ) >"${LOG_FILE}" 2>&1 &
 SERVER_PID=$!
+if [[ -n "${SERVER_PID_FILE}" ]]; then
+  printf '%s\n' "${SERVER_PID}" >"${SERVER_PID_FILE}"
+fi
 
 LOCAL_HEALTH_URL="http://127.0.0.1:${PORT}/healthz"
 deadline=$((SECONDS + STARTUP_TIMEOUT))
@@ -82,6 +86,6 @@ then
   exit 1
 fi
 
-PREVIEW_URL="https://${REPLIT_DEV_DOMAIN}/"
+PREVIEW_URL="${PREVIEW_URL:-https://${REPLIT_DEV_DOMAIN}/}"
 echo "Проверка маршрутизированного preview ${PREVIEW_URL}"
 python3 "${SCRIPT_DIR}/check-preview.py" "${PREVIEW_URL}"
