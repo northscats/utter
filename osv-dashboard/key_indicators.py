@@ -1712,6 +1712,22 @@ def _cash_observation_snapshot(source, end):
     }
 
 
+def _cash_chart_snapshot(source, end):
+    """Use exact daily observations plus authentic report-boundary balances."""
+    observed = _cash_observation_snapshot(source, end)
+    boundary = _cash_snapshot(source, end)
+    if (boundary['value'] is None
+            or set(boundary['accounts']).issubset(observed['accounts'])):
+        return observed
+    observed_sources = observed.get('sources') or {}
+    boundary['sources'] = {
+        account: observed_sources.get(account, 'report_boundary')
+        for account in boundary['accounts']
+    }
+    boundary['reasons'] = observed.get('reasons') or []
+    return boundary
+
+
 def _cash_cumulative_series(source, start, end):
     """Build separate debit and credit cumulative cash trajectories.
 
@@ -3296,7 +3312,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     cash_daily_values = {account: [] for account in _CASH_ACCOUNTS}
     cash_cursor = start
     while cash_cursor <= end:
-        cash_point = _cash_observation_snapshot(source, cash_cursor)
+        cash_point = _cash_chart_snapshot(source, cash_cursor)
         point_date = cash_cursor.isoformat()
         cumulative_point = cash_cumulative_by_date[point_date]
         point_label = _options([cash_cursor], 'day')[0]['label']
@@ -3342,7 +3358,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     while cash_cursor <= previous_year_end:
         point_date = cash_cursor.isoformat()
         cumulative_point = previous_cumulative_by_date[point_date]
-        cash_point = _cash_observation_snapshot(source, cash_cursor)
+        cash_point = _cash_chart_snapshot(source, cash_cursor)
         cash_previous_year_series.append({
             'label': _options([cash_cursor], 'day')[0]['label'],
             'date': point_date,

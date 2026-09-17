@@ -934,6 +934,26 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(cash['series'][0]['comparison']['previous_date'])
         self.assertFalse(cash['series'][0]['comparison']['comparable'])
 
+    def test_cash_chart_keeps_exact_report_boundary_balance(self):
+        raw = account('51', [])
+        raw.update({
+            'report_start': '2026-01-01',
+            'report_end': '2026-01-31',
+            'top': {
+                'snd': 0, 'snk': 0, 'obd': 25, 'obk': 10,
+                'skd': 15, 'skk': 0,
+            },
+        })
+        cash = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'51': raw}), 'month', '2026-01-31')['cards']}['cash']
+
+        available = [
+            point for point in cash['series'] if point['value'] is not None]
+        self.assertEqual(len(available), 1)
+        self.assertEqual(available[0]['date'], '2026-01-31')
+        self.assertEqual(available[0]['value'], 15)
+        self.assertEqual(available[0]['sources'], {'51': 'report_boundary'})
+
     def test_cash_series_has_independent_cumulative_debit_and_credit(self):
         src = build_indicator_source({
             '50': account('50', [
