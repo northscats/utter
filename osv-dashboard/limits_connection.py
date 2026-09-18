@@ -17,6 +17,7 @@ _PROCESS_LOCK_PATH = os.environ.get(
     'LIMITS_MAX_CONNECTION_LOCK', '/tmp/osv-limits-max-connection.lock')
 _ADVISORY_LOCK_ID = 166_2026_09
 RETRY_DELAYS = (15, 60, 300, 900)
+DEFAULT_ALERT_AFTER_SECONDS = 60 * 60
 
 
 def _now():
@@ -76,6 +77,34 @@ def connection_status():
         'last_attempt_at': Setting.get('limits_max_last_attempt_at', ''),
         'last_success_at': Setting.get('limits_max_last_success_at', ''),
         'retry_at': retry_at,
+        'failure_started_at': Setting.get(
+            'limits_max_failure_started_at', ''),
+    }
+
+
+def connection_alert(*, now=None, alert_after_seconds=None):
+    """Return one persistent, safe alert for the current failure episode."""
+    status = connection_status()
+    if not status['complete'] or status['active']:
+        return None
+    started_raw = status['failure_started_at']
+    if not started_raw:
+        return None
+    try:
+        started = datetime.fromisoformat(started_raw)
+        current = now or _now()
+        threshold = (DEFAULT_ALERT_AFTER_SECONDS if alert_after_seconds is None
+                     else max(0, int(alert_after_seconds)))
+        if current - started < timedelta(seconds=threshold):
+            return None
+    except (TypeError, ValueError):
+        return None
+    return {
+        'reason': status['error'] or (
+            'Webhook не зарегистрирован в MAX. '
+            'Приложение продолжает попытки подключения.'),
+        'last_attempt_at': status['last_attempt_at'],
+        'failure_started_at': started_raw,
     }
 
 
@@ -197,6 +226,8 @@ def reconcile_connection(*, encrypt, decrypt, adapter_factory, webhook_url,
         except Exception as exc:
             db.session.rollback()
             attempt = int(Setting.get('limits_max_retry_count', '0') or 0) + 1
+            if not Setting.get('limits_max_failure_started_at', ''):
+                Setting.set('limits_max_failure_started_at', _iso(attempt_at))
             Setting.set('limits_max_webhook_registered', '0')
             Setting.set('limits_max_enabled', '0')
             Setting.set('limits_max_connection_error', _safe_error(exc))
@@ -212,6 +243,7 @@ def reconcile_connection(*, encrypt, decrypt, adapter_factory, webhook_url,
         Setting.set('limits_max_registered_url', webhook_url)
         Setting.set('limits_max_retry_at', '')
         Setting.set('limits_max_retry_count', '0')
+        Setting.set('limits_max_failure_started_at', '')
         db.session.commit()
         return True
 

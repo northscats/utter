@@ -419,6 +419,24 @@ def _maybe_start_imap_thread():
     _ensure_limits_recovery()
 
 
+@app.context_processor
+def _limits_max_admin_alert():
+    """Expose the current MAX outage once as a persistent admin-only banner."""
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return {'limits_max_admin_alert': None}
+    try:
+        from limits_connection import connection_alert
+        threshold = app.config.get(
+            'LIMITS_MAX_ALERT_AFTER_SECONDS',
+            os.environ.get('LIMITS_MAX_ALERT_AFTER_SECONDS', 3600))
+        return {'limits_max_admin_alert': connection_alert(
+            alert_after_seconds=threshold)}
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('could not build limits MAX admin alert')
+        return {'limits_max_admin_alert': None}
+
+
 @app.before_request
 def _enforce_password_lifecycle():
     """Bind sessions to the password version and enforce forced changes."""
@@ -8100,11 +8118,15 @@ def limit_settings():
     dataset = _limit_dataset_or_404(dataset_id) if dataset_id else (datasets[0] if datasets else None)
     webhook_url = configured_webhook_url(app)
     max_status = connection_status()
+    max_alert_after_seconds = int(app.config.get(
+        'LIMITS_MAX_ALERT_AFTER_SECONDS',
+        os.environ.get('LIMITS_MAX_ALERT_AFTER_SECONDS', 3600)))
     return render_template('limits_settings.html', datasets=datasets, dataset=dataset,
         max_connected=bool(Setting.get('limits_max_token', '')),
         max_connection_error=max_status['error'],
         max_status=max_status,
         max_webhook_url=webhook_url,
+        max_alert_after_minutes=max(0, max_alert_after_seconds) // 60,
         max_enabled=max_status['active'],
         max_group_id=Setting.get('limits_max_group_chat_id', ''),
         bot_dataset_id=Setting.get('limits_bot_dataset_id', ''))

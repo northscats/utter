@@ -15,6 +15,7 @@
 {% if max_status.last_attempt_at %}<p>Последняя попытка: {{ max_status.last_attempt_at }}</p>{% endif %}
 {% if max_status.retry_at %}<p>Следующая автоматическая попытка: {{ max_status.retry_at }}</p>{% endif %}
 <p>Настройки MAX общие для модуля.</p>
+<p class="credential-help">Общее предупреждение администраторам появляется после {{ max_alert_after_minutes }} мин. непрерывных неудачных попыток.</p>
 {% if max_connection_error %}<p class="settings-warning" role="alert">{{ max_connection_error }}</p>{% endif %}
 <p>После сохранения токена, ID админ-группы и набора данных бот работает постоянно. Защита входящих команд и восстановление соединения выполняются автоматически.</p>
 <p>Канонический адрес текущей публикации:

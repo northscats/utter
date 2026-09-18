@@ -26,7 +26,18 @@ h1{font-size:34px;line-height:1.2;margin:8px 0}.lead{color:var(--mut);margin:0 0
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <button class="out" type="submit" style="background:none;border:0;font:650 15px 'Segoe UI';cursor:pointer">Выйти</button>
 </form></header>
-<main>{% block content %}<div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
+<main>
+{% if limits_max_admin_alert %}
+<aside class="alert warning" role="alert" aria-live="polite">
+  <strong>MAX долго не подключён.</strong>
+  {{ limits_max_admin_alert.reason }}
+  {% if limits_max_admin_alert.last_attempt_at %}
+  Последняя попытка: {{ limits_max_admin_alert.last_attempt_at }}.
+  {% endif %}
+  <a href="{{ url_for('limit_settings') }}">Открыть настройки MAX</a>
+</aside>
+{% endif %}
+{% block content %}<div class="eyebrow">Рабочее пространство</div><h1>Выберите модуль</h1>
 <p class="lead">Доступны только разделы, назначенные вашей учётной записи.</p>
 {% if modules %}<div class="grid">{% for module in modules %}
 <a class="card" href="{{ module.url }}"><div class="ico">

@@ -392,6 +392,77 @@ class LimitsRouteTests(unittest.TestCase):
             state['thread'].join(2)
             app.extensions.pop('limits_max_reconciler', None)
 
+    def test_long_max_failure_creates_one_safe_admin_alert_until_success(self):
+        from datetime import datetime, timedelta, timezone
+        from app import decrypt_value, encrypt_value
+        from limits_connection import connection_alert, reconcile_connection
+
+        adapter = MagicMock()
+        adapter.check_webhook_receiver.side_effect = RuntimeError(
+            'synthetic-private-token-and-secret')
+        now = datetime.now(timezone.utc)
+        with app.app_context():
+            Setting.set('limits_max_token', encrypt_value('saved-token'))
+            Setting.set('limits_max_group_chat_id', '-123')
+            Setting.set('limits_bot_dataset_id', '1')
+            db.session.commit()
+            self.assertFalse(reconcile_connection(
+                encrypt=encrypt_value, decrypt=decrypt_value,
+                adapter_factory=lambda: adapter,
+                webhook_url='https://current.example/limit-notifications/max/webhook'))
+            self.assertIsNone(connection_alert(
+                now=now + timedelta(minutes=30),
+                alert_after_seconds=3600))
+            alert = connection_alert(
+                now=now + timedelta(hours=2),
+                alert_after_seconds=3600)
+            self.assertIn('Webhook не зарегистрирован', alert['reason'])
+            self.assertTrue(alert['last_attempt_at'])
+            self.assertNotIn('synthetic-private', str(alert))
+
+            # Further failures keep the same episode instead of creating alerts.
+            started = alert['failure_started_at']
+            reconcile_connection(
+                encrypt=encrypt_value, decrypt=decrypt_value,
+                adapter_factory=lambda: adapter,
+                webhook_url='https://current.example/limit-notifications/max/webhook')
+            self.assertEqual(
+                started,
+                connection_alert(
+                    now=now + timedelta(hours=2),
+                    alert_after_seconds=3600)['failure_started_at'])
+
+            adapter.check_webhook_receiver.side_effect = None
+            adapter.subscribe_webhook.return_value = {'success': True}
+            self.assertTrue(reconcile_connection(
+                encrypt=encrypt_value, decrypt=decrypt_value,
+                adapter_factory=lambda: adapter,
+                webhook_url='https://current.example/limit-notifications/max/webhook'))
+            self.assertIsNone(connection_alert(
+                now=now + timedelta(hours=3),
+                alert_after_seconds=0))
+
+    def test_long_max_failure_banner_is_admin_only(self):
+        with app.app_context():
+            Setting.set('limits_max_token', 'encrypted')
+            Setting.set('limits_max_group_chat_id', '-123')
+            Setting.set('limits_bot_dataset_id', '1')
+            Setting.set('limits_max_webhook_registered', '0')
+            Setting.set('limits_max_connection_error', 'Безопасная причина.')
+            Setting.set('limits_max_last_attempt_at', '2026-09-17T10:00:00+00:00')
+            Setting.set('limits_max_failure_started_at', '2026-09-17T09:00:00+00:00')
+            db.session.commit()
+        app.config['LIMITS_MAX_ALERT_AFTER_SECONDS'] = 0
+        try:
+            admin_page = self.client(1).get('/modules').get_data(as_text=True)
+            self.assertIn('MAX долго не подключён', admin_page)
+            self.assertIn('2026-09-17T10:00:00+00:00', admin_page)
+            self.assertNotIn('limits_max_token', admin_page)
+            viewer_page = self.client(2).get('/modules').get_data(as_text=True)
+            self.assertNotIn('MAX долго не подключён', viewer_page)
+        finally:
+            app.config.pop('LIMITS_MAX_ALERT_AFTER_SECONDS', None)
+
     def test_changed_settings_pause_worker_before_reconciliation(self):
         from app import decrypt_value, encrypt_value
         from limits_bot import run_worker_once
