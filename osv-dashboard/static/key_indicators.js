@@ -2674,10 +2674,6 @@
 
             const components = card.components || card.collection_components || [];
             const linked = card.consumer_collection || {};
-            if (!linked.available) {
-                this.renderCollectionProxyModal(card, container);
-                return;
-            }
             const proxyTurnover = card.accounting_proxy &&
                 card.accounting_proxy.value !== undefined
                 ? card.accounting_proxy.value : card.value;

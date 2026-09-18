@@ -135,9 +135,9 @@ async function checkBootstrap(configuration) {
     consumer_collection: {available: false, categories: [], series: []},
   };
   assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Собираемость \(прокси по ОСВ\)/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ПРОКСИ-ПРОЦЕНТ/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /РАСЧЁТНЫЙ ЧИСЛИТЕЛЬ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
   const proxyComponents = Object.assign({}, collectionBase, {
     value: 70,
     previous_year_value: 65,
@@ -170,12 +170,10 @@ async function checkBootstrap(configuration) {
     ],
   });
   app.renderCollectionModal(proxyComponents);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70,0 млн ₽/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /4 оборота/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Роль|знаменатель/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Периодная расшифровка/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбД 62\.02/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70\.0%/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
   const aggregatedProxy = app.collectionProxyAggregate([
     {date: '2026-01-01', debit_6201: 40, credit_6201: 20, debit_6202: 10, credit_6202: 20},
     {date: '2026-01-02', debit_6201: 60, credit_6201: 30, debit_6202: 20, credit_6202: 40},
