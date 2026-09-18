@@ -229,6 +229,8 @@ async function checkBootstrap(configuration) {
   assert.match(collectionWithApg, /collection-dynamics-apg-point/);
   assert.match(collectionWithApg, /collection-legend-apg/);
   assert.match(collectionWithApg, /АПГ:/);
+  assert.match(collectionWithApg, /январь 2025/);
+  assert.doesNotMatch(collectionWithApg, /дата АПГ:/);
   assert.match(collectionWithApg, /collection-chart-legend/);
   app.state.collectionShowApg = false;
   app.state.collectionTimelineMode = 'day';

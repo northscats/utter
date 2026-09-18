@@ -3121,8 +3121,15 @@
             const apgCircles = apgPoints.filter(point => inScale(point.value))
                 .map(point => {
                     const sourceDate = point.source_date
-                        ? ` · дата АПГ: ${point.source_date}` : '';
-                    const detail = `${point.label || point.date} · АПГ: ${point.value.toFixed(1)}%${sourceDate}`;
+                        ? new Date(`${point.source_date}T00:00:00`) : null;
+                    const sourcePeriod = sourceDate &&
+                            !Number.isNaN(sourceDate.getTime())
+                        ? new Intl.DateTimeFormat('ru-RU', {
+                            month: 'long', year: 'numeric'
+                        }).format(sourceDate).replace(/\s*г\.?$/, '')
+                        : point.label || point.date;
+                    const detail =
+                        `${sourcePeriod} · АПГ: ${point.value.toFixed(1)}%`;
                     return `<circle class="collection-dynamics-apg-point ${zoneClass(point.value)}" data-detail="${esc(detail)}" data-series-label="АПГ" cx="${x(point.index)}" cy="${y(point.value)}" r="6" tabindex="0"><title>${esc(detail)}</title></circle>`;
                 }).join('');
             const legendItems = [
