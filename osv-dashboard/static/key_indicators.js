@@ -5882,22 +5882,22 @@ renderCashModal(card) {
                     Итог рассчитан как сумма чистых конечных сальдо: СКд − СКк по счетам 50, 51, 52 и 55.
                     Средства счёта 55 могут иметь ограничения по использованию.</div>
                 <div class="cash-summary-grid">
-                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
-                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cash-current"
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cash-current"
                          onclick="window.KI_App.toggleCashChartMode('cash-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-current')}"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)} <span class="metric-inline-unit">${esc(cashFormatted.u)}</span></div>
                         <div class="cash-summary-sub">${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
-                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
-                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cash-apg"
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cash-apg"
                          onclick="window.KI_App.toggleCashChartMode('cash-apg')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-apg')}"><div class="cash-summary-label">Денежные средства АПГ</div>
                         <div class="cash-summary-value ${cashApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cashApgLatest
                             ? `${esc(cashApgFormatted.val)} <span class="metric-inline-unit">${esc(cashApgFormatted.u)}</span>`
                             : 'Нужны данные'}</div>
                         <div class="cash-summary-sub">${esc(cashApgCoverageText)}${cashApgDate ? `<br>на ${esc(cashApgDate)}` : ''}</div>${this.cashTooltip(cashApgTipData)}</div>
-                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
-                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cumulative-current"
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                         tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cumulative-current"
                          onclick="window.KI_App.toggleCashChartMode('cumulative-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cumulative-current')}">
                         <div class="cash-summary-label">Поступления / выплаты</div>
@@ -5959,7 +5959,7 @@ renderCashModal(card) {
         renderCashChartModes(card) {
             if (!card) return;
             if (!state.modalChart.cashModes || !state.modalChart.cashModes.size) {
-                state.modalChart.cashModes = new Set(['cumulative-current']);
+                state.modalChart.cashModes = new Set(['cash-current', 'cash-apg']);
             } else if (state.modalChart.cashModes.has('current') ||
                     state.modalChart.cashModes.has('apg')) {
                 state.modalChart.cashModes = new Set(
@@ -6006,7 +6006,7 @@ renderCashModal(card) {
             ];
             if (!card || !allowedModes.includes(mode)) return;
             if (!state.modalChart.cashModes) {
-                state.modalChart.cashModes = new Set(['cumulative-current']);
+                state.modalChart.cashModes = new Set(['cash-current', 'cash-apg']);
             }
             if (state.modalChart.cashModes.has(mode)) {
                 if (state.modalChart.cashModes.size > 1) {

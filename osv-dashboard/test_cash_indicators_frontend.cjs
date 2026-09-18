@@ -228,29 +228,29 @@ assert.match(element('ki-cash-modal-content').innerHTML, /cash-summary-grid/);
 assert.match(element('ki-cash-modal-content').innerHTML, /Поступления \/ выплаты/);
 assert.ok(!element('ki-cash-modal-content').innerHTML.includes('Накопленный ДК'));
 assert.match(element('ki-cash-modal-content').innerHTML, /0,00 \/ 0,00/);
+assert.equal(element('ki-cash-chart-title').textContent,
+    'Денежные средства и Денежные средства АПГ');
+assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance"/);
+assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance-apg"/);
+assert.ok(!element('ki-cash-line-chart').innerHTML.includes('class="cash-chart-debit"'));
+app.toggleCashChartMode('cash-apg');
+assert.equal(cashChartMounts, 2);
+assert.equal(element('ki-cash-chart-title').textContent, 'Денежные средства');
+assert.ok(!element('ki-cash-line-chart').innerHTML.includes('class="cash-chart-balance-apg"'));
+app.toggleCashChartMode('cash-apg');
+assert.equal(cashChartMounts, 3);
+assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance-apg"/);
+assert.match(element('ki-cash-line-chart').innerHTML, /2025-01-02/);
+app.toggleCashChartMode('cumulative-current');
+assert.equal(cashChartMounts, 4);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-debit"/);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-credit"/);
 app.toggleCashChartMode('cumulative-apg');
-assert.equal(cashChartMounts, 2);
-assert.equal(element('ki-cash-chart-title').textContent,
-    'Поступления / выплаты и Поступления / выплаты АПГ');
+assert.equal(cashChartMounts, 5);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-debit-apg"/);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-credit-apg"/);
-assert.match(element('ki-cash-line-chart').innerHTML, /2025-01-02/);
-app.toggleCashChartMode('cumulative-current');
-assert.equal(cashChartMounts, 3);
-assert.equal(element('ki-cash-chart-title').textContent, 'Поступления / выплаты АПГ');
-assert.ok(!element('ki-cash-line-chart').innerHTML.includes('class="cash-chart-debit"'));
-assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-debit-apg"/);
-app.toggleCashChartMode('cash-current');
-assert.equal(cashChartMounts, 4);
-assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance"/);
-assert.match(element('ki-cash-line-chart').innerHTML, /2026-01-02/);
-app.toggleCashChartMode('cash-apg');
-assert.equal(cashChartMounts, 5);
-assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance-apg"/);
 assert.match(element('ki-cash-chart-title').textContent,
-    /Денежные средства и Денежные средства АПГ/);
+    /Поступления \/ выплаты и Поступления \/ выплаты АПГ/);
 
 app.renderCashModal({...card, ...jan2, delta: null});
 html = element('ki-cash-modal-content').innerHTML;
