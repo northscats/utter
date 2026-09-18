@@ -280,6 +280,11 @@ def build_indicator_source(parsed_data):
                     'period': str(period_text or ''),
                     'source_file': str(item.get('source_file') or '')
                     if isinstance(item, dict) else '',
+                    'account_scope': str(item.get('account_scope') or '')
+                    if isinstance(item, dict) else '',
+                    'daily_accounts': [
+                        str(value) for value in item.get('daily_accounts') or []
+                    ] if isinstance(item, dict) else [],
                 })
         balance_observations = []
         for item in raw.get('balance_observations') or []:
@@ -1549,23 +1554,40 @@ def _collection_components_from_rows(rows):
     missing = [item['label'] for item in components
                if item['value'] is None]
     value = None
+    numerator = None
+    denominator = debit_01
+    adjustment_6202 = None
     reason = None
     if missing:
         reason = 'Нет обязательных компонентов: ' + ', '.join(missing)
         for item in components:
             if item['value'] is None:
                 item['reason'] = 'Обязательный компонент отсутствует или неизвестен'
-    elif debit_01 == 0:
-        reason = 'Дебетовый оборот 62.01 равен нулю; процент не рассчитывается'
-        for item in components:
-            if item['account'] == '62.01' and item['side'] == 'debit':
-                item['reason'] = reason
     else:
-        value = round(
-            (credit_01 + credit_02 - debit_02) / debit_01 * 100, 2)
+        adjustment_6202 = round(credit_02 - debit_02, 2)
+        numerator = round(credit_01 + adjustment_6202, 2)
+        if debit_01 == 0:
+            reason = 'Дебетовый оборот 62.01 равен нулю; процент не рассчитывается'
+            for item in components:
+                if item['account'] == '62.01' and item['side'] == 'debit':
+                    item['reason'] = reason
+        else:
+            value = round(numerator / debit_01 * 100, 2)
     return {
         'value': value,
+        'numerator': numerator,
+        'denominator': denominator,
+        'adjustment_6202': adjustment_6202,
         'reason': reason,
+        'complete': not missing,
+        'coverage': {
+            'state': ('complete' if not missing and debit_01 != 0
+                      else 'zero_denominator' if not missing
+                      else 'incomplete'),
+            'known_components': 4 - len(missing),
+            'required_components': 4,
+        },
+        'source': 'Явные обороты ОСВ 62.01 и 62.02',
         'components': components,
         'accounts': values,
     }
@@ -2920,6 +2942,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                consumer_collection=linked_collection,
                accounting_proxy={
                    'value': collection,
+                   'numerator': collection_data['numerator'],
+                   'denominator': collection_data['denominator'],
+                   'adjustment_6202': collection_data['adjustment_6202'],
+                   'reason': collection_reason,
+                   'coverage': collection_data['coverage'],
                    'formula': '(ОбК(62.01) + ОбК(62.02) − ОбД(62.02)) / ОбД(62.01) × 100%',
                    'source': 'Явные обороты ОСВ 62.01 и 62.02',
                },
@@ -3283,6 +3310,30 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # placing a monthly total on every day, or even on month-end, would
     # fabricate daily movements.  The card value remains the exact aggregate.
     aggregate_slots = _aggregate_series_slots(source, start, end)
+
+    def append_collection_point(option, point_start, point_end,
+                                point_collection=None):
+        if point_collection is None:
+            point_collection = _collection_components(
+                source, point_start, point_end)
+        point_components = {
+            item['label']: item['value']
+            for item in point_collection['components']
+        }
+        card_map['collection']['turnover_series'].append({
+            'date': option['value'], 'label': option['label'],
+            'value': point_collection['value'],
+            'reason': point_collection['reason'],
+            'numerator': point_collection['numerator'],
+            'denominator': point_collection['denominator'],
+            'adjustment_6202': point_collection['adjustment_6202'],
+            'source': point_collection['source'],
+            'coverage': point_collection['coverage'],
+            'debit_6201': point_components.get('Дебетовый оборот 62.01'),
+            'credit_6201': point_components.get('Кредитовый оборот 62.01'),
+            'debit_6202': point_components.get('Дебетовый оборот 62.02'),
+            'credit_6202': point_components.get('Кредитовый оборот 62.02')})
+
     if aggregate_slots:
         monthly_slots = all(
             slot_start == slot_end.replace(day=1)
@@ -3366,19 +3417,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         month_collection = _collection_components(
             source, month_start, month_end)
         month_values['collection'] = month_collection['value']
-        month_components = {
-            item['label']: item['value']
-            for item in month_collection['components']
-        }
-        card_map['collection']['turnover_series'].append({
-            'date': point_date, 'label': option['label'],
-            'value': month_collection['value'],
-            'components': month_collection['components'],
-            'reason': month_collection['reason'],
-            'debit_6201': month_components.get('Дебетовый оборот 62.01'),
-            'credit_6201': month_components.get('Кредитовый оборот 62.01'),
-            'debit_6202': month_components.get('Дебетовый оборот 62.02'),
-            'credit_6202': month_components.get('Кредитовый оборот 62.02')})
+        append_collection_point(option, month_start, month_end)
         month_linked = _consumer_collection(
             collection_accruals if collection_accruals is not None
             else source.get('collection_accruals'),
@@ -3693,14 +3732,47 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         row_date = _iso(row.get('date'))
         if row_date is not None and start <= row_date <= end:
             collection_daily_rows[row_date].append(row)
+    collection_coverage = source.get('accounts', {}).get(
+        '62', {}).get('coverage') or []
+
+    def collection_subaccount_covered(sub, point_date):
+        for interval in collection_coverage:
+            interval_start = _iso(interval.get('start'))
+            interval_end = _iso(interval.get('end'))
+            if not interval_start or not interval_end:
+                continue
+            scope = str(interval.get('account_scope') or '')
+            detailed = set(interval.get('daily_accounts') or [])
+            proves_subaccount = scope == sub or (
+                scope == '62' and sub in detailed)
+            if proves_subaccount and interval_start <= point_date <= interval_end:
+                return True
+        return False
+
+    collection_has_detailed_coverage = all(
+        any(str(interval.get('account_scope') or '') == sub
+            or (str(interval.get('account_scope') or '') == '62'
+                and sub in set(interval.get('daily_accounts') or []))
+            for interval in collection_coverage)
+        for sub in ('62.01', '62.02'))
     collection_daily_series = []
     collection_component_series = defaultdict(list)
     collection_cursor = start
     while collection_cursor <= end:
         point_date = collection_cursor.isoformat()
         point_label = _options([collection_cursor], 'day')[0]['label']
-        point_collection = _collection_components_from_rows(
-            collection_daily_rows.get(collection_cursor, []))
+        point_rows = list(collection_daily_rows.get(collection_cursor, []))
+        synthetic_zero = False
+        for collection_sub in ('62.01', '62.02'):
+            if (not _explicit_subaccount_rows(point_rows, collection_sub)
+                    and collection_subaccount_covered(
+                        collection_sub, collection_cursor)):
+                point_rows.append({
+                    'date': point_date, 'account': collection_sub,
+                    'obd': 0, 'obk': 0,
+                })
+                synthetic_zero = True
+        point_collection = _collection_components_from_rows(point_rows)
         point_values = {
             item['label']: item['value']
             for item in point_collection['components']
@@ -3709,14 +3781,18 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'date': point_date,
             'label': point_label,
             'value': point_collection['value'],
-            'components': point_collection['components'],
             'reason': point_collection['reason'],
+            'numerator': point_collection['numerator'],
+            'denominator': point_collection['denominator'],
+            'adjustment_6202': point_collection['adjustment_6202'],
+            'source': point_collection['source'],
+            'coverage': point_collection['coverage'],
             'debit_6201': point_values.get('Дебетовый оборот 62.01'),
             'credit_6201': point_values.get('Кредитовый оборот 62.01'),
             'debit_6202': point_values.get('Дебетовый оборот 62.02'),
             'credit_6202': point_values.get('Кредитовый оборот 62.02'),
             'granularity': 'day',
-            'synthetic': False,
+            'synthetic': synthetic_zero,
         })
         for label, value in point_values.items():
             collection_component_series[label].append({
@@ -3728,7 +3804,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                 'synthetic': False,
             })
         collection_cursor += timedelta(days=1)
-    if any(point['value'] is not None for point in collection_daily_series):
+    if collection_has_detailed_coverage:
         card_map['collection']['series'] = collection_daily_series
         card_map['collection']['turnover_series'] = collection_daily_series
         for collection in (

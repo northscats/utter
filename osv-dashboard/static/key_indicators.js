@@ -2674,6 +2674,10 @@
 
             const components = card.components || card.collection_components || [];
             const linked = card.consumer_collection || {};
+            if (!linked.available) {
+                this.renderCollectionProxyModal(card, container);
+                return;
+            }
             const proxyTurnover = card.accounting_proxy &&
                 card.accounting_proxy.value !== undefined
                 ? card.accounting_proxy.value : card.value;
@@ -3273,6 +3277,222 @@
                         }
                     });
                 });
+        },
+
+        collectionProxyAggregate(series, mode) {
+            const buckets = new Map();
+            const bucketKey = raw => {
+                const date = new Date(`${raw}T00:00:00Z`);
+                if (mode === 'day') return raw;
+                if (mode === 'month') return raw.slice(0, 7);
+                const day = date.getUTCDay() || 7;
+                date.setUTCDate(date.getUTCDate() - day + 1);
+                return date.toISOString().slice(0, 10);
+            };
+            (series || []).forEach(point => {
+                const key = bucketKey(point.date);
+                if (!buckets.has(key)) buckets.set(key, {
+                    date: point.date, label: point.label, points: [],
+                    debit_6201: 0, credit_6201: 0, debit_6202: 0, credit_6202: 0
+                });
+                const bucket = buckets.get(key);
+                bucket.date = point.date;
+                bucket.label = mode === 'day' ? point.label :
+                    mode === 'month' ? point.date.slice(0, 7) : `Неделя с ${key}`;
+                bucket.points.push(point);
+                ['debit_6201', 'credit_6201', 'debit_6202', 'credit_6202'].forEach(field => {
+                    if (point[field] !== null && point[field] !== undefined) bucket[field] += Number(point[field]);
+                });
+            });
+            return Array.from(buckets.values()).map(bucket => {
+                const missing = ['debit_6201', 'credit_6201', 'debit_6202', 'credit_6202']
+                    .filter(field => bucket.points.some(point => point[field] === null || point[field] === undefined));
+                const denominator = missing.length ? null : bucket.debit_6201;
+                const adjustment = missing.length ? null : bucket.credit_6202 - bucket.debit_6202;
+                const numerator = missing.length ? null : bucket.credit_6201 + adjustment;
+                const value = denominator === null || denominator === 0 ? null :
+                    numerator / denominator * 100;
+                return Object.assign(bucket, {
+                    denominator, numerator, adjustment_6202: adjustment, value,
+                    reason: missing.length
+                        ? `Нет обязательных компонентов: ${missing.join(', ')}`
+                        : denominator === 0 ? 'ОбД 62.01 равен нулю' : null,
+                    source: bucket.points.map(point => point.source).find(Boolean) ||
+                        'Явные обороты ОСВ 62.01 и 62.02',
+                    coverage: {
+                        state: missing.length ? 'incomplete' :
+                            denominator === 0 ? 'zero_denominator' : 'complete',
+                        known_components: 4 - missing.length,
+                        required_components: 4
+                    }
+                });
+            });
+        },
+
+        renderCollectionProxyModal(card, container) {
+            const proxy = card.accounting_proxy || {};
+            const components = card.components || card.collection_components || [];
+            const val = (account, side) => {
+                const item = components.find(row => String(row.account || row.label || '').includes(account) &&
+                    row.side === side);
+                return item && item.value !== undefined ? item.value : null;
+            };
+            const debit6201 = proxy.denominator !== undefined ? proxy.denominator : val('62.01', 'debit');
+            const credit6201 = val('62.01', 'credit');
+            const debit6202 = val('62.02', 'debit');
+            const credit6202 = val('62.02', 'credit');
+            const adjustment = proxy.adjustment_6202 !== undefined ? proxy.adjustment_6202 :
+                credit6202 == null || debit6202 == null ? null : credit6202 - debit6202;
+            const numerator = proxy.numerator !== undefined ? proxy.numerator :
+                credit6201 == null || adjustment == null ? null : credit6201 + adjustment;
+            const pct = value => value == null ? 'Н/Д' : `${Number(value).toFixed(2).replace('.', ',')}%`;
+            const rub = value => value == null ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
+            const exact = value => value == null ? 'Н/Д' :
+                `${new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 2}).format(value)} ₽`;
+            const summary = [
+                ['ПРОКСИ-ПРОЦЕНТ', pct(proxy.value !== undefined ? proxy.value : card.value), 'Итог отношения'],
+                ['ЗНАМЕНАТЕЛЬ', rub(debit6201), 'ОбД 62.01'],
+                ['РАСЧЁТНЫЙ ЧИСЛИТЕЛЬ', rub(numerator), 'ОбК 62.01 + ОбК 62.02 − ОбД 62.02'],
+                ['КОРРЕКТИРОВКА 62.02', rub(adjustment), 'ОбК 62.02 − ОбД 62.02']
+            ].map((item, index) => this.cashMetricCard(
+                item[0], item[1], item[2],
+                this.collectionTooltip({title: item[0], fact: item[1],
+                    detail: `${item[2]}. Точное значение: ${index === 0 ? pct(card.value) : exact([null, debit6201, numerator, adjustment][index])}`}),
+                item[1] === 'Н/Д', index === 0 ? '__main__' : `proxy:${index}`
+            )).join('');
+            container.innerHTML = `
+                <section class="collection-proxy-view" aria-labelledby="collection-proxy-title">
+                    <div class="collection-proxy-banner">
+                        <h3 id="collection-proxy-title">Собираемость (прокси по ОСВ)</h3>
+                        <p>Бухгалтерское отношение оборотов, а не фактические погашения начислений.</p>
+                        <code>(ОбК 62.01 + ОбК 62.02 − ОбД 62.02) / ОбД 62.01 × 100%</code>
+                    </div>
+                    <div class="collection-summary">${summary}</div>
+                    <section class="collection-proxy-dynamics" data-layout-key="dynamics" data-layout-title="Динамика прокси">
+                        <div class="collection-proxy-toolbar">
+                            <h4>Динамика прокси</h4>
+                            <div class="collection-proxy-controls" role="group" aria-label="Режим графика">
+                                <button type="button" data-collection-view="result" aria-pressed="true">Итог</button>
+                                <button type="button" data-collection-view="components" aria-pressed="false">4 оборота</button>
+                            </div>
+                            <div class="collection-proxy-controls" role="group" aria-label="Период графика">
+                                <button type="button" data-collection-period="day">День</button>
+                                <button type="button" data-collection-period="week">Неделя</button>
+                                <button type="button" data-collection-period="month" aria-pressed="true">Месяц</button>
+                            </div>
+                        </div>
+                        <div id="ki-collection-proxy-chart" class="collection-proxy-chart" role="img"
+                             aria-label="График собираемости прокси по ОСВ"></div>
+                    </section>
+                    <section>
+                        <h4 class="modal-section-title">Периодная расшифровка</h4>
+                        <div class="collection-table-wrap">
+                            <table class="collection-detail-table collection-proxy-table">
+                                <thead><tr><th>Период</th><th>ОбД 62.01<br><small>знаменатель</small></th>
+                                <th>ОбК 62.01<br><small>+ числитель</small></th>
+                                <th>ОбД 62.02<br><small>− числитель</small></th>
+                                <th>ОбК 62.02<br><small>+ числитель</small></th>
+                                <th>Числитель</th><th>Знаменатель</th><th>Прокси</th><th>Статус</th></tr></thead>
+                                <tbody id="ki-collection-proxy-rows"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </section>`;
+            const state = {view: 'result', period: 'month'};
+            const render = () => this.drawCollectionProxy(card, state, rub, pct);
+            Array.from(container.querySelectorAll('[data-collection-view]')).forEach(button =>
+                button.addEventListener('click', () => {
+                    state.view = button.dataset.collectionView;
+                    Array.from(container.querySelectorAll('[data-collection-view]')).forEach(item =>
+                        item.setAttribute('aria-pressed', String(item === button)));
+                    render();
+                }));
+            Array.from(container.querySelectorAll('[data-collection-period]')).forEach(button =>
+                button.addEventListener('click', () => {
+                    state.period = button.dataset.collectionPeriod;
+                    Array.from(container.querySelectorAll('[data-collection-period]')).forEach(item =>
+                        item.setAttribute('aria-pressed', String(item === button)));
+                    render();
+                }));
+            render();
+        },
+
+        drawCollectionProxy(card, viewState, rub, pct) {
+            const points = this.collectionProxyAggregate(card.turnover_series || [], viewState.period);
+            const chart = document.getElementById('ki-collection-proxy-chart');
+            const tbody = document.getElementById('ki-collection-proxy-rows');
+            if (!chart || !tbody) return;
+            const status = point => point.coverage && point.coverage.state === 'complete'
+                ? 'Полные данные' : point.reason || 'Недостаточно данных';
+            tbody.innerHTML = points.length ? points.map(point => `<tr>
+                <td>${esc(point.label || point.date)}</td><td>${esc(rub(point.debit_6201))}</td>
+                <td>${esc(rub(point.credit_6201))}</td><td>${esc(rub(point.debit_6202))}</td>
+                <td>${esc(rub(point.credit_6202))}</td><td>${esc(rub(point.numerator))}</td>
+                <td>${esc(rub(point.denominator))}</td><td>${esc(pct(point.value))}</td>
+                <td class="${point.value == null ? 'cash-value-missing' : ''}">${esc(status(point))}</td>
+            </tr>`).join('') : '<tr><td colspan="9" class="collection-proxy-empty">Нет периодных данных для выбранного периода</td></tr>';
+            if (!points.length) {
+                chart.innerHTML = '<div class="collection-proxy-empty">Нет подтверждённых точек для графика</div>';
+                return;
+            }
+            const width = 920, height = 330, left = 58, right = 58, top = 28, bottom = 52;
+            const moneyFields = viewState.view === 'result'
+                ? ['denominator', 'numerator']
+                : ['debit_6201', 'credit_6201', 'debit_6202', 'credit_6202'];
+            const values = points.flatMap(point => moneyFields.map(field => point[field])).filter(Number.isFinite);
+            const percentages = points.map(point => point.value).filter(Number.isFinite);
+            const moneyMin = Math.min(0, ...values), moneyMax = Math.max(0, ...values);
+            const pctMin = Math.min(0, ...percentages), pctMax = Math.max(100, ...percentages);
+            const plotW = width - left - right, plotH = height - top - bottom;
+            const x = index => left + (index + .5) * plotW / points.length;
+            const ym = value => top + (moneyMax - value) / Math.max(1, moneyMax - moneyMin) * plotH;
+            const yp = value => top + (pctMax - value) / Math.max(1, pctMax - pctMin) * plotH;
+            const colors = ['#2563EB', '#0F766E', '#D97706', '#7C3AED'];
+            const barWidth = Math.min(30, plotW / points.length / (moneyFields.length + 1));
+            const bars = points.map((point, index) => moneyFields.map((field, fieldIndex) => {
+                const value = point[field];
+                if (!Number.isFinite(value)) return '';
+                const zero = ym(0), valueY = ym(value);
+                const tooltip = `${point.label || point.date}; прокси ${pct(point.value)}; числитель ${rub(point.numerator)}; знаменатель ${rub(point.denominator)}; ОбД 62.01 ${rub(point.debit_6201)}; ОбК 62.01 ${rub(point.credit_6201)}; ОбД 62.02 ${rub(point.debit_6202)}; ОбК 62.02 ${rub(point.credit_6202)}; источник: ${point.source}; ${status(point)}`;
+                return `<rect x="${x(index) + (fieldIndex - (moneyFields.length - 1) / 2) * barWidth - barWidth * .42}"
+                    y="${Math.min(zero, valueY)}" width="${barWidth * .84}" height="${Math.max(1, Math.abs(zero - valueY))}"
+                    fill="${colors[fieldIndex]}" tabindex="0"><title>${esc(tooltip)}</title></rect>`;
+            }).join('')).join('');
+            const linePoints = points.map((point, index) =>
+                Number.isFinite(point.value) ? `${x(index)},${yp(point.value)}` : null);
+            const lineSegments = [];
+            let currentLineSegment = [];
+            linePoints.forEach(point => {
+                if (point) {
+                    currentLineSegment.push(point);
+                } else {
+                    if (currentLineSegment.length > 1) {
+                        lineSegments.push(currentLineSegment);
+                    }
+                    currentLineSegment = [];
+                }
+            });
+            if (currentLineSegment.length > 1) {
+                lineSegments.push(currentLineSegment);
+            }
+            const line = lineSegments.map(segment =>
+                `<polyline class="collection-proxy-percent-line" points="${segment.join(' ')}" fill="none" stroke="#DC2626" stroke-width="3"/>`
+            ).join('');
+            const dots = points.map((point, index) => Number.isFinite(point.value)
+                ? `<circle cx="${x(index)}" cy="${yp(point.value)}" r="4" fill="#DC2626"><title>${esc(`${point.label}: ${pct(point.value)}; ${status(point)}`)}</title></circle>` : '').join('');
+            const labels = points.map((point, index) =>
+                `<text x="${x(index)}" y="${height - 18}" text-anchor="middle">${esc(point.label || point.date)}</text>`).join('');
+            chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
+                <line x1="${left}" y1="${ym(0)}" x2="${width-right}" y2="${ym(0)}" class="collection-axis"/>
+                ${bars}${line}${dots}${labels}
+                <text x="${left}" y="16">млн ₽</text><text x="${width-right}" y="16" text-anchor="end">%</text>
+            </svg>
+            <div class="collection-proxy-legend">${moneyFields.map((field, index) =>
+                `<span><i style="--legend-color:${colors[index]}"></i>${esc({
+                    denominator: 'ОбД 62.01', numerator: 'Расчётный числитель',
+                    debit_6201: 'ОбД 62.01', credit_6201: 'ОбК 62.01',
+                    debit_6202: 'ОбД 62.02', credit_6202: 'ОбК 62.02'
+                }[field])}</span>`).join('')}<span><i class="collection-proxy-percent"></i>Прокси, %</span></div>`;
         },
         arRequirements() {
             return {
@@ -6886,7 +7106,6 @@ renderCashModal(card) {
             
             document.getElementById('ki-modal-formula').textContent = card.formula || 'Нет данных';
             document.getElementById('ki-modal-source').textContent = card.source ? `Источник: ${card.source}` : '';
-
 
 
             const bdCont = document.getElementById('ki-modal-breakdown-container');

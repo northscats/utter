@@ -135,9 +135,9 @@ async function checkBootstrap(configuration) {
     consumer_collection: {available: false, categories: [], series: []},
   };
   assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /УРОВЕНЬ СОБИРАЕМОСТИ/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /НАЧИСЛЕНО/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОПЛАЧЕНО/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Собираемость \(прокси по ОСВ\)/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ПРОКСИ-ПРОЦЕНТ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /РАСЧЁТНЫЙ ЧИСЛИТЕЛЬ/);
   const proxyComponents = Object.assign({}, collectionBase, {
     value: 70,
     previous_year_value: 65,
@@ -170,90 +170,42 @@ async function checkBootstrap(configuration) {
     ],
   });
   app.renderCollectionModal(proxyComponents);
-  const collectionHtml = nodes.get('ki-collection-modal-content').innerHTML;
-  assert.match(collectionHtml, /70,0 млн ₽/);
-  assert.match(collectionHtml, /ОбК\(62\.01\) \+ ОбК\(62\.02\) − ОбД\(62\.02\)/);
-  assert.match(collectionHtml, /Начисления/);
-  assert.match(collectionHtml, /Поступления/);
-  assert.match(collectionHtml, /сч\. 62 − 62\.02/);
-  assert.match(collectionHtml, />АПГ</);
-  assert.match(collectionHtml, /ДЕЛЬТА АПГ/);
-  assert.doesNotMatch(collectionHtml, /РОЛЬ В ФОРМУЛЕ/);
-  assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.01/);
-  assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.02/);
-  assert.doesNotMatch(collectionHtml, /Дебетовый оборот 62\.02/);
-  assert.match(collectionHtml, /УРОВЕНЬ АПГ/);
-  assert.match(collectionHtml, /\+5\.0 п\.п\./);
-  assert.match(collectionHtml, /data-collection-period="day"/);
-  assert.match(collectionHtml, /data-collection-period="month"/);
-  assert.match(collectionHtml, /data-collection-period="year"/);
-  assert.match(collectionHtml, /data-series-id="__apg__"/);
-  assert.equal(app.state.collectionTimelineMode, 'month');
-  const defaultCollectionChart =
-    nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.match(defaultCollectionChart, /янв 26/);
-  assert.match(defaultCollectionChart, /Собираемость: 94\.0%/);
-  app.state.collectionTimelineMode = 'day';
-  app.renderCollectionDynamics(proxyComponents.turnover_series);
-  const collectionChartHtml = nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.match(collectionChartHtml, /collection-zone-red/);
-  assert.match(collectionChartHtml, /collection-zone-yellow/);
-  assert.match(collectionChartHtml, /collection-zone-green/);
-  assert.equal((collectionChartHtml.match(/collection-dynamics-line/g) || []).length, 2);
-  assert.match(collectionChartHtml, /collection-point-red/);
-  assert.match(collectionChartHtml, /collection-point-green/);
-  assert.match(collectionChartHtml, /r="6"/);
-  assert.match(collectionChartHtml, /collection-legend-main/);
-  assert.match(collectionChartHtml, /Не соединено значений вне рабочей шкалы 0–100%: 2/);
-  assert.doesNotMatch(collectionChartHtml, /1459250/);
-  app.state.collectionTimelineMode = 'month';
-  app.renderCollectionDynamics(proxyComponents.turnover_series);
-  const monthlyCollectionChart = nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.equal((monthlyCollectionChart.match(/collection-dynamics-point/g) || []).length, 1);
-  assert.match(monthlyCollectionChart, /янв 26/);
-  assert.match(monthlyCollectionChart, /Собираемость: 94\.0%/);
-  app.renderCollectionDynamics([
-    {date: '2026-02-10', value: 50, debit_6201: 40,
-     credit_6201: 40, debit_6202: 2, credit_6202: 4.64},
-    {date: '2026-02-28', value: 150, debit_6201: 60,
-     credit_6201: 60, debit_6202: 3, credit_6202: 6.96},
-    {date: '2026-03-10', value: 12, debit_6201: 40,
-     credit_6201: 12, debit_6202: 2, credit_6202: 3.96},
-    {date: '2026-03-31', value: 60, debit_6201: 60,
-     credit_6201: 18, debit_6202: 3, credit_6202: 5.94},
-    {date: '2026-07-31', value: 17.11, debit_6201: 100,
-     credit_6201: 100, debit_6202: 5, credit_6202: 36.39},
-  ]);
-  const realMonthlyRatios = nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.match(realMonthlyRatios, /Собираемость: 106\.6%/);
-  assert.match(realMonthlyRatios, /Собираемость: 34\.9%/);
-  assert.match(realMonthlyRatios, /Собираемость: 131\.4%/);
-  app.state.collectionTimelineMode = 'year';
-  app.renderCollectionDynamics([
-    {date: '2026-02-28', debit_6201: 100,
-     credit_6201: 100, debit_6202: 5, credit_6202: 11.6},
-    {date: '2026-03-31', debit_6201: 100,
-     credit_6201: 40, debit_6202: 5, credit_6202: 34.8},
-  ]);
-  const yearlyCollection = nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.match(yearlyCollection, />2026</);
-  assert.match(yearlyCollection, /Собираемость: 88\.2%/);
-  app.state.collectionTimelineMode = 'month';
-  app.state.collectionShowApg = true;
-  app.renderCollectionDynamics(
-    proxyComponents.turnover_series,
-    proxyComponents.previous_year_turnover_series);
-  const collectionWithApg = nodes.get('ki-collection-dynamics-chart').innerHTML;
-  assert.match(collectionWithApg, /collection-dynamics-apg-line/);
-  assert.match(collectionWithApg, /collection-dynamics-apg-point/);
-  assert.match(collectionWithApg, /collection-legend-apg/);
-  assert.match(collectionWithApg, /АПГ:/);
-  assert.match(collectionWithApg, /январь 2025/);
-  assert.doesNotMatch(collectionWithApg, /дата АПГ:/);
-  assert.match(collectionWithApg, /collection-chart-legend/);
-  app.state.collectionShowApg = false;
-  app.state.collectionTimelineMode = 'day';
-  assert.match(script, /activeContainer !== collectionContent/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70,0 млн ₽/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /4 оборота/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Роль|знаменатель/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Периодная расшифровка/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбД 62\.02/);
+  const aggregatedProxy = app.collectionProxyAggregate([
+    {date: '2026-01-01', debit_6201: 40, credit_6201: 20, debit_6202: 10, credit_6202: 20},
+    {date: '2026-01-02', debit_6201: 60, credit_6201: 30, debit_6202: 20, credit_6202: 40},
+  ], 'month');
+  assert.equal(aggregatedProxy.length, 1);
+  assert.equal(aggregatedProxy[0].denominator, 100);
+  assert.equal(aggregatedProxy[0].numerator, 80);
+  assert.equal(aggregatedProxy[0].value, 80,
+    'proxy must be recalculated from aggregated components, not averaged percentages');
+  const extremeProxy = app.collectionProxyAggregate([
+    {date: '2026-02-01', debit_6201: 100, credit_6201: 120, debit_6202: 0, credit_6202: 0},
+    {date: '2026-03-01', debit_6201: 100, credit_6201: -10, debit_6202: 0, credit_6202: 0},
+  ], 'day');
+  assert.equal(extremeProxy[0].value, 120);
+  assert.equal(extremeProxy[1].value, -10);
+  app.drawCollectionProxy({
+    turnover_series: [
+      {date: '2026-01-01', debit_6201: 100, credit_6201: 80,
+       debit_6202: 10, credit_6202: 20},
+      {date: '2026-01-02', debit_6201: null, credit_6201: null,
+       debit_6202: null, credit_6202: null},
+      {date: '2026-01-03', debit_6201: 100, credit_6201: 90,
+       debit_6202: 10, credit_6202: 20},
+    ],
+  }, {period: 'day', view: 'result'}, value => String(value),
+  value => value == null ? 'Н/Д' : `${value}%`);
+  assert.doesNotMatch(
+    nodes.get('ki-collection-proxy-chart').innerHTML,
+    /collection-proxy-percent-line/,
+    'percentage line must not bridge an unavailable period');
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {

@@ -5,6 +5,7 @@ import time
 
 from key_indicators import (build_indicator_source, build_key_indicators,
                             revenue_analytic_key, _period_bounds,
+                            _collection_components_from_rows,
                             _revenue_activity_groups)
 
 
@@ -3298,6 +3299,22 @@ class PeriodAggregateTests(unittest.TestCase):
                 'collection']
         self.assertIsNone(card['value'])
         self.assertIn('нулю', card['reason'])
+
+    def test_collection_proxy_h1_control_values_keep_extremes(self):
+        expected = [73.66, 105.05, 32.36, 96.06, 116.10, 92.78]
+        calculated = []
+        for month, percentage in enumerate(expected, 1):
+            point_date = date(2026, month, 1).isoformat()
+            point = _collection_components_from_rows([
+                day(point_date, '62.01', obd=10000,
+                    obk=round(percentage * 100, 2)),
+                day(point_date, '62.02', obd=0, obk=0),
+            ])
+            calculated.append(point['value'])
+        self.assertEqual(calculated, expected)
+        self.assertGreater(calculated[1], 100)
+        self.assertLess(calculated[2], 50)
+        self.assertGreater(calculated[4], 100)
 
     def test_collection_proxy_deduplicates_subaccount_parent_and_leaf(self):
         rows = [

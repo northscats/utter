@@ -32,6 +32,56 @@ def report(period, amount, dates):
 
 
 class SourceAssemblyTests(unittest.TestCase):
+    def test_complementary_subaccount_reports_do_not_replace_each_other(self):
+        first = report(
+            'Оборотно-сальдовая ведомость по счету 62.01 за январь 2026 г.',
+            10, ['2026-01-31'])
+        first['acc'] = '62'
+        first['daily'][0]['account'] = '62.01'
+        second = report(
+            'Оборотно-сальдовая ведомость по счету 62.02 за январь 2026 г.',
+            20, ['2026-01-31'])
+        second['acc'] = '62'
+        second['daily'][0]['account'] = '62.02'
+        paths = ['first.xls', 'second.xls']
+        with patch.object(service.os, 'stat') as stat, \
+                patch.object(service, 'parse_osv',
+                             side_effect=[first, second]):
+            stat.return_value.st_mtime_ns = 1
+            stat.return_value.st_mtime = 1
+            stat.return_value.st_size = 1
+            source = service.assemble_source(paths, [])
+        self.assertEqual(
+            {row['account'] for row in source['accounts']['62']['daily']},
+            {'62.01', '62.02'})
+
+    def test_new_empty_subaccount_revision_removes_old_daily_movements(self):
+        old = report(
+            'Оборотно-сальдовая ведомость по счету 62.01 за январь 2026 г.',
+            10, ['2026-01-31'])
+        old['acc'] = '62'
+        old['daily'][0]['account'] = '62.01'
+        revised = report(
+            'Оборотно-сальдовая ведомость по счету 62.01 за январь 2026 г.',
+            0, [])
+        revised['acc'] = '62'
+        other = report(
+            'Оборотно-сальдовая ведомость по счету 62.02 за январь 2026 г.',
+            20, ['2026-01-31'])
+        other['acc'] = '62'
+        other['daily'][0]['account'] = '62.02'
+        with patch.object(service.os, 'stat') as stat, \
+                patch.object(service, 'parse_osv',
+                             side_effect=[old, other, revised]):
+            stat.return_value.st_mtime_ns = 1
+            stat.return_value.st_mtime = 1
+            stat.return_value.st_size = 1
+            source = service.assemble_source(
+                ['01-old.xls', '02-other.xls', '03-revised.xls'], [])
+        self.assertEqual(
+            [row['account'] for row in source['accounts']['62']['daily']],
+            ['62.02'])
+
     def test_empty_osv_uses_account_number_from_report_title(self):
         from openpyxl import Workbook
         from osvparser import parse_osv

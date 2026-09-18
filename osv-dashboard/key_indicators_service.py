@@ -30,6 +30,22 @@ _CONTROL_SNAPSHOT_ROOT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'control_snapshots')
 _UPLOADED_CONTROL_ROOT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), 'uploads')
+_REPORT_ACCOUNT_RE = re.compile(
+    r'сч[её]т[ау]\s+(\d{2}(?:\.\d+)*)', re.IGNORECASE)
+
+
+def _report_account_scope(parsed, path):
+    """Return the account explicitly named by the report, including subaccount."""
+    text = f"{parsed.get('period') or ''} {os.path.basename(path)}"
+    match = _REPORT_ACCOUNT_RE.search(text)
+    if match:
+        return match.group(1)
+    daily_accounts = {
+        str(row.get('account') or '').strip()
+        for row in parsed.get('daily') or [] if row.get('account')
+    }
+    return next(iter(daily_accounts)) if len(daily_accounts) == 1 else str(
+        parsed.get('acc') or '')
 
 
 def _is_trusted_control_path(path):
@@ -647,6 +663,9 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
         for parsed in parsed_items:
             parsed['source_file'] = name
             parsed['source_updated_at'] = updated_at
+            parsed['_report_account_scope'] = (
+                str(parsed.get('acc') or '') if consolidated
+                else _report_account_scope(parsed, path))
             reports.setdefault(str(parsed['acc']), []).append(parsed)
     data = {}
     for acc, entries in reports.items():
@@ -656,7 +675,18 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
             report_daily = report.get('daily', [])
             if report.get('_consolidated_control') and not report_daily:
                 continue
-            merged = [row for row in merged if not _covered(row['date'], [report])]
+            scope = str(report.get('_report_account_scope') or acc)
+
+            def inside_scope(row):
+                account_code = str(row.get('account') or acc).strip()
+                return account_code == scope or account_code.startswith(
+                    scope + '.')
+
+            merged = [
+                row for row in merged
+                if (not _covered(row['date'], [report])
+                    or not inside_scope(row))
+            ]
             merged.extend(report_daily)
         latest['daily'] = merged
         latest['balance_reports'] = [
@@ -665,7 +695,15 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
                 'complete_snapshot')}
             for report in entries
         ]
-        latest['coverage_reports'] = [report.get('period', '') for report in entries]
+        latest['coverage_reports'] = [{
+            'period': report.get('period', ''),
+            'source_file': report.get('source_file', ''),
+            'account_scope': report.get('_report_account_scope', acc),
+            'daily_accounts': sorted({
+                str(row.get('account') or '').strip()
+                for row in report.get('daily') or [] if row.get('account')
+            }),
+        } for report in entries]
         latest['warnings'] = list(dict.fromkeys(
             warning for report in entries for warning in report.get('warnings', [])
         ))
