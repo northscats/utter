@@ -24,7 +24,7 @@ _TITLES = {
     'revenue': 'Выручка',
     'collection': 'Собираемость (прокси по ОСВ)',
     'ar': 'Подтверждённая дебиторская задолженность',
-    'ap': 'Кредиторская задолженность (60.01)',
+    'ap': 'Кредиторская задолженность',
     'cogs': 'Себестоимость продаж',
     'profit': 'Прибыль от продаж (до отдельных расходов)',
     'credits': 'Кредиты и займы',
@@ -3154,6 +3154,30 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'start': previous_year_start.isoformat(),
         'end': previous_year_end.isoformat(),
     }
+    for item in card_map['ap'].get('components') or []:
+        account = str(item.get('account') or '')
+        previous_value = (
+            _sub_balance(
+                source, '60', '60.01', previous_year_end, credit=True)[0]
+            if account == '60.01'
+            else _top_balance(
+                source, account, previous_year_end, credit=True)[0]
+            if account in {'68', '69', '70'}
+            else None
+        )
+        current_value = item.get('value')
+        item['previous_year_value'] = previous_value
+        item['previous_year_delta'] = (
+            round(current_value - previous_value, 2)
+            if current_value is not None and previous_value is not None
+            else None
+        )
+        item['previous_year_delta_percent'] = (
+            round((current_value - previous_value)
+                  / abs(previous_value) * 100, 2)
+            if current_value is not None
+            and previous_value not in (None, 0) else None
+        )
     if vat is None and revenue is not None:
         card_map['revenue']['title'] = 'Выручка с НДС (НДС недоступен)'
     for cid, account_list in (

@@ -417,6 +417,10 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         cards = {item['id']: item for item in result['cards']}
         self.assertEqual(cards['ar']['value'], 330)
         self.assertEqual(cards['ap']['value'], 130)
+        self.assertTrue(all(
+            'previous_year_value' in item
+            and 'previous_year_delta_percent' in item
+            for item in cards['ap']['components']))
         self.assertEqual(cards['credits']['value'], 40)
         self.assertEqual(cards['salary']['value'], 120)
 

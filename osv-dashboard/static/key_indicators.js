@@ -3727,22 +3727,34 @@
                 });
                 const share = knownTotal && item.value !== null && item.value !== undefined
                     ? item.value / knownTotal * 100 : null;
-                const dueTip = this.apTooltip({
-                    title: `Срок и просрочка — ${item.label}`,
-                    description: 'Состояние непогашенного обязательства относительно договорного или нормативного срока.',
-                    formula: 'Просрочка = отчётная дата − установленный срок оплаты',
-                    detail: 'Кредитовое сальдо ОСВ не содержит установленный срок погашения.',
-                    required: item.account === '68' || item.account === '69' ? required.taxes :
-                        item.account === '70' ? required.salary : required.terms,
-                    source: 'требуется регистр обязательств и платежей'
+                const apgTip = this.apTooltip({
+                    title: `АПГ — ${item.label}`,
+                    description: 'Сальдо того же обязательства на сопоставимую дату прошлого года.',
+                    formula: 'АПГ = кредитовое сальдо того же счёта на конец аналогичного периода прошлого года',
+                    fact: rub(item.previous_year_value),
+                    deviation: item.previous_year_value === null ||
+                        item.previous_year_value === undefined
+                        ? 'Нет сопоставимого прошлогоднего сальдо'
+                        : 'Сопоставимый факт прошлого года',
+                    source: 'ОСВ аналогичного периода прошлого года'
+                });
+                const apgDeltaTip = this.apTooltip({
+                    title: `Дельта АПГ — ${item.label}`,
+                    description: 'Процентное изменение обязательства относительно аналогичного периода прошлого года.',
+                    formula: 'Дельта АПГ = (текущее значение − АПГ) / |АПГ| × 100%',
+                    fact: pct(item.previous_year_delta_percent),
+                    deviation: item.previous_year_delta_percent === null ||
+                        item.previous_year_delta_percent === undefined
+                        ? 'Сравнение недоступно'
+                        : 'Изменение к АПГ',
+                    source: 'текущая ОСВ и ОСВ аналогичного периода прошлого года'
                 });
                 return `<tr>
                     ${this.collectionCell(`<strong>${esc(item.label)}</strong><br><span class="ki-muted">сч. ${esc(item.account)}</span>`, tip)}
                     ${this.collectionCell(esc(rub(item.value)), tip, item.value === null || item.value === undefined ? 'cash-value-missing' : '')}
                     ${this.collectionCell(esc(pct(share)), tip)}
-                    ${this.collectionCell('Нужны данные', dueTip, 'cash-value-missing')}
-                    ${this.collectionCell('Нужны данные', dueTip, 'cash-value-missing')}
-                    ${this.collectionCell('Недостаточно данных', this.apTooltip({title:`Статус — ${item.label}`, required:`${required.terms} ${required.status}`}), 'cash-value-missing')}
+                    ${this.collectionCell(esc(rub(item.previous_year_value)), apgTip, item.previous_year_value === null || item.previous_year_value === undefined ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(esc(pct(item.previous_year_delta_percent)), apgDeltaTip, item.previous_year_delta_percent === null || item.previous_year_delta_percent === undefined ? 'cash-value-missing' : '')}
                 </tr>`;
             }).join('');
 
@@ -3823,11 +3835,23 @@
                     ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'узкий бухгалтерский охват', ratioTip, arApRatio === null)}
                     ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
                 </div>
-                <div class="modal-section-title">Структура известных расчётных обязательств</div>
+                <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
+                    <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
+                    </div>
+                    СТРУКТУРА ИЗВЕСТНЫХ РАСЧЁТНЫХ ОБЯЗАТЕЛЬСТВ
+                </div>
                 <div class="revenue-classification-note">Известная сумма: <strong>${esc(rub(knownTotal))}</strong>. Это не полная КЗ, пока не сопоставлены разрешённые кредитовые аналитики счёта 76. Отсутствующие счета не принимаются за ноль.</div>
                 <div class="ap-structure">${structure}</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table ap-detail-table">
-                    <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Доля известной суммы</th><th>Срок оплаты</th><th>Просрочка</th><th>Статус</th></tr></thead>
+                <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
+                    <table class="collection-detail-table ap-detail-table" style="min-width: 100%; width: 100%; table-layout: fixed; border: none;">
+                    <thead style="background: #1E3A8A;"><tr>
+                        <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 32%;">ВИД ОБЯЗАТЕЛЬСТВА</th>
+                        <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 17%;">СУММА</th>
+                        <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 15%;">ДОЛЯ</th>
+                        <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 18%;">АПГ</th>
+                        <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 18%;">ДЕЛЬТА АПГ</th>
+                    </tr></thead>
                     <tbody>${componentRows}</tbody>
                 </table></div>
                 <div class="modal-section-title">Фактические аналитики 60.01</div>
