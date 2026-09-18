@@ -2783,6 +2783,88 @@
                     </table>
                 </div>` : '';
 
+            const rawSeries = linked.available ? linked.series || [] :
+                card.turnover_series || card.series || [];
+            const previousYearSeries = linked.available
+                ? card.previous_year_linked_series || []
+                : card.previous_year_turnover_series || [];
+            const collectionAmountsByMonth = inputSeries => {
+                const result = new Map();
+                (inputSeries || []).forEach(point => {
+                    const key = String(point.date || '').slice(0, 7);
+                    if (!key) return;
+                    if (!result.has(key)) {
+                        result.set(key, {
+                            payment: 0,
+                            paymentCount: 0,
+                            credit6201: 0,
+                            credit6201Count: 0,
+                            credit6202: 0,
+                            credit6202Count: 0,
+                            debit6202: 0,
+                            debit6202Count: 0
+                        });
+                    }
+                    const month = result.get(key);
+                    const add = (value, sumKey, countKey) => {
+                        if (value !== null && value !== undefined &&
+                                Number.isFinite(Number(value))) {
+                            month[sumKey] += Number(value);
+                            month[countKey] += 1;
+                        }
+                    };
+                    add(point.payment, 'payment', 'paymentCount');
+                    add(point.credit_6201, 'credit6201', 'credit6201Count');
+                    add(point.credit_6202, 'credit6202', 'credit6202Count');
+                    add(point.debit_6202, 'debit6202', 'debit6202Count');
+                });
+                return new Map([...result.entries()].map(([key, month]) => {
+                    const value = month.paymentCount
+                        ? month.payment
+                        : month.credit6201Count && month.credit6202Count &&
+                            month.debit6202Count
+                        ? month.credit6201 + month.credit6202 - month.debit6202
+                        : null;
+                    return [key, value];
+                }));
+            };
+            const currentMonthAmounts = collectionAmountsByMonth(rawSeries);
+            const previousMonthAmounts = collectionAmountsByMonth(
+                previousYearSeries);
+            const monthLabel = key => {
+                const monthDate = new Date(`${key}-01T00:00:00`);
+                return Number.isNaN(monthDate.getTime()) ? key :
+                    new Intl.DateTimeFormat('ru-RU', {
+                        month: 'long', year: 'numeric'
+                    }).format(monthDate);
+            };
+            const periodRows = [...currentMonthAmounts.entries()]
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, value]) => {
+                    const previous = previousMonthAmounts.has(key)
+                        ? previousMonthAmounts.get(key) : null;
+                    const delta = value !== null && previous !== null &&
+                            previous !== 0
+                        ? (value - previous) / Math.abs(previous) * 100
+                        : null;
+                    return `<tr>
+                        <td style="text-align:left;font-weight:600;text-transform:capitalize;">${esc(monthLabel(key))}</td>
+                        <td style="text-align:right;font-weight:700;">${esc(rub(value))}</td>
+                        <td style="text-align:right;">${esc(rub(previous))}</td>
+                        <td style="text-align:right;font-weight:700;">${esc(pct(delta))}</td>
+                    </tr>`;
+                }).join('');
+            const periodTableHtml = `
+                <div class="modal-section-title">СОБИРАЕМОСТЬ ЗА ПЕРИОД</div>
+                <div class="collection-table-wrap">
+                    <table class="collection-detail-table collection-period-table">
+                        <thead>
+                            <tr><th>Месяц</th><th>Значение</th><th>АПГ</th><th>Дельта АПГ</th></tr>
+                        </thead>
+                        <tbody>${periodRows || '<tr><td colspan="4" style="text-align:center;color:#6B7280;padding:16px;">Нет данных за выбранный период</td></tr>'}</tbody>
+                    </table>
+                </div>`;
+
             const chartHtml = `
                 <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика" style="margin-bottom: 24px;">
                     <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; margin-top: 0; border-bottom: none; padding-bottom: 0;">
@@ -2854,13 +2936,8 @@
                     </table>
                 </div>`;
 
-            container.innerHTML = bannerHtml + chartHtml + segmentNoticeHtml +
+            container.innerHTML = bannerHtml + chartHtml + periodTableHtml + segmentNoticeHtml +
                 segmentTableHtml + accrualSourcesHtml + tableHtml;
-            const rawSeries = linked.available ? linked.series || [] :
-                card.turnover_series || card.series || [];
-            const previousYearSeries = linked.available
-                ? card.previous_year_linked_series || []
-                : card.previous_year_turnover_series || [];
             if (!state.collectionTimelineMode) {
                 state.collectionTimelineMode = 'month';
             }
