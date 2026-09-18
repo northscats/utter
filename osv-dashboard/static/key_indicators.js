@@ -2855,11 +2855,21 @@
                     </tr>`;
                 }).join('');
             const periodTableHtml = `
-                <div class="modal-section-title">СОБИРАЕМОСТЬ ЗА ПЕРИОД</div>
-                <div class="collection-table-wrap">
-                    <table class="collection-detail-table collection-period-table">
-                        <thead>
-                            <tr><th>Месяц</th><th>Значение</th><th>АПГ</th><th>Дельта АПГ</th></tr>
+                <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
+                    <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
+                    </div>
+                    СОБИРАЕМОСТЬ ЗА ПЕРИОД
+                </div>
+                <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
+                    <table class="collection-detail-table collection-period-table" style="min-width: 100%; width: 100%; border: none;">
+                        <thead style="background: #1E3A8A;">
+                            <tr>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 25%;">МЕСЯЦ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ЗНАЧЕНИЕ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">АПГ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ДЕЛЬТА АПГ</th>
+                            </tr>
                         </thead>
                         <tbody>${periodRows || '<tr><td colspan="4" style="text-align:center;color:#6B7280;padding:16px;">Нет данных за выбранный период</td></tr>'}</tbody>
                     </table>
