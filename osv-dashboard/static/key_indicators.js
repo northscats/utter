@@ -5772,8 +5772,8 @@ renderCashModal(card) {
             const cumulativeDate = cumulativeLatest &&
                 (cumulativeLatest.date || cumulativeLatest.label);
             const cumulativeTipData = {
-                title: 'Накопленный ДК',
-                description: 'Накопленные дебетовая и кредитовая величины денежных средств.',
+                title: 'Поступления / выплаты',
+                description: 'Поступления и выплаты денежных средств.',
                 formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
                 detail: `${cumulativeCoverageText}. Отсутствующие счета не приняты за ноль.${cumulativeDate ? ` Значения приведены на ${cumulativeDate}.` : ''}`,
                 required: cumulativeLatest ? null : 'Нужны точные начальные сальдо и дневные обороты по денежным счетам.',
@@ -5805,8 +5805,8 @@ renderCashModal(card) {
             const cumulativeApgDate = cumulativeApgLatest &&
                 (cumulativeApgLatest.date || cumulativeApgLatest.label);
             const cumulativeApgTipData = {
-                title: 'Накопленный ДК АПГ',
-                description: 'Накопленные дебетовая и кредитовая величины за аналогичный период прошлого года.',
+                title: 'Поступления / выплаты АПГ',
+                description: 'Поступления и выплаты за аналогичный период прошлого года.',
                 formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
                 detail: `${cumulativeApgCoverageText}. Период сдвинут на один год без изменения его продолжительности. Отсутствующие счета не приняты за ноль.`,
                 required: cumulativeApgLatest ? null : 'Нужны точные начальные сальдо и дневные обороты за аналогичный период прошлого года.',
@@ -5900,7 +5900,7 @@ renderCashModal(card) {
                          tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cumulative-current"
                          onclick="window.KI_App.toggleCashChartMode('cumulative-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cumulative-current')}">
-                        <div class="cash-summary-label">Накопленный ДК</div>
+                        <div class="cash-summary-label">Поступления / выплаты</div>
                         <div class="cash-summary-value ${cumulativeLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeLatest
                             ? `${esc(cumulativeDebit)} / ${esc(cumulativeCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
@@ -5911,7 +5911,7 @@ renderCashModal(card) {
                          tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cumulative-apg"
                          onclick="window.KI_App.toggleCashChartMode('cumulative-apg')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cumulative-apg')}">
-                        <div class="cash-summary-label">Накопленный ДК АПГ</div>
+                        <div class="cash-summary-label">Поступления / выплаты АПГ</div>
                         <div class="cash-summary-value ${cumulativeApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeApgLatest
                             ? `${esc(cumulativeApgDebit)} / ${esc(cumulativeApgCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
@@ -5933,16 +5933,16 @@ renderCashModal(card) {
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
                     <tbody>${rows}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(cashFormatted.val)}</span> <span class="cash-number-unit">${esc(cashFormatted.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span>${total ? '<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:100%"></span></span>' : ''}${card.coverage === 'partial' ? '<span class="cash-coverage-note">Частичный охват</span>' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
-                <div id="ki-cash-chart-title" class="modal-section-title">Накопленный ДК</div>
+                <div id="ki-cash-chart-title" class="modal-section-title">Поступления / выплаты</div>
                 <div id="ki-cash-line-chart" class="cash-line-chart"></div>
                 <div class="cash-chart-legend" aria-label="Легенда графика">
                     <span><i class="cash-chart-dot" style="background:#111827"></i>Денежные средства</span>
                     <span><i class="cash-chart-dot" style="background:#DB2777"></i>Денежные средства АПГ</span>
-                    <span><i class="cash-chart-dot" style="background:#2563EB"></i>Накопленный дебет: СНд + ОД</span>
-                    <span><i class="cash-chart-dot" style="background:#059669"></i>Накопленный кредит: СНк + ОК</span>
+                    <span><i class="cash-chart-dot" style="background:#2563EB"></i>Поступления: СНд + ОД</span>
+                    <span><i class="cash-chart-dot" style="background:#059669"></i>Выплаты: СНк + ОК</span>
                     <span><i class="cash-chart-dot" style="background:rgba(34,197,94,.2)"></i>Интервал между значениями</span>
-                    <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Дебет АПГ</span>
-                    <span><i class="cash-chart-dot" style="background:#D97706"></i>Кредит АПГ</span>
+                    <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Поступления АПГ</span>
+                    <span><i class="cash-chart-dot" style="background:#D97706"></i>Выплаты АПГ</span>
                 </div>
                 <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
@@ -5971,8 +5971,8 @@ renderCashModal(card) {
             const modeLabels = {
                 'cash-current': 'Денежные средства',
                 'cash-apg': 'Денежные средства АПГ',
-                'cumulative-current': 'Накопленный ДК',
-                'cumulative-apg': 'Накопленный ДК АПГ'
+                'cumulative-current': 'Поступления / выплаты',
+                'cumulative-apg': 'Поступления / выплаты АПГ'
             };
             const title = document.getElementById('ki-cash-chart-title');
             if (title) title.textContent = [...selected]
@@ -6173,10 +6173,10 @@ renderCashModal(card) {
                 svg += `<path d="${creditPath}" class="cash-chart-credit${group.id === 'apg' ? '-apg' : ''}" fill="none" stroke="${group.creditColor}" stroke-width="1.5"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
                 group.points.forEach((item, index) => {
                     if (Number.isFinite(item.debit)) {
-                        svg += `<circle class="cash-chart-hit-target" data-kind="debit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.debit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Накопленный дебет${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                        svg += `<circle class="cash-chart-hit-target" data-kind="debit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.debit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Поступления${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
                     }
                     if (Number.isFinite(item.credit)) {
-                        svg += `<circle class="cash-chart-hit-target" data-kind="credit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.credit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Накопленный кредит${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                        svg += `<circle class="cash-chart-hit-target" data-kind="credit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.credit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Выплаты${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
                     }
                 });
             });
@@ -6218,7 +6218,7 @@ renderCashModal(card) {
                     source: 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55'
                 };
                 return isCredit ? {
-                    title: `Накопленный кредит${suffix} — ${item.date}`,
+                    title: `Выплаты${suffix} — ${item.date}`,
                     description: 'Кредитовое сальдо на начало выбранного периода и кредитовые обороты нарастающим итогом.',
                     formula: 'Кредит = Σ(СНк + накопленный ОК) по счетам 50, 51, 52, 55',
                     detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
@@ -6227,7 +6227,7 @@ renderCashModal(card) {
                     deviation: 'Фактическое накопленное кредитовое значение',
                     source: 'начальные кредитовые сальдо и точные дневные кредитовые обороты ОСВ'
                 } : {
-                    title: `Накопленный дебет${suffix} — ${item.date || item.label}`,
+                    title: `Поступления${suffix} — ${item.date || item.label}`,
                     description: 'Дебетовое сальдо на начало выбранного периода и дебетовые обороты нарастающим итогом.',
                     formula: 'Дебет = Σ(СНд + накопленный ОД) по счетам 50, 51, 52, 55',
                     detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
