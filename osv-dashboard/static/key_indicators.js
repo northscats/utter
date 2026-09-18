@@ -2789,7 +2789,11 @@
                         <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-4"/></svg>
                         </div>
-                        ДИНАМИКА СОБИРАЕМОСТИ
+                        <span>ДИНАМИКА СОБИРАЕМОСТИ</span>
+                        <div class="collection-period-switch" role="group" aria-label="Период группировки графика">
+                            <button type="button" data-collection-period="day">День</button>
+                            <button type="button" data-collection-period="month">Месяц</button>
+                        </div>
                     </div>
                     <div class="modal-chart-wrap" style="height: 320px; background: #fff; border: 1px solid #F3F4F6; padding: 20px 10px 10px; margin-top: 10px;">
                         <div id="ki-collection-dynamics-chart" class="cash-modal-chart-plot" style="height: 100%;"></div>
@@ -2851,16 +2855,48 @@
 
             container.innerHTML = bannerHtml + chartHtml + segmentNoticeHtml +
                 segmentTableHtml + accrualSourcesHtml + tableHtml;
+            const rawSeries = linked.available ? linked.series || [] :
+                card.turnover_series || card.series || [];
+            if (!state.collectionTimelineMode) {
+                state.collectionTimelineMode = 'day';
+            }
+            container.querySelectorAll('[data-collection-period]').forEach(button => {
+                button.addEventListener('click', () => {
+                    state.collectionTimelineMode = button.dataset.collectionPeriod;
+                    this.renderCollectionDynamics(rawSeries);
+                });
+            });
             this.renderCollectionDynamics(
-                linked.available ? linked.series || [] :
-                    card.turnover_series || card.series || []);
+                rawSeries);
         },
 
         renderCollectionDynamics(series) {
             const container = document.getElementById(
                 'ki-collection-dynamics-chart');
             if (!container) return;
-            const points = (series || []).map((point, index) => ({
+            const mode = state.collectionTimelineMode || 'day';
+            document.querySelectorAll('[data-collection-period]').forEach(button => {
+                const active = button.dataset.collectionPeriod === mode;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-pressed', String(active));
+            });
+            const sourcePoints = mode === 'month'
+                ? Object.values((series || []).reduce((groups, point) => {
+                    const key = String(point.date || '').slice(0, 7);
+                    if (key) groups[key] = point;
+                    return groups;
+                }, {})).map(point => ({
+                    ...point,
+                    label: (() => {
+                        const date = new Date(`${String(point.date).slice(0, 7)}-01T00:00:00`);
+                        return Number.isNaN(date.getTime()) ? point.label :
+                            new Intl.DateTimeFormat('ru-RU', {
+                                month: 'short', year: '2-digit'
+                            }).format(date).replace('.', '');
+                    })()
+                }))
+                : (series || []);
+            const points = sourcePoints.map((point, index) => ({
                 ...point,
                 index,
                 value: point.value === null || point.value === undefined
@@ -2877,10 +2913,20 @@
             const plotHeight = height - pad.top - pad.bottom;
             const values = points.filter(point => Number.isFinite(point.value))
                 .map(point => point.value);
-            const minValue = Math.min(...values);
-            const maxValue = Math.max(...values);
-            const yMin = Math.min(50, Math.floor(minValue / 10) * 10);
-            const yMax = Math.max(100, Math.ceil(maxValue / 10) * 10);
+            // Percentages produced from a near-zero or negative denominator
+            // can reach thousands or millions of percent. They must not
+            // collapse the meaningful 93–95% threshold area to a pixel.
+            const scaleValues = values.filter(value => value >= 0 && value <= 200);
+            const scaleMin = scaleValues.length ? Math.min(...scaleValues) : 0;
+            const scaleMax = scaleValues.length ? Math.max(...scaleValues) : 100;
+            const yMin = Math.max(0, Math.min(
+                50, Math.floor(scaleMin / 10) * 10));
+            const yMax = Math.max(100, Math.min(
+                130, Math.ceil(scaleMax / 10) * 10));
+            const inScale = value => Number.isFinite(value) &&
+                value >= yMin && value <= yMax;
+            const outlierCount = points.filter(point =>
+                Number.isFinite(point.value) && !inScale(point.value)).length;
             const x = index => pad.left + (
                 points.length <= 1 ? plotWidth / 2 :
                     index / (points.length - 1) * plotWidth);
@@ -2896,7 +2942,7 @@
             const segments = [];
             let path = '';
             points.forEach(point => {
-                if (!Number.isFinite(point.value)) {
+                if (!inScale(point.value)) {
                     if (path) segments.push(path);
                     path = '';
                     return;
@@ -2917,7 +2963,7 @@
                     : '')).join('');
             const lines = segments.map(segment =>
                 `<path class="collection-dynamics-line" d="${segment}"/>`).join('');
-            const circles = points.filter(point => Number.isFinite(point.value))
+            const circles = points.filter(point => inScale(point.value))
                 .map(point => {
                     const accrual = point.accrual ?? point.debit_6201;
                     const paid = point.payment ?? (
@@ -2935,12 +2981,15 @@
                     ].filter(Boolean).join(' · ');
                     return `<circle class="collection-dynamics-point" cx="${x(point.index)}" cy="${y(point.value)}" r="4" tabindex="0"><title>${esc(detail)}</title></circle>`;
                 }).join('');
+            const scaleNotice = outlierCount
+                ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
+                : '';
             container.innerHTML = `<svg class="collection-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика собираемости за выбранный период">
                 ${band(yMin, 93, 'collection-zone-red')}
                 ${band(93, 95, 'collection-zone-yellow')}
                 ${band(95, yMax, 'collection-zone-green')}
                 ${tickSvg}${xLabels}${lines}${circles}
-            </svg>`;
+            </svg>${scaleNotice}`;
         },
         arRequirements() {
             return {

@@ -699,9 +699,9 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .collection-chart-grid .modal-chart-wrap { height:250px; margin:0; }
 .collection-chart-title { margin:0 0 8px; color:#374151; font-size:11px; font-weight:700; }
 .collection-dynamics-svg { display:block; width:100%; height:100%; min-width:620px; }
-.collection-zone-red { fill:#FEE2E2; }
-.collection-zone-yellow { fill:#FEF3C7; }
-.collection-zone-green { fill:#DCFCE7; }
+.collection-zone-red { fill:#FCA5A5; fill-opacity:.34; }
+.collection-zone-yellow { fill:#FCD34D; fill-opacity:.38; }
+.collection-zone-green { fill:#86EFAC; fill-opacity:.30; }
 .collection-dynamics-grid { stroke:#94A3B8; stroke-width:1; stroke-dasharray:4 5; }
 .collection-dynamics-axis { fill:#64748B; font-size:11px; }
 .collection-dynamics-line { fill:none; stroke:#1E3A8A; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
@@ -709,6 +709,40 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .collection-dynamics-point:focus { outline:none; stroke:#F59E0B; stroke-width:4; }
 #ki-collection-modal-content .modal-chart-wrap { overflow-x:auto; }
 #ki-collection-dynamics-chart { min-width:620px; overflow:visible; }
+.collection-scale-notice {
+  margin:6px 12px 0;
+  color:#92400E;
+  font-size:11px;
+  line-height:1.4;
+}
+.collection-period-switch {
+  display:inline-flex;
+  gap:2px;
+  margin-left:auto;
+  padding:3px;
+  border:1px solid #DCE5EF;
+  border-radius:7px;
+  background:#F8FAFC;
+}
+.collection-period-switch button {
+  padding:5px 10px;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  color:#64748B;
+  font:600 11px/1.2 inherit;
+  cursor:pointer;
+}
+.collection-period-switch button:hover { color:#1D4ED8; }
+.collection-period-switch button.active {
+  background:#fff;
+  color:#1D4ED8;
+  box-shadow:0 1px 3px rgba(15,23,42,.12);
+}
+.collection-period-switch button:focus-visible {
+  outline:2px solid #2563EB;
+  outline-offset:1px;
+}
 .collection-table-wrap { overflow-x:auto; margin-bottom:18px; }
 .collection-detail-table {
   width:100%; min-width:1260px; border-collapse:collapse; font-size:11px;
@@ -855,6 +889,8 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   .cogs-missing-grid, .profit-missing-grid,
   .credits-missing-grid, .salary-missing-grid,
   .capex-missing-grid { grid-template-columns:1fr; }
+  .collection-period-switch { width:100%; margin:8px 0 0; }
+  .collection-period-switch button { flex:1; }
 }
 .cash-chart-legend { display:flex; gap:14px; font-size:10px; color:#4B5563; margin-bottom:5px; }
 .cash-chart-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }

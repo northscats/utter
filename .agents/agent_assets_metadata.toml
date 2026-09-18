@@ -246,3 +246,31 @@ mtime_ms = 1789723320593
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/99c21989-616b-4567-a3bf-254f211fc653/c4c3e036-9551-4075-b656-7abfc6643cee"
 storage_version_token = "1789723336568757"
 content_type = "image/png"
+
+[[outputs]]
+id = "gygGorB7cd5C5SY3x8pvi"
+uri = "file://screenshots/collection-zones-fixed.png"
+type = "image"
+title = "Исправленный график собираемости"
+description = "Красная, жёлтая и зелёная зоны сохраняются при аномальных значениях 1 459 250% и −3000%; такие точки исключены из линии."
+logical_id = "3f943dd0-a25f-4152-a2e3-791e4c5c12c9"
+content_hash = "sha256:e75ae958ca1c82cd8ab878d2f8a4d5b32dfa7d5dc6ce6ec8ed0ce3e2fef0ec59"
+size = 110107
+mtime_ms = 1789724024372
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/3f943dd0-a25f-4152-a2e3-791e4c5c12c9/51527198-aeea-476d-8bcc-e76937799820"
+storage_version_token = "1789724045161442"
+content_type = "image/png"
+
+[[outputs]]
+id = "uvZ7fZL7DEZt_a5YJEOss"
+uri = "file://screenshots/collection-period-month.png"
+type = "image"
+title = "График собираемости — режим «Месяц»"
+description = "Переключатель «День / Месяц» и более прозрачные нормативные зоны в работающем preview."
+logical_id = "cd9509e9-8a21-432e-8900-aa6451cbfb33"
+content_hash = "sha256:ccd128445bc990def9391d3d2c4d1c7f4cd0648764b2e234356b7cd35e0ac92a"
+size = 100226
+mtime_ms = 1789724679988
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/cd9509e9-8a21-432e-8900-aa6451cbfb33/18d1298b-ab23-416a-a213-52e3cc8c1d63"
+storage_version_token = "1789724709677331"
+content_type = "image/png"

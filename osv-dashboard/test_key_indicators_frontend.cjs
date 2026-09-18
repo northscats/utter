@@ -149,6 +149,8 @@ async function checkBootstrap(configuration) {
       {date: '2026-01-02', label: '02.01', value: null},
       {date: '2026-01-03', label: '03.01', value: 96,
        debit_6201: 100, credit_6201: 85, debit_6202: 2, credit_6202: 13},
+      {date: '2026-01-04', label: '04.01', value: 1459250},
+      {date: '2026-01-05', label: '05.01', value: -3000},
     ],
     components: [
       {account: '62.01', side: 'debit', value: 100000000},
@@ -172,11 +174,21 @@ async function checkBootstrap(configuration) {
   assert.doesNotMatch(collectionHtml, /Дебетовый оборот 62\.02/);
   assert.match(collectionHtml, /УРОВЕНЬ АПГ/);
   assert.match(collectionHtml, /\+5\.0 п\.п\./);
+  assert.match(collectionHtml, /data-collection-period="day"/);
+  assert.match(collectionHtml, /data-collection-period="month"/);
   const collectionChartHtml = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.match(collectionChartHtml, /collection-zone-red/);
   assert.match(collectionChartHtml, /collection-zone-yellow/);
   assert.match(collectionChartHtml, /collection-zone-green/);
   assert.equal((collectionChartHtml.match(/collection-dynamics-line/g) || []).length, 2);
+  assert.match(collectionChartHtml, /Не соединено значений вне рабочей шкалы 0–100%: 2/);
+  assert.doesNotMatch(collectionChartHtml, /1459250/);
+  app.state.collectionTimelineMode = 'month';
+  app.renderCollectionDynamics(proxyComponents.turnover_series);
+  const monthlyCollectionChart = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.equal((monthlyCollectionChart.match(/collection-dynamics-point/g) || []).length, 0);
+  assert.match(monthlyCollectionChart, /янв 26/);
+  app.state.collectionTimelineMode = 'day';
   assert.match(script, /activeContainer !== collectionContent/);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
