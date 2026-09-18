@@ -2723,7 +2723,7 @@
                         ${this.cashMetricCard('УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'по связанным оплатам' : 'из компонентов ОСВ', this.collectionTooltip({title: 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '__main__')}
                         ${this.cashMetricCard('НАЧИСЛЕНО', rub(currentAccrual), linked.available ? 'когорта выбранного периода' : 'дебетовый оборот 62.01', this.collectionTooltip({title: 'Начислено', fact: rub(currentAccrual)}), currentAccrual === null)}
                         ${this.cashMetricCard('ОПЛАЧЕНО', rub(currentPaid), linked.available ? 'распределённые оплаты' : 'ОбК 62 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено', fact: rub(currentPaid)}), currentPaid === null)}
-                        ${this.cashMetricCard('УРОВЕНЬ АПГ', pct(previousYearLevel), deltaPp, this.collectionTooltip({title: 'Уровень собираемости АПГ', fact: pct(previousYearLevel), deviation: previousYearDelta === null || previousYearDelta === undefined ? 'Сравнение недоступно' : `${deltaPp} к АПГ`}), previousYearLevel === null || previousYearLevel === undefined)}
+                        ${this.cashMetricCard('УРОВЕНЬ АПГ', pct(previousYearLevel), deltaPp, this.collectionTooltip({title: 'Уровень собираемости АПГ', fact: pct(previousYearLevel), deviation: previousYearDelta === null || previousYearDelta === undefined ? 'Сравнение недоступно' : `${deltaPp} к АПГ`}), previousYearLevel === null || previousYearLevel === undefined, '__apg__')}
                     </div>
                 </div>`;
 
@@ -2857,20 +2857,44 @@
                 segmentTableHtml + accrualSourcesHtml + tableHtml;
             const rawSeries = linked.available ? linked.series || [] :
                 card.turnover_series || card.series || [];
+            const previousYearSeries = linked.available
+                ? card.previous_year_linked_series || []
+                : card.previous_year_turnover_series || [];
             if (!state.collectionTimelineMode) {
                 state.collectionTimelineMode = 'day';
+            }
+            if (state.collectionShowApg === undefined) {
+                state.collectionShowApg = false;
             }
             container.querySelectorAll('[data-collection-period]').forEach(button => {
                 button.addEventListener('click', () => {
                     state.collectionTimelineMode = button.dataset.collectionPeriod;
-                    this.renderCollectionDynamics(rawSeries);
+                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
                 });
             });
+            const apgCard = container.querySelectorAll(
+                '[data-series-id="__apg__"]')[0];
+            if (apgCard && previousYearSeries.length) {
+                apgCard.setAttribute('role', 'button');
+                apgCard.setAttribute(
+                    'aria-label', 'Показать или скрыть значения АПГ на графике');
+                const toggleApg = () => {
+                    state.collectionShowApg = !state.collectionShowApg;
+                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
+                };
+                apgCard.addEventListener('click', toggleApg);
+                apgCard.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleApg();
+                    }
+                });
+            }
             this.renderCollectionDynamics(
-                rawSeries);
+                rawSeries, previousYearSeries);
         },
 
-        renderCollectionDynamics(series) {
+        renderCollectionDynamics(series, previousYearSeries = []) {
             const container = document.getElementById(
                 'ki-collection-dynamics-chart');
             if (!container) return;
@@ -2880,29 +2904,99 @@
                 button.classList.toggle('active', active);
                 button.setAttribute('aria-pressed', String(active));
             });
-            const sourcePoints = mode === 'month'
-                ? Object.values((series || []).reduce((groups, point) => {
+            const apgCard = document.querySelectorAll(
+                '[data-series-id="__apg__"]')[0];
+            if (apgCard) {
+                apgCard.classList.toggle(
+                    'collection-apg-active', Boolean(state.collectionShowApg));
+                apgCard.setAttribute(
+                    'aria-pressed', String(Boolean(state.collectionShowApg)));
+            }
+            const monthlyPoints = inputSeries => {
+                const componentKeys = [
+                    'debit_6201', 'credit_6201',
+                    'debit_6202', 'credit_6202'
+                ];
+                const hasDailyComponents = (inputSeries || []).some(point =>
+                    componentKeys.some(key =>
+                        point[key] !== null && point[key] !== undefined));
+                const groups = (inputSeries || []).reduce((result, point) => {
                     const key = String(point.date || '').slice(0, 7);
-                    if (key) groups[key] = point;
-                    return groups;
-                }, {})).map(point => ({
-                    ...point,
-                    label: (() => {
-                        const date = new Date(`${String(point.date).slice(0, 7)}-01T00:00:00`);
-                        return Number.isNaN(date.getTime()) ? point.label :
-                            new Intl.DateTimeFormat('ru-RU', {
-                                month: 'short', year: '2-digit'
-                            }).format(date).replace('.', '');
-                    })()
-                }))
-                : (series || []);
+                    if (!key) return result;
+                    if (!result[key]) {
+                        result[key] = {
+                            ...point,
+                            date: `${key}-01`,
+                            componentCounts: Object.fromEntries(
+                                componentKeys.map(name => [name, 0])),
+                            componentSums: Object.fromEntries(
+                                componentKeys.map(name => [name, 0]))
+                        };
+                    }
+                    const group = result[key];
+                    group.lastPoint = point;
+                    componentKeys.forEach(name => {
+                        const value = point[name];
+                        if (value !== null && value !== undefined &&
+                                Number.isFinite(Number(value))) {
+                            group.componentSums[name] += Number(value);
+                            group.componentCounts[name] += 1;
+                        }
+                    });
+                    return result;
+                }, {});
+                return Object.values(groups).map(group => {
+                    const monthDate = new Date(`${group.date}T00:00:00`);
+                    const label = Number.isNaN(monthDate.getTime())
+                        ? group.lastPoint.label
+                        : new Intl.DateTimeFormat('ru-RU', {
+                            month: 'short', year: '2-digit'
+                        }).format(monthDate).replace('.', '');
+                    if (!hasDailyComponents) {
+                        return {...group.lastPoint, label};
+                    }
+                    const complete = componentKeys.every(name =>
+                        group.componentCounts[name] > 0);
+                    const debit = group.componentSums.debit_6201;
+                    const value = complete && debit !== 0
+                        ? (group.componentSums.credit_6201 +
+                            group.componentSums.credit_6202 -
+                            group.componentSums.debit_6202) / debit * 100
+                        : null;
+                    return {
+                        ...group.lastPoint,
+                        ...group.componentSums,
+                        date: group.date,
+                        label,
+                        value: value === null ? null :
+                            Math.round(value * 100) / 100,
+                        reason: value === null
+                            ? 'Недостаточно компонентов оборотов за месяц'
+                            : null
+                    };
+                });
+            };
+            const sourcePoints = mode === 'month'
+                ? monthlyPoints(series) : (series || []);
+            const apgSourcePoints = state.collectionShowApg
+                ? (mode === 'month'
+                    ? monthlyPoints(previousYearSeries)
+                    : (previousYearSeries || []))
+                : [];
             const points = sourcePoints.map((point, index) => ({
                 ...point,
                 index,
                 value: point.value === null || point.value === undefined
                     ? null : Number(point.value)
             }));
-            if (!points.some(point => Number.isFinite(point.value))) {
+            const apgPoints = apgSourcePoints.map((point, index) => ({
+                ...point,
+                index,
+                value: point.value === null || point.value === undefined
+                    ? null : Number(point.value)
+            }));
+            if (![...points, ...apgPoints].some(
+                    point => Number.isFinite(point.value))) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
                 return;
             }
@@ -2911,7 +3005,8 @@
             const pad = {left: 58, right: 24, top: 18, bottom: 42};
             const plotWidth = width - pad.left - pad.right;
             const plotHeight = height - pad.top - pad.bottom;
-            const values = points.filter(point => Number.isFinite(point.value))
+            const values = [...points, ...apgPoints]
+                .filter(point => Number.isFinite(point.value))
                 .map(point => point.value);
             // Percentages produced from a near-zero or negative denominator
             // can reach thousands or millions of percent. They must not
@@ -2922,10 +3017,10 @@
             const yMin = Math.max(0, Math.min(
                 50, Math.floor(scaleMin / 10) * 10));
             const yMax = Math.max(100, Math.min(
-                130, Math.ceil(scaleMax / 10) * 10));
+                200, Math.ceil(scaleMax / 10) * 10));
             const inScale = value => Number.isFinite(value) &&
                 value >= yMin && value <= yMax;
-            const outlierCount = points.filter(point =>
+            const outlierCount = [...points, ...apgPoints].filter(point =>
                 Number.isFinite(point.value) && !inScale(point.value)).length;
             const x = index => pad.left + (
                 points.length <= 1 ? plotWidth / 2 :
@@ -2939,17 +3034,22 @@
                 const top = y(upper);
                 return `<rect class="${cssClass}" x="${pad.left}" y="${top}" width="${plotWidth}" height="${y(lower) - top}"/>`;
             };
-            const segments = [];
-            let path = '';
-            points.forEach(point => {
-                if (!inScale(point.value)) {
-                    if (path) segments.push(path);
-                    path = '';
-                    return;
-                }
-                path += `${path ? ' L' : 'M'} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`;
-            });
-            if (path) segments.push(path);
+            const buildSegments = source => {
+                const result = [];
+                let path = '';
+                source.forEach(point => {
+                    if (!inScale(point.value)) {
+                        if (path) result.push(path);
+                        path = '';
+                        return;
+                    }
+                    path += `${path ? ' L' : 'M'} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`;
+                });
+                if (path) result.push(path);
+                return result;
+            };
+            const segments = buildSegments(points);
+            const apgSegments = buildSegments(apgPoints);
             const ticks = [...new Set([yMin, 93, 95, 100, yMax])]
                 .filter(value => value >= yMin && value <= yMax)
                 .sort((a, b) => a - b);
@@ -2963,6 +3063,8 @@
                     : '')).join('');
             const lines = segments.map(segment =>
                 `<path class="collection-dynamics-line" d="${segment}"/>`).join('');
+            const apgLines = apgSegments.map(segment =>
+                `<path class="collection-dynamics-apg-line" d="${segment}"/>`).join('');
             const circles = points.filter(point => inScale(point.value))
                 .map(point => {
                     const accrual = point.accrual ?? point.debit_6201;
@@ -2981,6 +3083,15 @@
                     ].filter(Boolean).join(' · ');
                     return `<circle class="collection-dynamics-point" cx="${x(point.index)}" cy="${y(point.value)}" r="4" tabindex="0"><title>${esc(detail)}</title></circle>`;
                 }).join('');
+            const apgCircles = apgPoints.filter(point => inScale(point.value))
+                .map(point => {
+                    const sourceDate = point.source_date
+                        ? ` · дата АПГ: ${point.source_date}` : '';
+                    return `<circle class="collection-dynamics-apg-point" cx="${x(point.index)}" cy="${y(point.value)}" r="3.5" tabindex="0"><title>${esc(`${point.label || point.date} · АПГ: ${point.value.toFixed(1)}%${sourceDate}`)}</title></circle>`;
+                }).join('');
+            const legend = state.collectionShowApg && apgPoints.length
+                ? `<div class="collection-chart-legend"><span><i></i>АПГ</span></div>`
+                : '';
             const scaleNotice = outlierCount
                 ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
                 : '';
@@ -2988,8 +3099,8 @@
                 ${band(yMin, 93, 'collection-zone-red')}
                 ${band(93, 95, 'collection-zone-yellow')}
                 ${band(95, yMax, 'collection-zone-green')}
-                ${tickSvg}${xLabels}${lines}${circles}
-            </svg>${scaleNotice}`;
+                ${tickSvg}${xLabels}${lines}${apgLines}${circles}${apgCircles}
+            </svg>${legend}${scaleNotice}`;
         },
         arRequirements() {
             return {

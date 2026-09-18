@@ -274,3 +274,17 @@ mtime_ms = 1789724679988
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/cd9509e9-8a21-432e-8900-aa6451cbfb33/18d1298b-ab23-416a-a213-52e3cc8c1d63"
 storage_version_token = "1789724709677331"
 content_type = "image/png"
+
+[[outputs]]
+id = "usH-wZ6fH1KYnG-go_W5y"
+uri = "file://screenshots/mup-kgh-collection-apg-line.png"
+type = "image"
+title = "Линия АПГ на графике собираемости"
+description = "Реальные данные МУП КГХ за январь–август 2026: карточка АПГ активна, пунктирная оранжевая линия отображается поверх текущего периода."
+logical_id = "215d813c-c171-40e0-afb7-740200a7f9a9"
+content_hash = "sha256:695fd7022b7cdf6202804400560f25b1d7df44fba1174dbededde0df41f63e56"
+size = 179807
+mtime_ms = 1789726628519
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/215d813c-c171-40e0-afb7-740200a7f9a9/ec6d1db2-3ec7-4591-a738-82c3ff4b4ac2"
+storage_version_token = "1789726661416274"
+content_type = "image/png"

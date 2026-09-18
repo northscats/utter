@@ -3634,6 +3634,45 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                     item['series'] = collection_component_series[item['label']]
         card_map['collection']['granularity'] = 'day'
 
+    previous_collection_rows = defaultdict(list)
+    for row in source.get('accounts', {}).get('62', {}).get('daily') or []:
+        row_date = _iso(row.get('date'))
+        if (row_date is not None
+                and previous_year_start <= row_date <= previous_year_end):
+            previous_collection_rows[row_date].append(row)
+    previous_collection_series = []
+    previous_cursor = previous_year_start
+    year_shift = start.year - previous_year_start.year
+    while previous_cursor <= previous_year_end:
+        try:
+            aligned_date = previous_cursor.replace(
+                year=previous_cursor.year + year_shift)
+        except ValueError:
+            previous_cursor += timedelta(days=1)
+            continue
+        point_collection = _collection_components_from_rows(
+            previous_collection_rows.get(previous_cursor, []))
+        point_values = {
+            item['label']: item['value']
+            for item in point_collection['components']
+        }
+        previous_collection_series.append({
+            'date': aligned_date.isoformat(),
+            'source_date': previous_cursor.isoformat(),
+            'label': _options([aligned_date], 'day')[0]['label'],
+            'value': point_collection['value'],
+            'reason': point_collection['reason'],
+            'debit_6201': point_values.get('Дебетовый оборот 62.01'),
+            'credit_6201': point_values.get('Кредитовый оборот 62.01'),
+            'debit_6202': point_values.get('Дебетовый оборот 62.02'),
+            'credit_6202': point_values.get('Кредитовый оборот 62.02'),
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        previous_cursor += timedelta(days=1)
+    card_map['collection']['previous_year_turnover_series'] = (
+        previous_collection_series)
+
     # Restore intermediate 62.01 balances from an authentic opening balance
     # and daily movements instead of reducing a period ОСВ to one endpoint.
     ar_signed_opening = _sub_signed_opening_balance(

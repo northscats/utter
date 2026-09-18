@@ -3240,6 +3240,8 @@ class PeriodAggregateTests(unittest.TestCase):
 
     def test_collection_proxy_daily_gap_is_null_not_zero(self):
         rows = [
+            day('2025-01-30', '62.01', obd=80, obk=60),
+            day('2025-01-30', '62.02', obd=10, obk=20),
             day('2026-01-30', '62.01', obd=100, obk=50),
             day('2026-01-30', '62.02', obd=10, obk=20),
             day('2026-01-31', '62.01', obd=100, obk=50),
@@ -3250,6 +3252,12 @@ class PeriodAggregateTests(unittest.TestCase):
             date_from='2026-01-30')['cards']}['collection']
         self.assertEqual([item['value'] for item in card['turnover_series']],
                          [60, None])
+        self.assertEqual(
+            [item['value'] for item in card['previous_year_turnover_series']],
+            [87.5, None])
+        self.assertEqual(
+            card['previous_year_turnover_series'][0]['source_date'],
+            '2025-01-30')
 
     def test_linked_collection_is_calculated_by_confirmed_consumer_category(self):
         rows = [
