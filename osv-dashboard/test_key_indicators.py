@@ -359,6 +359,80 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         jan = build_key_indicators(src, date='2026-01-31')
         self.assertIsNone({x['id']: x for x in jan['cards']}['cash']['value'])
 
+    def test_balances_roll_to_any_date_inside_reconciled_reports(self):
+        ar = account(
+            '62',
+            [
+                day('2026-01-01', '62.01', obd=50),
+                day('2026-08-31', '62.01', obd=100, obk=20),
+                day('2026-12-31', '62.01', obk=30),
+            ],
+            period='за 01.01.2026 - 31.12.2026',
+        )
+        ar['rows'] = [
+            dict(lvl=1, label='62.01', p0='62', p1='62.01',
+                 p2='', p3='', snd=200, snk=0, obd=150, obk=50,
+                 skd=300, skk=0),
+        ]
+        ap = account(
+            '60',
+            [
+                day('2026-01-01', '60.01', obd=10, obk=20),
+                day('2026-08-31', '60.01', obd=30, obk=50),
+                day('2026-12-31', '60.01', obd=10),
+            ],
+            period='за 01.01.2026 - 31.12.2026',
+        )
+        ap['rows'] = [
+            dict(lvl=1, label='60.01', p0='60', p1='60.01',
+                 p2='', p3='', snd=0, snk=100, obd=50, obk=70,
+                 skd=0, skk=120),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({
+                '62': ar,
+                '60': ap,
+                '66': account(
+                    '66',
+                    [day('2026-08-31', obk=40),
+                     day('2026-12-31', obd=10)],
+                    top=dict(snd=0, snk=0, obd=10, obk=40,
+                             skd=0, skk=30),
+                    period='за 01.01.2026 - 31.12.2026'),
+                '67': account(
+                    '67', [],
+                    top=dict(snd=0, snk=0, obd=0, obk=0,
+                             skd=0, skk=0),
+                    period='за 01.01.2026 - 31.12.2026'),
+                '70': account(
+                    '70',
+                    [day('2026-08-31', obd=30, obk=50),
+                     day('2026-12-31', obd=20)],
+                    top=dict(snd=0, snk=100, obd=50, obk=50,
+                             skd=0, skk=100),
+                    period='за 01.01.2026 - 31.12.2026'),
+            }),
+            period='day', date_from='2026-01-01', date='2026-08-31',
+        )
+        cards = {item['id']: item for item in result['cards']}
+        self.assertEqual(cards['ar']['value'], 330)
+        self.assertEqual(cards['ap']['value'], 130)
+        self.assertEqual(cards['credits']['value'], 40)
+        self.assertEqual(cards['salary']['value'], 120)
+
+    def test_intermediate_balance_requires_reconciled_daily_movements(self):
+        top = dict(snd=10, snk=0, obd=100, obk=0, skd=110, skk=0)
+        src = build_indicator_source({
+            '51': account(
+                '51', [day('2026-01-31', obd=20)], top=top,
+                period='за 01.01.2026 - 31.12.2026')
+        })
+        result = build_key_indicators(
+            src, period='day', date='2026-01-31',
+            date_from='2026-01-31')
+        self.assertIsNone(
+            {item['id']: item for item in result['cards']}['cash']['value'])
+
     def test_objects_reconcile_and_no_parent_child_double_count(self):
         rows = [
             day('2026-01-31', '90.01', p1='Услуга', obk=100),
