@@ -2848,10 +2848,10 @@
                         ? (value - previous) / Math.abs(previous) * 100
                         : null;
                     return `<tr>
-                        <td style="text-align:left;font-weight:600;text-transform:capitalize;">${esc(monthLabel(key))}</td>
-                        <td style="text-align:right;font-weight:700;">${esc(rub(value))}</td>
-                        <td style="text-align:right;">${esc(rub(previous))}</td>
-                        <td style="text-align:right;font-weight:700;">${esc(pct(delta))}</td>
+                        <td style="text-align: left; font-weight: 600; color: #1F2937; text-transform: capitalize;">${esc(monthLabel(key))}</td>
+                        <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(rub(value))}</td>
+                        <td style="font-family: ui-monospace, monospace; text-align: right;">${esc(rub(previous))}</td>
+                        <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(pct(delta))}</td>
                     </tr>`;
                 }).join('');
             const periodTableHtml = `
@@ -2862,7 +2862,7 @@
                     СОБИРАЕМОСТЬ ЗА ПЕРИОД
                 </div>
                 <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
-                    <table class="collection-detail-table collection-period-table" style="min-width: 100%; width: 100%; border: none;">
+                    <table class="collection-detail-table collection-period-table collection-audit-table" style="min-width: 100%; width: 100%; border: none;">
                         <thead style="background: #1E3A8A;">
                             <tr>
                                 <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 25%;">МЕСЯЦ</th>
