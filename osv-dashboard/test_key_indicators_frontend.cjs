@@ -186,7 +186,15 @@ async function checkBootstrap(configuration) {
   assert.match(collectionHtml, /\+5\.0 п\.п\./);
   assert.match(collectionHtml, /data-collection-period="day"/);
   assert.match(collectionHtml, /data-collection-period="month"/);
+  assert.match(collectionHtml, /data-collection-period="year"/);
   assert.match(collectionHtml, /data-series-id="__apg__"/);
+  assert.equal(app.state.collectionTimelineMode, 'month');
+  const defaultCollectionChart =
+    nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.match(defaultCollectionChart, /янв 26/);
+  assert.match(defaultCollectionChart, /Собираемость: 94\.0%/);
+  app.state.collectionTimelineMode = 'day';
+  app.renderCollectionDynamics(proxyComponents.turnover_series);
   const collectionChartHtml = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.match(collectionChartHtml, /collection-zone-red/);
   assert.match(collectionChartHtml, /collection-zone-yellow/);
@@ -220,6 +228,17 @@ async function checkBootstrap(configuration) {
   assert.match(realMonthlyRatios, /Собираемость: 106\.6%/);
   assert.match(realMonthlyRatios, /Собираемость: 34\.9%/);
   assert.match(realMonthlyRatios, /Собираемость: 131\.4%/);
+  app.state.collectionTimelineMode = 'year';
+  app.renderCollectionDynamics([
+    {date: '2026-02-28', debit_6201: 100,
+     credit_6201: 100, debit_6202: 5, credit_6202: 11.6},
+    {date: '2026-03-31', debit_6201: 100,
+     credit_6201: 40, debit_6202: 5, credit_6202: 34.8},
+  ]);
+  const yearlyCollection = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.match(yearlyCollection, />2026</);
+  assert.match(yearlyCollection, /Собираемость: 88\.2%/);
+  app.state.collectionTimelineMode = 'month';
   app.state.collectionShowApg = true;
   app.renderCollectionDynamics(
     proxyComponents.turnover_series,

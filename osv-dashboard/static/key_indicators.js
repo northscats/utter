@@ -2793,6 +2793,7 @@
                         <div class="collection-period-switch" role="group" aria-label="Период группировки графика">
                             <button type="button" data-collection-period="day">День</button>
                             <button type="button" data-collection-period="month">Месяц</button>
+                            <button type="button" data-collection-period="year">Год</button>
                         </div>
                     </div>
                     <div class="modal-chart-wrap" style="height: 320px; background: #fff; border: 1px solid #F3F4F6; padding: 20px 10px 10px; margin-top: 10px;">
@@ -2861,7 +2862,7 @@
                 ? card.previous_year_linked_series || []
                 : card.previous_year_turnover_series || [];
             if (!state.collectionTimelineMode) {
-                state.collectionTimelineMode = 'day';
+                state.collectionTimelineMode = 'month';
             }
             if (state.collectionShowMain === undefined) {
                 state.collectionShowMain = true;
@@ -2941,7 +2942,7 @@
                 apgCard.setAttribute(
                     'aria-pressed', String(Boolean(state.collectionShowApg)));
             }
-            const monthlyPoints = inputSeries => {
+            const groupedPoints = (inputSeries, grouping) => {
                 const componentKeys = [
                     'debit_6201', 'credit_6201',
                     'debit_6202', 'credit_6202'
@@ -2950,12 +2951,14 @@
                     componentKeys.some(key =>
                         point[key] !== null && point[key] !== undefined));
                 const groups = (inputSeries || []).reduce((result, point) => {
-                    const key = String(point.date || '').slice(0, 7);
+                    const key = String(point.date || '').slice(
+                        0, grouping === 'year' ? 4 : 7);
                     if (!key) return result;
                     if (!result[key]) {
                         result[key] = {
                             ...point,
-                            date: `${key}-01`,
+                            date: grouping === 'year'
+                                ? `${key}-01-01` : `${key}-01`,
                             componentCounts: Object.fromEntries(
                                 componentKeys.map(name => [name, 0])),
                             componentSums: Object.fromEntries(
@@ -2976,7 +2979,9 @@
                 }, {});
                 return Object.values(groups).map(group => {
                     const monthDate = new Date(`${group.date}T00:00:00`);
-                    const label = Number.isNaN(monthDate.getTime())
+                    const label = grouping === 'year'
+                        ? String(group.date).slice(0, 4)
+                        : Number.isNaN(monthDate.getTime())
                         ? group.lastPoint.label
                         : new Intl.DateTimeFormat('ru-RU', {
                             month: 'short', year: '2-digit'
@@ -3000,17 +3005,18 @@
                         value: value === null ? null :
                             Math.round(value * 100) / 100,
                         reason: value === null
-                            ? 'Недостаточно компонентов оборотов за месяц'
+                            ? `Недостаточно компонентов оборотов за ${
+                                grouping === 'year' ? 'год' : 'месяц'}`
                             : null
                     };
                 });
             };
-            const sourcePoints = mode === 'month'
-                ? monthlyPoints(series) : (series || []);
+            const sourcePoints = mode === 'day'
+                ? (series || []) : groupedPoints(series, mode);
             const apgSourcePoints = state.collectionShowApg
-                ? (mode === 'month'
-                    ? monthlyPoints(previousYearSeries)
-                    : (previousYearSeries || []))
+                ? (mode === 'day'
+                    ? (previousYearSeries || [])
+                    : groupedPoints(previousYearSeries, mode))
                 : [];
             const points = sourcePoints.map((point, index) => ({
                 ...point,
