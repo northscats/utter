@@ -6618,7 +6618,8 @@ renderCashModal(card) {
                 if (activeContainer === genericContent) {
                     this.updateMetricTileStates(genericContent);
                 } else if (activeContainer !== cashContent &&
-                        activeContainer !== revenueContent) {
+                        activeContainer !== revenueContent &&
+                        activeContainer !== collectionContent) {
                     this.mountSharedDynamics(card, activeContainer);
                     this.bindMetricTiles(card, activeContainer);
                 }

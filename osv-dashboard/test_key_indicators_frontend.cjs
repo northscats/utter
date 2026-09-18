@@ -177,6 +177,7 @@ async function checkBootstrap(configuration) {
   assert.match(collectionChartHtml, /collection-zone-yellow/);
   assert.match(collectionChartHtml, /collection-zone-green/);
   assert.equal((collectionChartHtml.match(/collection-dynamics-line/g) || []).length, 2);
+  assert.match(script, /activeContainer !== collectionContent/);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {

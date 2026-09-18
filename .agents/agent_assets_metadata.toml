@@ -232,3 +232,17 @@ mtime_ms = 1789590637612
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/901da02a-55d0-454d-98dd-eaddb67c9278/6ef4ab00-fbcd-4e99-9101-d452acbd74b3"
 storage_version_token = "1789590714564969"
 content_type = "application/msword"
+
+[[outputs]]
+id = "0g0sjz66yCwy7R-M5XDwX"
+uri = "file://screenshots/collection-modal-current.png"
+type = "image"
+title = "Макет окна «Уровень собираемости»"
+description = "Фактический снимок работающего preview после исправления повторной отрисовки графика."
+logical_id = "99c21989-616b-4567-a3bf-254f211fc653"
+content_hash = "sha256:fdbb7dd0d85aa46b394871dbb61c29ce33fb6d316660fc2ad840b35fe56021e3"
+size = 118082
+mtime_ms = 1789723320593
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/99c21989-616b-4567-a3bf-254f211fc653/c4c3e036-9551-4075-b656-7abfc6643cee"
+storage_version_token = "1789723336568757"
+content_type = "image/png"
