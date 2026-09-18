@@ -3841,7 +3841,6 @@
                     </div>
                     СТРУКТУРА ИЗВЕСТНЫХ РАСЧЁТНЫХ ОБЯЗАТЕЛЬСТВ
                 </div>
-                <div class="revenue-classification-note">Известная сумма: <strong>${esc(rub(knownTotal))}</strong>. Это не полная КЗ, пока не сопоставлены разрешённые кредитовые аналитики счёта 76. Отсутствующие счета не принимаются за ноль.</div>
                 <div class="ap-structure">${structure}</div>
                 <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
                     <table class="collection-detail-table ap-detail-table" style="min-width: 100%; width: 100%; table-layout: fixed; border: none;">
@@ -3854,6 +3853,9 @@
                     </tr></thead>
                     <tbody>${componentRows}</tbody>
                 </table></div>
+                <div class="ap-known-total-note">
+                    <span><strong>Известная сумма: ${esc(rub(knownTotal))}.</strong> Это не полная КЗ, пока не сопоставлены разрешённые кредитовые аналитики счёта 76. Отсутствующие счета не принимаются за ноль.</span>
+                </div>
                 <div class="modal-section-title">Фактические аналитики 60.01</div>
                 <div class="revenue-classification-note">До загрузки справочника категории «Топливо», «Электроэнергия» и «Подрядчики» не назначаются автоматически.</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table ap-analytics-table">

@@ -896,6 +896,35 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .ap-line-chart { margin-top:0; height:270px; }
 .ap-detail-table, .ap-analytics-table { min-width:980px; }
 .ap-priority-table { min-width:850px; }
+.ap-known-total-note {
+  display:flex;
+  align-items:flex-start;
+  gap:9px;
+  margin:-8px 0 20px;
+  padding:11px 13px;
+  border:1px solid #BFDBFE;
+  border-left:4px solid #2563EB;
+  border-radius:8px;
+  background:#EFF6FF;
+  color:#1E3A5F;
+  font-size:11px;
+  line-height:1.55;
+}
+.ap-known-total-note::before {
+  content:'i';
+  display:flex;
+  flex:0 0 18px;
+  align-items:center;
+  justify-content:center;
+  width:18px;
+  height:18px;
+  margin-top:1px;
+  border-radius:50%;
+  background:#2563EB;
+  color:#fff;
+  font:700 11px/1 Arial, sans-serif;
+}
+.ap-known-total-note strong { color:#1E3A8A; font-weight:700; }
 .ap-structure {
   display:grid;
   gap:12px;
