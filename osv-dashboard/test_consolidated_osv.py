@@ -48,6 +48,8 @@ class ConsolidatedOsvTests(unittest.TestCase):
         self.assertEqual(len(account_rows), 6)
         self.assertTrue(all(row['matches'] for row in account_rows))
         self.assertTrue(all(row['difference'] == 0 for row in account_rows))
+        self.assertTrue(all(
+            'daily_breakdown' not in row for row in account_rows))
 
     def test_daily_turnover_difference_is_reported_without_redistribution(self):
         parsed = parse_consolidated_osv(CONTROL)
@@ -67,10 +69,48 @@ class ConsolidatedOsvTests(unittest.TestCase):
         self.assertEqual(row['daily_amount'], daily_amount)
         self.assertEqual(row['difference'], 730983.64)
         self.assertFalse(row['matches'])
+        self.assertEqual(len(row['daily_breakdown']), 181)
+        self.assertEqual(row['daily_breakdown'][0], {
+            'date': '2026-01-01',
+            'amount': daily_amount,
+            'row_count': 1,
+            'sources': ['unknown'],
+            'missing': False,
+            'duplicate_sources': False,
+        })
+        self.assertTrue(row['daily_breakdown'][1]['missing'])
+        self.assertNotIn(
+            'difference', row['daily_breakdown'][0],
+            'control difference must not be allocated to a calendar day')
         self.assertEqual(
             source['accounts']['08']['balance_observations'][0]['obd'],
             daily_amount)
         self.assertEqual(source['source_passport']['status'], 'partial')
+
+    def test_daily_turnover_breakdown_marks_repeated_sources(self):
+        parsed = parse_consolidated_osv(CONTROL)
+        control = parsed['08']['top']['obd']
+        daily = [
+            {
+                'acc': '08', 'date': '2026-01-01',
+                'snd': 0, 'snk': 0, 'obd': control / 3, 'obk': 0,
+                'skd': 0, 'skk': 0, 'source_type': '1c',
+            },
+            {
+                'acc': '08', 'date': '2026-01-01',
+                'snd': 0, 'snk': 0, 'obd': control / 3, 'obk': 0,
+                'skd': 0, 'skk': 0, 'source_type': '1c',
+            },
+        ]
+        source = assemble_source([CONTROL], daily)
+        row = next(
+            item for item in
+            source['source_passport']['daily_control_reconciliations']
+            if item['account'] == '08' and item['side'] == 'debit')
+        first_day = row['daily_breakdown'][0]
+        self.assertEqual(first_day['row_count'], 2)
+        self.assertEqual(first_day['sources'], ['1c'])
+        self.assertTrue(first_day['duplicate_sources'])
 
     def test_balance_comparison_reports_each_control_difference(self):
         current = {

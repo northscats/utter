@@ -580,6 +580,32 @@
         if (!rows.length) {
             return '<div class="ki-source-passport-empty">Сверка с полным контрольным снимком не передана.</div>';
         }
+        const dailyBreakdown = row => {
+            const days = Array.isArray(row.daily_breakdown) ? row.daily_breakdown : [];
+            if (!days.length || row.matches !== false) return '';
+            return `<details class="ki-source-passport-reconciliation-details">
+                <summary>Показать дневные суммы (${days.length})</summary>
+                <p class="ki-source-passport-muted">Контрольная разница показана как исходный факт и не распределена по дням.</p>
+                <div class="ki-source-passport-table-wrap"><table class="ki-source-passport-table">
+                    <thead><tr><th>Дата</th><th>Принятая сумма</th><th>Строк</th><th>Источник</th><th>Состояние</th></tr></thead>
+                    <tbody>${days.map(day => {
+                        const sources = Array.isArray(day.sources) && day.sources.length ?
+                            day.sources.map(source => esc(source)).join(', ') :
+                            '<span class="ki-source-passport-muted">Нет принятой строки</span>';
+                        const state = day.missing ? 'Нет принятой строки' :
+                            (day.duplicate_sources ? 'Повторяющиеся источники' : 'Принято');
+                        return `<tr class="${day.missing || day.duplicate_sources ?
+                            'ki-source-passport-reconciliation-mismatch' : ''}">
+                            <td>${display(day.date)}</td>
+                            <td>${amountDisplay(day.amount)}</td>
+                            <td>${esc(day.row_count)}</td>
+                            <td>${sources}</td>
+                            <td>${esc(state)}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table></div>
+            </details>`;
+        };
         return `<div class="ki-source-passport-table-wrap"><table class="ki-source-passport-table">
             <thead><tr>
                 <th>Счёт</th><th>Сторона</th><th>Интервал</th>
@@ -592,7 +618,7 @@
                 <td>${display(row.start)} — ${display(row.end)}</td>
                 <td>${amountDisplay(row.control_amount)}</td>
                 <td>${amountDisplay(row.daily_amount)}</td>
-                <td><strong>${amountDisplay(row.difference)}</strong></td>
+                <td><strong>${amountDisplay(row.difference)}</strong>${dailyBreakdown(row)}</td>
             </tr>`).join('')}</tbody>
         </table></div>`;
     };

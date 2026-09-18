@@ -10,7 +10,7 @@ import os
 import re
 import threading
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from sqlalchemy import func
@@ -172,6 +172,42 @@ def _reconciliation_daily_rows(accounts, account):
     ]
 
 
+def _daily_reconciliation_breakdown(selected, start, end, amount_key):
+    """Describe accepted rows by calendar day without allocating a difference."""
+    start_date = datetime.strptime(start, "%Y-%m-%d").date()
+    end_date = datetime.strptime(end, "%Y-%m-%d").date()
+    rows_by_date = {}
+    for row in selected:
+        day = str(row.get("date") or "")
+        rows_by_date.setdefault(day, []).append(row)
+
+    result = []
+    current = start_date
+    while current <= end_date:
+        day = current.isoformat()
+        rows = rows_by_date.get(day, [])
+        values = [_money_cents(row.get(amount_key)) for row in rows]
+        known_values = [value for value in values if value is not None]
+        sources = sorted({
+            str(row.get("source_file") or row.get("source_id")
+                or row.get("source_type") or "Источник не указан")
+            for row in rows
+        })
+        duplicate_sources = len(rows) > 1
+        result.append({
+            "date": day,
+            "amount": (
+                sum(known_values) / 100 if known_values else None
+            ),
+            "row_count": len(rows),
+            "sources": sources,
+            "missing": not rows,
+            "duplicate_sources": duplicate_sources,
+        })
+        current += timedelta(days=1)
+    return result
+
+
 def _daily_control_reconciliations(source, complete_snapshots):
     """Compare accepted daily turnovers with exact-period control totals."""
     reconciliations = []
@@ -202,7 +238,7 @@ def _daily_control_reconciliations(source, complete_snapshots):
                     continue
                 daily_cents = sum(known_values)
                 difference_cents = control_cents - daily_cents
-                reconciliations.append({
+                reconciliation = {
                     "account": str(account),
                     "side": side,
                     "start": start,
@@ -213,7 +249,12 @@ def _daily_control_reconciliations(source, complete_snapshots):
                     "difference": difference_cents / 100,
                     "matches": difference_cents == 0,
                     "daily_rows": len(selected),
-                })
+                }
+                if difference_cents != 0:
+                    reconciliation["daily_breakdown"] = (
+                        _daily_reconciliation_breakdown(
+                            selected, start, end, key))
+                reconciliations.append(reconciliation)
     return reconciliations
 
 

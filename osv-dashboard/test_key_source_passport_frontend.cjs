@@ -233,6 +233,29 @@ assert.match(html, /Покрытие выбранного периода<\/dt><d
 assert.match(html, /Есть замечания к источникам и метаданным/);
 assert.ok(!html.includes('Неполное покрытие'));
 
+passport.renderOperational({source_passport: {
+  actual_period: {start: '2026-01-01', end: '2026-01-03'},
+  period: {start: '2026-01-01', end: '2026-01-03'},
+  accounts: {}, available_accounts: [],
+  daily_control_reconciliations: [{
+    account: '51', side: 'debit',
+    start: '2026-01-01', end: '2026-01-03',
+    control_amount: 100, daily_amount: 90, difference: 10, matches: false,
+    daily_breakdown: [
+      {date: '2026-01-01', amount: 90, row_count: 1, sources: ['1С'], missing: false, duplicate_sources: false},
+      {date: '2026-01-02', amount: null, row_count: 0, sources: [], missing: true, duplicate_sources: false},
+      {date: '2026-01-03', amount: 0, row_count: 2, sources: ['1С'], missing: false, duplicate_sources: true}
+    ]
+  }]
+}});
+html = nodes.get('ki-source-passport-body').innerHTML;
+assert.match(html, /Показать дневные суммы \(3\)/);
+assert.match(html, /Контрольная разница показана как исходный факт и не распределена по дням/);
+assert.match(html, /02\.01\.2026/);
+assert.match(html, /Нет принятой строки/);
+assert.match(html, /Повторяющиеся источники/);
+assert.match(html, /1С/);
+
 passport.clear('Network <failure>');
 html = nodes.get('ki-source-passport-body').innerHTML;
 assert.ok(!html.includes('annual.xlsx'), 'clear must remove stale passport data');
