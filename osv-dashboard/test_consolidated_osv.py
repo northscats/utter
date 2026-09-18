@@ -24,6 +24,54 @@ CONTROL = os.path.join(
 
 
 class ConsolidatedOsvTests(unittest.TestCase):
+    def test_daily_turnovers_match_control_snapshot_exactly(self):
+        parsed = parse_consolidated_osv(CONTROL)
+        control_rows = {
+            row['label']: row for row in parsed['90']['rows']
+        }
+        daily = [
+            {
+                'acc': account, 'date': '2026-01-01',
+                'snd': 0, 'snk': 0,
+                'obd': control_rows[account]['obd'],
+                'obk': control_rows[account]['obk'],
+                'skd': 0, 'skk': 0,
+            }
+            for account in ('90.01', '90.02', '90.03')
+        ]
+        source = assemble_source([CONTROL], daily)
+        rows = source['source_passport']['daily_control_reconciliations']
+        account_rows = [
+            row for row in rows
+            if row['account'] in ('90.01', '90.02', '90.03')
+        ]
+        self.assertEqual(len(account_rows), 6)
+        self.assertTrue(all(row['matches'] for row in account_rows))
+        self.assertTrue(all(row['difference'] == 0 for row in account_rows))
+
+    def test_daily_turnover_difference_is_reported_without_redistribution(self):
+        parsed = parse_consolidated_osv(CONTROL)
+        control = parsed['08']['top']['obd']
+        daily_amount = 121913985.80
+        daily = [{
+            'acc': '08', 'date': '2026-01-01',
+            'snd': 0, 'snk': 0, 'obd': daily_amount, 'obk': 0,
+            'skd': daily_amount, 'skk': 0,
+        }]
+        source = assemble_source([CONTROL], daily)
+        row = next(
+            item for item in
+            source['source_passport']['daily_control_reconciliations']
+            if item['account'] == '08' and item['side'] == 'debit')
+        self.assertEqual(row['control_amount'], control)
+        self.assertEqual(row['daily_amount'], daily_amount)
+        self.assertEqual(row['difference'], 730983.64)
+        self.assertFalse(row['matches'])
+        self.assertEqual(
+            source['accounts']['08']['balance_observations'][0]['obd'],
+            daily_amount)
+        self.assertEqual(source['source_passport']['status'], 'partial')
+
     def test_balance_comparison_reports_each_control_difference(self):
         current = {
             'opening_debit': 100, 'opening_credit': 50,

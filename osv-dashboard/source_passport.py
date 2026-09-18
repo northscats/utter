@@ -1288,6 +1288,12 @@ def build_source_passport(source, uploads=()):
         } for message in value.get("failures") or [])
 
     metadata_discrepancies = _metadata_discrepancies(upload_records, files)
+    daily_control_reconciliations = copy.deepcopy(
+        source.get("_daily_control_reconciliations") or [])
+    turnover_mismatches = [
+        item for item in daily_control_reconciliations
+        if item.get("matches") is False
+    ]
     warnings = [
         "Дата загрузки и фактические границы периода показываются раздельно.",
     ]
@@ -1299,6 +1305,10 @@ def build_source_passport(source, uploads=()):
         warnings.append("Для одного счёта найдены дублирующие периоды; выбран последний файл.")
     if overlaps:
         warnings.append("Для одного счёта найдены пересекающиеся периоды; обороты имеют порядок источников.")
+    if turnover_mismatches:
+        warnings.append(
+            "Сумма принятых дневных оборотов расходится с полным "
+            "контрольным снимком за тот же интервал.")
 
     public_uploads = []
     for upload in upload_records:
@@ -1329,6 +1339,7 @@ def build_source_passport(source, uploads=()):
     elif not accounts:
         passport_status = "empty"
     elif (metadata_discrepancies or duplicates or overlaps or turnover_gaps
+          or turnover_mismatches
           or has_dated_only_account or account_coverage_incomplete):
         passport_status = "partial"
     else:
@@ -1374,6 +1385,7 @@ def build_source_passport(source, uploads=()):
         "duplicates": duplicates,
         "overlaps": overlaps,
         "metadata_discrepancies": metadata_discrepancies,
+        "daily_control_reconciliations": daily_control_reconciliations,
         "failures": failures,
         "warnings": list(dict.fromkeys(warnings)),
     }
@@ -1579,6 +1591,14 @@ def build_period_passport(source, payload):
         if (not start or not item_end or item_end >= start) and (
                 not end or not item_start or item_start <= end):
             files.append(copy.deepcopy(item))
+    daily_control_reconciliations = [
+        copy.deepcopy(item)
+        for item in passport.get("daily_control_reconciliations") or []
+        if (not start or not _iso_date(item.get("end"))
+            or _iso_date(item.get("end")) >= start)
+        and (not end or not _iso_date(item.get("start"))
+             or _iso_date(item.get("start")) <= end)
+    ]
 
     selected_intervals = []
     selected_observed = set()
@@ -1623,6 +1643,8 @@ def build_period_passport(source, payload):
         "failed" if passport.get("status") == "failed"
         else "empty" if passport.get("status") == "empty"
         else "partial" if selected_gaps or selected_account_incomplete
+        or any(item.get("matches") is False
+               for item in daily_control_reconciliations)
         else "complete")
 
     return {
@@ -1670,6 +1692,7 @@ def build_period_passport(source, payload):
         "overlaps": copy.deepcopy(passport.get("overlaps") or []),
         "metadata_discrepancies": copy.deepcopy(
             passport.get("metadata_discrepancies") or []),
+        "daily_control_reconciliations": daily_control_reconciliations,
         "failures": copy.deepcopy(passport.get("failures") or []),
         "annual_versions": copy.deepcopy(passport.get("annual_versions") or []),
         "warnings": copy.deepcopy(passport.get("warnings") or []),

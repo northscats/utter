@@ -11,6 +11,7 @@ import re
 import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from sqlalchemy import func
 
@@ -100,6 +101,104 @@ _cache = OrderedDict()
 _cache_lock = threading.Lock()
 _build_slot = threading.BoundedSemaphore(1)
 _CACHE_LIMIT = 12
+
+
+def _money_cents(value):
+    """Convert a parsed monetary value to integer kopecks."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(
+            (Decimal(str(value)) * 100).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _control_account_turnovers(parsed_items):
+    """Return control totals for root accounts and explicit subaccount rows."""
+    result = {}
+    for parsed in parsed_items:
+        account = str(parsed.get("acc") or "")
+        top = parsed.get("top") or {}
+        if account:
+            result[account] = {"obd": top.get("obd"), "obk": top.get("obk")}
+        for row in parsed.get("rows") or []:
+            label = str(row.get("label") or "").strip()
+            if (
+                label and label != account
+                and re.fullmatch(r"\d{2}(?:\.\d+)+", label)
+            ):
+                result[label] = {
+                    "obd": row.get("obd"),
+                    "obk": row.get("obk"),
+                }
+    return result
+
+
+def _reconciliation_daily_rows(accounts, account):
+    """Select accepted daily rows belonging to one control account."""
+    raw = accounts.get(account)
+    root = account.split(".", 1)[0]
+    exact_bucket = raw is not None
+    if raw is None:
+        raw = accounts.get(root) or {}
+    observations = raw.get("balance_observations") or []
+    daily = observations or raw.get("daily") or []
+    if exact_bucket or account == root:
+        return daily
+    return [
+        row for row in daily
+        if account in {
+            str(row.get(key) or "").strip()
+            for key in ("account", "path1", "path2", "path3")
+        }
+    ]
+
+
+def _daily_control_reconciliations(source, complete_snapshots):
+    """Compare accepted daily turnovers with exact-period control totals."""
+    reconciliations = []
+    accounts = source.get("accounts") or {}
+    for snapshot in complete_snapshots:
+        start = snapshot.get("start")
+        end = snapshot.get("end")
+        controls = snapshot.get("account_turnovers") or {}
+        if not start or not end:
+            continue
+        for account, control in sorted(controls.items()):
+            # Persisted DailyRow records remain as balance observations when a
+            # control snapshot covers the same dates. They are the accepted
+            # day-level source that must be reconciled. File-derived daily
+            # rows are the fallback when no persisted observations exist.
+            daily = _reconciliation_daily_rows(accounts, str(account))
+            selected = [
+                row for row in daily
+                if start <= str(row.get("date") or "") <= end
+            ]
+            if not selected:
+                continue
+            for side, key in (("debit", "obd"), ("credit", "obk")):
+                control_cents = _money_cents(control.get(key))
+                daily_values = [_money_cents(row.get(key)) for row in selected]
+                known_values = [value for value in daily_values if value is not None]
+                if control_cents is None or not known_values:
+                    continue
+                daily_cents = sum(known_values)
+                difference_cents = control_cents - daily_cents
+                reconciliations.append({
+                    "account": str(account),
+                    "side": side,
+                    "start": start,
+                    "end": end,
+                    "source_file": snapshot.get("source_file"),
+                    "control_amount": control_cents / 100,
+                    "daily_amount": daily_cents / 100,
+                    "difference": difference_cents / 100,
+                    "matches": difference_cents == 0,
+                    "daily_rows": len(selected),
+                })
+    return reconciliations
 
 
 def _upload_metadata(row):
@@ -509,6 +608,7 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
                 'accounts': sorted(
                     str(parsed.get('acc') or '') for parsed in parsed_items
                     if parsed.get('acc')),
+                'account_turnovers': _control_account_turnovers(parsed_items),
             })
             for parsed in parsed_items:
                 # A consolidated control ОСВ proves period totals and boundary
@@ -608,6 +708,8 @@ def assemble_source(paths, daily_rows, company_upload_root=None):
             failures=sorted(set(failures)))
     source = build_indicator_source(data)
     source['_complete_snapshots'] = complete_snapshots
+    source['_daily_control_reconciliations'] = (
+        _daily_control_reconciliations(source, complete_snapshots))
     if daily_uploaded_at:
         source['source_daily_uploaded_at'] = daily_uploaded_at
     # This is deliberately a separate read-only manifest.  The calculation

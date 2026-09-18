@@ -508,6 +508,30 @@ class SourcePassportTests(unittest.TestCase):
             "2026-03-20T12:00:00+00:00",
         )
 
+    def test_period_passport_retains_daily_control_reconciliation(self):
+        source = self.source(
+            [_report("Январь 2026", "january.xls", 10, ["2026-01-01"])],
+            [],
+        )
+        source["_daily_control_reconciliations"] = [{
+            "account": "51",
+            "side": "debit",
+            "start": "2026-01-01",
+            "end": "2026-01-31",
+            "control_amount": 100.0,
+            "daily_amount": 90.0,
+            "difference": 10.0,
+            "matches": False,
+        }]
+        enrich_source_passport(source, [])
+        period = build_period_passport(source, {
+            "period": {"start": "2026-01-15", "end": "2026-01-20"},
+            "cards": [],
+        })
+        self.assertEqual(
+            period["daily_control_reconciliations"][0]["difference"], 10.0)
+        self.assertEqual(period["period_status"], "partial")
+
     def test_metadata_json_changes_invalidate_upload_revision(self):
         base = {
             "id": 1,

@@ -175,6 +175,13 @@
   vertical-align: top;
 }
 .ki-source-passport-table tbody tr:hover td { background: #F8FAFC; }
+.ki-source-passport-table tbody tr.ki-source-passport-reconciliation-mismatch td {
+  background: #FEF2F2;
+  color: #991B1B;
+}
+.ki-source-passport-table tbody tr.ki-source-passport-reconciliation-mismatch:hover td {
+  background: #FEE2E2;
+}
 .ki-source-passport-subvalue {
   display: block;
   margin-top: 2px;

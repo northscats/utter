@@ -332,6 +332,9 @@
         ]);
         const overlaps = first(passport, ['overlaps']);
         const failures = first(passport, ['failures']);
+        const dailyControlReconciliations = sourceRecords(first(passport, [
+            'daily_control_reconciliations'
+        ]));
         const coverageStatuses = unique(Object.keys(accounts).map(account => {
             const item = accounts[account];
             const coverage = isObject(item) ?
@@ -364,6 +367,7 @@
             ]),
             discrepancies: listValue(sourceDiscrepancies).concat(
                 listValue(overlaps)).concat(listValue(failures)),
+            dailyControlReconciliations,
             cardReasons,
             coverageStatus: coverageStatuses.join(', ')
         };
@@ -572,6 +576,27 @@
         </table></div>`;
     };
 
+    const reconciliationTable = rows => {
+        if (!rows.length) {
+            return '<div class="ki-source-passport-empty">Сверка с полным контрольным снимком не передана.</div>';
+        }
+        return `<div class="ki-source-passport-table-wrap"><table class="ki-source-passport-table">
+            <thead><tr>
+                <th>Счёт</th><th>Сторона</th><th>Интервал</th>
+                <th>Контрольная сумма</th><th>Сумма дневных строк</th><th>Разница</th>
+            </tr></thead>
+            <tbody>${rows.map(row => `<tr class="${row.matches === false ?
+                'ki-source-passport-reconciliation-mismatch' : ''}">
+                <td><strong>${esc(row.account)}</strong></td>
+                <td>${row.side === 'debit' ? 'Дебет' : 'Кредит'}</td>
+                <td>${display(row.start)} — ${display(row.end)}</td>
+                <td>${amountDisplay(row.control_amount)}</td>
+                <td>${amountDisplay(row.daily_amount)}</td>
+                <td><strong>${amountDisplay(row.difference)}</strong></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`;
+    };
+
     const operationalBody = model => {
         const passport = model.passport;
         const facts = [
@@ -607,6 +632,8 @@
             section('Точные даты доступного сальдо', dates),
             section('Пропуски оборотов', issueList(model.turnoverGaps,
                 'Пропуски оборотов не обнаружены или не переданы')),
+            section('Сверка дневных оборотов с контрольной ОСВ',
+                reconciliationTable(model.dailyControlReconciliations)),
             section('Дубли', issueList(model.duplicates,
                 'Дубли не обнаружены или не переданы')),
             section('Расхождения и контрольные проверки', issueList(model.discrepancies,
