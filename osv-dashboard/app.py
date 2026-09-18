@@ -14,11 +14,15 @@ import traceback
 import uuid
 import fcntl
 from urllib.parse import urlparse
+from collections import OrderedDict
 
 import threading
 
 _limits_history_ready = threading.Event()
 _limits_parse_slots = threading.Semaphore(1)
+_key_indicator_payload_cache = OrderedDict()
+_key_indicator_payload_cache_lock = threading.RLock()
+_KEY_INDICATOR_PAYLOAD_CACHE_LIMIT = 16
 
 import bcrypt
 from flask import (Flask, Response, abort, flash, g, has_request_context, jsonify,
@@ -3595,6 +3599,18 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         'version': row.source_version,
     } for row in ConsumerCollectionNorm.query.filter_by(
         company_id=company.id).all()]
+    settings_signature = hashlib.sha256(json.dumps(
+        [mappings, cost_mappings, debtor_mappings, collection_accruals,
+         collection_allocations, collection_norms],
+        ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+    ).encode('utf-8')).digest()
+    cache_key = (company.id, period, endpoint, date_from)
+    with _key_indicator_payload_cache_lock:
+        cached = _key_indicator_payload_cache.get(cache_key)
+        if (cached is not None and cached[0] is source
+                and cached[1] == settings_signature):
+            _key_indicator_payload_cache.move_to_end(cache_key)
+            return cached[2]
     payload = build_key_indicators(
         source, period=period, date=endpoint, date_from=date_from,
         revenue_mappings=mappings, cost_mappings=cost_mappings,
@@ -3605,6 +3621,13 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
     payload['company'] = {'id': company.id, 'name': company.name}
     payload['updated_at'] = updated_at
     payload['source_passport'] = build_period_passport(source, payload)
+    with _key_indicator_payload_cache_lock:
+        _key_indicator_payload_cache[cache_key] = (
+            source, settings_signature, payload)
+        _key_indicator_payload_cache.move_to_end(cache_key)
+        while len(_key_indicator_payload_cache) > \
+                _KEY_INDICATOR_PAYLOAD_CACHE_LIMIT:
+            _key_indicator_payload_cache.popitem(last=False)
     return payload
 
 

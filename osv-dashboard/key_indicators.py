@@ -9,6 +9,7 @@ import calendar
 import hashlib
 import json
 import re
+from bisect import bisect_right
 from collections import defaultdict
 from datetime import date as Date, timedelta
 
@@ -1116,40 +1117,86 @@ def _amounts_reconcile(actual, expected, tolerance=0.05):
             and abs(float(actual) - float(expected)) <= tolerance)
 
 
+def _rolled_balance_plan(source, account, report, sub=None):
+    """Build one reconciled cumulative balance index for a report."""
+    report_start = _iso(report.get('report_start'))
+    report_end = _iso(report.get('report_end'))
+    values = (_report_scope_row(
+        {'rows': report.get('rows') or []}, account, sub)
+              if sub is not None else report.get('top'))
+    if not report_start or not report_end or not isinstance(values, dict):
+        return None
+    value_signature = tuple(values.get(key) for key in (
+        'snd', 'snk', 'obd', 'obk', 'skd', 'skk'))
+    cache_key = (
+        str(account), str(sub or ''), report_start.isoformat(),
+        report_end.isoformat(), str(report.get('source_file') or ''),
+        value_signature,
+    )
+    cache = source.setdefault('_rolled_balance_plans', {})
+    if cache_key in cache:
+        return cache[cache_key]
+    acc = source.get('accounts', {}).get(account, {})
+    full_rows = [
+        row for row in acc.get('daily') or []
+        if report_start <= _iso(row.get('date')) <= report_end
+    ]
+    basis = (_explicit_subaccount_rows(full_rows, sub)
+             if sub is not None else _turnover_basis(full_rows))
+    full_debit = _known_sum(basis, 'obd') if basis else 0.0
+    full_credit = _known_sum(basis, 'obk') if basis else 0.0
+    if not (
+        _amounts_reconcile(full_debit, values.get('obd'))
+        and _amounts_reconcile(full_credit, values.get('obk'))
+        and _amounts_reconcile(
+            values.get('snd', 0) - values.get('snk', 0)
+            + full_debit - full_credit,
+            values.get('skd', 0) - values.get('skk', 0))
+    ):
+        cache[cache_key] = None
+        return None
+    by_date = defaultdict(list)
+    for row in basis or []:
+        row_date = _iso(row.get('date'))
+        if row_date is not None:
+            by_date[row_date].append(row)
+    dates = []
+    balances = []
+    running = values.get('snd', 0) - values.get('snk', 0)
+    for row_date in sorted(by_date):
+        debit = _known_sum(by_date[row_date], 'obd')
+        credit = _known_sum(by_date[row_date], 'obk')
+        if debit is None or credit is None:
+            cache[cache_key] = None
+            return None
+        running += debit - credit
+        dates.append(row_date)
+        balances.append(round(running, 2))
+    plan = {
+        'opening': round(values.get('snd', 0) - values.get('snk', 0), 2),
+        'dates': dates,
+        'balances': balances,
+    }
+    cache[cache_key] = plan
+    return plan
+
+
+def _balance_from_plan(plan, boundary, include_boundary=True):
+    if not plan:
+        return None
+    index = bisect_right(plan['dates'], boundary)
+    if not include_boundary and index and plan['dates'][index - 1] == boundary:
+        index -= 1
+    return plan['opening'] if index == 0 else plan['balances'][index - 1]
+
+
 def _rolled_report_balance(source, account, end):
     """Restore a debit-positive top balance from reconciled daily movements."""
-    acc = source.get('accounts', {}).get(account, {})
     for report in _covering_balance_reports(source, account, end):
-        report_start = _iso(report.get('report_start'))
-        report_end = _iso(report.get('report_end'))
-        full_rows = [
-            row for row in acc.get('daily') or []
-            if report_start <= _iso(row.get('date')) <= report_end
-        ]
-        full_basis = _turnover_basis(full_rows)
-        full_debit = _known_sum(full_basis, 'obd') if full_basis else 0.0
-        full_credit = _known_sum(full_basis, 'obk') if full_basis else 0.0
-        top = report['top']
-        if not (
-            _amounts_reconcile(full_debit, top.get('obd'))
-            and _amounts_reconcile(full_credit, top.get('obk'))
-            and _amounts_reconcile(
-                top.get('snd', 0) - top.get('snk', 0)
-                + full_debit - full_credit,
-                top.get('skd', 0) - top.get('skk', 0))
-        ):
-            continue
-        partial_rows = [
-            row for row in full_rows
-            if _iso(row.get('date')) <= end
-        ]
-        partial_basis = _turnover_basis(partial_rows)
-        debit = _known_sum(partial_basis, 'obd') if partial_basis else 0.0
-        credit = _known_sum(partial_basis, 'obk') if partial_basis else 0.0
-        if debit is None or credit is None:
-            continue
-        return round(
-            top.get('snd', 0) - top.get('snk', 0) + debit - credit, 2)
+        value = _balance_from_plan(
+            _rolled_balance_plan(source, account, report), end)
+        if value is not None:
+            return value
     return None
 
 
@@ -1225,39 +1272,11 @@ def _sub_signed_opening_balance(source, account, sub, start):
     if not acc:
         return None
     for report in _covering_balance_reports(source, account, start):
-        report_start = _iso(report.get('report_start'))
-        report_end = _iso(report.get('report_end'))
-        row = _report_scope_row(
-            {'rows': report.get('rows') or []}, account, sub)
-        if not row:
-            continue
-        full_rows = [
-            item for item in acc.get('daily') or []
-            if report_start <= _iso(item.get('date')) <= report_end
-        ]
-        full_basis = _explicit_subaccount_rows(full_rows, sub)
-        full_debit = _known_sum(full_basis, 'obd') if full_basis else 0.0
-        full_credit = _known_sum(full_basis, 'obk') if full_basis else 0.0
-        if not (
-            _amounts_reconcile(full_debit, row.get('obd'))
-            and _amounts_reconcile(full_credit, row.get('obk'))
-            and _amounts_reconcile(
-                row.get('snd', 0) - row.get('snk', 0)
-                + full_debit - full_credit,
-                row.get('skd', 0) - row.get('skk', 0))
-        ):
-            continue
-        prior_rows = [
-            item for item in full_rows
-            if _iso(item.get('date')) < start
-        ]
-        basis = _explicit_subaccount_rows(prior_rows, sub)
-        debit = _known_sum(basis, 'obd') if basis else 0.0
-        credit = _known_sum(basis, 'obk') if basis else 0.0
-        if debit is None or credit is None:
-            continue
-        return round(
-            row.get('snd', 0) - row.get('snk', 0) + debit - credit, 2)
+        value = _balance_from_plan(
+            _rolled_balance_plan(source, account, report, sub),
+            start, include_boundary=False)
+        if value is not None:
+            return value
     return None
 
 
@@ -1267,39 +1286,10 @@ def _rolled_sub_signed_balance(source, account, sub, end):
     if not acc:
         return None
     for report in _covering_balance_reports(source, account, end):
-        report_start = _iso(report.get('report_start'))
-        report_end = _iso(report.get('report_end'))
-        row = _report_scope_row(
-            {'rows': report.get('rows') or []}, account, sub)
-        if not row:
-            continue
-        full_rows = [
-            item for item in acc.get('daily') or []
-            if report_start <= _iso(item.get('date')) <= report_end
-        ]
-        full_basis = _explicit_subaccount_rows(full_rows, sub)
-        full_debit = _known_sum(full_basis, 'obd') if full_basis else 0.0
-        full_credit = _known_sum(full_basis, 'obk') if full_basis else 0.0
-        if not (
-            _amounts_reconcile(full_debit, row.get('obd'))
-            and _amounts_reconcile(full_credit, row.get('obk'))
-            and _amounts_reconcile(
-                row.get('snd', 0) - row.get('snk', 0)
-                + full_debit - full_credit,
-                row.get('skd', 0) - row.get('skk', 0))
-        ):
-            continue
-        partial_rows = [
-            item for item in full_rows
-            if _iso(item.get('date')) <= end
-        ]
-        basis = _explicit_subaccount_rows(partial_rows, sub)
-        debit = _known_sum(basis, 'obd') if basis else 0.0
-        credit = _known_sum(basis, 'obk') if basis else 0.0
-        if debit is None or credit is None:
-            continue
-        return round(
-            row.get('snd', 0) - row.get('snk', 0) + debit - credit, 2)
+        value = _balance_from_plan(
+            _rolled_balance_plan(source, account, report, sub), end)
+        if value is not None:
+            return value
     return None
 
 
