@@ -149,8 +149,18 @@ async function checkBootstrap(configuration) {
     ],
   });
   app.renderCollectionModal(proxyComponents);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70,0 млн ₽/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
+  const collectionHtml = nodes.get('ki-collection-modal-content').innerHTML;
+  assert.match(collectionHtml, /70,0 млн ₽/);
+  assert.match(collectionHtml, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
+  assert.match(collectionHtml, /Начисления/);
+  assert.match(collectionHtml, /Поступления/);
+  assert.match(collectionHtml, /сч\. 62 − 62\.02/);
+  assert.match(collectionHtml, />АПГ</);
+  assert.match(collectionHtml, /ДЕЛЬТА АПГ/);
+  assert.doesNotMatch(collectionHtml, /РОЛЬ В ФОРМУЛЕ/);
+  assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.01/);
+  assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.02/);
+  assert.doesNotMatch(collectionHtml, /Дебетовый оборот 62\.02/);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {

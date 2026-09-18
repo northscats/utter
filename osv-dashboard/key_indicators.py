@@ -3006,6 +3006,51 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'end': previous_year_end.isoformat(),
         }
     card_map = {c['id']: c for c in cards}
+    previous_year_collection = _collection_components(
+        source, previous_year_start, previous_year_end)
+
+    def collection_display_rows(data, previous):
+        current_accounts = data['accounts']
+        previous_accounts = previous['accounts']
+
+        def known_receipts(accounts):
+            values = (
+                accounts['62.01']['credit'],
+                accounts['62.02']['credit'],
+                accounts['62.02']['debit'],
+            )
+            return (
+                round(values[0] + values[1] - values[2], 2)
+                if all(value is not None for value in values) else None)
+
+        rows = [
+            {
+                'account': '62.01',
+                'label': 'Начисления',
+                'value': current_accounts['62.01']['debit'],
+                'previous_year_value': previous_accounts['62.01']['debit'],
+            },
+            {
+                'account': '62 − 62.02',
+                'label': 'Поступления',
+                'value': known_receipts(current_accounts),
+                'previous_year_value': known_receipts(previous_accounts),
+            },
+        ]
+        for row in rows:
+            current = row['value']
+            previous_value = row['previous_year_value']
+            row['previous_year_delta'] = (
+                round(current - previous_value, 2)
+                if current is not None and previous_value is not None else None)
+        return rows
+
+    card_map['collection']['display_components'] = collection_display_rows(
+        collection_data, previous_year_collection)
+    card_map['collection']['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
     if vat is None and revenue is not None:
         card_map['revenue']['title'] = 'Выручка с НДС (НДС недоступен)'
     for cid, account_list in (

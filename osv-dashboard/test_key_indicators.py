@@ -3104,6 +3104,49 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertEqual(
             [item['value'] for item in card['components']],
             [100, 50, 10, 20])
+        self.assertEqual(card['display_components'], [
+            {
+                'account': '62.01',
+                'label': 'Начисления',
+                'value': 100,
+                'previous_year_value': None,
+                'previous_year_delta': None,
+            },
+            {
+                'account': '62 − 62.02',
+                'label': 'Поступления',
+                'value': 60,
+                'previous_year_value': None,
+                'previous_year_delta': None,
+            },
+        ])
+
+    def test_collection_display_components_include_previous_year_and_delta(self):
+        rows = [
+            day('2026-01-31', '62.01', obd=100, obk=50),
+            day('2026-01-31', '62.02', obd=10, obk=20),
+            day('2025-01-31', '62.01', obd=80, obk=40),
+            day('2025-01-31', '62.02', obd=5, obk=15),
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}),
+            period='month', date='2026-01-31')['cards']}['collection']
+        self.assertEqual(card['display_components'], [
+            {
+                'account': '62.01',
+                'label': 'Начисления',
+                'value': 100,
+                'previous_year_value': 80,
+                'previous_year_delta': 20,
+            },
+            {
+                'account': '62 − 62.02',
+                'label': 'Поступления',
+                'value': 60,
+                'previous_year_value': 50,
+                'previous_year_delta': 10,
+            },
+        ])
 
     def test_collection_proxy_prefers_daily_rows_over_truncated_period_hierarchy(self):
         daily_rows = [

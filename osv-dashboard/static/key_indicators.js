@@ -2790,24 +2790,34 @@
                     </div>
                 </div>`;
 
-            const componentRows = components.length ? components.map(row => {
-                let role = 'Н/Д';
-                const accountStr = String(row.account || row.label || '');
-                if (accountStr.includes('62.01') && row.side === 'debit') role = 'Знаменатель';
-                else if (accountStr.includes('62.01') && row.side === 'credit') role = 'Числитель';
-                else if (accountStr.includes('62.02') && row.side === 'credit') role = 'Числитель';
-                else if (accountStr.includes('62.02') && row.side === 'debit') role = 'Вычитается из числителя';
-                else if (row.side === 'debit') role = 'Знаменатель';
-                else if (row.side === 'credit') role = 'Числитель';
-
-                const val = getVal(row);
+            const displayComponents = card.display_components || [
+                {
+                    account: '62.01',
+                    label: 'Начисления',
+                    value: obd6201,
+                    previous_year_value: null,
+                    previous_year_delta: null
+                },
+                {
+                    account: '62 − 62.02',
+                    label: 'Поступления',
+                    value: proxyPaid,
+                    previous_year_value: null,
+                    previous_year_delta: null
+                }
+            ];
+            const signedRub = value => value === null || value === undefined
+                ? 'Н/Д'
+                : `${value > 0 ? '+' : ''}${this.formatValue(value, 'RUB').val} млн ₽`;
+            const componentRows = displayComponents.length ? displayComponents.map(row => {
                 return `<tr>
                     <td style="text-align: left; font-weight: 600; color: #1F2937;">сч. ${esc(row.account || '62')}</td>
                     <td style="text-align: left; color: #4B5563;">${esc(row.label)}</td>
-                    <td style="color: #6B7280; text-align: center;">${esc(role)}</td>
-                    <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(rub(val))}</td>
+                    <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(rub(row.value))}</td>
+                    <td style="font-family: ui-monospace, monospace; text-align: right;">${esc(rub(row.previous_year_value))}</td>
+                    <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(signedRub(row.previous_year_delta))}</td>
                 </tr>`;
-            }).join('') : `<tr><td colspan="4" style="text-align: center; color: #6B7280; padding: 16px;">Компоненты собираемости отсутствуют</td></tr>`;
+            }).join('') : `<tr><td colspan="5" style="text-align: center; color: #6B7280; padding: 16px;">Компоненты собираемости отсутствуют</td></tr>`;
 
             const tableHtml = `
                 <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
@@ -2822,8 +2832,9 @@
                             <tr>
                                 <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 20%;">СЧЁТ</th>
                                 <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left;">КОМПОНЕНТ</th>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: center; width: 25%;">РОЛЬ В ФОРМУЛЕ</th>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ЗНАЧЕНИЕ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right;">ЗНАЧЕНИЕ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right;">АПГ</th>
+                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right;">ДЕЛЬТА АПГ</th>
                             </tr>
                         </thead>
                         <tbody>
