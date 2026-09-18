@@ -1067,6 +1067,22 @@ def _upsert_daily_rows(company_id, paths):
     return count
 
 
+def _sync_daily_reconciliation_alerts(company_id):
+    """Best-effort post-ingestion hook; accepted financial data stays accepted."""
+    try:
+        from key_indicators_service import load_company_source
+        from max_notifications import sync_daily_reconciliation_notifications
+        notification_source, _ = load_company_source(company_id, UPLOADS)
+        sync_daily_reconciliation_notifications(
+            company_id,
+            notification_source.get('_daily_control_reconciliations') or [])
+    except Exception:
+        db.session.rollback()
+        app.logger.exception(
+            'daily reconciliation notification sync failed for company %s',
+            company_id)
+
+
 def _process_files(paths, company_id, ts, back_url, company_name=''):
     """Парсит файлы, строит дашборд, возвращает (upload_record_kwargs, audit)."""
     # Суточные XLS хранятся рядом с месячными, но не являются входом
@@ -1414,6 +1430,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             db.session.add(_up)
                             db.session.commit()
                             attachment_committed = True
+                            _sync_daily_reconciliation_alerts(company_id)
                             _schedule_osv_file_summaries(company_id)
                             _durable_backup('IMAP ZIP ОСВ')
                             stats['files_processed'] += len(extracted_xls)
@@ -1493,6 +1510,7 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             db.session.add(_up)
                             db.session.commit()
                             attachment_committed = True
+                            _sync_daily_reconciliation_alerts(company_id)
                             _schedule_osv_file_summaries(company_id)
                             _durable_backup('IMAP ОСВ')
                             stats['files_processed'] += 1
@@ -1731,6 +1749,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             db.session.add(upload)
             db.session.commit()
             committed = True
+            _sync_daily_reconciliation_alerts(company_id)
             _schedule_osv_file_summaries(company_id)
             _durable_backup('ОСВ background upload')
 
@@ -1781,6 +1800,7 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
             db.session.add(upload)
             db.session.commit()
             committed = True
+            _sync_daily_reconciliation_alerts(company_id)
             _schedule_osv_file_summaries(company_id)
             _durable_backup('первый ОСВ предприятия')
 
@@ -3434,6 +3454,7 @@ def consolidated_osv_confirm(company_id, preview_id):
         'replaced': (
             current_replacement['filename'] if current_replacement else None),
     }, user_id=current_user.id)
+    _sync_daily_reconciliation_alerts(company_id)
     _durable_backup('подтверждение сводной ОСВ')
     flash('Полная сводная ОСВ подтверждена как доверенный контрольный снимок.', 'success')
     return redirect(url_for('company_detail', company_id=company_id))
@@ -4582,6 +4603,7 @@ def company_upload_zip(company_id):
     )
     db.session.add(upload)
     db.session.commit()
+    _sync_daily_reconciliation_alerts(company_id)
     _schedule_osv_file_summaries(company_id)
     _durable_backup('суточный ZIP ОСВ')
 

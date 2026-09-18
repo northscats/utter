@@ -706,6 +706,8 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
         with open(os.path.join(stage, "daily.xlsx"), "wb") as stream:
             stream.write(b"daily source")
 
+        reconciliation_sync = patch.object(
+            app_module, "_sync_daily_reconciliation_alerts").start()
         patches = [
             patch.object(app_module, "_is_daily_xls", return_value=True),
             patch.object(app_module, "_upsert_daily_rows", return_value=1),
@@ -738,12 +740,14 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
         finally:
             for active in reversed(patches):
                 active.stop()
+            reconciliation_sync.stop()
 
         with app.app_context():
             upload = Upload.query.filter_by(company_id=self.company_id).one()
             self.assertEqual(upload.source_manifest_json, "[]")
             self.assertEqual(upload.source_manifest, [])
         self.assertEqual(get_job(job_id)["status"], "done")
+        reconciliation_sync.assert_called_once_with(self.company_id)
 
     def test_failed_new_company_batch_removes_sources_and_restores_outputs(self):
         final_dir = os.path.join(

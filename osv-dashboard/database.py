@@ -1769,6 +1769,59 @@ class LimitBotOutbound(db.Model):
     provider_message_id = db.Column(db.String(255), default='')
     accepted_at = db.Column(db.DateTime(timezone=True))
 
+
+class DailyReconciliationAlert(db.Model):
+    """Current lifecycle of one daily/control turnover discrepancy."""
+    __tablename__ = 'daily_reconciliation_alerts'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'account', 'side', 'period_start', 'period_end',
+            name='uq_daily_reconciliation_alert_identity'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    account = db.Column(db.String(80), nullable=False)
+    side = db.Column(db.String(12), nullable=False)
+    period_start = db.Column(db.Date, nullable=False)
+    period_end = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='open', index=True)
+    generation = db.Column(db.Integer, nullable=False, default=1)
+    difference_cents = db.Column(db.BigInteger, nullable=False)
+    source_file = db.Column(db.String(500), default='')
+    opened_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    resolved_at = db.Column(db.DateTime(timezone=True))
+    updated_at = db.Column(
+        db.DateTime(timezone=True), default=utcnow, onupdate=utcnow,
+        nullable=False)
+
+
+class DailyReconciliationAlertDelivery(db.Model):
+    """Deduplication record linking an alert transition to one MAX outbox row."""
+    __tablename__ = 'daily_reconciliation_alert_deliveries'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'alert_id', 'recipient_id', 'generation', 'transition',
+            name='uq_daily_reconciliation_alert_delivery'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    alert_id = db.Column(
+        db.Integer, db.ForeignKey(
+            'daily_reconciliation_alerts.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    recipient_id = db.Column(
+        db.Integer, db.ForeignKey('limit_recipients.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    generation = db.Column(db.Integer, nullable=False)
+    transition = db.Column(db.String(16), nullable=False)
+    outbound_id = db.Column(
+        db.Integer, db.ForeignKey('limit_bot_outbound.id', ondelete='SET NULL'),
+        index=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
 class LimitChange(db.Model):
     __tablename__ = 'limit_changes'
 
