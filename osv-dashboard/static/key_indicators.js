@@ -2863,6 +2863,9 @@
             if (!state.collectionTimelineMode) {
                 state.collectionTimelineMode = 'day';
             }
+            if (state.collectionShowMain === undefined) {
+                state.collectionShowMain = true;
+            }
             if (state.collectionShowApg === undefined) {
                 state.collectionShowApg = false;
             }
@@ -2872,6 +2875,24 @@
                     this.renderCollectionDynamics(rawSeries, previousYearSeries);
                 });
             });
+            const mainCard = container.querySelectorAll(
+                '[data-series-id="__main__"]')[0];
+            if (mainCard) {
+                mainCard.setAttribute('role', 'button');
+                mainCard.setAttribute(
+                    'aria-label', 'Показать или скрыть собираемость на графике');
+                const toggleMain = () => {
+                    state.collectionShowMain = !state.collectionShowMain;
+                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
+                };
+                mainCard.addEventListener('click', toggleMain);
+                mainCard.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleMain();
+                    }
+                });
+            }
             const apgCard = container.querySelectorAll(
                 '[data-series-id="__apg__"]')[0];
             if (apgCard && previousYearSeries.length) {
@@ -2904,6 +2925,14 @@
                 button.classList.toggle('active', active);
                 button.setAttribute('aria-pressed', String(active));
             });
+            const mainCard = document.querySelectorAll(
+                '[data-series-id="__main__"]')[0];
+            if (mainCard) {
+                mainCard.classList.toggle(
+                    'collection-main-active', Boolean(state.collectionShowMain));
+                mainCard.setAttribute(
+                    'aria-pressed', String(Boolean(state.collectionShowMain)));
+            }
             const apgCard = document.querySelectorAll(
                 '[data-series-id="__apg__"]')[0];
             if (apgCard) {
@@ -2995,7 +3024,8 @@
                 value: point.value === null || point.value === undefined
                     ? null : Number(point.value)
             }));
-            if (![...points, ...apgPoints].some(
+            const mainPlotPoints = state.collectionShowMain ? points : [];
+            if (![...mainPlotPoints, ...apgPoints].some(
                     point => Number.isFinite(point.value))) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
                 return;
@@ -3005,7 +3035,7 @@
             const pad = {left: 58, right: 24, top: 18, bottom: 42};
             const plotWidth = width - pad.left - pad.right;
             const plotHeight = height - pad.top - pad.bottom;
-            const values = [...points, ...apgPoints]
+            const values = [...mainPlotPoints, ...apgPoints]
                 .filter(point => Number.isFinite(point.value))
                 .map(point => point.value);
             // Percentages produced from a near-zero or negative denominator
@@ -3020,7 +3050,7 @@
                 200, Math.ceil(scaleMax / 10) * 10));
             const inScale = value => Number.isFinite(value) &&
                 value >= yMin && value <= yMax;
-            const outlierCount = [...points, ...apgPoints].filter(point =>
+            const outlierCount = [...mainPlotPoints, ...apgPoints].filter(point =>
                 Number.isFinite(point.value) && !inScale(point.value)).length;
             const x = index => pad.left + (
                 points.length <= 1 ? plotWidth / 2 :
@@ -3048,7 +3078,7 @@
                 if (path) result.push(path);
                 return result;
             };
-            const segments = buildSegments(points);
+            const segments = buildSegments(mainPlotPoints);
             const apgSegments = buildSegments(apgPoints);
             const ticks = [...new Set([yMin, 93, 95, 100, yMax])]
                 .filter(value => value >= yMin && value <= yMax)
@@ -3065,7 +3095,12 @@
                 `<path class="collection-dynamics-line" d="${segment}"/>`).join('');
             const apgLines = apgSegments.map(segment =>
                 `<path class="collection-dynamics-apg-line" d="${segment}"/>`).join('');
-            const circles = points.filter(point => inScale(point.value))
+            const zoneClass = value => value < 93
+                ? 'collection-point-red'
+                : value < 95
+                    ? 'collection-point-yellow'
+                    : 'collection-point-green';
+            const circles = mainPlotPoints.filter(point => inScale(point.value))
                 .map(point => {
                     const accrual = point.accrual ?? point.debit_6201;
                     const paid = point.payment ?? (
@@ -3081,16 +3116,25 @@
                         paid === null || paid === undefined ? null :
                             `Оплачено: ${this.formatValue(paid, 'RUB').val} млн ₽`
                     ].filter(Boolean).join(' · ');
-                    return `<circle class="collection-dynamics-point" cx="${x(point.index)}" cy="${y(point.value)}" r="4" tabindex="0"><title>${esc(detail)}</title></circle>`;
+                    return `<circle class="collection-dynamics-point ${zoneClass(point.value)}" data-detail="${esc(detail)}" data-series-label="Собираемость" cx="${x(point.index)}" cy="${y(point.value)}" r="6" tabindex="0"><title>${esc(detail)}</title></circle>`;
                 }).join('');
             const apgCircles = apgPoints.filter(point => inScale(point.value))
                 .map(point => {
                     const sourceDate = point.source_date
                         ? ` · дата АПГ: ${point.source_date}` : '';
-                    return `<circle class="collection-dynamics-apg-point" cx="${x(point.index)}" cy="${y(point.value)}" r="3.5" tabindex="0"><title>${esc(`${point.label || point.date} · АПГ: ${point.value.toFixed(1)}%${sourceDate}`)}</title></circle>`;
+                    const detail = `${point.label || point.date} · АПГ: ${point.value.toFixed(1)}%${sourceDate}`;
+                    return `<circle class="collection-dynamics-apg-point ${zoneClass(point.value)}" data-detail="${esc(detail)}" data-series-label="АПГ" cx="${x(point.index)}" cy="${y(point.value)}" r="6" tabindex="0"><title>${esc(detail)}</title></circle>`;
                 }).join('');
-            const legend = state.collectionShowApg && apgPoints.length
-                ? `<div class="collection-chart-legend"><span><i></i>АПГ</span></div>`
+            const legendItems = [
+                state.collectionShowMain
+                    ? '<span><i class="collection-legend-main"></i>Собираемость</span>'
+                    : '',
+                state.collectionShowApg && apgPoints.length
+                    ? '<span><i class="collection-legend-apg"></i>АПГ</span>'
+                    : ''
+            ].filter(Boolean).join('');
+            const legend = legendItems
+                ? `<div class="collection-chart-legend">${legendItems}</div>`
                 : '';
             const scaleNotice = outlierCount
                 ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
@@ -3101,6 +3145,34 @@
                 ${band(95, yMax, 'collection-zone-green')}
                 ${tickSvg}${xLabels}${lines}${apgLines}${circles}${apgCircles}
             </svg>${legend}${scaleNotice}`;
+            const showPointAnnotation = point => {
+                container.querySelectorAll('.collection-point-annotation')
+                    .forEach(item => item.remove());
+                container.querySelectorAll(
+                    '.collection-dynamics-point, .collection-dynamics-apg-point')
+                    .forEach(item => item.classList.remove('selected'));
+                point.classList.add('selected');
+                const annotation = document.createElement('div');
+                annotation.className = 'collection-point-annotation';
+                annotation.innerHTML = `<strong>${esc(point.dataset.seriesLabel || '')}</strong><span>${esc(point.dataset.detail || '')}</span>`;
+                annotation.style.left =
+                    `${Math.min(82, Math.max(8, Number(point.getAttribute('cx')) / width * 100))}%`;
+                annotation.style.top =
+                    `${Math.min(76, Math.max(8, Number(point.getAttribute('cy')) / height * 100))}%`;
+                container.appendChild(annotation);
+            };
+            container.querySelectorAll(
+                '.collection-dynamics-point, .collection-dynamics-apg-point')
+                .forEach(point => {
+                    point.addEventListener('click', () =>
+                        showPointAnnotation(point));
+                    point.addEventListener('keydown', event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            showPointAnnotation(point);
+                        }
+                    });
+                });
         },
         arRequirements() {
             return {

@@ -192,6 +192,10 @@ async function checkBootstrap(configuration) {
   assert.match(collectionChartHtml, /collection-zone-yellow/);
   assert.match(collectionChartHtml, /collection-zone-green/);
   assert.equal((collectionChartHtml.match(/collection-dynamics-line/g) || []).length, 2);
+  assert.match(collectionChartHtml, /collection-point-red/);
+  assert.match(collectionChartHtml, /collection-point-green/);
+  assert.match(collectionChartHtml, /r="6"/);
+  assert.match(collectionChartHtml, /collection-legend-main/);
   assert.match(collectionChartHtml, /Не соединено значений вне рабочей шкалы 0–100%: 2/);
   assert.doesNotMatch(collectionChartHtml, /1459250/);
   app.state.collectionTimelineMode = 'month';
@@ -223,6 +227,7 @@ async function checkBootstrap(configuration) {
   const collectionWithApg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.match(collectionWithApg, /collection-dynamics-apg-line/);
   assert.match(collectionWithApg, /collection-dynamics-apg-point/);
+  assert.match(collectionWithApg, /collection-legend-apg/);
   assert.match(collectionWithApg, /АПГ:/);
   assert.match(collectionWithApg, /collection-chart-legend/);
   app.state.collectionShowApg = false;

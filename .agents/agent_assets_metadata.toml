@@ -288,3 +288,17 @@ mtime_ms = 1789726628519
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/215d813c-c171-40e0-afb7-740200a7f9a9/ec6d1db2-3ec7-4591-a738-82c3ff4b4ac2"
 storage_version_token = "1789726661416274"
 content_type = "image/png"
+
+[[outputs]]
+id = "iO988Lv1Jbeh2dCj84BHP"
+uri = "file://screenshots/mup-kgh-collection-point-annotation.png"
+type = "image"
+title = "Интерактивный график собираемости"
+description = "Основная линия #0000FF, линия АПГ той же толщины, точки окрашены по зонам и увеличены, по нажатию показывается закреплённая аннотация."
+logical_id = "ef7f3eab-935d-426a-8918-ffc76ce900fa"
+content_hash = "sha256:503e99a4e061a35f7c8badd918e26a15e4f864ca9ecbb00995439daae69f995c"
+size = 157686
+mtime_ms = 1789727107846
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/ef7f3eab-935d-426a-8918-ffc76ce900fa/745d84f9-5250-41d8-8b9f-d2317d510df4"
+storage_version_token = "1789727139367587"
+content_type = "image/png"
