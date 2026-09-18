@@ -2668,6 +2668,9 @@
         renderCollectionModal(card) {
             const container = document.getElementById('ki-collection-modal-content');
             if (!container) return;
+            const modalTitle = document.getElementById('ki-modal-title');
+            if (modalTitle) modalTitle.textContent = 'Уровень собираемости';
+            this.updateModalSubtitle();
 
             const components = card.components || card.collection_components || [];
             const linked = card.consumer_collection || {};
@@ -2695,6 +2698,13 @@
             const proxyPaid = (obk6201 !== null && obk6201 !== undefined && net6202 !== null)
                 ? obk6201 + net6202
                 : null;
+            const currentAccrual = linked.available ? linked.accrual : obd6201;
+            const currentPaid = linked.available ? linked.payment : proxyPaid;
+            const previousYearLevel = card.previous_year_value;
+            const previousYearDelta = card.previous_year_delta;
+            const deltaPp = previousYearDelta === null || previousYearDelta === undefined
+                ? 'Н/Д'
+                : `${previousYearDelta > 0 ? '+' : ''}${Number(previousYearDelta).toFixed(1)} п.п.`;
 
             const bannerHtml = `
                 <div class="ki-modal-info-banner" style="background: #F8FAFC; border-radius: 8px; padding: 16px; margin-bottom: 16px; border: 1px solid #E5E7EB;">
@@ -2710,14 +2720,10 @@
                         </div>
                     </div>
                     <div class="collection-summary">
-                        ${this.cashMetricCard(linked.available ? 'ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ' : 'УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'распределённые оплаты / начисления' : 'из компонентов', this.collectionTooltip({title: linked.available ? 'Фактическая собираемость' : 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '__main__')}
-                        ${linked.available
-                            ? this.cashMetricCard('НАЧИСЛЕНО', rub(linked.accrual), 'когорта выбранного периода', this.collectionTooltip({title: 'Начисления когорты', fact: rub(linked.accrual)}), linked.accrual === null)
-                            : this.cashMetricCard('НАЧИСЛЕНО', rub(obd6201), 'основные начисления', this.collectionTooltip({title: 'Начислено', fact: rub(obd6201)}), obd6201 === null)}
-                        ${linked.available
-                            ? this.cashMetricCard('РАСПРЕДЕЛЕНО ОПЛАТ', rub(linked.payment), 'не позднее даты отсечения', this.collectionTooltip({title: 'Распределённые оплаты', fact: rub(linked.payment)}), linked.payment === null)
-                            : this.cashMetricCard('ОПЛАЧЕНО', rub(proxyPaid), 'ОбК 62.01 + ОбК 62.02 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено по прокси ОСВ', fact: rub(proxyPaid), note: 'ОбК 62.01 + ОбК 62.02 − ОбД 62.02'}), proxyPaid === null)}
-                        ${this.cashMetricCard('ПРОКСИ ОСВ', pct(proxyTurnover), 'контрольная величина', this.collectionTooltip({title: 'Бухгалтерский прокси ОСВ', fact: pct(proxyTurnover)}), proxyTurnover === null)}
+                        ${this.cashMetricCard('УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'по связанным оплатам' : 'из компонентов ОСВ', this.collectionTooltip({title: 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '__main__')}
+                        ${this.cashMetricCard('НАЧИСЛЕНО', rub(currentAccrual), linked.available ? 'когорта выбранного периода' : 'дебетовый оборот 62.01', this.collectionTooltip({title: 'Начислено', fact: rub(currentAccrual)}), currentAccrual === null)}
+                        ${this.cashMetricCard('ОПЛАЧЕНО', rub(currentPaid), linked.available ? 'распределённые оплаты' : 'ОбК 62 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено', fact: rub(currentPaid)}), currentPaid === null)}
+                        ${this.cashMetricCard('УРОВЕНЬ АПГ', pct(previousYearLevel), deltaPp, this.collectionTooltip({title: 'Уровень собираемости АПГ', fact: pct(previousYearLevel), deviation: previousYearDelta === null || previousYearDelta === undefined ? 'Сравнение недоступно' : `${deltaPp} к АПГ`}), previousYearLevel === null || previousYearLevel === undefined)}
                     </div>
                 </div>`;
 
@@ -2786,7 +2792,7 @@
                         ДИНАМИКА СОБИРАЕМОСТИ
                     </div>
                     <div class="modal-chart-wrap" style="height: 320px; background: #fff; border: 1px solid #F3F4F6; padding: 20px 10px 10px; margin-top: 10px;">
-                        <div class="cash-modal-chart-plot" style="height: 100%;"></div>
+                        <div id="ki-collection-dynamics-chart" class="cash-modal-chart-plot" style="height: 100%;"></div>
                     </div>
                 </div>`;
 
@@ -2843,29 +2849,98 @@
                     </table>
                 </div>`;
 
-            container.innerHTML = bannerHtml + segmentNoticeHtml + segmentTableHtml +
-                accrualSourcesHtml + chartHtml + tableHtml;
+            container.innerHTML = bannerHtml + chartHtml + segmentNoticeHtml +
+                segmentTableHtml + accrualSourcesHtml + tableHtml;
+            this.renderCollectionDynamics(
+                linked.available ? linked.series || [] :
+                    card.turnover_series || card.series || []);
+        },
 
-            const dynamicsCard = linked.available ? Object.assign({}, card, {
-                series: linked.series || [],
-                components: (linked.categories || []).map(category => ({
-                    label: category.label,
-                    value: category.value,
-                    series_id: `consumer:${category.id}`,
-                    series: (linked.series || []).map(point => {
-                        const categoryPoint = (point.categories || []).find(
-                            item => item.id === category.id);
-                        return {
-                            date: point.date,
-                            label: point.label,
-                            value: categoryPoint ? categoryPoint.value : null
-                        };
-                    })
-                })),
-                details: [],
-                analytics: []
-            }) : card;
-            this.mountSharedDynamics(dynamicsCard, container);
+        renderCollectionDynamics(series) {
+            const container = document.getElementById(
+                'ki-collection-dynamics-chart');
+            if (!container) return;
+            const points = (series || []).map((point, index) => ({
+                ...point,
+                index,
+                value: point.value === null || point.value === undefined
+                    ? null : Number(point.value)
+            }));
+            if (!points.some(point => Number.isFinite(point.value))) {
+                container.innerHTML = '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
+                return;
+            }
+            const width = 1000;
+            const height = 300;
+            const pad = {left: 58, right: 24, top: 18, bottom: 42};
+            const plotWidth = width - pad.left - pad.right;
+            const plotHeight = height - pad.top - pad.bottom;
+            const values = points.filter(point => Number.isFinite(point.value))
+                .map(point => point.value);
+            const minValue = Math.min(...values);
+            const maxValue = Math.max(...values);
+            const yMin = Math.min(50, Math.floor(minValue / 10) * 10);
+            const yMax = Math.max(100, Math.ceil(maxValue / 10) * 10);
+            const x = index => pad.left + (
+                points.length <= 1 ? plotWidth / 2 :
+                    index / (points.length - 1) * plotWidth);
+            const y = value => pad.top + (yMax - value) /
+                Math.max(1, yMax - yMin) * plotHeight;
+            const band = (from, to, cssClass) => {
+                const upper = Math.min(yMax, to);
+                const lower = Math.max(yMin, from);
+                if (upper <= lower) return '';
+                const top = y(upper);
+                return `<rect class="${cssClass}" x="${pad.left}" y="${top}" width="${plotWidth}" height="${y(lower) - top}"/>`;
+            };
+            const segments = [];
+            let path = '';
+            points.forEach(point => {
+                if (!Number.isFinite(point.value)) {
+                    if (path) segments.push(path);
+                    path = '';
+                    return;
+                }
+                path += `${path ? ' L' : 'M'} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`;
+            });
+            if (path) segments.push(path);
+            const ticks = [...new Set([yMin, 93, 95, 100, yMax])]
+                .filter(value => value >= yMin && value <= yMax)
+                .sort((a, b) => a - b);
+            const tickSvg = ticks.map(value => `
+                <line class="collection-dynamics-grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/>
+                <text class="collection-dynamics-axis" x="${pad.left - 10}" y="${y(value) + 4}" text-anchor="end">${value}%</text>`).join('');
+            const labelStep = Math.max(1, Math.ceil(points.length / 8));
+            const xLabels = points.map((point, index) => (
+                index % labelStep === 0 || index === points.length - 1
+                    ? `<text class="collection-dynamics-axis" x="${x(index)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
+                    : '')).join('');
+            const lines = segments.map(segment =>
+                `<path class="collection-dynamics-line" d="${segment}"/>`).join('');
+            const circles = points.filter(point => Number.isFinite(point.value))
+                .map(point => {
+                    const accrual = point.accrual ?? point.debit_6201;
+                    const paid = point.payment ?? (
+                        [point.credit_6201, point.credit_6202, point.debit_6202]
+                            .every(value => value !== null && value !== undefined)
+                            ? point.credit_6201 + point.credit_6202 - point.debit_6202
+                            : null);
+                    const detail = [
+                        point.label || point.date,
+                        `Собираемость: ${point.value.toFixed(1)}%`,
+                        accrual === null || accrual === undefined ? null :
+                            `Начислено: ${this.formatValue(accrual, 'RUB').val} млн ₽`,
+                        paid === null || paid === undefined ? null :
+                            `Оплачено: ${this.formatValue(paid, 'RUB').val} млн ₽`
+                    ].filter(Boolean).join(' · ');
+                    return `<circle class="collection-dynamics-point" cx="${x(point.index)}" cy="${y(point.value)}" r="4" tabindex="0"><title>${esc(detail)}</title></circle>`;
+                }).join('');
+            container.innerHTML = `<svg class="collection-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика собираемости за выбранный период">
+                ${band(yMin, 93, 'collection-zone-red')}
+                ${band(93, 95, 'collection-zone-yellow')}
+                ${band(95, yMax, 'collection-zone-green')}
+                ${tickSvg}${xLabels}${lines}${circles}
+            </svg>`;
         },
         arRequirements() {
             return {

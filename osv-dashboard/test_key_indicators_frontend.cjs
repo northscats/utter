@@ -140,7 +140,16 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ОПЛАЧЕНО/);
   const proxyComponents = Object.assign({}, collectionBase, {
     value: 70,
+    previous_year_value: 65,
+    previous_year_delta: 5,
     accounting_proxy: {value: 70},
+    turnover_series: [
+      {date: '2026-01-01', label: '01.01', value: 92,
+       debit_6201: 100, credit_6201: 80, debit_6202: 3, credit_6202: 15},
+      {date: '2026-01-02', label: '02.01', value: null},
+      {date: '2026-01-03', label: '03.01', value: 96,
+       debit_6201: 100, credit_6201: 85, debit_6202: 2, credit_6202: 13},
+    ],
     components: [
       {account: '62.01', side: 'debit', value: 100000000},
       {account: '62.01', side: 'credit', value: 60000000},
@@ -151,7 +160,7 @@ async function checkBootstrap(configuration) {
   app.renderCollectionModal(proxyComponents);
   const collectionHtml = nodes.get('ki-collection-modal-content').innerHTML;
   assert.match(collectionHtml, /70,0 млн ₽/);
-  assert.match(collectionHtml, /ОбК 62\.01 \+ ОбК 62\.02 − ОбД 62\.02/);
+  assert.match(collectionHtml, /ОбК\(62\.01\) \+ ОбК\(62\.02\) − ОбД\(62\.02\)/);
   assert.match(collectionHtml, /Начисления/);
   assert.match(collectionHtml, /Поступления/);
   assert.match(collectionHtml, /сч\. 62 − 62\.02/);
@@ -161,6 +170,13 @@ async function checkBootstrap(configuration) {
   assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.01/);
   assert.doesNotMatch(collectionHtml, /Кредитовый оборот 62\.02/);
   assert.doesNotMatch(collectionHtml, /Дебетовый оборот 62\.02/);
+  assert.match(collectionHtml, /УРОВЕНЬ АПГ/);
+  assert.match(collectionHtml, /\+5\.0 п\.п\./);
+  const collectionChartHtml = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.match(collectionChartHtml, /collection-zone-red/);
+  assert.match(collectionChartHtml, /collection-zone-yellow/);
+  assert.match(collectionChartHtml, /collection-zone-green/);
+  assert.equal((collectionChartHtml.match(/collection-dynamics-line/g) || []).length, 2);
   const factualCollection = Object.assign({}, collectionBase, {
     value: 80,
     consumer_collection: {
@@ -176,7 +192,7 @@ async function checkBootstrap(configuration) {
     },
   });
   assert.doesNotThrow(() => app.renderCollectionModal(factualCollection));
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ФАКТИЧЕСКАЯ СОБИРАЕМОСТЬ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /УРОВЕНЬ СОБИРАЕМОСТИ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Население/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ИСТОЧНИКИ НАЧИСЛЕНИЙ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /1С: Расчёты/);

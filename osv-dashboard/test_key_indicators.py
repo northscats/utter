@@ -3120,7 +3120,6 @@ class PeriodAggregateTests(unittest.TestCase):
                 'previous_year_delta': None,
             },
         ])
-
     def test_collection_display_components_include_previous_year_and_delta(self):
         rows = [
             day('2026-01-31', '62.01', obd=100, obk=50),
@@ -3147,6 +3146,8 @@ class PeriodAggregateTests(unittest.TestCase):
                 'previous_year_delta': 10,
             },
         ])
+        self.assertEqual(card['previous_year_value'], 62.5)
+        self.assertEqual(card['previous_year_delta'], -2.5)
 
     def test_collection_proxy_prefers_daily_rows_over_truncated_period_hierarchy(self):
         daily_rows = [

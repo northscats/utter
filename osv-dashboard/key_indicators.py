@@ -3008,6 +3008,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     card_map = {c['id']: c for c in cards}
     previous_year_collection = _collection_components(
         source, previous_year_start, previous_year_end)
+    previous_year_linked_collection = _consumer_collection(
+        collection_accruals if collection_accruals is not None
+        else source.get('collection_accruals'),
+        collection_allocations if collection_allocations is not None
+        else source.get('collection_allocations'),
+        debtor_mappings,
+        collection_norms if collection_norms is not None
+        else source.get('collection_norms'),
+        previous_year_start, previous_year_end,
+        previous_year_collection['value'])
 
     def collection_display_rows(data, previous):
         current_accounts = data['accounts']
@@ -3047,6 +3057,18 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
 
     card_map['collection']['display_components'] = collection_display_rows(
         collection_data, previous_year_collection)
+    collection_previous_year_value = (
+        previous_year_linked_collection['value']
+        if linked_collection['available']
+        and previous_year_linked_collection['available']
+        else previous_year_collection['value']
+        if not linked_collection['available'] else None)
+    card_map['collection']['previous_year_value'] = (
+        collection_previous_year_value)
+    card_map['collection']['previous_year_delta'] = (
+        round(card_map['collection']['value'] - collection_previous_year_value, 2)
+        if card_map['collection']['value'] is not None
+        and collection_previous_year_value is not None else None)
     card_map['collection']['previous_year_period'] = {
         'start': previous_year_start.isoformat(),
         'end': previous_year_end.isoformat(),
