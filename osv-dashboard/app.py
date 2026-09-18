@@ -7870,6 +7870,35 @@ def limit_max_settings():
         flash('Настройки сохранены не полностью. Укажите токен, ID админ-группы и набор данных.', 'error')
     return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
 
+
+@app.route('/limit-notifications/max-retry', methods=['POST'])
+@admin_required
+def limit_max_retry():
+    """Retry the saved MAX connection immediately without changing settings."""
+    from limits_connection import (
+        configured_webhook_url, configuration_complete, connection_status,
+        reconcile_connection)
+    from limits_max import MaxAPIError
+    dataset_id = request.form.get('context_dataset', type=int)
+    if not configuration_complete():
+        flash('Сначала сохраните токен MAX, ID админ-группы и набор данных.', 'error')
+        return redirect(url_for('limit_settings', dataset=dataset_id))
+    try:
+        reconcile_connection(
+            encrypt=encrypt_value, decrypt=decrypt_value,
+            adapter_factory=_limits_adapter,
+            webhook_url=configured_webhook_url(app),
+            raise_on_error=True)
+    except MaxAPIError:
+        flash('Подключиться не удалось. Причина и время следующей автоматической попытки указаны ниже.', 'error')
+    else:
+        flash('MAX подтвердил регистрацию webhook; бот работает постоянно.', 'success')
+    log_event('limits_max_connection_retried', {
+        'connected': connection_status()['active'],
+    })
+    return redirect(url_for('limit_settings', dataset=dataset_id))
+
+
 @app.route('/limit-notifications/moderation/<int:request_id>/decide', methods=['POST'])
 @admin_required
 def limit_moderation_decide(request_id):

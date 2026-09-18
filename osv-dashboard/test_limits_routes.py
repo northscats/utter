@@ -344,6 +344,40 @@ class LimitsRouteTests(unittest.TestCase):
             client.post('/limit-notifications/max-settings',data={'group_chat_id':'-123'})
             factory.assert_not_called()
 
+    @patch.dict(app.config, {
+        'LIMITS_MAX_WEBHOOK_URL':
+        'https://current-installation.example/limit-notifications/max/webhook',
+    })
+    def test_admin_can_retry_saved_max_connection_without_reentering_credentials(self):
+        from app import encrypt_value
+        client = self.client(1)
+        with app.app_context():
+            Setting.set('limits_max_token', encrypt_value('saved-token'))
+            Setting.set('limits_max_group_chat_id', '-123')
+            Setting.set('limits_bot_dataset_id', '1')
+            Setting.set('limits_max_webhook_registered', '0')
+            db.session.commit()
+
+        page = client.get('/limit-notifications/settings?dataset=1').get_data(as_text=True)
+        self.assertIn('Повторить подключение сейчас', page)
+        with patch('app._limits_adapter') as factory:
+            factory.return_value.subscribe_webhook.return_value = {'success': True}
+            response = client.post(
+                '/limit-notifications/max-retry',
+                data={'context_dataset': '1'})
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers['Location'].endswith('/settings?dataset=1'))
+        factory.return_value.check_webhook_receiver.assert_called_once()
+        factory.return_value.get_chat_admins.assert_called_once_with('-123')
+        factory.return_value.subscribe_webhook.assert_called_once()
+        with app.app_context():
+            self.assertEqual('1', Setting.get('limits_max_webhook_registered'))
+            self.assertEqual('saved-token', __import__('app').decrypt_value(
+                Setting.get('limits_max_token')))
+        page = client.get(response.headers['Location']).get_data(as_text=True)
+        self.assertIn('MAX подтвердил регистрацию webhook', page)
+        self.assertNotIn('Повторить подключение сейчас', page)
+
     def test_legacy_complete_settings_create_secret_and_retry_automatically(self):
         from app import decrypt_value, encrypt_value
         from limits_bot import ingest_event

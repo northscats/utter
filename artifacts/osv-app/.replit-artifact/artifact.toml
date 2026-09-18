@@ -7,7 +7,7 @@ router = "path"
 
 [[services]]
 name = "web"
-paths = [ "/", "/api/1c" ]
+paths = [ "/", "/api/1c", "/limit-notifications" ]
 localPort = 21844
 
 [services.development]

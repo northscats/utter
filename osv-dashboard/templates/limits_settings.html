@@ -17,6 +17,13 @@
 <p>Настройки MAX общие для модуля.</p>
 <p class="credential-help">Общее предупреждение администраторам появляется после {{ max_alert_after_minutes }} мин. непрерывных неудачных попыток.</p>
 {% if max_connection_error %}<p class="settings-warning" role="alert">{{ max_connection_error }}</p>{% endif %}
+{% if max_status.complete and not max_status.active %}
+<form method="post" action="{{ url_for('limit_max_retry') }}" class="retry-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="context_dataset" value="{{ dataset.id if dataset else '' }}">
+  <button type="submit">Повторить подключение сейчас</button>
+</form>
+{% endif %}
 <p>После сохранения токена, ID админ-группы и набора данных бот работает постоянно. Защита входящих команд и восстановление соединения выполняются автоматически.</p>
 <p>Канонический адрес текущей публикации:
   {% if max_webhook_url %}<code style="overflow-wrap:anywhere">{{ max_webhook_url }}</code>
@@ -50,7 +57,8 @@
 .settings-form label{display:flex;flex-direction:column;gap:8px;font-weight:600}
 .settings-form input:not([type=checkbox]),.settings-form select{width:100%;padding:11px 14px;border:1px solid #cdd7e0;border-radius:8px;font:inherit}
 .settings-form .settings-check{flex-direction:row;align-items:center}
-.settings-form button{align-self:flex-start;background:var(--blue);color:#fff;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}
+.settings-form button,.retry-form button{align-self:flex-start;background:var(--blue);color:#fff;border:0;border-radius:8px;padding:12px 20px;font:inherit;cursor:pointer}
+.retry-form{margin:14px 0}
 .settings-warning{margin:0;padding:14px;background:#fff4df;border-radius:8px}
 .settings-notice{padding:14px;background:#eaf5f8;border-radius:8px}
 .credential-status{font-size:13px;color:var(--blue)}
