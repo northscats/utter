@@ -354,6 +354,10 @@ async function checkBootstrap(configuration) {
     'capex modal must expose a previous-year metric');
   assert.match(script, /data-layout-title="Динамика капитальных вложений"/,
     'capex modal must expose the shared interactive chart surface');
+  assert.match(script, /id="ki-capex-line-chart" class="cash-line-chart/,
+    'capex modal must use the same chart surface styling as cash');
+  assert.match(script, /renderCapexLineChart\(card\)/,
+    'capex modal must render through the cash-style chart adapter');
   assert.match(script, /aria-controls="ki-capex-details-panel"/,
     'capex account details must be collapsible');
   assert.match(script, /<th>ОбД 08 АПГ<\/th>/,

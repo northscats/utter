@@ -5330,10 +5330,17 @@
                     ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
                     ${this.cashMetricCard('Изменение незавершёнки', balanceChange == null ? 'Нужны данные' : `${balanceChange >= 0 ? '+' : ''}${rub(balanceChange)}`, 'конец − начало периода', changeTip, balanceChange == null)}
                 </div>
-                <section class="ki-modal-dynamics-block" data-layout-key="dynamics"
+                <section data-layout-key="dynamics"
                          data-layout-title="Динамика капитальных вложений">
                     <div class="modal-section-title">Динамика капитальных вложений</div>
-                    <div class="modal-chart-wrap"></div>
+                    <div id="ki-capex-line-chart" class="cash-line-chart capex-cash-style-chart"></div>
+                    <div class="cash-chart-legend" aria-label="Легенда графика капитальных вложений">
+                        <span><i class="cash-chart-dot" style="background:#2563EB"></i>ОбД 08</span>
+                        <span><i class="cash-chart-dot" style="background:#059669"></i>ОбК 08</span>
+                        <span><i class="cash-chart-dot" style="background:rgba(34,197,94,.2)"></i>Интервал оборотов</span>
+                        <span><i class="cash-chart-dot" style="background:#111827"></i>СКд 08</span>
+                        <span><i class="cash-chart-dot" style="background:#DB2777"></i>ОбД 08 АПГ</span>
+                    </div>
                 </section>
                 <button type="button" class="modal-section-title cash-details-toggle capex-details-toggle"
                         aria-expanded="false" aria-controls="ki-capex-details-panel"
@@ -5359,6 +5366,27 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
+        },
+
+        renderCapexLineChart(card) {
+            const current = (card.series || []).map((point, index) => ({
+                ...point,
+                debit_value: point.value,
+                credit_value: ((card.credit_series || [])[index] || {}).value,
+                cumulative_accounts: ['08'],
+                cumulative_missing_accounts: [],
+                cumulative_coverage: 'complete'
+            }));
+            const balance = (card.balance_series || []).map(point => ({
+                ...point, accounts: ['08'], missing_accounts: [],
+                coverage: 'complete'
+            }));
+            const previous = (card.previous_year_series || []).map(point => ({
+                ...point, accounts: ['08'], missing_accounts: [],
+                coverage: 'complete'
+            }));
+            this.renderCashLineChart(
+                current, [], balance, previous, 'ki-capex-line-chart');
         },
 
         cashCoverageText(item) {
@@ -6718,8 +6746,9 @@ renderCashModal(card) {
             this.renderCashChartModes(card);
         },
 
-        renderCashLineChart(series, apgSeries = [], cashSeries = [], cashApgSeries = []) {
-            const container = document.getElementById('ki-cash-line-chart');
+        renderCashLineChart(series, apgSeries = [], cashSeries = [], cashApgSeries = [],
+                containerId = 'ki-cash-line-chart') {
+            const container = document.getElementById(containerId);
             if (!container) return;
             const mapPoints = items => items.map((item, index) => ({
                 ...item, index,
@@ -6808,7 +6837,7 @@ renderCashModal(card) {
             const segmentsFor = (points, keys = ['debit', 'credit']) => {
                 const timeline = chartTimeline(points);
                 const consecutive = (previous, current) => (
-                    timeline.calendar
+                    timeline.calendar && containerId === 'ki-cash-line-chart'
                         ? timeline.day(current.index) - timeline.day(previous.index) === 1
                         : current.index - previous.index === 1
                 );
@@ -7121,6 +7150,7 @@ renderCashModal(card) {
                 salaryContent.style.display = 'none';
                 capexContent.style.display = 'block';
                 this.renderCapexModal(card);
+                this.renderCapexLineChart(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';
@@ -7232,7 +7262,8 @@ renderCashModal(card) {
                     this.updateMetricTileStates(genericContent);
                 } else if (activeContainer !== cashContent &&
                         activeContainer !== revenueContent &&
-                        activeContainer !== collectionContent) {
+                        activeContainer !== collectionContent &&
+                        activeContainer !== capexContent) {
                     this.mountSharedDynamics(card, activeContainer);
                     this.bindMetricTiles(card, activeContainer);
                 }
