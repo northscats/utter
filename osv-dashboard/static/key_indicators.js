@@ -2181,9 +2181,14 @@
         },
 
         cashMetricCard(label, value, sub, tooltip, needsData, seriesId = '',
-                valueClass = '') {
-            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''}" tabindex="0"
-                    ${seriesId ? `data-series-id="${esc(seriesId)}"` : ''}>
+                valueClass = '', chartMode = '') {
+            const chartAttrs = chartMode
+                ? ` role="button" aria-pressed="true" data-capex-chart-mode="${esc(chartMode)}"
+                    onclick="window.KI_App.toggleCapexChartMode('${esc(chartMode)}')"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCapexChartMode('${esc(chartMode)}')}"`
+                : '';
+            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''} ${chartMode ? 'cash-chart-mode-card cash-chart-mode-selected' : ''}" tabindex="0"
+                    ${seriesId ? `data-series-id="${esc(seriesId)}"` : ''}${chartAttrs}>
                 <div class="cash-analysis-label">${esc(label)}</div>
                 <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : valueClass || 'cash-value-ok'}">${esc(value)}</div>
                 <div class="cash-analysis-sub">${esc(sub)}</div>
@@ -5324,21 +5329,16 @@
                 <div class="cash-info-banner"><strong>Бухгалтерские вложения отделены от исполнения инвестпрограммы.</strong>
                     Дебетовый оборот 08 не называется денежным CAPEX, а сальдо 08 не подтверждает просрочку объекта.</div>
                 <div class="capex-metrics-strip capex-summary">
-                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId)}
-                    ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, capexApgId)}
+                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId, '', 'current')}
+                    ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, capexApgId, '', 'apg')}
                     ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
                 </div>
                 <section class="capex-overview ki-modal-dynamics-block" data-layout-key="dynamics"
                          data-layout-title="Динамика капитальных вложений">
-                    <div class="modal-section-title">Динамика капитальных вложений</div>
+                    <div id="ki-capex-chart-title" class="modal-section-title">Формирование вложений и Формирование вложений АПГ</div>
                     <div id="ki-capex-line-chart" class="cash-line-chart capex-cash-style-chart"></div>
-                    <div class="cash-chart-legend" aria-label="Легенда графика капитальных вложений">
-                        <span><i class="cash-chart-dot" style="background:#2563EB"></i>ОбД 08</span>
-                        <span><i class="cash-chart-dot" style="background:#059669"></i>ОбК 08</span>
-                        <span><i class="cash-chart-dot" style="background:rgba(34,197,94,.2)"></i>Интервал оборотов</span>
-                        <span><i class="cash-chart-dot" style="background:#111827"></i>СКд 08</span>
-                        <span><i class="cash-chart-dot" style="background:#DB2777"></i>ОбД 08 АПГ</span>
-                    </div>
+                    <div id="ki-capex-chart-legend" class="cash-chart-legend"
+                         aria-label="Легенда графика капитальных вложений"></div>
                 </section>
                 <button type="button" class="modal-section-title cash-details-toggle capex-details-toggle"
                         aria-expanded="false" aria-controls="ki-capex-details-panel"
@@ -5366,16 +5366,37 @@
                 <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
         },
 
-        renderCapexLineChart(card) {
-            const current = (card.series || []).map((point, index) => ({
-                ...point,
-                debit_value: point.value,
-                credit_value: ((card.credit_series || [])[index] || {}).value,
-                cumulative_accounts: ['08'],
-                cumulative_missing_accounts: [],
-                cumulative_coverage: 'complete'
-            }));
-            const balance = (card.balance_series || []).map(point => ({
+        renderCapexChartModes(card) {
+            if (!card) return;
+            if (!state.modalChart.capexModes || !state.modalChart.capexModes.size) {
+                state.modalChart.capexModes = new Set(['current', 'apg']);
+            }
+            const selected = state.modalChart.capexModes;
+            const root = document.getElementById('ki-capex-modal-content');
+            if (root && root.querySelectorAll) {
+                root.querySelectorAll('[data-capex-chart-mode]').forEach(tile => {
+                    const active = selected.has(tile.dataset.capexChartMode);
+                    tile.classList.toggle('cash-chart-mode-selected', active);
+                    tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+            }
+            const title = document.getElementById('ki-capex-chart-title');
+            const labels = [];
+            if (selected.has('current')) labels.push('Формирование вложений');
+            if (selected.has('apg')) labels.push('Формирование вложений АПГ');
+            if (title) title.textContent = labels.join(' и ');
+            const legend = document.getElementById('ki-capex-chart-legend');
+            if (legend) {
+                legend.innerHTML = [
+                    selected.has('current')
+                        ? '<span><i class="cash-chart-dot" style="background:#111827"></i>Формирование вложений</span>'
+                        : '',
+                    selected.has('apg')
+                        ? '<span><i class="cash-chart-dot" style="background:#DB2777"></i>Формирование вложений АПГ</span>'
+                        : ''
+                ].join('');
+            }
+            const current = (card.series || []).map(point => ({
                 ...point, accounts: ['08'], missing_accounts: [],
                 coverage: 'complete'
             }));
@@ -5384,7 +5405,27 @@
                 coverage: 'complete'
             }));
             this.renderCashLineChart(
-                current, [], balance, previous, 'ki-capex-line-chart');
+                [], [],
+                selected.has('current') ? current : [],
+                selected.has('apg') ? previous : [],
+                'ki-capex-line-chart');
+        },
+
+        toggleCapexChartMode(mode) {
+            const card = state.data && Array.isArray(state.data.cards)
+                ? state.data.cards.find(item => item.id === 'capex') : null;
+            if (!card || !['current', 'apg'].includes(mode)) return;
+            if (!state.modalChart.capexModes || !state.modalChart.capexModes.size) {
+                state.modalChart.capexModes = new Set(['current', 'apg']);
+            }
+            if (state.modalChart.capexModes.has(mode)) {
+                if (state.modalChart.capexModes.size > 1) {
+                    state.modalChart.capexModes.delete(mode);
+                }
+            } else {
+                state.modalChart.capexModes.add(mode);
+            }
+            this.renderCapexChartModes(card);
         },
 
         cashCoverageText(item) {
@@ -7148,7 +7189,7 @@ renderCashModal(card) {
                 salaryContent.style.display = 'none';
                 capexContent.style.display = 'block';
                 this.renderCapexModal(card);
-                this.renderCapexLineChart(card);
+                this.renderCapexChartModes(card);
             } else {
                 cashContent.style.display = 'none';
                 revenueContent.style.display = 'none';

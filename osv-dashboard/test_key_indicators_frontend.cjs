@@ -364,8 +364,12 @@ async function checkBootstrap(configuration) {
     'capex summary must not show the WIP change metric');
   assert.match(script, /id="ki-capex-line-chart" class="cash-line-chart/,
     'capex modal must use the same chart surface styling as cash');
-  assert.match(script, /renderCapexLineChart\(card\)/,
-    'capex modal must render through the cash-style chart adapter');
+  assert.match(script, /renderCapexChartModes\(card\)/,
+    'capex modal must render selected metrics through the cash-style chart adapter');
+  assert.match(script, /data-capex-chart-mode=/,
+    'capex formation metrics must expose interactive chart controls');
+  assert.match(script, /toggleCapexChartMode\(mode\)/,
+    'capex chart controls must toggle the selected lines');
   assert.match(script, /aria-controls="ki-capex-details-panel"/,
     'capex account details must be collapsible');
   assert.match(script, /<th>ОбД 08 АПГ<\/th>/,
