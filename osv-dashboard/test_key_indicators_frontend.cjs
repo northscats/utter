@@ -370,6 +370,8 @@ async function checkBootstrap(configuration) {
     'capex formation metrics must expose interactive chart controls');
   assert.match(script, /toggleCapexChartMode\(mode\)/,
     'capex chart controls must toggle the selected lines');
+  assert.match(script, /card\.debit_turnover == null, '', '', 'current'/,
+    'capex chart controls must not also bind the generic series selector');
   assert.match(script, /aria-controls="ki-capex-details-panel"/,
     'capex account details must be collapsible');
   assert.match(script, /<th>ОбД 08 АПГ<\/th>/,
