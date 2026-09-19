@@ -5323,15 +5323,13 @@
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Бухгалтерские вложения отделены от исполнения инвестпрограммы.</strong>
                     Дебетовый оборот 08 не называется денежным CAPEX, а сальдо 08 не подтверждает просрочку объекта.</div>
+                <div class="capex-metrics-strip capex-summary">
+                    ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId)}
+                    ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, capexApgId)}
+                    ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
+                </div>
                 <section class="capex-overview ki-modal-dynamics-block" data-layout-key="dynamics"
-                         data-layout-title="Метрики и динамика капитальных вложений">
-                    <div class="capex-metrics-strip capex-summary">
-                        ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId)}
-                        ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, capexApgId)}
-                        ${this.cashMetricCard('Незавершёнка', rub(card.closing_balance), 'конечное дебетовое сальдо 08', wipTip, card.closing_balance == null, capexWipId)}
-                        ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
-                        ${this.cashMetricCard('Изменение незавершёнки', balanceChange == null ? 'Нужны данные' : `${balanceChange >= 0 ? '+' : ''}${rub(balanceChange)}`, 'конец − начало периода', changeTip, balanceChange == null)}
-                    </div>
+                         data-layout-title="Динамика капитальных вложений">
                     <div class="modal-section-title">Динамика капитальных вложений</div>
                     <div id="ki-capex-line-chart" class="cash-line-chart capex-cash-style-chart"></div>
                     <div class="cash-chart-legend" aria-label="Легенда графика капитальных вложений">

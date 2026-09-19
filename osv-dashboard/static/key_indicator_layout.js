@@ -18,6 +18,7 @@
         '.collection-summary',
         '.salary-summary',
         '.cash-summary',
+        '.capex-metrics-strip',
         '.revenue-missing-grid',
         '.collection-missing-grid',
         '.ar-missing-grid',
@@ -268,7 +269,7 @@
         isSummaryParent: function(node) {
             return this.isElement(node) &&
                 (node.matches ? node.matches(SUMMARY_SELECTOR) :
-                    /(^|\s)(cash-summary-grid|cash-metrics-grid|cash-analysis-grid|modal-summary|collection-summary|salary-summary|cash-summary|revenue-missing-grid|collection-missing-grid|ar-missing-grid|cash-missing-grid|profit-missing-grid|credits-missing-grid|salary-missing-grid|capex-missing-grid)(\s|$)/.test(this.classText(node)));
+                    /(^|\s)(cash-summary-grid|cash-metrics-grid|cash-analysis-grid|modal-summary|collection-summary|salary-summary|cash-summary|capex-metrics-strip|revenue-missing-grid|collection-missing-grid|ar-missing-grid|cash-missing-grid|profit-missing-grid|credits-missing-grid|salary-missing-grid|capex-missing-grid)(\s|$)/.test(this.classText(node)));
         },
 
         isAuxiliaryParent: function(node) {
@@ -385,7 +386,9 @@
                         type: 'chart',
                         elements: [root],
                         title: 'Динамика',
-                        defaultPlacement: root.style.display === 'none' ? 'hidden' : 'detail'
+                        defaultPlacement: root.style.display === 'none'
+                            ? 'hidden'
+                            : (cardId === 'capex' ? 'main' : 'detail')
                     });
                     this.anchorAndMove(root);
                     return;

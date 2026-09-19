@@ -352,10 +352,16 @@ async function checkBootstrap(configuration) {
     'cash account details disclosure must update the table visibility');
   assert.match(script, /Формирование вложений АПГ/,
     'capex modal must expose a previous-year metric');
+  assert.match(script, /class="capex-metrics-strip capex-summary"/,
+    'capex metrics must remain separate layout cards');
   assert.match(script, /class="capex-overview ki-modal-dynamics-block" data-layout-key="dynamics"/,
-    'capex metrics and chart must remain one full-width vertical layout block');
-  assert.match(script, /data-layout-title="Метрики и динамика капитальных вложений"/,
-    'capex modal must expose the combined metrics and chart surface');
+    'capex chart must remain a separate full-width layout item');
+  assert.match(script, /data-layout-title="Динамика капитальных вложений"/,
+    'capex modal must expose a dedicated chart surface');
+  assert.doesNotMatch(script, /cashMetricCard\('Незавершёнка'/,
+    'capex summary must not show the WIP metric');
+  assert.doesNotMatch(script, /cashMetricCard\('Изменение незавершёнки'/,
+    'capex summary must not show the WIP change metric');
   assert.match(script, /id="ki-capex-line-chart" class="cash-line-chart/,
     'capex modal must use the same chart surface styling as cash');
   assert.match(script, /renderCapexLineChart\(card\)/,
