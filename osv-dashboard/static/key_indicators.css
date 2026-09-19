@@ -505,15 +505,15 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .metric-rich-required { background:#451A03; color:#FDE68A; border-radius:5px; padding:7px 9px; }
 .metric-rich-source { color:#9CA3AF; font-style:italic; font-size:9px; margin-top:9px; }
 .cash-table-scroll {
-  width:100%; overflow-x:auto; border:1px solid #D7DEE8; border-radius:7px;
+  width:100%; overflow-x:auto; margin-bottom:18px;
   background:#fff; box-sizing:border-box;
 }
 .cash-table-scroll:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
-.cash-table { width:100%; min-width:760px; border-collapse:collapse; table-layout:fixed; font-size:11px; color:#172033; }
+.cash-table { width:100%; min-width:760px; border-collapse:collapse; table-layout:fixed; font-size:13px; color:#374151; }
 .cash-table th {
-  background:#173A66; color:#fff; padding:10px 12px; text-align:right;
-  font-size:9px; line-height:1.25; font-weight:800; text-transform:uppercase;
-  letter-spacing:.35px; border-right:1px solid rgba(255,255,255,.16);
+  background:#F3F4F6; color:#4B5563; padding:9px 8px; text-align:right;
+  font-size:11px; line-height:1.25; font-weight:800; text-transform:uppercase;
+  letter-spacing:.5px; border-bottom:2px solid #D1D5DB;
 }
 .cash-table th:nth-child(1) { width:27%; }
 .cash-table th:nth-child(2) { width:16%; }
@@ -523,15 +523,15 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-table th:last-child { border-right:0; }
 .cash-table th:first-child, .cash-table td:first-child { text-align:left; }
 .cash-table td {
-  padding:11px 12px; text-align:right; vertical-align:middle;
-  border-right:1px solid #E4E8EF; border-bottom:1px solid #E4E8EF;
+  padding:9px 8px; text-align:right; vertical-align:middle;
+  border-bottom:1px solid #E5E7EB; color:#374151;
 }
 .cash-table td:last-child { border-right:0; }
-.cash-table tbody tr:not(.cash-total-row):hover td { background:#F8FAFC; }
+.cash-table tbody tr:not(.cash-total-row):hover td { background:#F9FAFB; }
 .cash-table tbody tr:focus-visible { outline:2px solid #2563EB; outline-offset:-2px; }
-.cash-account-cell strong { display:block; color:#172033; font-size:11px; }
+.cash-account-cell strong { display:block; color:#172033; font-size:13px; }
 .cash-account-name {
-  display:block; margin-top:2px; color:#64748B; font-size:10px;
+  display:block; margin-top:2px; color:#64748B; font-size:11px;
 }
 .cash-number-cell, .cash-share-value {
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
