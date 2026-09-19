@@ -538,6 +538,25 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(capex['value'], 25)
         self.assertEqual(capex['delta']['value'], 15)
 
+    def test_capex_includes_previous_year_value_and_series(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2025-01-31', obd=12, obk=2, skd=20),
+                day('2026-01-31', obd=30, obk=5, skd=45),
+            ], top=dict(snd=20, snk=0, obd=30, obk=5, skd=45, skk=0)),
+        })
+        capex = {item['id']: item for item in
+                 build_key_indicators(src)['cards']}['capex']
+        self.assertEqual(capex['previous_year_value'], 12)
+        self.assertEqual(capex['previous_year_period'], {
+            'start': '2025-01-01', 'end': '2025-01-31'})
+        self.assertEqual(capex['previous_year_series'][-1]['value'], 12)
+        apg = next(
+            item for item in capex['details']
+            if item['label'] == 'Дебетовый оборот 08 АПГ')
+        self.assertEqual(apg['value'], 12)
+        self.assertEqual(apg['series'][-1]['value'], 12)
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({

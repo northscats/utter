@@ -5164,6 +5164,8 @@
             if (!container) return;
             const req = this.capexRequirements();
             const capexMainId = metricSeriesIdForItem(card, card);
+            const capexApgId = metricSeriesIdForLabel(
+                card, 'details', 'Дебетовый оборот 08 АПГ');
             const capexWipId = metricSeriesIdForLabel(card, 'details', 'Дебетовое сальдо 08');
             const capexCreditId = metricSeriesIdForLabel(card, 'details', 'Кредитовый оборот 08');
             const rub = value => value === null || value === undefined
@@ -5184,6 +5186,14 @@
                 'ОбД(08) за выбранный период', card.debit_turnover,
                 'Показатель отражает бухгалтерское формирование стоимости. Он не доказывает оплату, включение в инвестпрограмму или принятие РЭК.',
                 `${req.balances} Для факта инвестпрограммы: ${req.fact}`);
+            const previousYearPeriod = card.previous_year_period || {};
+            const previousYearPeriodText = previousYearPeriod.start && previousYearPeriod.end
+                ? `${previousYearPeriod.start} — ${previousYearPeriod.end}` : 'тот же период прошлого года';
+            const apgTip = tip(
+                'Формирование капитальных вложений АПГ',
+                'ОбД(08) за тот же период прошлого года', card.previous_year_value,
+                'АПГ сравнивает дебетовый оборот счёта 08 за сопоставимый календарный период. Это не денежный CAPEX и не подтверждённый ввод.',
+                req.balances);
             const wipTip = tip(
                 'Бухгалтерская незавершёнка',
                 'max(СКд(08) − СКк(08), 0)', card.closing_balance,
@@ -5255,6 +5265,7 @@
             const debitSeries = card.series || [];
             const creditSeries = card.credit_series || [];
             const balanceSeries = card.balance_series || [];
+            const previousYearSeries = card.previous_year_series || [];
             const dynamics = debitSeries.length
                 ? debitSeries.map((item, index) => {
                     const dynTip = this.capexTooltip({
@@ -5270,6 +5281,7 @@
                     return `<tr>
                         ${this.collectionCell(esc(item.label), dynTip)}
                         ${this.collectionCell(esc(rub(item.value)), dynTip, item.value == null ? 'cash-value-missing' : '')}
+                        ${this.collectionCell(esc(rub((previousYearSeries[index] || {}).value)), apgTip, (previousYearSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
                         ${this.collectionCell(esc(rub((creditSeries[index] || {}).value)), dynTip, (creditSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
                         ${this.collectionCell(esc(rub((balanceSeries[index] || {}).value)), dynTip, (balanceSeries[index] || {}).value == null ? 'cash-value-missing' : '')}
                         ${this.collectionCell('Нужны данные', this.capexTooltip({
@@ -5282,7 +5294,7 @@
                         }), 'cash-value-missing')}
                     </tr>`;
                 }).join('')
-                : '<tr><td colspan="5" class="chart-empty">Нет точной дневной серии счёта 08.</td></tr>';
+                : '<tr><td colspan="6" class="chart-empty">Нет точной периодной серии счёта 08.</td></tr>';
 
             const unavailable = [
                 ['План инвестпрограммы', 'утверждённый план на отчётную дату', req.program],
@@ -5311,21 +5323,34 @@
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Бухгалтерские вложения отделены от исполнения инвестпрограммы.</strong>
                     Дебетовый оборот 08 не называется денежным CAPEX, а сальдо 08 не подтверждает просрочку объекта.</div>
-                <div class="collection-summary capex-summary">
+                <div class="cash-metrics-grid capex-summary">
                     ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, capexMainId)}
+                    ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, capexApgId)}
                     ${this.cashMetricCard('Незавершёнка', rub(card.closing_balance), 'конечное дебетовое сальдо 08', wipTip, card.closing_balance == null, capexWipId)}
                     ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
                     ${this.cashMetricCard('Изменение незавершёнки', balanceChange == null ? 'Нужны данные' : `${balanceChange >= 0 ? '+' : ''}${rub(balanceChange)}`, 'конец − начало периода', changeTip, balanceChange == null)}
                 </div>
-                <div class="modal-section-title">Сводные данные счёта 08</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table capex-account-table">
-                    <thead><tr><th>Счёт</th><th>Начальное сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Конечное сальдо</th></tr></thead>
-                    <tbody>${accountRows}</tbody>
-                </table></div>
-                <div class="collection-table-wrap"><table class="collection-detail-table capex-dynamics-table">
-                    <thead><tr><th>Дата / период</th><th>ОбД 08</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
-                    <tbody>${dynamics}</tbody>
-                </table></div>
+                <section class="ki-modal-dynamics-block" data-layout-key="dynamics"
+                         data-layout-title="Динамика капитальных вложений">
+                    <div class="modal-section-title">Динамика капитальных вложений</div>
+                    <div class="modal-chart-wrap"></div>
+                </section>
+                <button type="button" class="modal-section-title cash-details-toggle capex-details-toggle"
+                        aria-expanded="false" aria-controls="ki-capex-details-panel"
+                        onclick="window.KI_App.toggleCashDetails(this)">
+                    <span>Детализация по счёту 08</span>
+                    <span class="cash-details-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="ki-capex-details-panel" class="capex-details-panel" hidden>
+                    <div class="cash-table-scroll"><table class="cash-table capex-account-table">
+                        <thead><tr><th>Счёт</th><th>Начальное сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th><th>Конечное сальдо</th></tr></thead>
+                        <tbody>${accountRows}</tbody>
+                    </table></div>
+                    <div class="cash-table-scroll"><table class="cash-table capex-dynamics-table">
+                        <thead><tr><th>Дата / период</th><th>ОбД 08</th><th>ОбД 08 АПГ</th><th>ОбК 08</th><th>СКд 08</th><th>План на дату</th></tr></thead>
+                        <tbody>${dynamics}</tbody>
+                    </table></div>
+                </div>
                 <div class="modal-section-title">Фактические аналитики счёта 08</div>
                 <div class="revenue-classification-note">Аналитика становится объектом инвестпрограммы только после явного сопоставления со справочником объектов и утверждённой версией программы.</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table capex-analytics-table">
@@ -6623,7 +6648,8 @@ renderCashModal(card) {
         },
 
         toggleCashDetails(button) {
-            const table = document.getElementById('ki-cash-details-table');
+            const targetId = button && button.getAttribute('aria-controls');
+            const table = targetId && document.getElementById(targetId);
             if (!button || !table) return;
             const expanded = button.getAttribute('aria-expanded') === 'true';
             button.setAttribute('aria-expanded', String(!expanded));

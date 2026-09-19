@@ -350,6 +350,14 @@ async function checkBootstrap(configuration) {
     'cash account details must start collapsed and expose its controlled table');
   assert.match(script, /toggleCashDetails\(button\)/,
     'cash account details disclosure must update the table visibility');
+  assert.match(script, /Формирование вложений АПГ/,
+    'capex modal must expose a previous-year metric');
+  assert.match(script, /data-layout-title="Динамика капитальных вложений"/,
+    'capex modal must expose the shared interactive chart surface');
+  assert.match(script, /aria-controls="ki-capex-details-panel"/,
+    'capex account details must be collapsible');
+  assert.match(script, /<th>ОбД 08 АПГ<\/th>/,
+    'capex detail table must compare the current turnover with APG');
   assert.match(script, /<th>Группа<\/th>/,
     'the former Segment table must be labeled Group');
   assert.match(script, /Сумма с НДС, млн ₽/,

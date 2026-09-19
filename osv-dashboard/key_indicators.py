@@ -3074,6 +3074,9 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               analytics=capex_analytics,
               credit_series=[],
               balance_series=[],
+               previous_year_series=[],
+               previous_year_value=None,
+               previous_year_period=None,
               notes=[
                   'Дебетовый оборот 08 отражает формирование капитальных вложений, но не полный денежный поток.',
                   'Дебетовое сальдо 08 — бухгалтерская незавершёнка; оно не подтверждает возраст или просрочку объекта.',
@@ -3081,14 +3084,14 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               details=[{'label': 'План инвестпрограммы', 'value': None, 'unit': 'RUB',
                         'reason': 'План отсутствует в ОСВ'}]),
     ]
-    try:
-        previous_year_start = start.replace(year=start.year - 1)
-    except ValueError:
-        previous_year_start = start.replace(year=start.year - 1, day=28)
-    try:
-        previous_year_end = end.replace(year=end.year - 1)
-    except ValueError:
-        previous_year_end = end.replace(year=end.year - 1, day=28)
+    def previous_year_date(value):
+        try:
+            return value.replace(year=value.year - 1)
+        except ValueError:
+            return value.replace(year=value.year - 1, day=28)
+
+    previous_year_start = previous_year_date(start)
+    previous_year_end = previous_year_date(end)
     previous_year_pl = _pl_facts(
         source, previous_year_start, previous_year_end)
     previous_year_value = previous_year_pl['revenue']
@@ -3114,6 +3117,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'end': previous_year_end.isoformat(),
         }
     card_map = {c['id']: c for c in cards}
+    previous_year_capex = _account_turnovers(
+        source, '08', previous_year_start, previous_year_end)['debit']
+    card_map['capex']['previous_year_value'] = previous_year_capex
+    card_map['capex']['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
     previous_year_collection = _collection_components(
         source, previous_year_start, previous_year_end)
     previous_year_linked_collection = _consumer_collection(
@@ -3407,6 +3417,10 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'value': month_pretax})
         month_capex_turnovers = _account_turnovers(
             source, '08', month_start, month_end)
+        previous_month_start = previous_year_date(month_start)
+        previous_month_end = previous_year_date(month_end)
+        previous_month_capex = _account_turnovers(
+            source, '08', previous_month_start, previous_month_end)['debit']
         month_values['capex'] = month_capex_turnovers['debit']
         card_map['capex']['credit_series'].append({
             'date': point_date, 'label': option['label'],
@@ -3414,6 +3428,15 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['capex']['balance_series'].append({
             'date': point_date, 'label': option['label'],
             'value': _top_balance(source, '08', month_end)[0]})
+        card_map['capex']['previous_year_series'].append({
+            'date': point_date,
+            'source_date': previous_month_end.isoformat(),
+            'label': f'{option["label"]} · АПГ',
+            'value': previous_month_capex,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
         month_collection = _collection_components(
             source, month_start, month_end)
         month_values['collection'] = month_collection['value']
@@ -3616,18 +3639,21 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'RUB')
 
         capex_details = card_map['capex'].setdefault('details', [])
-        if not capex_details:
-            capex_details.extend([
-                {'label': 'Дебетовый оборот 08',
-                 'value': month_capex_turnovers['debit']},
-                {'label': 'Кредитовый оборот 08',
-                 'value': month_capex_turnovers['credit']},
-                {'label': 'Дебетовое сальдо 08',
-                 'value': _top_balance(source, '08', month_end)[0]},
-            ])
+        capex_detail_defaults = [
+            {'label': 'Дебетовый оборот 08', 'value': capex_turnovers['debit']},
+            {'label': 'Дебетовый оборот 08 АПГ', 'value': previous_year_capex},
+            {'label': 'Кредитовый оборот 08', 'value': capex_turnovers['credit']},
+            {'label': 'Дебетовое сальдо 08', 'value': capex_closing},
+        ]
+        existing_capex_labels = {
+            item.get('label') for item in capex_details if item}
+        capex_details.extend(
+            item for item in capex_detail_defaults
+            if item['label'] not in existing_capex_labels)
         append_component_series(
             capex_details,
             {'Дебетовый оборот 08': month_capex_turnovers['debit'],
+             'Дебетовый оборот 08 АПГ': previous_month_capex,
              'Кредитовый оборот 08': month_capex_turnovers['credit'],
              'Дебетовое сальдо 08': _top_balance(
                  source, '08', month_end)[0]},

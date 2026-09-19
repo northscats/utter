@@ -510,6 +510,11 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   box-sizing:border-box;
 }
 .cash-table-scroll[hidden] { display:none; }
+.capex-details-panel[hidden] { display:none; }
+.capex-details-panel { margin-bottom:18px; }
+.capex-details-panel .cash-table-scroll { margin-bottom:12px; }
+.capex-dynamics-table { min-width:920px; }
+.capex-dynamics-table th { width:auto !important; }
 .cash-details-toggle {
   display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px;
   margin-bottom:12px; padding:9px 0; border:0; border-bottom:1px solid #E5E7EB;
