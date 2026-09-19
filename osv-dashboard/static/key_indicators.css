@@ -506,15 +506,18 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .metric-rich-source { color:#9CA3AF; font-style:italic; font-size:9px; margin-top:9px; }
 .cash-table-scroll {
   width:100%; overflow-x:auto; margin-bottom:18px;
-  background:#fff; box-sizing:border-box;
+  background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(15,23,42,.14);
+  box-sizing:border-box;
 }
 .cash-table-scroll:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
 .cash-table { width:100%; min-width:760px; border-collapse:collapse; table-layout:fixed; font-size:13px; color:#374151; }
 .cash-table th {
-  background:#F3F4F6; color:#4B5563; padding:9px 8px; text-align:right;
+  background:#312E91; color:#fff; padding:12px 10px; text-align:right;
   font-size:11px; line-height:1.25; font-weight:800; text-transform:uppercase;
-  letter-spacing:.5px; border-bottom:2px solid #D1D5DB;
+  letter-spacing:.5px; border-bottom:0;
 }
+.cash-table th:first-child { border-radius:8px 0 0 0; }
+.cash-table th:last-child { border-radius:0 8px 0 0; }
 .cash-table th:nth-child(1) { width:27%; }
 .cash-table th:nth-child(2) { width:16%; }
 .cash-table th:nth-child(3) { width:16%; }
@@ -523,7 +526,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-table th:last-child { border-right:0; }
 .cash-table th:first-child, .cash-table td:first-child { text-align:left; }
 .cash-table td {
-  padding:9px 8px; text-align:right; vertical-align:middle;
+  padding:11px 10px; text-align:right; vertical-align:middle;
   border-bottom:1px solid #E5E7EB; color:#374151;
 }
 .cash-table td:last-child { border-right:0; }
