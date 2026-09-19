@@ -476,7 +476,7 @@ class LimitsRouteTests(unittest.TestCase):
                 now=now + timedelta(hours=3),
                 alert_after_seconds=0))
 
-    def test_long_max_failure_banner_is_admin_only(self):
+    def test_long_max_failure_banner_is_not_shown_in_workspace(self):
         with app.app_context():
             Setting.set('limits_max_token', 'encrypted')
             Setting.set('limits_max_group_chat_id', '-123')
@@ -489,8 +489,8 @@ class LimitsRouteTests(unittest.TestCase):
         app.config['LIMITS_MAX_ALERT_AFTER_SECONDS'] = 0
         try:
             admin_page = self.client(1).get('/modules').get_data(as_text=True)
-            self.assertIn('MAX долго не подключён', admin_page)
-            self.assertIn('2026-09-17T10:00:00+00:00', admin_page)
+            self.assertNotIn('MAX долго не подключён', admin_page)
+            self.assertNotIn('2026-09-17T10:00:00+00:00', admin_page)
             self.assertNotIn('limits_max_token', admin_page)
             viewer_page = self.client(2).get('/modules').get_data(as_text=True)
             self.assertNotIn('MAX долго не подключён', viewer_page)
