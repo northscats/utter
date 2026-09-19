@@ -344,6 +344,12 @@ async function checkBootstrap(configuration) {
   app.cancelPeriodPicker();
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
     'negative cash balance changes must use the carrot color class');
+  assert.match(script, /class="modal-section-title cash-details-toggle"/,
+    'cash account details must have a clickable disclosure control');
+  assert.match(script, /aria-expanded="false" aria-controls="ki-cash-details-table"/,
+    'cash account details must start collapsed and expose its controlled table');
+  assert.match(script, /toggleCashDetails\(button\)/,
+    'cash account details disclosure must update the table visibility');
   assert.match(script, /<th>Группа<\/th>/,
     'the former Segment table must be labeled Group');
   assert.match(script, /Сумма с НДС, млн ₽/,

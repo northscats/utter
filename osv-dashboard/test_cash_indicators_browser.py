@@ -204,6 +204,13 @@ def main():
                 expect(page.locator('#ki-modal')).to_be_visible()
                 expect(page.locator('#ki-modal-title')).to_contain_text(
                     'Ликвидность и денежные средства')
+                toggle = page.locator('.cash-details-toggle')
+                table = page.locator('#ki-cash-details-table')
+                expect(toggle).to_have_attribute('aria-expanded', 'false')
+                expect(table).to_be_hidden()
+                toggle.click()
+                expect(toggle).to_have_attribute('aria-expanded', 'true')
+                expect(table).to_be_visible()
                 expect(page.locator('.cash-table tbody tr')).to_have_count(5)
 
             open_cash(card(['50', '51', '52', '55']))

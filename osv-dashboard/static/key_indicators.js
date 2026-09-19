@@ -6588,8 +6588,14 @@ renderCashModal(card) {
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
                         <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>
                 </div>
-                <div class="modal-section-title">Детализация по счетам денежных средств</div>
-                <div class="cash-table-scroll" tabindex="0" role="region" aria-label="Детализация по счетам денежных средств"><table class="cash-table">
+                <button type="button" class="modal-section-title cash-details-toggle"
+                        aria-expanded="false" aria-controls="ki-cash-details-table"
+                        onclick="window.KI_App.toggleCashDetails(this)">
+                    <span>Детализация по счетам денежных средств</span>
+                    <span class="cash-details-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="ki-cash-details-table" class="cash-table-scroll" tabindex="0" role="region"
+                     aria-label="Детализация по счетам денежных средств" hidden><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
                     <tbody>${rows}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(cashFormatted.val)}</span> <span class="cash-number-unit">${esc(cashFormatted.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span>${total ? '<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:100%"></span></span>' : ''}${card.coverage === 'partial' ? '<span class="cash-coverage-note">Частичный охват</span>' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
@@ -6614,6 +6620,14 @@ renderCashModal(card) {
                     ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelData, true)}
                 </div>
                 `;
+        },
+
+        toggleCashDetails(button) {
+            const table = document.getElementById('ki-cash-details-table');
+            if (!button || !table) return;
+            const expanded = button.getAttribute('aria-expanded') === 'true';
+            button.setAttribute('aria-expanded', String(!expanded));
+            table.hidden = expanded;
         },
 
         renderCashChartModes(card) {

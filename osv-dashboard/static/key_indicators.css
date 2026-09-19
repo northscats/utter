@@ -509,6 +509,18 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(15,23,42,.14);
   box-sizing:border-box;
 }
+.cash-table-scroll[hidden] { display:none; }
+.cash-details-toggle {
+  display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px;
+  margin-bottom:12px; padding:9px 0; border:0; border-bottom:1px solid #E5E7EB;
+  background:transparent; color:#374151; cursor:pointer; text-align:left;
+}
+.cash-details-toggle:hover { color:#312E91; }
+.cash-details-toggle:focus-visible { outline:2px solid #2563EB; outline-offset:3px; }
+.cash-details-chevron {
+  color:#312E91; font-size:22px; line-height:1; transition:transform .18s ease;
+}
+.cash-details-toggle[aria-expanded="true"] .cash-details-chevron { transform:rotate(180deg); }
 .cash-table-scroll:focus-visible { outline:2px solid #2563EB; outline-offset:2px; }
 .cash-table { width:100%; min-width:760px; border-collapse:collapse; table-layout:fixed; font-size:13px; color:#374151; }
 .cash-table th {
