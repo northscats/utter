@@ -118,7 +118,9 @@ class AnalogRoutesTest(unittest.TestCase):
             f"/analog-search/import/{preview['import_id']}/confirm",
             data={}, follow_redirects=False)
         self.assertEqual(confirmed.status_code, 302)
-        self.assertEqual(confirmed.headers['Location'], '/analog-search/simple')
+        self.assertEqual(
+            confirmed.headers['Location'],
+            '/analog-search/simple?view=base')
 
         duplicate = self.client.post(
             '/analog-search/import/preview',
@@ -178,6 +180,31 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertEqual(payload['total'], before + 4)
         self.assertEqual(len(payload['items']), 2)
         self.assertTrue(all(item['good'] for item in payload['items']))
+
+    def test_ui_search_accepts_gcal_and_excludes_over_ten_percent(self):
+        with app.app_context():
+            db.session.add_all([
+                AnalogPassport(
+                    title='gcal-inside', capacity_kw=Decimal('1163'),
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title='gcal-boundary', capacity_kw=Decimal('1279.3'),
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title='gcal-outside', capacity_kw=Decimal('1280'),
+                    object_type='котельная', created_by=self.admin_id),
+            ])
+            db.session.commit()
+        response = self.client.get(
+            '/analog-search/simple',
+            query_string={'view': 'search', 'capacity_value': '1',
+                          'capacity_unit': 'gcal_h',
+                          'q': 'gcal-'})
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('gcal-inside', html)
+        self.assertIn('gcal-boundary', html)
+        self.assertNotIn('gcal-outside', html)
 
     def test_thousand_records_are_paginated_by_db(self):
         with app.app_context():
@@ -257,7 +284,7 @@ class AnalogRoutesTest(unittest.TestCase):
                          r'/analog-search/imports/\d+/preview$')
         response = self.client.get(preview_url)
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Загрузить данные в общую таблицу аналогов',
+        self.assertIn('Загрузить объект в базу данных',
                       response.get_data(as_text=True))
         html = response.get_data(as_text=True)
         self.assertIn('analog-preview-page', html)
@@ -369,7 +396,7 @@ class AnalogRoutesTest(unittest.TestCase):
             db.session.commit()
             passport_id = passport.id
 
-        page = self.client.get('/analog-search/simple')
+        page = self.client.get('/analog-search/simple?view=base')
         html = page.get_data(as_text=True)
         self.assertIn('Аналог для удаления', html)
         self.assertIn(
@@ -476,7 +503,7 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertEqual(payload['diagnostics'][0]['code'], 'malformed_xml')
 
     def test_import_form_has_upload_and_processing_states(self):
-        page = self.client.get('/analog-search/simple')
+        page = self.client.get('/analog-search/simple?view=base')
         html = page.get_data(as_text=True)
         self.assertIn('analog-import-progress', html)
         self.assertIn('xhr.upload.onprogress', html)

@@ -23,8 +23,12 @@ from database import (AnalogClimateReference, AnalogCostIndexReference,
 
 
 analog_bp = Blueprint('analog', __name__, url_prefix='/analog-search')
-OBJECT_TYPES = ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть')
+OBJECT_TYPES = ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть', 'Сети')
 WORK_TYPES = ('строительство', 'капитальный ремонт', 'реконструкция')
+CAPACITY_UNITS = {
+    'mw': Decimal('1000'),
+    'gcal_h': Decimal('1163'),
+}
 ANALOG_STORAGE = os.path.join(os.path.dirname(__file__), 'uploads', '0',
                               'analog_sources')
 
@@ -202,6 +206,30 @@ def _result_row(passport, query_capacity=None):
             'adjusted_cost': (str(next((v.adjusted_cost for v in passport.versions
                                         if v.id == passport.current_version_id), None) or '')
                               )}
+
+
+def _capacity_kw_from_args(args):
+    """Normalize the search value to kW while retaining old API compatibility."""
+    raw = args.get('capacity_value', '').strip()
+    if not raw:
+        raw = args.get('capacity_kw', '').strip()
+        unit = 'kw'
+    else:
+        unit = args.get('capacity_unit', 'mw').strip().lower()
+    if not raw:
+        return None
+    try:
+        value = Decimal(raw.replace(',', '.'))
+        if value <= 0:
+            raise ValueError
+    except (InvalidOperation, TypeError, ValueError):
+        abort(400, description='Мощность должна быть положительным числом')
+    if unit == 'kw':
+        return value
+    factor = CAPACITY_UNITS.get(unit)
+    if factor is None:
+        abort(400, description='Поддерживаются единицы мощности Гкал/ч и МВт')
+    return value * factor
 
 
 def _advanced_score(passport, criteria):
@@ -403,7 +431,12 @@ def _simple_query(args, capacity=None):
     for field in ('object_type', 'work_type'):
         value = args.get(field, '').strip()
         if value:
-            query = query.filter(getattr(AnalogPassport, field) == value)
+            if field == 'object_type' and value.lower() in (
+                    'сети', 'тепловая сеть'):
+                query = query.filter(func.lower(AnalogPassport.object_type).in_(
+                    ('сети', 'тепловая сеть')))
+            else:
+                query = query.filter(getattr(AnalogPassport, field) == value)
     exact_climate = args.get('climate_zone', '').strip().upper()
     climate_region = args.get('climate_region', '').strip().upper()
     if exact_climate:
@@ -437,33 +470,36 @@ def index():
 @analog_bp.get('/simple')
 @login_required
 def simple_search():
+    view = request.args.get('view', 'search')
+    if view not in ('search', 'base'):
+        view = 'search'
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
-    capacity = request.args.get('capacity_kw', type=str)
-    if capacity:
-        try:
-            wanted = Decimal(str(capacity))
-            if wanted <= 0:
-                raise ValueError
-        except (InvalidOperation, TypeError, ValueError):
-            abort(400, description='Мощность должна быть положительным числом')
+    capacity = _capacity_kw_from_args(request.args)
     query, group, deviation = _simple_query(request.args, capacity)
-    ordering = ((group.asc(), deviation.asc(), AnalogPassport.id.asc())
-                if group is not None else (AnalogPassport.id.asc(),))
+    title = request.args.get('title', '').strip()
+    address = request.args.get('address', '').strip()
+    if title:
+        query = query.filter(AnalogPassport.title.ilike(f'%{title}%'))
+    if address:
+        query = query.filter(AnalogPassport.address.ilike(f'%{address}%'))
+    if view == 'search' and deviation is not None:
+        query = query.filter(deviation <= Decimal('0.10'))
+    ordering = ((deviation.asc(), AnalogPassport.id.asc())
+                if deviation is not None else
+                (func.lower(AnalogPassport.title).asc(), AnalogPassport.id.asc()))
     pagination = query.order_by(*ordering).paginate(
                                     page=page, per_page=per_page, error_out=False)
     rows = [_result_row(p, capacity) for p in pagination.items]
     if request.args.get('format') == 'json':
         return jsonify(items=rows, page=page, per_page=per_page,
                        total=pagination.total, pages=pagination.pages,
-                       good=(query.filter(deviation <= Decimal('0.10')).count()
-                             if deviation is not None else pagination.total))
-    return render_template('analog_search.html', rows=rows, good_rows=[r for r in rows if r['good']],
-                           poor_rows=[r for r in rows if not r['good']],
-                           good_count=(query.filter(deviation <= Decimal('0.10')).count()
-                                       if deviation is not None else pagination.total),
+                        good=pagination.total)
+    return render_template('analog_search.html', rows=rows, good_rows=rows,
+                            poor_rows=[], good_count=pagination.total,
                            pagination=pagination,
-                           object_types=OBJECT_TYPES, work_types=WORK_TYPES)
+                            object_types=OBJECT_TYPES, work_types=WORK_TYPES,
+                            current_view=view)
 
 
 @analog_bp.get('/api/search')
@@ -471,27 +507,20 @@ def simple_search():
 def search_api():
     # The same indexed query as the UI, with stable pagination and ranking.
     args = request.args
-    capacity = args.get('capacity_kw', type=str)
+    capacity = _capacity_kw_from_args(args)
     page = max(args.get('page', 1, type=int), 1)
     per_page = min(max(args.get('per_page', 25, type=int), 1), 100)
-    if capacity:
-        try:
-            wanted = Decimal(str(capacity))
-            if wanted <= 0:
-                raise ValueError
-        except (InvalidOperation, TypeError, ValueError):
-            abort(400, description='Мощность должна быть положительным числом')
     query, group, deviation = _simple_query(args, capacity)
     if capacity:
-        query = query.order_by(group.asc(), deviation.asc(), AnalogPassport.id.asc())
+        query = query.order_by(group.asc(), deviation.asc(),
+                               AnalogPassport.id.asc())
     else:
         query = query.order_by(AnalogPassport.id.asc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     rows = [_result_row(p, capacity) for p in pagination.items]
     return jsonify(items=rows, page=page, per_page=per_page,
                    total=pagination.total,
-                   good=query.filter(deviation <= Decimal('0.10')).count()
-                   if deviation is not None else pagination.total)
+                   good=sum(1 for row in rows if row['good']))
 
 
 @analog_bp.post('/import/preview')
@@ -514,6 +543,13 @@ def import_preview():
             source_hash=source_hash, ssr_hash=ssr_hash).first()
         if existing:
             return _duplicate_import_response(existing, pair)
+        conclusion_number = pair.get('conclusion', {}).get('conclusion_number')
+        if not requested_target and conclusion_number:
+            existing_identity = AnalogPassportVersion.query.filter_by(
+                conclusion_number=conclusion_number).order_by(
+                    AnalogPassportVersion.id.desc()).first()
+            if existing_identity:
+                requested_target = existing_identity.passport_id
         conclusion_path = _persist_raw(source_hash, 'conclusion.xml', conclusion)
         ssr_path = _persist_raw(ssr_hash, 'summary.gge', ssr)
         row = AnalogImport(source_hash=source_hash, ssr_hash=ssr_hash,
@@ -566,8 +602,13 @@ def import_preview_detail(import_id):
                       'info')
                 return redirect(url_for('analog.simple_search'))
         abort(410, description='Предпросмотр больше не доступен')
+    duplicate_passport = (
+        db.session.get(AnalogPassport, row.target_passport_id)
+        if row.target_passport_id else None
+    )
     return render_template('analog_preview.html', pair=row.preview,
-                           import_id=row.id, diagnostics=row.diagnostics)
+                           import_id=row.id, diagnostics=row.diagnostics,
+                           duplicate_passport=duplicate_passport)
 @analog_bp.post('/import/<int:import_id>/confirm')
 @analog_bp.post('/imports/<int:import_id>/confirm')
 @analog_bp.post('/api/import/<int:import_id>/confirm')
@@ -580,7 +621,7 @@ def import_confirm(import_id):
         version = AnalogPassportVersion.query.filter_by(
             source_hash=row.source_hash, ssr_hash=row.ssr_hash).first()
         if not request.is_json and version:
-            return redirect(url_for('analog.simple_search'))
+            return redirect(url_for('analog.simple_search', view='base'))
         return jsonify(status='duplicate', passport_id=version.passport_id if version else None)
     preview = row.preview
     diagnostics = row.diagnostics
@@ -748,7 +789,7 @@ def import_confirm(import_id):
                                 ip=request.remote_addr))
         db.session.commit()
         if not request.is_json:
-            return redirect(url_for('analog.simple_search'))
+            return redirect(url_for('analog.simple_search', view='base'))
         return jsonify(status='confirmed', passport_id=passport.id,
                        version_id=version.id)
     except Exception:

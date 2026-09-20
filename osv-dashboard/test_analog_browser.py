@@ -37,8 +37,15 @@ def main():
     marker = uuid.uuid4().hex
     user_id = None
     app.config['TESTING'] = True
-    broken = Path(tempfile.mkdtemp(prefix='analog_browser_')) / 'broken.xml'
+    temp_dir = Path(tempfile.mkdtemp(prefix='analog_browser_'))
+    broken = temp_dir / 'broken.xml'
     broken.write_text('<broken><xml>', encoding='utf-8')
+    conclusion_upload = temp_dir / conclusion.name
+    ssr_upload = temp_dir / ssr.name
+    conclusion_upload.write_bytes(
+        conclusion.read_bytes() + f'\n<!-- browser-{marker} -->\n'.encode())
+    ssr_upload.write_bytes(
+        ssr.read_bytes() + f'\n<!-- browser-{marker} -->\n'.encode())
     try:
         with app.app_context():
             user = User(username='analog-browser-' + marker,
@@ -63,24 +70,29 @@ def main():
             page = context.new_page()
             page_errors = []
             page.on('pageerror', lambda error: page_errors.append(str(error)))
-            page.goto(origin + '/analog-search', wait_until='networkidle')
-            page.locator('input[name="conclusion"]').set_input_files(str(conclusion))
-            page.locator('input[name="ssr"]').set_input_files(str(ssr))
+            page.goto(origin + '/analog-search/simple?view=base',
+                      wait_until='networkidle')
+            page.get_by_role('button', name='Добавить объект').click()
+            page.locator('input[name="conclusion"]').set_input_files(
+                str(conclusion_upload))
+            page.locator('input[name="ssr"]').set_input_files(str(ssr_upload))
             page.get_by_role('button', name='Предварительный просмотр').click()
             expect(page.locator('#analog-preview-page')).to_be_attached(timeout=60000)
             expect(page.get_by_role('heading',
-                                    name='Проверка пары источников')).to_be_visible()
+                                    name='Предварительный просмотр импорта')).to_be_visible()
             expect(page.get_by_role('button',
-                                    name='Подтвердить импорт')).to_be_visible()
+                                    name='Загрузить объект в базу данных')).to_be_visible()
             assert '/analog-search/imports/' in page.url
             assert page.url.endswith('/preview')
             page.reload(wait_until='networkidle')
             expect(page.get_by_role('heading',
-                                    name='Проверка пары источников')).to_be_visible()
+                                    name='Предварительный просмотр импорта')).to_be_visible()
             expect(page.get_by_role('button',
-                                    name='Подтвердить импорт')).to_be_visible()
+                                    name='Загрузить объект в базу данных')).to_be_visible()
 
-            page.goto(origin + '/analog-search', wait_until='networkidle')
+            page.goto(origin + '/analog-search/simple?view=base',
+                      wait_until='networkidle')
+            page.get_by_role('button', name='Добавить объект').click()
             page.locator('input[name="conclusion"]').set_input_files(str(broken))
             page.locator('input[name="ssr"]').set_input_files(str(ssr))
             page.get_by_role('button', name='Предварительный просмотр').click()
@@ -94,12 +106,28 @@ def main():
     finally:
         with app.app_context():
             if user_id is not None:
+                imports = AnalogImport.query.filter_by(created_by=user_id).all()
+                for item in imports:
+                    for relative_path in (
+                            item.raw_conclusion_path, item.raw_ssr_path):
+                        if not relative_path:
+                            continue
+                        source_file = (Path(__file__).parent / relative_path).resolve()
+                        storage_root = (
+                            Path(__file__).parent / 'uploads' / '0' /
+                            'analog_sources').resolve()
+                        if storage_root in source_file.parents:
+                            source_file.unlink(missing_ok=True)
+                            try:
+                                source_file.parent.rmdir()
+                            except OSError:
+                                pass
                 AnalogImport.query.filter_by(created_by=user_id).delete()
                 user = db.session.get(User, user_id)
                 if user:
                     db.session.delete(user)
                 db.session.commit()
-        shutil.rmtree(broken.parent, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == '__main__':

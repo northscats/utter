@@ -1,157 +1,551 @@
 {% extends "modules.html" %}
 {% block title %}{{ passport.title }}{% endblock %}
+{% block header_actions %}
+<div class="header-actions">
+  <a href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+</div>
+{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('analog.simple_search') }}">← Быстрый поиск</a>
-<h1>{{ passport.title }}</h1>
-<section class="panel passport">
-  {% if current_user.is_admin %}<form method="post" action="{{ url_for('analog.edit', passport_id=passport.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="title" value="{{ passport.title }}"><input name="address" value="{{ passport.address }}">
-    <select id="edit-object-type" name="object_type">{% for value in ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть') %}<option {% if passport.object_type == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select>
-    <input name="climate_zone" value="{{ passport.climate_zone }}" placeholder="Климатическая зона">
-    <input name="climate_subzone" value="{{ passport.climate_subzone }}" placeholder="Климатический подрайон">
-    <input name="cadastral_number" value="{{ passport.cadastral_number }}" placeholder="Кадастровый номер">
-    <input name="natural_conditions" value="{{ passport.natural_conditions }}" placeholder="Природные условия">
-    <input name="construction_object" value="{{ passport.construction_object }}" placeholder="Объект строительства">
-    <input name="work_type" value="{{ passport.work_type }}" placeholder="Вид работ">
-    <input name="capacity_kw" value="{{ passport.capacity_kw or '' }}" placeholder="Мощность, кВт">
-    <div id="edit-network-fields" hidden><input name="network_length_m" placeholder="Длина сети, м"><input name="network_diameter_mm" placeholder="Диаметр, мм"></div>
-    <button class="btn" type="submit">Сохранить изменения</button>
-  </form>
-  <script>
-  (() => { const type = document.getElementById('edit-object-type');
-    const group = document.getElementById('edit-network-fields');
-    const toggle = () => { group.hidden = !(type.value || '').toLowerCase().includes('сеть'); };
-    type.addEventListener('change', toggle); toggle();
-  })();
-  </script>
-  <form method="post" enctype="multipart/form-data" action="{{ url_for('analog.reimport', passport_id=passport.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="passport_id" value="{{ passport.id }}">
-    <input type="file" name="conclusion" accept=".xml" required><input type="file" name="ssr" accept=".gge,.xml" required>
-    <button class="btn" type="submit">Переимпортировать новую версию</button>
-  </form>
-  <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn" type="submit">Архивировать</button></form>{% endif %}
-  <dl><dt>Адрес</dt><dd>{{ passport.address or '—' }}</dd>
-  <dt>Тип</dt><dd>{{ passport.object_type }}</dd>
-  <dt>Климатический район, подрайон</dt><dd><span id="climate-value">{{ climate_details.get('climate_zone') or passport.climate_zone or '—' }}</span>
-    {% if passport.climate_source %}<br><small>{{ passport.climate_source }} · версия {{ passport.climate_reference_version }} от {{ passport.climate_reference_date }}</small>{% endif %}
-    {% if current_user.is_admin %}<br><button type="button" class="btn" id="suggest-climate">Предложить по адресу</button><span id="climate-suggestion"></span>{% endif %}</dd>
-  <dt>Геологические условия</dt><dd>{{ climate_details.get('geological_conditions') or '—' }}</dd>
-  <dt>Ветровой район</dt><dd>{{ climate_details.get('wind_region') or '—' }}</dd>
-  <dt>Снеговой район</dt><dd>{{ climate_details.get('snow_region') or '—' }}</dd>
-  <dt>Сейсмическая активность (баллов)</dt><dd>{{ climate_details.get('seismicity') or '—' }}</dd>
-  <dt>Мощность</dt><dd>{{ capacity_display or '—' }}</dd>
-   <dt>Вид работ</dt><dd>{{ passport.work_type or '—' }}</dd>
-   <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
-   <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd></dl>
-  <h2>Версии и происхождение</h2>
-  <table><tr><th>Версия</th><th>Номер заключения</th><th>Итог ССР</th><th>С коэффициентом</th><th>Происхождение</th></tr>
-  {% for item in passport.versions %}<tr><td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}">{{ item.version_no }}</a></td><td>{{ item.conclusion_number }}</td><td>{{ item.total_cost or '—' }}</td><td>{{ item.adjusted_cost or '—' }}</td><td>{{ item.adjustment_provenance or '—' }}{% if item.adjustment_reference_version %}<br><small>версия {{ item.adjustment_reference_version }} от {{ item.adjustment_reference_date }} · уровень {{ item.adjustment_price_level }}</small>{% endif %}</td></tr>{% endfor %}
-  </table>
-  {% if current_user.is_admin and version %}<form id="cost-adjust-form" method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Коэффициент <input name="factor" type="number" step="any" value="1"></label>
-    <label>Уровень цен <input name="price_level" value="{% if version.price_year %}{{ version.price_year }}/Q{{ version.price_quarter or '' }}{% endif %}"></label>
-    <label>Дата расчёта <input name="calculation_date" type="date"></label>
-    <label>Происхождение <input name="provenance" value="Введено администратором"></label>
-    <input type="hidden" name="reference_version"><input type="hidden" name="confirmed">
-    <button type="button" class="btn" id="suggest-factor">Предложить из справочника</button>
-    <button class="btn">Рассчитать скорректированную стоимость</button><span id="factor-suggestion"></span>
-  </form>
-  <script>
+<div style="margin-bottom: 16px;">
+  <a href="{{ url_for('analog.simple_search', view='base') }}" style="text-decoration: none; color: var(--blue); font-weight: 500;">← Назад к базе</a>
+</div>
+
+<h1 style="margin-bottom: 24px; line-height: 1.3;">{{ passport.title }}</h1>
+
+<div class="tabs js-tabs">
+  <button class="tab active" data-target="brief-tab">Кратко</button>
+  <button class="tab" data-target="detail-tab">Детально</button>
+</div>
+
+<div id="brief-tab" class="tab-content">
+  <div class="panel">
+    <div class="panel-header">Основные сведения</div>
+    <div class="panel-body" style="display: grid; gap: 16px;">
+      <dl>
+        <dt>Адрес</dt><dd>{{ passport.address or '—' }}</dd>
+        <dt>Тип</dt><dd>{{ passport.object_type }}</dd>
+        <dt>Вид работ</dt><dd>{{ passport.work_type or '—' }}</dd>
+        <dt>Мощность</dt><dd>{{ capacity_display or '—' }}</dd>
+        <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
+        <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd>
+        <dt>Геологические условия</dt><dd>{{ climate_details.get('geological_conditions') or '—' }}</dd>
+        <dt>Ветровой район</dt><dd>{{ climate_details.get('wind_region') or '—' }}</dd>
+        <dt>Снеговой район</dt><dd>{{ climate_details.get('snow_region') or '—' }}</dd>
+        <dt>Сейсмическая активность</dt><dd>{{ climate_details.get('seismicity') or '—' }}</dd>
+      </dl>
+      
+      <div style="height: 1px; background: var(--line);"></div>
+      
+      <dl>
+        <dt>Климатический район</dt>
+        <dd>
+          <span id="climate-value" style="font-weight: 600;">{{ climate_details.get('climate_zone') or passport.climate_zone or '—' }}</span>
+          {% if passport.climate_source %}
+            <div style="font-size: 11px; color: var(--mut); font-weight: normal; margin-top: 4px;">{{ passport.climate_source }} (v{{ passport.climate_reference_version }}, {{ passport.climate_reference_date }})</div>
+          {% endif %}
+          {% if current_user.is_admin %}
+            <div style="margin-top: 8px;">
+              <button type="button" class="btn btn-outline" id="suggest-climate" style="height: 24px; font-size: 11px; padding: 0 8px;">Предложить по адресу</button>
+              <span id="climate-suggestion" style="font-size: 12px; margin-left: 8px;"></span>
+            </div>
+          {% endif %}
+        </dd>
+      </dl>
+      
+      {% if version %}
+      <div style="height: 1px; background: var(--line);"></div>
+      <dl>
+        <dt>Текущая стоимость</dt>
+        <dd>
+          <div style="font-size: 18px; font-weight: 700; color: var(--ink);">{{ version.adjusted_cost or version.total_cost or '—' }}</div>
+          <div style="font-size: 12px; color: var(--mut); font-weight: normal; margin-top: 4px;">Уровень цен: {{ version.price_year }} / кв {{ version.price_quarter or '-' }}</div>
+        </dd>
+      </dl>
+      {% endif %}
+    </div>
+  </div>
+
+  <details class="org-details" style="margin-bottom: 20px;">
+    <summary>Застройщик и Технический заказчик</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Роль</th><th>Наименование</th><th>Реквизиты</th></tr></thead>
+        <tbody>
+          {% set has_orgs = false %}
+          {% for item in organizations %}
+            {% if 'застройщик' in item.role|lower or 'заказчик' in item.role|lower
+                  or item.role|lower in ('developer', 'customer') %}
+              {% set has_orgs = true %}
+              <tr>
+                <td>{{ item.role }}</td>
+                <td style="font-weight: 500;">{{ item.name }}</td>
+                <td><div style="font-size: 11px; color: var(--mut); line-height: 1.4;">ИНН {{ item.inn }} / ОГРН {{ item.ogrn }} / КПП {{ item.kpp }}<br>{{ item.email }}<br>{{ item.address }}</div></td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not has_orgs %}
+            <tr><td colspan="3" style="text-align: center; color: var(--mut); padding: 16px;">Данные отсутствуют</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<div id="detail-tab" class="tab-content" hidden>
+  
+  {% if current_user.is_admin %}
+  <details style="border-color: var(--blue);">
+    <summary style="background: #f0f9ff; color: var(--blue);">Администрирование паспорта</summary>
+    <div class="details-body" style="display: grid; gap: 24px;">
+      <form method="post" action="{{ url_for('analog.edit', passport_id=passport.id) }}" style="display: grid; gap: 12px; max-width: 600px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="font-weight: 600;">Редактировать основные поля</div>
+        
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Название</label>
+          <input name="title" value="{{ passport.title }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Адрес</label>
+          <input name="address" value="{{ passport.address }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Тип</label>
+          <select id="edit-object-type" name="object_type" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+            {% for val in ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть') %}<option {% if passport.object_type == val %}selected{% endif %}>{{ val }}</option>{% endfor %}
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Климат (зона/подрайон)</label>
+          <div style="display: flex; gap: 8px;">
+            <input name="climate_zone" value="{{ passport.climate_zone }}" placeholder="Зона" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+            <input name="climate_subzone" value="{{ passport.climate_subzone }}" placeholder="Подрайон" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Кадастровый номер</label>
+          <input name="cadastral_number" value="{{ passport.cadastral_number }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Природные условия</label>
+          <input name="natural_conditions" value="{{ passport.natural_conditions }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Объект строительства</label>
+          <input name="construction_object" value="{{ passport.construction_object }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Вид работ</label>
+          <input name="work_type" value="{{ passport.work_type }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Мощность, кВт</label>
+          <input name="capacity_kw" value="{{ passport.capacity_kw or '' }}" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+        </div>
+        <div id="edit-network-fields" hidden style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px;">
+          <label style="font-size: 12px; color: var(--mut);">Параметры сети</label>
+          <div style="display: flex; gap: 8px;">
+            <input name="network_length_m" placeholder="Длина, м" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+            <input name="network_diameter_mm" placeholder="Диаметр, мм" class="search-row" style="margin:0; height:32px; padding: 0 8px; width: 100%;">
+          </div>
+        </div>
+        <div style="margin-top: 8px;">
+          <button class="btn btn-outline" type="submit">Сохранить изменения</button>
+        </div>
+      </form>
+      
+      <div style="height: 1px; background: var(--line);"></div>
+
+      <div style="display: flex; gap: 32px; flex-wrap: wrap;">
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('analog.reimport', passport_id=passport.id) }}" style="display: grid; gap: 12px;">
+          <div style="font-weight: 600;">Переимпортировать новую версию</div>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="passport_id" value="{{ passport.id }}">
+          <div style="display: grid; gap: 4px;">
+            <label style="font-size: 11px; color: var(--mut);">XML заключения</label>
+            <input type="file" name="conclusion" accept=".xml" required style="font-size: 12px;">
+          </div>
+          <div style="display: grid; gap: 4px;">
+            <label style="font-size: 11px; color: var(--mut);">ССР 3.01 (.gge)</label>
+            <input type="file" name="ssr" accept=".gge,.xml" required style="font-size: 12px;">
+          </div>
+          <button class="btn btn-outline" type="submit" style="width: max-content;">Переимпортировать</button>
+        </form>
+
+        <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}" style="display: grid; gap: 12px; align-content: start;">
+          <div style="font-weight: 600; color: var(--danger);">Опасная зона</div>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-danger" type="submit" style="width: max-content;">Архивировать паспорт</button>
+        </form>
+      </div>
+      
+      <script>
+      (() => { 
+        const type = document.getElementById('edit-object-type');
+        const group = document.getElementById('edit-network-fields');
+        const toggle = () => { group.hidden = !(type.value || '').toLowerCase().includes('сеть'); };
+        if(type) { type.addEventListener('change', toggle); toggle(); }
+      })();
+      </script>
+    </div>
+  </details>
+  {% endif %}
+
+  <details>
+    <summary>Версии и происхождение</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Версия</th><th>Заключение</th><th>Итог ССР</th><th>С коэфф.</th><th>Происхождение</th></tr></thead>
+        <tbody>
+          {% for item in passport.versions %}
+          <tr>
+            <td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}" style="color: var(--blue); font-weight: 500;">{{ item.version_no }}</a></td>
+            <td>{{ item.conclusion_number }}</td>
+            <td>{{ item.total_cost or '—' }}</td>
+            <td>{{ item.adjusted_cost or '—' }}</td>
+            <td>
+              {{ item.adjustment_provenance or '—' }}
+              {% if item.adjustment_reference_version %}
+                <div style="font-size: 11px; color: var(--mut); margin-top: 4px;">v{{ item.adjustment_reference_version }} от {{ item.adjustment_reference_date }} (уровень {{ item.adjustment_price_level }})</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    
+    {% if current_user.is_admin and version %}
+    <div style="padding: 16px; border-top: 1px solid var(--line); background: #f8fafc; border-radius: 0 0 6px 6px;">
+      <form id="cost-adjust-form" method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="display: grid; gap: 4px;">
+          <label style="font-size: 11px; color: var(--mut);">Коэфф.</label>
+          <input name="factor" type="number" step="any" value="1" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 80px;">
+        </div>
+        <div style="display: grid; gap: 4px;">
+          <label style="font-size: 11px; color: var(--mut);">Уровень цен</label>
+          <input name="price_level" value="{% if version.price_year %}{{ version.price_year }}/Q{{ version.price_quarter or '' }}{% endif %}" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 100px;">
+        </div>
+        <div style="display: grid; gap: 4px;">
+          <label style="font-size: 11px; color: var(--mut);">Дата расчёта</label>
+          <input name="calculation_date" type="date" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 130px;">
+        </div>
+        <div style="display: grid; gap: 4px;">
+          <label style="font-size: 11px; color: var(--mut);">Происхождение</label>
+          <input name="provenance" value="Введено администратором" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 180px;">
+        </div>
+        <input type="hidden" name="reference_version"><input type="hidden" name="confirmed">
+        
+        <button type="button" class="btn btn-outline" id="suggest-factor" style="height: 28px;">Справочник</button>
+        <button class="btn btn-primary" style="height: 28px;">Рассчитать</button>
+        <div id="factor-suggestion" style="font-size: 12px; margin-left: 8px; align-self: center;"></div>
+      </form>
+    </div>
+    {% endif %}
+  </details>
+
+  <details>
+    <summary>Организации (Все)</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Роль</th><th>Наименование</th><th>Реквизиты</th></tr></thead>
+        <tbody>
+          {% for item in organizations %}
+          <tr>
+            <td>{{ item.role }}</td>
+            <td style="font-weight: 500;">{{ item.name }}</td>
+            <td><div style="font-size: 11px; color: var(--mut); line-height: 1.4;">ИНН {{ item.inn }} / ОГРН {{ item.ogrn }} / КПП {{ item.kpp }}<br>{{ item.email }}<br>{{ item.address }}</div></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" style="text-align: center; color: var(--mut); padding: 16px;">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>Геология и прочий климат</summary>
+    <div class="details-body">
+      <dl>
+        <dt>Геологические условия</dt><dd>{{ climate_details.get('geological_conditions') or '—' }}</dd>
+        <dt>Ветровой район</dt><dd>{{ climate_details.get('wind_region') or '—' }}</dd>
+        <dt>Снеговой район</dt><dd>{{ climate_details.get('snow_region') or '—' }}</dd>
+        <dt>Сейсмика (баллов)</dt><dd>{{ climate_details.get('seismicity') or '—' }}</dd>
+      </dl>
+    </div>
+  </details>
+
+  <details>
+    <summary>Технико-экономические показатели</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Показатель</th><th>Значение</th><th>Источник</th></tr></thead>
+        <tbody>
+          {% for item in teps %}
+          <tr>
+            <td style="font-weight: 500;">{{ item.name }}</td>
+            <td>{{ item.value }} {{ item.unit }}{% if item.normalized_value %} <span style="color: var(--mut);">({{ item.normalized_value }} {{ item.normalized_unit }})</span>{% endif %}</td>
+            <td style="font-size: 11px; color: var(--mut);">{{ item.provenance }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" style="text-align: center; color: var(--mut); padding: 16px;">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>Документация 3.1.1</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Раздел</th><th>Наименование</th><th>Формат</th><th>Контрольная сумма</th><th>Подпись</th></tr></thead>
+        <tbody>
+          {% for item in documents %}
+          <tr class="{{ item.node_kind }}">
+            <td style="padding-left:{{ 12 + (item.parent_ordinal.count('.') + 1 if item.parent_ordinal else 0) * 18 }}px; font-variant-numeric: tabular-nums;">
+              {{ item.ordinal }}{% if item.parent_ordinal %} <span style="color: var(--mut); font-size: 11px;">(раздел {{ item.parent_ordinal }})</span>{% endif %}
+            </td>
+            <td>
+              {% if item.node_kind == 'section' %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}
+              {% if item.note %}<div style="font-size: 11px; color: var(--mut); margin-top: 2px;">{{ item.note }}</div>{% endif %}
+            </td>
+            <td style="font-size: 11px;">{{ item.file_format }}</td>
+            <td style="font-size: 11px; font-family: monospace; color: var(--mut);">{{ item.checksum }}</td>
+            <td>
+              <div style="font-size: 11px;">{{ item.signature_name }}</div>
+              <div style="font-size: 10px; font-family: monospace; color: var(--mut);">{{ item.signature_checksum }}</div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" style="text-align: center; color: var(--mut); padding: 16px;">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>Таблица 3.2.1</summary>
+    <div class="details-body table-wrap" style="padding: 0;">
+      <table>
+        <thead><tr><th>Строка</th><th>Наименование</th><th>Представление</th><th>Утверждение</th><th>Изменение</th><th>Причина</th></tr></thead>
+        <tbody>
+          {% for item in costs %}
+          <tr>
+            <td style="font-variant-numeric: tabular-nums;">{{ item.ordinal }}</td>
+            <td style="font-weight: 500;">{{ item.name }}</td>
+            <td>{{ item.submitted_cost }}</td>
+            <td>{{ item.approved_cost }}</td>
+            <td>{{ item.change_cost }}</td>
+            <td>
+              <div style="font-size: 11px; color: var(--mut); line-height: 1.4;">{{ item.price_level }} / НДС {{ item.vat }}<br>{{ item.footnote }}<br>{{ item.change_reason }}</div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" style="text-align: center; color: var(--mut); padding: 16px;">Нет данных</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <details>
+    <summary>Сводный сметный расчёт (GGE)</summary>
+    <div class="details-body">
+      {% if version %}
+      <div class="panel" style="margin-bottom: 24px;">
+        <div class="panel-header" style="background: #f8fafc;">Сводка ССР</div>
+        <div class="panel-body">
+          <dl style="margin-bottom: 16px;">
+            <dt>Наименование</dt><dd>{{ gge.get('name') or passport.title }}</dd>
+            <dt>Заказчик</dt><dd>{{ gge.get('customer') or '—' }}</dd>
+            <dt>Дата утверждения</dt><dd>{{ gge.get('approved_date') or version.approval_date or '—' }}</dd>
+            <dt>Формат файла</dt><dd>{{ gge.get('file_type') or 'ССР' }} {{ gge.get('schema_version') or version.schema_version }}</dd>
+            <dt>Программа</dt><dd>{{ gge.get('software_name') or '—' }} {{ gge.get('software_version') or '' }}</dd>
+            <dt>Уровень цен</dt><dd>{{ gge.get('price_year') or version.price_year or '—' }}{% if gge.get('price_month') %}, месяц {{ gge.get('price_month') }}{% elif version.price_quarter %}, квартал {{ version.price_quarter }}{% endif %}</dd>
+          </dl>
+          {% set total = gge.get('summary', {}) %}
+          <div class="table-wrap">
+            <table style="border: 1px solid var(--line);">
+              <thead><tr><th>Строительные работы</th><th>Монтажные работы</th><th>Оборудование</th><th>Прочие затраты</th><th>Всего</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>{{ total.get('building', 0) }}</td>
+                  <td>{{ total.get('mounting', 0) }}</td>
+                  <td>{{ total.get('equipment', 0) }}</td>
+                  <td>{{ total.get('other', 0) }}</td>
+                  <td style="font-weight: 700; color: var(--ink);">{{ total.get('total', version.total_cost) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--mut);">Детальная структура</h3>
+      <div class="gge-browser">
+      {% for chapter in gge_chapters %}
+        <details class="gge-chapter" {% if chapter.get('items') %}open{% endif %} style="margin-bottom: 8px;">
+          <summary style="background: #f8fafc; display: flex; justify-content: space-between;">
+            <strong>Глава {{ chapter.get('number') }}{% if chapter.get('name') and chapter.get('name') != 'Глава ' ~ chapter.get('number') %}: {{ chapter.get('name') }}{% endif %}</strong>
+            <span style="font-weight: 600; color: var(--blue);">Итого: {{ chapter.get('total', 0) }}</span>
+          </summary>
+          <div class="details-body" style="padding: 12px;">
+            <table style="margin-bottom: 12px; border: 1px solid var(--line); font-size: 11px;">
+              <thead><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>{{ chapter.get('building', 0) }}</td>
+                  <td>{{ chapter.get('mounting', 0) }}</td>
+                  <td>{{ chapter.get('equipment', 0) }}</td>
+                  <td>{{ chapter.get('other', 0) }}</td>
+                  <td style="font-weight: 600;">{{ chapter.get('total', 0) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            
+            {% for item in chapter.get('items', []) %}
+            <details class="gge-item" style="margin-bottom: 8px;">
+              <summary style="background: #fff; border: 1px solid var(--line); font-size: 12px; display: flex; justify-content: space-between;">
+                <span>{{ item.get('ordinal') or loop.index }}. {{ item.get('name') or item.get('item_type') }}</span>
+                <strong style="color: var(--blue);">{{ item.get('total', 0) }}</strong>
+              </summary>
+              <div class="details-body" style="padding: 12px;">
+                <dl style="margin-bottom: 12px; font-size: 12px; grid-template-columns: 120px 1fr;">
+                  <dt>Тип</dt><dd>{{ item.get('item_type') }}</dd>
+                  <dt>Обоснование</dt><dd>{{ item.get('reason') or '—' }}</dd>
+                  <dt>Связанный файл</dt><dd>{{ item.get('link') or '—' }}</dd>
+                </dl>
+                <table style="margin-bottom: 12px; border: 1px solid var(--line); font-size: 11px;">
+                  <thead><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>{{ item.get('building', 0) }}</td>
+                      <td>{{ item.get('mounting', 0) }}</td>
+                      <td>{{ item.get('equipment', 0) }}</td>
+                      <td>{{ item.get('other', 0) }}</td>
+                      <td style="font-weight: 600;">{{ item.get('total', 0) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                
+                {% if item.get('details') %}
+                <div class="gge-details" style="display: grid; gap: 8px;">
+                  {% for cost_type, values in item.get('details', {}).items() %}
+                    <details style="margin:0;"><summary style="font-size: 11px; padding: 6px 12px;">{{ cost_type }}</summary>
+                      <div class="details-body" style="padding: 12px; background: #f8fafc; font-size: 11px;">
+                        {% if values is mapping %}
+                          <dl style="grid-template-columns: auto 1fr; gap: 4px 12px;">
+                            {% for key, value in values.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+                          </dl>
+                        {% else %}
+                          <p style="margin:0;">{{ values }}</p>
+                        {% endif %}
+                      </div>
+                    </details>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+            </details>
+            {% else %}
+              <div style="font-size: 12px; color: var(--mut); padding: 8px;">В главе нет позиций.</div>
+            {% endfor %}
+          </div>
+        </details>
+      {% else %}
+        <div style="padding: 16px; text-align: center; color: var(--mut);">Детальная структура GGE недоступна.</div>
+      {% endfor %}
+      </div>
+      
+      <h3 style="font-size: 14px; font-weight: 600; margin: 24px 0 12px; color: var(--mut);">Подписи ССР</h3>
+      <ul style="margin:0; padding: 0 0 0 20px; font-size: 13px; color: var(--mut);">
+        {% for item in signatures %}
+          <li style="margin-bottom: 4px;"><span style="color: var(--ink); font-weight: 500;">{{ item.role }}</span>: {{ item.name }}, {{ item.position }} {{ item.department }}</li>
+        {% else %}
+          <li>Подписи в файле отсутствуют</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </details>
+
+  <details>
+    <summary>Диагностика и происхождение</summary>
+    <div class="details-body">
+      {% for item in diagnostics %}
+        <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.code }}: {{ item.message }}</div>
+      {% else %}
+        <div style="font-size: 13px; color: var(--mut);">Нет сообщений диагностики.</div>
+      {% endfor %}
+      
+      {% if source %}
+        <div style="font-size: 12px; color: var(--mut); margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px;">
+          <strong>Источники:</strong> {{ source.source_filename }} <span style="font-family: monospace;">({{ source.source_hash }})</span>, 
+          {{ source.ssr_filename }} <span style="font-family: monospace;">({{ source.ssr_hash }})</span>.<br>
+          Сырые байты сохранены по защищённым путям.
+        </div>
+      {% endif %}
+    </div>
+  </details>
+</div>
+
+<script>
+  document.querySelectorAll('.js-tabs .tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.js-tabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.hidden = true);
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.target).hidden = false;
+    });
+  });
+
+  {% if current_user.is_admin %}
   (() => {
     const csrf = {{ csrf_token()|tojson }};
     const climateButton = document.getElementById('suggest-climate');
     if (climateButton) climateButton.onclick = async () => {
       const box = document.getElementById('climate-suggestion');
-      const suggestion = await (await fetch({{ url_for('analog.climate_suggestion')|tojson }} + '?address=' + encodeURIComponent({{ passport.address|tojson }}))).json();
-      if (suggestion.status !== 'suggested') { box.textContent = ' ' + suggestion.message; return; }
-      box.innerHTML = ` ${suggestion.climate_zone} ${suggestion.climate_subzone} (${suggestion.source}, ${suggestion.reference_version}) <button type="button">Подтвердить</button>`;
-      box.querySelector('button').onclick = async () => {
-        const result = await fetch({{ url_for('analog.confirm_climate', passport_id=passport.id)|tojson }}, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify({confirmed:true, reference_version:suggestion.reference_version})});
-        if (result.ok) location.reload(); else box.textContent = ' Предложение не сохранено';
-      };
+      box.innerHTML = 'Загрузка...';
+      try {
+        const res = await fetch({{ url_for('analog.climate_suggestion')|tojson }} + '?address=' + encodeURIComponent({{ passport.address|tojson }}));
+        const suggestion = await res.json();
+        if (suggestion.status !== 'suggested') { box.textContent = suggestion.message; return; }
+        box.innerHTML = `<span style="font-weight:600; color:var(--ink);">${suggestion.climate_zone} ${suggestion.climate_subzone}</span> <span style="color:var(--mut);">(${suggestion.source}, v${suggestion.reference_version})</span> <button type="button" class="btn btn-outline" style="height:20px; font-size:10px; padding:0 6px; margin-left:8px;">Применить</button>`;
+        box.querySelector('button').onclick = async () => {
+          const result = await fetch({{ url_for('analog.confirm_climate', passport_id=passport.id)|tojson }}, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body:JSON.stringify({confirmed:true, reference_version:suggestion.reference_version})});
+          if (result.ok) location.reload(); else box.textContent = 'Ошибка сохранения';
+        };
+      } catch (err) { box.textContent = 'Ошибка сети'; }
     };
+
     const form = document.getElementById('cost-adjust-form');
-    document.getElementById('suggest-factor').onclick = async () => {
-      const params = new URLSearchParams({price_level: form.price_level.value, date: form.calculation_date.value});
-      const suggestion = await (await fetch({{ url_for('analog.cost_index_suggestion')|tojson }} + '?' + params)).json();
-      const box = document.getElementById('factor-suggestion');
-      if (suggestion.status !== 'suggested') { box.textContent = ' ' + suggestion.message; return; }
-      form.factor.value = suggestion.factor; form.reference_version.value = suggestion.reference_version;
-      form.confirmed.value = ''; box.innerHTML = ` ${suggestion.factor} (${suggestion.source}, ${suggestion.reference_version}) <button type="button">Подтвердить</button>`;
-      box.querySelector('button').onclick = () => { form.confirmed.value = 'true'; box.textContent += ' — подтверждено'; };
-    };
+    if (form) {
+      document.getElementById('suggest-factor').onclick = async () => {
+        const box = document.getElementById('factor-suggestion');
+        box.innerHTML = 'Загрузка...';
+        try {
+          const params = new URLSearchParams({price_level: form.price_level.value, date: form.calculation_date.value});
+          const res = await fetch({{ url_for('analog.cost_index_suggestion')|tojson }} + '?' + params);
+          const suggestion = await res.json();
+          if (suggestion.status !== 'suggested') { box.textContent = suggestion.message; return; }
+          form.factor.value = suggestion.factor; 
+          form.reference_version.value = suggestion.reference_version;
+          form.confirmed.value = ''; 
+          box.innerHTML = `<span style="font-weight:600; color:var(--ink);">${suggestion.factor}</span> <span style="color:var(--mut);">(${suggestion.source}, v${suggestion.reference_version})</span> <button type="button" class="btn btn-outline" style="height:20px; font-size:10px; padding:0 6px; margin-left:8px;">Подтвердить</button>`;
+          box.querySelector('button').onclick = (e) => { 
+            form.confirmed.value = 'true'; 
+            e.target.textContent = '✓';
+            e.target.disabled = true;
+          };
+        } catch(err) { box.textContent = 'Ошибка сети'; }
+      };
+    }
   })();
-  </script>{% endif %}
-  <h2>Организации</h2>
-  <table><tr><th>Роль</th><th>Наименование</th><th>ИНН/ОГРН</th></tr>
-  {% for item in organizations %}<tr><td>{{ item.role }}</td><td>{{ item.name }}</td><td>ИНН {{ item.inn }} / ОГРН {{ item.ogrn }} / КПП {{ item.kpp }}<br>{{ item.email }}<br>{{ item.address }}</td></tr>{% else %}<tr><td colspan="3">Нет данных</td></tr>{% endfor %}</table>
-  <h2>Технико-экономические показатели</h2>
-  <table><tr><th>Показатель</th><th>Значение</th><th>Источник</th></tr>
-  {% for item in teps %}<tr><td>{{ item.name }}</td><td>{{ item.value }} {{ item.unit }}{% if item.normalized_value %} ({{ item.normalized_value }} {{ item.normalized_unit }}){% endif %}</td><td>{{ item.provenance }}</td></tr>{% else %}<tr><td colspan="3">Нет данных</td></tr>{% endfor %}</table>
-  <h2>Документация 3.1.1</h2>
-  <table><tr><th>Раздел</th><th>Наименование</th><th>Формат</th><th>Контрольная сумма</th><th>Подпись</th></tr>
-  {% for item in documents %}<tr class="{{ item.node_kind }}"><td style="padding-left:{{ 12 + (item.parent_ordinal.count('.') + 1 if item.parent_ordinal else 0) * 18 }}px">{{ item.ordinal }}{% if item.parent_ordinal %} (раздел {{ item.parent_ordinal }}){% endif %}</td><td>{% if item.node_kind == 'section' %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}<br>{{ item.note }}</td><td>{{ item.file_format }}</td><td>{{ item.checksum }}</td><td>{{ item.signature_name }}<br>{{ item.signature_checksum }}</td></tr>{% else %}<tr><td colspan="5">Нет данных</td></tr>{% endfor %}</table>
-  <h2>Таблица 3.2.1</h2>
-  <table><tr><th>Строка</th><th>Наименование</th><th>Представление</th><th>Утверждение</th><th>Изменение</th><th>Причина</th></tr>
-  {% for item in costs %}<tr><td>{{ item.ordinal }}</td><td>{{ item.name }}</td><td>{{ item.submitted_cost }}</td><td>{{ item.approved_cost }}</td><td>{{ item.change_cost }}</td><td>{{ item.price_level }} / НДС {{ item.vat }}<br>{{ item.footnote }}<br>{{ item.change_reason }}</td></tr>{% else %}<tr><td colspan="6">Нет данных</td></tr>{% endfor %}</table>
-  <h2>Сводный сметный расчёт (GGE)</h2>
-  {% if version %}
-  <div class="gge-summary">
-    <dl>
-      <dt>Наименование</dt><dd>{{ gge.get('name') or passport.title }}</dd>
-      <dt>Заказчик</dt><dd>{{ gge.get('customer') or '—' }}</dd>
-      <dt>Дата утверждения</dt><dd>{{ gge.get('approved_date') or version.approval_date or '—' }}</dd>
-      <dt>Формат файла</dt><dd>{{ gge.get('file_type') or 'ССР' }} {{ gge.get('schema_version') or version.schema_version }}</dd>
-      <dt>Программа</dt><dd>{{ gge.get('software_name') or '—' }} {{ gge.get('software_version') or '' }}</dd>
-      <dt>Уровень цен</dt><dd>{{ gge.get('price_year') or version.price_year or '—' }}{% if gge.get('price_month') %}, месяц {{ gge.get('price_month') }}{% elif version.price_quarter %}, квартал {{ version.price_quarter }}{% endif %}</dd>
-    </dl>
-    {% set total = gge.get('summary', {}) %}
-    <table><tr><th>Строительные работы</th><th>Монтажные работы</th><th>Оборудование</th><th>Прочие затраты</th><th>Всего</th></tr>
-      <tr><td>{{ total.get('building', 0) }}</td><td>{{ total.get('mounting', 0) }}</td><td>{{ total.get('equipment', 0) }}</td><td>{{ total.get('other', 0) }}</td><td><strong>{{ total.get('total', version.total_cost) }}</strong></td></tr>
-    </table>
-  </div>
-  <p><small>Нажмите на главу или позицию, чтобы раскрыть подробности.</small></p>
-  <div class="gge-browser">
-  {% for chapter in gge_chapters %}
-    <details class="gge-chapter" {% if chapter.get('items') %}open{% endif %}>
-      <summary><strong>Глава {{ chapter.get('number') }}{% if chapter.get('name') and chapter.get('name') != 'Глава ' ~ chapter.get('number') %}: {{ chapter.get('name') }}{% endif %}</strong>
-        <span>Итого: {{ chapter.get('total', 0) }}</span></summary>
-      <table><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr>
-        <tr><td>{{ chapter.get('building', 0) }}</td><td>{{ chapter.get('mounting', 0) }}</td><td>{{ chapter.get('equipment', 0) }}</td><td>{{ chapter.get('other', 0) }}</td><td>{{ chapter.get('total', 0) }}</td></tr>
-      </table>
-      {% for item in chapter.get('items', []) %}
-      <details class="gge-item">
-        <summary>{{ item.get('ordinal') or loop.index }}. {{ item.get('name') or item.get('item_type') }} — <strong>{{ item.get('total', 0) }}</strong></summary>
-        <dl><dt>Тип</dt><dd>{{ item.get('item_type') }}</dd><dt>Обоснование</dt><dd>{{ item.get('reason') or '—' }}</dd>
-          <dt>Связанный файл</dt><dd>{{ item.get('link') or '—' }}</dd></dl>
-        <table><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr>
-          <tr><td>{{ item.get('building', 0) }}</td><td>{{ item.get('mounting', 0) }}</td><td>{{ item.get('equipment', 0) }}</td><td>{{ item.get('other', 0) }}</td><td>{{ item.get('total', 0) }}</td></tr>
-        </table>
-        {% if item.get('details') %}<div class="gge-details">
-          {% for cost_type, values in item.get('details', {}).items() %}
-            <details><summary>{{ cost_type }}</summary>
-              {% if values is mapping %}<dl>{% for key, value in values.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% else %}<p>{{ values }}</p>{% endif %}
-            </details>
-          {% endfor %}
-        </div>{% endif %}
-      </details>
-      {% else %}<p>В главе нет позиций.</p>{% endfor %}
-    </details>
-  {% else %}<p>Детальная структура GGE недоступна. Загрузите исходную пару повторно.</p>{% endfor %}
-  </div>
-  <h3>Подписи ССР</h3>
-  <ul>{% for item in signatures %}<li>{{ item.role }}: {{ item.name }}, {{ item.position }} {{ item.department }}</li>{% else %}<li>Подписи в файле отсутствуют</li>{% endfor %}</ul>{% endif %}
-  <style>
-    .gge-summary dl,.gge-item dl,.gge-details dl{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:6px 14px}
-    .gge-summary dt,.gge-item dt,.gge-details dt{font-weight:700}.gge-summary dd,.gge-item dd,.gge-details dd{margin:0}
-    .gge-chapter,.gge-item,.gge-details details{border:1px solid var(--line);border-radius:8px;margin:10px 0;padding:10px;background:var(--panel)}
-    .gge-chapter>summary,.gge-item>summary,.gge-details summary{cursor:pointer;display:flex;justify-content:space-between;gap:16px}
-    .gge-item{margin-left:18px}.gge-details{margin-left:18px}
-    @media(max-width:700px){.gge-summary dl,.gge-item dl,.gge-details dl{grid-template-columns:1fr}.gge-item,.gge-details{margin-left:0}.gge-chapter>summary,.gge-item>summary{display:list-item}}
-  </style>
-  <h2>Диагностика и происхождение</h2>
-  {% for item in diagnostics %}<p class="alert {{ item.severity }}">{{ item.code }}: {{ item.message }}</p>{% endfor %}
-  {% if source %}<p>Источники: {{ source.source_filename }} ({{ source.source_hash }}), {{ source.ssr_filename }} ({{ source.ssr_hash }}). Сырые байты сохранены по защищённым путям.</p>{% endif %}
-</section>
+  {% endif %}
+</script>
 {% endblock %}

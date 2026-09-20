@@ -1,53 +1,190 @@
 {% extends "modules.html" %}
 {% block title %}Предварительный просмотр импорта{% endblock %}
+{% block header_actions %}
+<div class="header-actions">
+  <a href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+</div>
+{% endblock %}
 {% block content %}
 <div id="analog-preview-page">
-<a class="back" href="{{ url_for('analog.simple_search') }}">← Быстрый поиск</a>
-<h1>Проверка пары источников</h1>
-{% for item in diagnostics %}<div class="alert {{ item.severity }}">{{ item.message }}</div>{% endfor %}
-<section class="panel"><dl>
-  <dt>Объект</dt><dd>{{ pair.conclusion.expert_object_name }}</dd>
-  <dt>Номер заключения</dt><dd>{{ pair.conclusion.conclusion_number }}</dd>
-  <dt>Дата утверждения</dt><dd>{{ pair.conclusion.approval_date }}</dd>
-  <dt>Вид работ</dt><dd>{{ pair.conclusion.work_type }}</dd>
-  <dt>Адрес</dt><dd>{{ pair.conclusion.address }}</dd>
-  <dt>Регион источника</dt><dd>{{ pair.conclusion.region }}</dd>
-  <dt>Климатический район, подрайон</dt><dd>{{ pair.conclusion.climate_details.climate_zone or '—' }}</dd>
-  <dt>Геологические условия</dt><dd>{{ pair.conclusion.climate_details.geological_conditions or '—' }}</dd>
-  <dt>Ветровой район</dt><dd>{{ pair.conclusion.climate_details.wind_region or '—' }}</dd>
-  <dt>Снеговой район</dt><dd>{{ pair.conclusion.climate_details.snow_region or '—' }}</dd>
-  <dt>Сейсмическая активность (баллов)</dt><dd>{{ pair.conclusion.climate_details.seismicity or '—' }}</dd>
-  <dt>Кадастровый номер</dt><dd>{{ pair.conclusion.cadastral_number }}</dd>
-  <dt>Итог ССР</dt><dd>{{ pair.ssr.summary.total }}</dd>
-  <dt>Уровень цен</dt><dd>{{ pair.ssr.price_year }} / квартал {{ pair.ssr.price_quarter }}</dd>
-</dl>
+<div style="margin-bottom: 16px;">
+  <a href="{{ url_for('analog.simple_search', view='base') }}" style="text-decoration: none; color: var(--blue); font-weight: 500;">← Назад к базе</a>
+</div>
+
+<h1 style="margin-bottom: 24px;">Предварительный просмотр импорта</h1>
+
+{% if duplicate_passport %}
+<div class="alert warning">
+  <strong>Номер заключения уже есть в базе.</strong>
+  Объект «<a href="{{ url_for('analog.passport_detail', passport_id=duplicate_passport.id) }}">{{ duplicate_passport.title }}</a>»
+  будет заменён новой версией данных. Предыдущая версия останется в истории паспорта.
+</div>
+{% endif %}
+
+{% for item in diagnostics %}
+  <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.message }}</div>
+{% endfor %}
+
+<div class="panel">
+  <div class="panel-header">Основные данные из файлов</div>
+  <div class="panel-body">
+    <dl>
+      <dt>Объект</dt><dd>{{ pair.conclusion.expert_object_name }}</dd>
+      <dt>Номер заключения</dt><dd>{{ pair.conclusion.conclusion_number }}</dd>
+      <dt>Дата утверждения</dt><dd>{{ pair.conclusion.approval_date }}</dd>
+      <dt>Вид работ</dt><dd>{{ pair.conclusion.work_type }}</dd>
+      <dt>Адрес</dt><dd>{{ pair.conclusion.address }}</dd>
+      <dt>Регион источника</dt><dd>{{ pair.conclusion.region }}</dd>
+      <dt>Климат</dt>
+      <dd>
+        {{ pair.conclusion.climate_details.climate_zone or '—' }} 
+        <span style="color: var(--mut); font-weight: normal; font-size: 12px; margin-left: 8px;">
+        (Геология: {{ pair.conclusion.climate_details.geological_conditions or '—' }}, 
+        Ветер: {{ pair.conclusion.climate_details.wind_region or '—' }}, 
+        Снег: {{ pair.conclusion.climate_details.snow_region or '—' }}, 
+        Сейсмика: {{ pair.conclusion.climate_details.seismicity or '—' }})
+        </span>
+      </dd>
+      <dt>Кадастровый номер</dt><dd>{{ pair.conclusion.cadastral_number }}</dd>
+      <dt>Итог ССР</dt><dd>{{ pair.ssr.summary.total }}</dd>
+      <dt>Уровень цен</dt><dd>{{ pair.ssr.price_year }} / квартал {{ pair.ssr.price_quarter }}</dd>
+    </dl>
+  </div>
+</div>
+
 {% if pair.conclusion.teps %}
-<h2>Технико-экономические показатели</h2>
-<table>
-  <thead><tr><th>Показатель</th><th>Исходное значение</th><th>Нормализованное значение</th></tr></thead>
-  <tbody>{% for tep in pair.conclusion.teps %}<tr>
-    <td>{{ tep.name }}</td>
-    <td>{{ tep.value_text }}{% if tep.unit %} {{ tep.unit }}{% endif %}</td>
-    <td>{{ tep.normalized_value }}{% if tep.normalized_unit %} {{ tep.normalized_unit }}{% endif %}</td>
-  </tr>{% endfor %}</tbody>
-</table>
+<div class="panel">
+  <div class="panel-header">Технико-экономические показатели</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Показатель</th><th>Исходное значение</th><th>Нормализованное</th></tr>
+      </thead>
+      <tbody>
+        {% for tep in pair.conclusion.teps %}
+        <tr>
+          <td style="font-weight: 500;">{{ tep.name }}</td>
+          <td>{{ tep.value_text }}{% if tep.unit %} {{ tep.unit }}{% endif %}</td>
+          <td>{{ tep.normalized_value }}{% if tep.normalized_unit %} {{ tep.normalized_unit }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endif %}
-{% if pair.can_confirm %}<form id="analog-confirm-form" method="post" action="{{ url_for('analog.import_confirm', import_id=import_id) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Объект <input name="title" value="{{ pair.conclusion.expert_object_name }}"></label>
-  <label>Адрес <input name="address" value="{{ pair.conclusion.address }}"></label>
-  <label>Тип объекта <select name="object_type"><option>котельная</option><option>БМК</option><option>ЦТП</option><option>ТП</option><option>тепловая сеть</option></select></label>
-  <label>Вид работ <input name="work_type" value="{{ pair.conclusion.work_type }}"></label>
-  <input type="hidden" name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}">
-  <label>Кадастровый номер <input name="cadastral_number" value="{{ pair.conclusion.cadastral_number }}"></label>
-  <p>Результат заключения фиксирован: {{ pair.conclusion.examination_result }}</p>
-  <p><strong>После загрузки объект появится в общей таблице модуля «Поиск объектов-аналогов».</strong></p>
-  <button class="btn" id="analog-confirm-button" type="submit">Загрузить данные в общую таблицу аналогов</button>
-</form>{% else %}
-  <p><strong>Импорт заблокирован до исправления ошибок, указанных выше.</strong></p>
-  <button class="btn" id="analog-confirm-button" type="button" disabled
-          title="Сначала исправьте ошибки проверки">Загрузить данные в общую таблицу аналогов</button>
+
+{% if pair.conclusion.roles %}
+<details>
+  <summary>Организации ({{ pair.conclusion.roles|length }})</summary>
+  <div class="details-body table-wrap"><table>
+    <thead><tr><th>Роль</th><th>Наименование</th><th>ИНН / ОГРН / КПП</th><th>Контакты</th></tr></thead>
+    <tbody>{% for item in pair.conclusion.roles %}<tr>
+      <td>{{ item.role or '—' }}</td><td>{{ item.name or '—' }}</td>
+      <td>{{ item.inn or '—' }} / {{ item.ogrn or '—' }} / {{ item.kpp or '—' }}</td>
+      <td>{{ item.email or '—' }}<br>{{ item.address or '—' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</details>
 {% endif %}
-</section>
+
+{% if pair.conclusion.documents %}
+<details>
+  <summary>Документы заключения ({{ pair.conclusion.documents|length }})</summary>
+  <div class="details-body table-wrap"><table>
+    <thead><tr><th>Раздел</th><th>Наименование</th><th>Формат</th><th>Примечание</th></tr></thead>
+    <tbody>{% for item in pair.conclusion.documents %}<tr>
+      <td>{{ item.ordinal or '—' }}</td><td>{{ item.name or '—' }}</td>
+      <td>{{ item.file_format or '—' }}</td><td>{{ item.note or '—' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+{% endif %}
+
+{% if pair.conclusion.cost_rows %}
+<details>
+  <summary>Стоимостные показатели заключения ({{ pair.conclusion.cost_rows|length }})</summary>
+  <div class="details-body table-wrap"><table>
+    <thead><tr><th>Раздел</th><th>Представлено</th><th>Утверждено</th><th>Изменение</th></tr></thead>
+    <tbody>{% for item in pair.conclusion.cost_rows %}<tr>
+      <td>{{ item.name or item.ordinal or '—' }}</td><td>{{ item.submitted_cost or '—' }}</td>
+      <td>{{ item.approved_cost or '—' }}</td><td>{{ item.change_cost or '—' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+{% endif %}
+
+{% if pair.ssr.chapters %}
+<details>
+  <summary>Главы ССР ({{ pair.ssr.chapters|length }})</summary>
+  <div class="details-body table-wrap"><table>
+    <thead><tr><th>№</th><th>Наименование</th><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr></thead>
+    <tbody>{% for item in pair.ssr.chapters %}<tr>
+      <td>{{ item.number }}</td><td>{{ item.name or '—' }}</td><td>{{ item.building }}</td>
+      <td>{{ item.mounting }}</td><td>{{ item.equipment }}</td><td>{{ item.other }}</td><td>{{ item.total }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+{% endif %}
+
+{% if pair.ssr['items'] %}
+<details>
+  <summary>Позиции ССР ({{ pair.ssr['items']|length }})</summary>
+  <div class="details-body table-wrap"><table>
+    <thead><tr><th>Глава</th><th>№</th><th>Наименование</th><th>Основание</th><th>Всего</th></tr></thead>
+    <tbody>{% for item in pair.ssr['items'] %}<tr>
+      <td>{{ item.chapter_number or '—' }}</td><td>{{ item.ordinal or '—' }}</td>
+      <td>{{ item.name or '—' }}</td><td>{{ item.reason or '—' }}</td><td>{{ item.total or '—' }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+{% endif %}
+
+<div class="panel" style="background: #f0f9ff; border-color: #bae6fd;">
+  <div class="panel-body">
+    {% if pair.can_confirm %}
+    <form id="analog-confirm-form" method="post" action="{{ url_for('analog.import_confirm', import_id=import_id).replace('/api/import/', '/imports/') }}" style="display: grid; gap: 16px; max-width: 700px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div style="font-weight: 600; color: var(--blue);">Параметры для сохранения в базу</div>
+      
+      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Объект</label>
+        <input name="title" value="{{ pair.conclusion.expert_object_name }}" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
+      </div>
+      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Адрес</label>
+        <input name="address" value="{{ pair.conclusion.address }}" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
+      </div>
+      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Тип</label>
+        <select name="object_type" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
+          <option>котельная</option><option>БМК</option><option>ЦТП</option><option>ТП</option><option>тепловая сеть</option><option>Сети</option>
+        </select>
+      </div>
+      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Вид работ</label>
+        <input name="work_type" value="{{ pair.conclusion.work_type }}" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
+      </div>
+      <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Кадастровый номер</label>
+        <input name="cadastral_number" value="{{ pair.conclusion.cadastral_number }}" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
+      </div>
+      <input type="hidden" name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}">
+      
+      <div style="font-size: 12px; color: var(--mut); margin-top: 8px;">
+        Результат заключения фиксирован: <strong>{{ pair.conclusion.examination_result }}</strong><br>
+        После загрузки объект появится в общей таблице модуля «Поиск объектов-аналогов».
+      </div>
+      
+      <div style="margin-top: 8px;">
+        <button class="btn btn-primary" id="analog-confirm-button" type="submit" style="height: 40px; font-size: 14px; padding: 0 20px;">Загрузить объект в базу данных</button>
+      </div>
+    </form>
+    {% else %}
+      <div class="alert error" style="margin:0 0 16px 0;">Импорт заблокирован до исправления критических ошибок, указанных выше.</div>
+      <button class="btn btn-primary" disabled style="height: 40px; opacity: 0.5;">Загрузить объект в базу данных</button>
+    {% endif %}
+  </div>
+</div>
 </div>
 {% endblock %}

@@ -1,151 +1,190 @@
 {% extends "modules.html" %}
 {% block title %}Поиск объектов-аналогов{% endblock %}
+{% block header_actions %}
+<div class="header-actions">
+  <a href="{{ url_for('modules_dashboard') }}">← Все модули</a>
+</div>
+{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
-<div class="eyebrow">Теплоснабжение</div>
-<h1>Быстрый поиск объектов-аналогов</h1>
-<p><a href="{{ url_for('analog.index') }}">Изменить способ поиска</a></p>
-<p class="lead">Индексированный поиск по подтверждённым паспортам и стоимости ССР.</p>
+{% set view = request.args.get('view', 'search') %}
+
+<h1>Поиск объектов-аналогов</h1>
+
+<div class="tabs">
+  <a href="{{ url_for('analog.simple_search', view='search') }}" class="tab {% if view == 'search' %}active{% endif %}">Поиск</a>
+  <a href="{{ url_for('analog.simple_search', view='base') }}" class="tab {% if view == 'base' %}active{% endif %}">База объектов</a>
+</div>
+
 {% for category, message in get_flashed_messages(with_categories=true) %}
-  <div class="alert {{ category }}" role="status">{{ message }}</div>
+  <div class="alert {{ category }}">{{ message }}</div>
 {% endfor %}
-<section class="panel">
-  <form method="get" class="filters">
-    <label>Тип объекта
-      <select name="object_type"><option value="">Все</option>{% for value in object_types %}
-        <option value="{{ value }}" {% if request.args.get('object_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
-      {% endfor %}</select>
-    </label>
-    <label>Климатический район
-      <select name="climate_region"><option value="">Все</option>{% for value in ('I', 'II', 'III', 'IV') %}
-        <option value="{{ value }}" {% if request.args.get('climate_region') == value %}selected{% endif %}>{{ value }}</option>
-      {% endfor %}</select>
-    </label>
-    <label>Точный район, подрайон
-      <input name="climate_zone" value="{{ request.args.get('climate_zone','') }}" placeholder="Например, IIВ" title="Если заполнено, имеет приоритет над списком">
-    </label>
-    <label>Вид работ <select name="work_type"><option value="">Все</option>{% for value in work_types %}
-      <option value="{{ value }}" {% if request.args.get('work_type') == value %}selected{% endif %}>{{ value|capitalize }}</option>
-    {% endfor %}</select></label>
-    <label>Мощность, кВт <input name="capacity_kw" type="number" step="any" value="{{ request.args.get('capacity_kw','') }}"></label>
-    <label>Название или адрес <input name="q" value="{{ request.args.get('q','') }}"></label>
-    <button class="btn" type="submit">Найти</button>
-  </form>
-</section>
-{% if current_user.is_authenticated %}
-<section class="panel">
-  <h2>Импорт заключения и ССР</h2>
-  <form id="analog-import-form" method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>XML заключения <input type="file" name="conclusion" accept=".xml" required></label>
-    <label>ССР 3.01 (.gge) <input type="file" name="ssr" accept=".gge,.xml" required></label>
-    <button class="btn" type="submit" id="analog-import-submit">Предварительный просмотр</button>
-    <div id="analog-import-status" hidden aria-live="polite" style="margin-top:12px">
-      <div id="analog-import-stage">Подготовка файлов…</div>
-      <progress id="analog-import-progress" max="100" value="0" style="width:100%"></progress>
+
+{% if view == 'search' %}
+<form method="get" class="search-row" id="search-form">
+  <input type="hidden" name="view" value="search">
+  
+  <div class="input-group" style="width: 180px; flex-shrink: 0;">
+    <input type="number" name="capacity_value" step="any" min="0"
+           value="{{ request.args.get('capacity_value','') }}" placeholder="Мощность">
+    <select name="capacity_unit" aria-label="Единица мощности">
+      <option value="gcal_h" {% if request.args.get('capacity_unit', 'gcal_h') == 'gcal_h' %}selected{% endif %}>Гкал/ч</option>
+      <option value="mw" {% if request.args.get('capacity_unit') == 'mw' %}selected{% endif %}>МВт</option>
+    </select>
+  </div>
+
+  <select name="object_type" style="width: 140px; flex-shrink: 0;">
+    <option value="">Все типы</option>
+    {% for val in object_types %}
+      <option value="{{ val }}" {% if request.args.get('object_type') == val %}selected{% endif %}>{{ val|capitalize }}</option>
+    {% endfor %}
+    {% if 'тепловая сеть' not in object_types %}
+      <option value="тепловая сеть" {% if request.args.get('object_type') == 'тепловая сеть' %}selected{% endif %}>Сети</option>
+    {% endif %}
+  </select>
+
+  <select name="work_type" style="width: 150px; flex-shrink: 0;">
+    <option value="">Все виды работ</option>
+    {% for val in work_types %}
+      <option value="{{ val }}" {% if request.args.get('work_type') == val %}selected{% endif %}>{{ val|capitalize }}</option>
+    {% endfor %}
+  </select>
+
+  <input name="q" value="{{ request.args.get('q','') }}" placeholder="Поиск по названию или адресу" style="flex: 1;">
+  
+  <button class="btn btn-primary" type="submit">Найти</button>
+</form>
+
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:40px">№</th>
+          <th>Объект</th>
+          <th>Адрес</th>
+          <th>Работы</th>
+          <th>Мощность</th>
+          <th>Стоимость (коэфф.)</th>
+          <th>Аналогичность</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if good_rows %}
+          <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--success); letter-spacing: 0.05em;">Хорошие аналоги (отклонение &le; 10%)</td></tr>
+          {% for row in good_rows %}
+            <tr class="good" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
+              <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
+              <td style="font-weight: 500;">{{ row.title }}</td>
+              <td>{{ row.address or '—' }}</td>
+              <td>{{ row.work_type or '—' }}</td>
+              <td>{{ row.capacity_display or '—' }}</td>
+              <td>{{ row.adjusted_cost or '—' }}</td>
+              <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+        
+        {% if poor_rows %}
+          <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--amber); letter-spacing: 0.05em;">Остальные аналоги (отклонение &gt; 10%)</td></tr>
+          {% for row in poor_rows %}
+            <tr class="poor" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
+              <td>{{ loop.index }}</td>
+              <td style="font-weight: 500;">{{ row.title }}</td>
+              <td>{{ row.address or '—' }}</td>
+              <td>{{ row.work_type or '—' }}</td>
+              <td>{{ row.capacity_display or '—' }}</td>
+              <td>{{ row.adjusted_cost or '—' }}</td>
+              <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+            </tr>
+          {% endfor %}
+        {% endif %}
+
+        {% if not good_rows and not poor_rows %}
+          <tr><td colspan="7" style="text-align: center; padding: 32px; color: var(--mut);">Результаты не найдены. Укажите параметры для поиска.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  
+  {% if pagination and pagination.pages > 1 %}
+    <div style="padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 4px; flex-wrap: wrap;">
+      {% for page in pagination.iter_pages() %}
+        {% if page %}
+          {% set params = request.args.to_dict(flat=True) %}
+          {% set _ = params.update({'page': page}) %}
+          <a href="{{ url_for('analog.simple_search', **params) }}" class="btn {% if page == pagination.page %}btn-primary{% else %}btn-outline{% endif %}" style="padding: 0 10px;">{{ page }}</a>
+        {% else %}
+          <span style="padding: 4px 10px; color: var(--mut);">...</span>
+        {% endif %}
+      {% endfor %}
     </div>
-    <div id="analog-import-error" role="alert" hidden
-         style="margin-top:12px;padding:10px;border:1px solid #c33;background:#fff2f2;color:#8b1a1a"></div>
-  </form>
-</section>
-<script>
-(() => {
-  const form = document.getElementById('analog-import-form');
-  if (!form || !window.XMLHttpRequest || !window.FormData) return;
-  const button = document.getElementById('analog-import-submit');
-  const status = document.getElementById('analog-import-status');
-  const stage = document.getElementById('analog-import-stage');
-  const progress = document.getElementById('analog-import-progress');
-  const errorBox = document.getElementById('analog-import-error');
+  {% endif %}
+</div>
 
-  function restore(message) {
-    button.disabled = false;
-    button.textContent = 'Предварительный просмотр';
-    status.hidden = true;
-    progress.removeAttribute('value');
-    errorBox.textContent = message;
-    errorBox.hidden = false;
-  }
+{% elif view == 'base' %}
 
-  function responseMessage(xhr) {
-    if (xhr.status === 413) return 'Файлы слишком велики. Уменьшите размер и повторите попытку.';
-    if (xhr.status === 401 || xhr.status === 403)
-      return 'Сессия или защитный токен истекли. Обновите страницу, войдите снова и повторите попытку.';
-    try {
-      const data = JSON.parse(xhr.responseText);
-      if (data.diagnostics && data.diagnostics.length)
-        return data.diagnostics.map(item => item.message).join(' ');
-      if (data.error) return data.error;
-    } catch (_) {}
-    if (xhr.status >= 500) return 'Сервер не смог обработать файлы. Повторите попытку позднее.';
-    return 'Не удалось обработать файлы. Проверьте их формат и повторите попытку.';
-  }
+<div style="display: flex; gap: 12px; margin-bottom: 16px;">
+  <button class="btn btn-primary" onclick="document.getElementById('import-panel').toggleAttribute('hidden')">Добавить объект</button>
+</div>
 
-  form.addEventListener('submit', event => {
-    event.preventDefault();
-    if (button.disabled || !form.reportValidity()) return;
-    button.disabled = true;
-    button.textContent = 'Отправка…';
-    errorBox.hidden = true;
-    status.hidden = false;
-    progress.value = 0;
-    stage.textContent = 'Загрузка файлов: 0%';
+<div id="import-panel" class="panel" hidden>
+  <div class="panel-header">Импорт заключения и ССР</div>
+  <div class="panel-body">
+    <form id="analog-import-form" method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div style="display: grid; gap: 4px;">
+        <label style="font-size: 12px; font-weight: 500; color: var(--mut);">XML заключения</label>
+        <input type="file" name="conclusion" accept=".xml" required style="font-size: 13px;">
+      </div>
+      <div style="display: grid; gap: 4px;">
+        <label style="font-size: 12px; font-weight: 500; color: var(--mut);">ССР 3.01 (.gge)</label>
+        <input type="file" name="ssr" accept=".gge,.xml" required style="font-size: 13px;">
+      </div>
+      <button class="btn btn-primary" type="submit" id="analog-import-submit">Предварительный просмотр</button>
+    </form>
+    
+    <div id="analog-import-status" hidden style="margin-top:16px;">
+      <div id="analog-import-stage" style="font-size: 12px; margin-bottom: 4px; color: var(--mut);">Подготовка файлов...</div>
+      <div id="analog-import-progress" style="width: 100%; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden;">
+        <div id="analog-import-progress-bar" style="height: 100%; width: 0%; background: var(--blue); transition: width 0.2s;"></div>
+      </div>
+    </div>
+    <div id="analog-import-error" class="alert error" hidden style="margin-top:16px; margin-bottom:0;"></div>
+  </div>
+</div>
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', form.action);
-    xhr.setRequestHeader('Accept', 'text/html');
-    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-    xhr.upload.onprogress = event => {
-      if (!event.lengthComputable) return;
-      const percent = Math.min(100, Math.round(event.loaded / event.total * 100));
-      progress.value = percent;
-      stage.textContent = `Загрузка файлов: ${percent}%`;
-    };
-    xhr.upload.onload = () => {
-      progress.removeAttribute('value');
-      stage.textContent = 'Файлы загружены. Сервер проверяет и разбирает данные…';
-      button.textContent = 'Обработка…';
-    };
-    xhr.onerror = () => restore('Соединение прервано. Проверьте сеть и повторите попытку.');
-    xhr.ontimeout = () => restore('Сервер слишком долго не отвечает. Повторите попытку.');
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 400) {
-        const finalUrl = xhr.responseURL || form.action;
-        if (finalUrl.includes('/login')) {
-          restore('Сессия истекла. Обновите страницу, войдите снова и повторите попытку.');
-          return;
-        }
-        if (finalUrl !== form.action) {
-          window.location.assign(finalUrl);
-          return;
-        }
-      }
-      restore(responseMessage(xhr));
-    };
-    xhr.send(new FormData(form));
-  });
-})();
-</script>
-{% endif %}
 {% if current_user.is_admin %}
-<section class="panel"><h2>Администрирование</h2>
-  <form method="post" action="{{ url_for('analog.create_passport') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <input name="title" placeholder="Новый объект" required><input name="address" placeholder="Адрес">
-    <select id="create-object-type" name="object_type">{% for value in object_types %}<option>{{ value }}</option>{% endfor %}</select>
-    <select name="work_type">{% for value in work_types %}<option>{{ value }}</option>{% endfor %}</select>
-    <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт">
-    <div class="create-network-fields" hidden>
-      <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м">
-      <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм">
-    </div>
-    <button class="btn" type="submit">Создать паспорт</button>
-  </form>
-  <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="file" name="file" accept=".json" required>
-    <button class="btn" type="submit">Импорт JSON v4</button>
-  </form>
-</section>
+<details style="margin-bottom: 20px;">
+  <summary>Ручное создание и системный импорт (Админ)</summary>
+  <div class="details-body" style="display: flex; gap: 32px; flex-wrap: wrap; background: #f8fafc; border-radius: 0 0 6px 6px;">
+    <form method="post" action="{{ url_for('analog.create_passport') }}" style="display: grid; gap: 8px; flex: 1; min-width: 300px;">
+      <div style="font-weight: 600; margin-bottom: 8px;">Создать пустой паспорт</div>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input name="title" placeholder="Новый объект" required class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+      <input name="address" placeholder="Адрес" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+      <select id="create-object-type" name="object_type" class="search-row" style="margin:0; height:32px; padding: 0 8px;">
+        {% for val in object_types %}<option>{{ val }}</option>{% endfor %}
+      </select>
+      <select name="work_type" class="search-row" style="margin:0; height:32px; padding: 0 8px;">
+        {% for val in work_types %}<option>{{ val }}</option>{% endfor %}
+      </select>
+      <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+      <div class="create-network-fields" hidden style="display: grid; gap: 8px;">
+        <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+        <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+      </div>
+      <button class="btn btn-outline" type="submit" style="width: max-content; margin-top: 4px;">Создать паспорт</button>
+    </form>
+    
+    <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data" style="display: grid; gap: 8px; flex: 1; min-width: 300px; align-content: start;">
+      <div style="font-weight: 600; margin-bottom: 8px;">Импорт JSON v4</div>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="file" name="file" accept=".json" required style="font-size: 13px;">
+      <button class="btn btn-outline" type="submit" style="width: max-content; margin-top: 4px;">Импортировать JSON</button>
+    </form>
+  </div>
+</details>
+
 <script>
 (() => {
   const type = document.getElementById('create-object-type');
@@ -160,43 +199,127 @@
 })();
 </script>
 {% endif %}
-<section class="panel">
-  <p class="result-groups"><strong>Хорошие аналоги: {{ good_count }}</strong> · <strong>Плохие аналоги: {{ pagination.total - good_count }}</strong></p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>№</th><th>Объект</th><th>Адрес</th><th>Работы</th><th>Мощность</th><th>Стоимость с коэффициентом</th><th>Аналогичность</th>{% if current_user.is_admin %}<th>Действия</th>{% endif %}</tr></thead>
-    <tbody><tr><th colspan="{{ 8 if current_user.is_admin else 7 }}">Хорошие аналоги (отклонение мощности ABS ≤ 10%)</th></tr>
-    {% for row in good_rows %}
-      <tr class="{% if row.good %}good{% else %}poor{% endif %}">
-        <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
-        <td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td>
-        <td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td>
-        <td>{{ row.capacity_display or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td>
-        <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
-        {% if current_user.is_admin %}<td>
-          <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn" type="submit" aria-label="Удалить объект {{ row.title }}">Удалить</button>
-          </form>
-        </td>{% endif %}
+
+<div class="panel table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Наименование<br><input type="text" class="col-filter" data-col="0" placeholder="Фильтр..."></th>
+        <th>Адрес<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..."></th>
+        <th>Тип<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..."></th>
+        <th>Вид работ<br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..."></th>
+        <th>Мощность<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
+        <th>Стоимость<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..."></th>
+        {% if current_user.is_admin %}<th style="vertical-align: bottom; width: 80px;">Действия</th>{% endif %}
       </tr>
-    {% endfor %}
-    <tr><th colspan="{{ 8 if current_user.is_admin else 7 }}">Плохие аналоги (отклонение мощности ABS &gt; 10%)</th></tr>
-    {% for row in poor_rows %}
-      <tr class="poor"><td>{{ loop.index }}</td><td><a href="{{ url_for('analog.passport_detail', passport_id=row.id) }}">{{ row.title }}</a></td><td>{{ row.address or '—' }}</td><td>{{ row.work_type or '—' }}</td><td>{{ row.capacity_display or '—' }}</td><td>{{ row.adjusted_cost or '—' }}</td><td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
-      {% if current_user.is_admin %}<td>
-        <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект «{{ row.title|e }}» из таблицы аналогов?')">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn" type="submit" aria-label="Удалить объект {{ row.title }}">Удалить</button>
-        </form>
-      </td>{% endif %}</tr>
-    {% endfor %}
-    {% if not rows %}<tr><td colspan="{{ 8 if current_user.is_admin else 7 }}">Подтверждённых паспортов пока нет.</td></tr>{% endif %}</tbody>
-  </table></div>
-  {% if pagination.pages > 1 %}<nav class="pagination">
-    {% for page in pagination.iter_pages() %}{% if page %}
-      {% set params = request.args.to_dict(flat=True) %}{% set _ = params.update({'page': page}) %}
-      <a href="{{ url_for('analog.simple_search', **params) }}">{{ page }}</a>
-    {% else %}…{% endif %}{% endfor %}
-  </nav>{% endif %}
-</section>
+    </thead>
+    <tbody id="catalog-tbody">
+      {% for row in good_rows + poor_rows %}
+      <tr onclick="if(!event.target.closest('button')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
+        <td style="font-weight: 500;">{{ row.title }}</td>
+        <td>{{ row.address or '—' }}</td>
+        <td>{{ row.object_type or '—' }}</td>
+        <td>{{ row.work_type or '—' }}</td>
+        <td>{{ row.capacity_display or '—' }}</td>
+        <td>{{ row.adjusted_cost or '—' }}</td>
+        {% if current_user.is_admin %}
+        <td onclick="event.stopPropagation()">
+          <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект?')" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-danger" type="submit" style="height:24px; font-size: 11px; padding: 0 8px;">Удалить</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      {% if not good_rows and not poor_rows %}
+      <tr><td colspan="{{ 7 if current_user.is_admin else 6 }}" style="text-align: center; padding: 32px; color: var(--mut);">База объектов пуста.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+  document.querySelectorAll('.col-filter').forEach(inp => {
+    inp.addEventListener('click', e => e.stopPropagation());
+    inp.addEventListener('input', function() {
+      const filters = Array.from(document.querySelectorAll('.col-filter')).map(i => ({ col: parseInt(i.dataset.col), val: i.value.toLowerCase() }));
+      document.querySelectorAll('#catalog-tbody tr').forEach(tr => {
+        let show = true;
+        filters.forEach(f => {
+          if (f.val) {
+            const td = tr.children[f.col];
+            if (td && !td.textContent.toLowerCase().includes(f.val)) show = false;
+          }
+        });
+        tr.style.display = show ? '' : 'none';
+      });
+    });
+  });
+
+  // Import Upload Logic
+  (() => {
+    const form = document.getElementById('analog-import-form');
+    if (!form || !window.XMLHttpRequest || !window.FormData) return;
+    const button = document.getElementById('analog-import-submit');
+    const status = document.getElementById('analog-import-status');
+    const stage = document.getElementById('analog-import-stage');
+    const progressBar = document.getElementById('analog-import-progress-bar');
+    const errorBox = document.getElementById('analog-import-error');
+  
+    function restore(message) {
+      button.disabled = false;
+      button.textContent = 'Предварительный просмотр';
+      status.hidden = true;
+      progressBar.style.width = '0%';
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+    }
+  
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (button.disabled || !form.reportValidity()) return;
+      button.disabled = true;
+      button.textContent = 'Отправка...';
+      errorBox.hidden = true;
+      status.hidden = false;
+      progressBar.style.width = '0%';
+      stage.textContent = 'Загрузка файлов: 0%';
+  
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', form.action);
+      xhr.setRequestHeader('Accept', 'text/html');
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      xhr.upload.onprogress = event => {
+        if (!event.lengthComputable) return;
+        const percent = Math.min(100, Math.round(event.loaded / event.total * 100));
+        progressBar.style.width = percent + '%';
+        stage.textContent = `Загрузка файлов: ${percent}%`;
+      };
+      xhr.upload.onload = () => {
+        stage.textContent = 'Файлы загружены. Сервер проверяет и разбирает данные...';
+        button.textContent = 'Обработка...';
+      };
+      xhr.onerror = () => restore('Соединение прервано. Проверьте сеть и повторите попытку.');
+      xhr.ontimeout = () => restore('Сервер слишком долго не отвечает.');
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 400) {
+          const finalUrl = xhr.responseURL || form.action;
+          if (finalUrl.includes('/login')) return restore('Сессия истекла.');
+          if (finalUrl !== form.action) return window.location.assign(finalUrl);
+        }
+        if (xhr.status === 413) return restore('Файлы слишком велики.');
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.diagnostics && data.diagnostics.length) return restore(data.diagnostics.map(i => i.message).join(' '));
+          if (data.error) return restore(data.error);
+        } catch (_) {}
+        restore('Не удалось обработать файлы. Проверьте их формат.');
+      };
+      xhr.send(new FormData(form));
+    });
+  })();
+</script>
+
+{% endif %}
 {% endblock %}
