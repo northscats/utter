@@ -5,10 +5,34 @@
 <h1>Поиск по нормативно-правовому акту</h1>
 <p class="lead">Фильтры для тепловых сетей по приказам №135/пр и №604/пр.</p>
 <style>
-.npa-form{display:block}.npa-group{margin:0 0 24px}.npa-group>h2{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:var(--blue);margin:0 0 10px}
-.npa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.npa-wide{grid-column:1/-1}
-.npa-checks{display:flex;flex-wrap:wrap;gap:8px 18px}.npa-checks label{display:flex;grid-template-columns:auto 1fr;align-items:center}.npa-checks input{width:auto;min-height:auto}
-.criterion{font-size:12px;color:var(--mut);font-weight:600}.npa-actions{display:flex;gap:12px;justify-content:flex-end}
+.npa-form{display:block;max-width:100%}
+.npa-group{margin:0 0 28px}
+.npa-group>h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);margin:0 0 12px}
+.npa-group>.panel,.npa-group .panel{padding:18px;margin-bottom:14px}
+.npa-group .panel>h2{font-size:15px;line-height:1.35;margin:0 0 16px;color:var(--ink)}
+.npa-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:16px 18px}
+.npa-grid>label,.npa-grid>div>label{display:flex;flex-direction:column;gap:6px;color:var(--ink);font-size:12px;font-weight:600}
+.npa-grid input:not([type=checkbox]),.npa-grid select{display:block;width:100%;height:38px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);font:inherit;outline:none}
+.npa-grid input:not([type=checkbox]):focus,.npa-grid select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(2,132,199,.12)}
+.npa-wide{grid-column:1/-1}
+.npa-checks{display:flex;flex-wrap:wrap;gap:10px 18px;padding:9px 0 2px}
+.npa-checks label{display:inline-flex;flex-direction:row;align-items:center;gap:7px;color:var(--ink);font-size:12px;font-weight:500;cursor:pointer}
+.npa-checks input{width:16px;height:16px;min-height:0;margin:0;accent-color:var(--blue)}
+.criterion{display:block;font-size:11px;line-height:1.35;color:var(--mut);font-weight:500}
+.npa-actions{display:flex;gap:10px;justify-content:flex-end;margin:4px 0 24px}
+.npa-actions .btn{min-width:120px;border:1px solid var(--line)}
+.npa-actions button.btn{border-color:var(--blue);background:var(--blue);color:#fff}
+.npa-actions button.btn:hover{background:var(--blue-hover)}
+.npa-form+.panel{padding:18px}
+.npa-form+.panel>h2{font-size:16px;margin:0 0 12px}
+.result{padding:14px 0;border-top:1px solid var(--line)}
+.result h3{margin:0 0 8px;font-size:14px}
+@media(max-width:600px){
+  .npa-group>.panel,.npa-group .panel{padding:14px}
+  .npa-grid{grid-template-columns:1fr;gap:14px}
+  .npa-actions{display:grid;grid-template-columns:1fr 1fr}
+  .npa-actions .btn{width:100%;min-width:0}
+}
 </style>
 <form class="npa-form" method="post" action="{{ url_for('analog.advanced_search') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
