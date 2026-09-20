@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}Настройки — Оповещение о лимитах{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
 <div class="eyebrow">Оповещение о лимитах</div>
 <h1>Настройки</h1>
 {% include "limits_nav.html" %}

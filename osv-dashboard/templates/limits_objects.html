@@ -1,8 +1,8 @@
 {% extends "modules.html" %}
 {% block title %}Реестр лимитов — {{ dataset.name }}{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
 {% block content %}
 {% include "limits_nav.html" %}
-<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">← К набору отчётности</a>
 <div class="eyebrow">Реестр объектов</div>
 <h1>{{ dataset.name }}</h1>
 <p class="lead">Всего найдено объектов: <b>{{ total }}</b>. Отсутствие в выгрузке не означает отмену объекта.</p>

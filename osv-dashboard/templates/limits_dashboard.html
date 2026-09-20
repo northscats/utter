@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}Оповещение о лимитах{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
 <div class="eyebrow">ГИС РЭБ · Версии XLSX</div>
 <h1>Оповещение о лимитах</h1>
 <p class="lead">История хранит 10 последних принятых версий.</p>

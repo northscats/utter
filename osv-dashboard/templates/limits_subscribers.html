@@ -1,8 +1,8 @@
 {% extends "modules.html" %}
 {% block title %}Подписчики и модерация — {{ dataset.name }}{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
 {% block content %}
 {% include "limits_nav.html" %}
-<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">← К набору отчётности</a>
 <div class="eyebrow">Оповещения MAX</div>
 <h1>Подписчики и модерация</h1>
 <p class="lead">Управление доступом к данным набора <b>{{ dataset.name }}</b>.</p>
