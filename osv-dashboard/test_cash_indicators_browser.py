@@ -95,6 +95,48 @@ def card(accounts):
     }
 
 
+def collection_card():
+    series = [
+        {
+            'date': '2026-08-31',
+            'label': '31.08',
+            'value': 92,
+            'debit_6201': 10_000_000,
+            'credit_6201': 8_500_000,
+            'debit_6202': 500_000,
+            'credit_6202': 1_200_000,
+        },
+        {
+            'date': '2026-09-17',
+            'label': '17.09',
+            'value': 96,
+            'debit_6201': 12_000_000,
+            'credit_6201': 10_800_000,
+            'debit_6202': 600_000,
+            'credit_6202': 1_320_000,
+        },
+    ]
+    return {
+        'id': 'collection',
+        'title': 'Собираемость',
+        'unit': '%',
+        'value': 96,
+        'accounting_proxy': {'value': 96},
+        'consumer_collection': {
+            'available': False,
+            'categories': [],
+            'series': [],
+        },
+        'turnover_series': series,
+        'components': [
+            {'account': '62.01', 'side': 'debit', 'value': 12_000_000},
+            {'account': '62.01', 'side': 'credit', 'value': 10_800_000},
+            {'account': '62.02', 'side': 'debit', 'value': 600_000},
+            {'account': '62.02', 'side': 'credit', 'value': 1_320_000},
+        ],
+    }
+
+
 def assert_matches(actual, reference, update):
     if update:
         reference.parent.mkdir(exist_ok=True)
@@ -229,6 +271,48 @@ def main():
             assert_matches(partial_path, REFERENCES / SNAPSHOTS[1],
                            args.update_snapshots)
 
+            page.evaluate("""collectionCard => {
+                const app = window.KI_App;
+                app.closeModal(true);
+                window.KI_Layout = null;
+                app.state.mode = 'operational';
+                app.state.data = {
+                    period: {label: 'Синтетический период'},
+                    cards: [collectionCard],
+                };
+                app.openModal('collection');
+            }""", collection_card())
+            expect(page.locator('#ki-modal-title')).to_have_text(
+                'Уровень собираемости')
+            collection_content = page.locator('#ki-collection-modal-content')
+            expect(collection_content).to_be_visible()
+            dynamics_title = collection_content.get_by_text(
+                'ДИНАМИКА СОБИРАЕМОСТИ', exact=True)
+            period_title = collection_content.get_by_text(
+                'СОБИРАЕМОСТЬ ЗА ПЕРИОД', exact=True)
+            components_title = collection_content.get_by_text(
+                'КОМПОНЕНТЫ РАСЧЁТА (ОСВ)', exact=True)
+            for section_title in (
+                    dynamics_title, period_title, components_title):
+                expect(section_title).to_be_visible()
+            dynamics_chart = page.locator('#ki-collection-dynamics-chart')
+            expect(dynamics_chart).to_be_visible()
+            expect(dynamics_chart.locator('svg.collection-dynamics-svg')
+                   ).to_have_count(1)
+            chart_box = dynamics_chart.bounding_box()
+            assert chart_box and chart_box['width'] > 0
+            assert chart_box['height'] > 0
+            period_table = collection_content.locator(
+                'table.collection-period-table')
+            components_table = collection_content.locator(
+                'table.collection-audit-table:not(.collection-period-table)')
+            expect(period_table).to_be_visible()
+            expect(components_table).to_be_visible()
+            expect(period_table.locator('tbody tr')).to_have_count(2)
+            expect(components_table.locator('tbody tr')).to_have_count(2)
+
+            page.evaluate('window.KI_App.closeModal(true)')
+            open_cash(card(['51', '55']))
             page.set_viewport_size({'width': 390, 'height': 844})
             page.locator('.cash-table-scroll').scroll_into_view_if_needed()
             page.locator('.cash-table-scroll').evaluate(
