@@ -4143,6 +4143,163 @@
                 </table></div>`;
         },
 
+        toggleCogsMetric(mode) {
+            if (!state.modalChart) return;
+            const group = String(mode).includes('ratio') ? 'ratio' : 'cost';
+            const defaults = group === 'ratio'
+                ? ['cogs-ratio-current', 'cogs-ratio-apg']
+                : ['cogs-current', 'cogs-apg'];
+            if (state.modalChart.cogsGroup !== group) {
+                state.modalChart.cogsGroup = group;
+                state.modalChart.cogsModes = new Set(defaults);
+            } else {
+                const selected = state.modalChart.cogsModes || new Set(defaults);
+                if (selected.has(mode) && selected.size > 1) selected.delete(mode);
+                else selected.add(mode);
+                state.modalChart.cogsModes = selected;
+            }
+            const card = state.data.cards.find(item => item.id === 'cogs');
+            this.updateCogsMetricCards();
+            this.renderCogsDynamics(card);
+        },
+
+        updateCogsMetricCards() {
+            const selected = state.modalChart && state.modalChart.cogsModes
+                ? state.modalChart.cogsModes : new Set();
+            document.querySelectorAll('[data-cogs-chart-mode]').forEach(card => {
+                const active = selected.has(card.dataset.cogsChartMode);
+                card.classList.toggle('cash-chart-mode-selected', active);
+                card.setAttribute('aria-pressed', String(active));
+            });
+        },
+
+        cogsMonthlyRows(card) {
+            const groups = new Map();
+            (card.monthly_comparison || []).forEach(row => {
+                const key = String(row.date || '').slice(0, 7);
+                if (!key) return;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        date: `${key}-01`,
+                        current_cost: 0, previous_year_cost: 0,
+                        current_revenue: 0, previous_year_revenue: 0,
+                        counts: {
+                            current_cost: 0, previous_year_cost: 0,
+                            current_revenue: 0, previous_year_revenue: 0
+                        }
+                    });
+                }
+                const group = groups.get(key);
+                ['current_cost', 'previous_year_cost',
+                    'current_revenue', 'previous_year_revenue'].forEach(name => {
+                    if (row[name] !== null && row[name] !== undefined &&
+                            Number.isFinite(Number(row[name]))) {
+                        group[name] += Number(row[name]);
+                        group.counts[name] += 1;
+                    }
+                });
+            });
+            return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date))
+                .map(group => {
+                    ['current_cost', 'previous_year_cost',
+                        'current_revenue', 'previous_year_revenue'].forEach(name => {
+                        if (!group.counts[name]) group[name] = null;
+                    });
+                    const delta = group.current_cost !== null &&
+                        group.previous_year_cost !== null
+                        ? group.current_cost - group.previous_year_cost : null;
+                    const currentRatio = group.current_cost !== null &&
+                        group.current_revenue
+                        ? group.current_cost / group.current_revenue * 100 : null;
+                    const previousRatio = group.previous_year_cost !== null &&
+                        group.previous_year_revenue
+                        ? group.previous_year_cost /
+                            group.previous_year_revenue * 100 : null;
+                    const date = new Date(`${group.date}T00:00:00`);
+                    return {
+                        ...group,
+                        label: new Intl.DateTimeFormat('ru-RU', {
+                            month: 'long', year: 'numeric'
+                        }).format(date),
+                        delta,
+                        percent_delta: delta !== null && group.previous_year_cost
+                            ? delta / Math.abs(group.previous_year_cost) * 100 : null,
+                        current_ratio: currentRatio,
+                        previous_year_ratio: previousRatio,
+                        ratio_delta_pp: currentRatio !== null &&
+                            previousRatio !== null
+                            ? currentRatio - previousRatio : null
+                    };
+                });
+        },
+
+        renderCogsDynamics(card) {
+            const container = document.getElementById('ki-cogs-dynamics-chart');
+            if (!container || !card) return;
+            const rows = this.cogsMonthlyRows(card);
+            const group = state.modalChart.cogsGroup || 'cost';
+            const selected = state.modalChart.cogsModes || new Set(
+                group === 'ratio'
+                    ? ['cogs-ratio-current', 'cogs-ratio-apg']
+                    : ['cogs-current', 'cogs-apg']);
+            const definitions = group === 'ratio' ? [
+                ['cogs-ratio-current', 'С/с / выручка', 'current_ratio', '#2563EB'],
+                ['cogs-ratio-apg', 'С/с / выручка АПГ', 'previous_year_ratio', '#DB2777']
+            ] : [
+                ['cogs-current', 'Себестоимость', 'current_cost', '#2563EB'],
+                ['cogs-apg', 'Себестоимость АПГ', 'previous_year_cost', '#DB2777']
+            ];
+            const visible = definitions.filter(item => selected.has(item[0]));
+            const values = visible.flatMap(item => rows.map(row => row[item[2]]))
+                .filter(value => Number.isFinite(Number(value))).map(Number);
+            if (!rows.length || !values.length) {
+                container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
+                return;
+            }
+            const width = 1000, height = 300, left = 70, right = 24, top = 24, bottom = 42;
+            const minValue = Math.min(0, ...values);
+            const maxValue = Math.max(...values);
+            const span = maxValue - minValue || 1;
+            const x = index => rows.length === 1 ? width / 2 :
+                left + index * (width - left - right) / (rows.length - 1);
+            const y = value => top + (maxValue - value) / span * (height - top - bottom);
+            let svg = `<svg class="cogs-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика себестоимости продаж">`;
+            [0, .25, .5, .75, 1].forEach(step => {
+                const value = maxValue - span * step;
+                const cy = top + (height - top - bottom) * step;
+                const label = group === 'ratio'
+                    ? `${value.toFixed(1)}%`
+                    : `${(value / 1000000).toFixed(0)} млн`;
+                svg += `<line x1="${left}" y1="${cy}" x2="${width-right}" y2="${cy}" stroke="#E5E7EB"/>`;
+                svg += `<text x="${left-8}" y="${cy+4}" text-anchor="end" font-size="10" fill="#64748B">${esc(label)}</text>`;
+            });
+            rows.forEach((row, index) => {
+                svg += `<text x="${x(index)}" y="${height-12}" text-anchor="middle" font-size="10" fill="#475569">${esc(row.label || row.date || '')}</text>`;
+            });
+            visible.forEach((definition) => {
+                const [, label, key, color] = definition;
+                let path = '';
+                rows.forEach((row, index) => {
+                    const value = row[key];
+                    if (!Number.isFinite(Number(value))) return;
+                    path += `${path ? ' L' : 'M'} ${x(index).toFixed(1)} ${y(Number(value)).toFixed(1)}`;
+                });
+                if (path) svg += `<path d="${path}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+                rows.forEach((row, index) => {
+                    const value = row[key];
+                    if (!Number.isFinite(Number(value))) return;
+                    const title = group === 'ratio'
+                        ? `${label}: ${Number(value).toFixed(1)}%`
+                        : `${label}: ${(Number(value) / 1000000).toFixed(2)} млн ₽`;
+                    svg += `<circle cx="${x(index)}" cy="${y(Number(value))}" r="5" fill="${color}" stroke="#fff" stroke-width="2"><title>${esc(row.label)} — ${esc(title)}</title></circle>`;
+                });
+            });
+            svg += '</svg>';
+            const legend = visible.map(item =>
+                `<span><i class="cash-chart-dot" style="background:${item[3]}"></i>${esc(item[1])}</span>`).join('');
+            container.innerHTML = svg + `<div class="cash-chart-legend">${legend}</div>`;
+        },
+
         cogsRequirements() {
             return {
                 fullCost: 'Учётная политика 1С по закрытию счетов 20, 25, 26 и 44: счета и субсчета закрытия, наличие 90.07 и 90.08, порядок распределения косвенных расходов, база распределения, незавершённое производство и период действия настройки.',
@@ -4279,6 +4436,8 @@
                 !String(revenueCard.title || '').includes('брутто') ? revenueCard.value : null;
             const costRatio = current !== null && current !== undefined && netRevenue
                 ? current / netRevenue * 100 : null;
+            const previousYearCost = card.previous_year_value;
+            const previousYearRatio = card.previous_year_ratio;
             const change = card.delta && card.delta.value !== null &&
                 card.delta.value !== undefined ? card.delta.value : null;
             const rub = value => value === null || value === undefined
@@ -4286,6 +4445,48 @@
             const pct = value => value === null || value === undefined
                 ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
             const structure = card.cost_structure || {};
+            if (!state.modalChart.cogsGroup) state.modalChart.cogsGroup = 'cost';
+            if (!state.modalChart.cogsModes) {
+                state.modalChart.cogsModes = new Set(['cogs-current', 'cogs-apg']);
+            }
+            const cogsMetricCard = (title, value, subtitle, mode, missing) => `
+                <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card ${
+                    state.modalChart.cogsModes.has(mode) ? 'cash-chart-mode-selected' : ''}"
+                     tabindex="0" role="button"
+                     aria-pressed="${state.modalChart.cogsModes.has(mode)}"
+                     data-layout-key="${mode}"
+                     data-cogs-chart-mode="${mode}"
+                     onclick="window.KI_App.toggleCogsMetric('${mode}')"
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCogsMetric('${mode}')}">
+                    <div class="cash-summary-label">${esc(title)}</div>
+                    <div class="cash-summary-value ${missing ? 'cash-value-missing' : 'cash-value-ok'}">${esc(value)}</div>
+                    <div class="cash-summary-sub">${esc(subtitle)}</div>
+                </div>`;
+            const formatSigned = (value, suffix) =>
+                value === null || value === undefined || !Number.isFinite(Number(value))
+                    ? '—' : `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(2)}${suffix}`;
+            const periodRows = this.cogsMonthlyRows(card).map(row => {
+                const values = [
+                    row.current_cost, row.previous_year_cost, row.delta,
+                    row.percent_delta, row.current_revenue,
+                    row.previous_year_revenue, row.current_ratio,
+                    row.previous_year_ratio, row.ratio_delta_pp
+                ];
+                const missing = value => value === null || value === undefined ||
+                    !Number.isFinite(Number(value));
+                return `<tr>
+                    <td>${esc(row.label || row.date || '—')}</td>
+                    <td class="cash-number-cell">${missing(values[0]) ? '—' : esc(rub(values[0]))}</td>
+                    <td class="cash-number-cell">${missing(values[1]) ? '—' : esc(rub(values[1]))}</td>
+                    <td class="cash-number-cell">${missing(values[2]) ? '—' : esc(`${values[2] > 0 ? '+' : ''}${rub(values[2])}`)}</td>
+                    <td>${esc(formatSigned(values[3], '%'))}</td>
+                    <td class="cash-number-cell">${missing(values[4]) ? '—' : esc(rub(values[4]))}</td>
+                    <td class="cash-number-cell">${missing(values[5]) ? '—' : esc(rub(values[5]))}</td>
+                    <td>${missing(values[6]) ? '—' : esc(pct(values[6]))}</td>
+                    <td>${missing(values[7]) ? '—' : esc(pct(values[7]))}</td>
+                    <td>${esc(formatSigned(values[8], ' п.п.'))}</td>
+                </tr>`;
+            }).join('');
 
             const totalTip = this.cogsTooltip({
                 fact: rub(current),
@@ -4468,12 +4669,28 @@
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Подтверждённый показатель — ОбД(90.02).</strong>
                     Обороты 20, 25, 26 и 44 показываются отдельно и не прибавляются к себестоимости продаж.</div>
-                <div class="collection-summary cogs-summary">
-                    ${this.cashMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', totalTip, current === null || current === undefined, '__main__')}
+                <div class="cash-summary-grid cogs-summary">
+                    ${cogsMetricCard('Себестоимость продаж', rub(current), 'дебет 90.02', 'cogs-current', current === null || current === undefined)}
                     ${this.cashMetricCard('Изменение', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимому периоду', changeTip, change === null)}
-                    ${this.cashMetricCard('Себестоимость / Выручка', pct(costRatio), 'по нетто-выручке', ratioTip, costRatio === null)}
+                    ${cogsMetricCard('Себестоимость / Выручка', pct(costRatio), 'по нетто-выручке', 'cogs-ratio-current', costRatio === null)}
                     ${this.cashMetricCard('Валовая прибыль', rub(cogsGrossProfit), 'нетто-выручка − 90.02', profitTip, cogsGrossProfit === null || cogsGrossProfit === undefined)}
+                    ${cogsMetricCard('Себестоимость продаж АПГ', rub(previousYearCost), 'аналогичный период прошлого года', 'cogs-apg', previousYearCost === null || previousYearCost === undefined)}
+                    ${cogsMetricCard('Себестоимость / Выручка АПГ', pct(previousYearRatio), 'аналогичный период прошлого года', 'cogs-ratio-apg', previousYearRatio === null || previousYearRatio === undefined)}
                 </div>
+                <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика">
+                    <div class="modal-section-title">ДИНАМИКА СЕБЕСТОИМОСТИ ПРОДАЖ</div>
+                    <div id="ki-cogs-dynamics-chart" class="cash-line-chart"></div>
+                </div>
+                <div class="modal-section-title">СЕБЕСТОИМОСТЬ ПО ПЕРИОДАМ</div>
+                <div class="collection-table-wrap"><table class="collection-detail-table cogs-period-table">
+                    <thead><tr>
+                        <th>Период</th><th>Себестоимость</th><th>АПГ</th>
+                        <th>Δ, ₽</th><th>Δ, %</th><th>Выручка</th>
+                        <th>Выручка АПГ</th><th>С/с / выручка</th>
+                        <th>АПГ</th><th>Δ, п.п.</th>
+                    </tr></thead>
+                    <tbody>${periodRows || '<tr><td colspan="10">Нет сопоставимых данных</td></tr>'}</tbody>
+                </table></div>
                 <div class="modal-section-title">Признанные расходы счёта 90</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table cogs-recognized-table">
                     <thead><tr><th>Показатель</th><th>Сумма</th><th>Использование</th></tr></thead>
@@ -4508,6 +4725,8 @@
                 </table></div>
                 <div class="modal-section-title">Дополнительные тарифные показатели</div>
                 <div class="revenue-missing-grid cogs-missing-grid">${unavailable}</div>`;
+            this.updateCogsMetricCards();
+            this.renderCogsDynamics(card);
         },
 
         profitRequirements() {

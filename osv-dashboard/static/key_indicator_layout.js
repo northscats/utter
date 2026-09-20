@@ -524,6 +524,21 @@
                 saved && Array.isArray(saved.order) ? saved.order : null,
                 defaults.order
             );
+            if (saved && Array.isArray(saved.order)) {
+                const savedOrder = new Set(saved.order);
+                const registry = this.state.items.map(item => item.id);
+                registry.forEach((itemId, registryIndex) => {
+                    if (savedOrder.has(itemId)) return;
+                    const currentIndex = result.order.indexOf(itemId);
+                    if (currentIndex >= 0) result.order.splice(currentIndex, 1);
+                    const nextKnown = registry.slice(registryIndex + 1)
+                        .find(candidate => savedOrder.has(candidate) &&
+                            result.order.includes(candidate));
+                    const insertAt = nextKnown
+                        ? result.order.indexOf(nextKnown) : result.order.length;
+                    result.order.splice(insertAt, 0, itemId);
+                });
+            }
             return result;
         },
 

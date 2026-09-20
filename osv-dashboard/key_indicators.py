@@ -3119,6 +3119,19 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'end': previous_year_end.isoformat(),
         }
     card_map = {c['id']: c for c in cards}
+    previous_year_cogs = previous_year_pl['cost']
+    previous_year_revenue = previous_year_pl['revenue']
+    card_map['cogs']['previous_year_value'] = previous_year_cogs
+    card_map['cogs']['previous_year_revenue'] = previous_year_revenue
+    card_map['cogs']['previous_year_ratio'] = (
+        round(previous_year_cogs / previous_year_revenue * 100, 2)
+        if previous_year_cogs is not None and previous_year_revenue else None)
+    card_map['cogs']['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
+    card_map['cogs']['previous_year_series'] = []
+    card_map['cogs']['monthly_comparison'] = []
     previous_year_capex = _account_turnovers(
         source, '08', previous_year_start, previous_year_end)['debit']
     card_map['capex']['previous_year_value'] = previous_year_capex
@@ -3421,6 +3434,48 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             source, '08', month_start, month_end)
         previous_month_start = previous_year_date(month_start)
         previous_month_end = previous_year_date(month_end)
+        previous_month_pl = _pl_facts(
+            source, previous_month_start, previous_month_end)
+        current_cost = month_pl['cost']
+        current_revenue = month_pl['revenue']
+        previous_cost = previous_month_pl['cost']
+        previous_revenue = previous_month_pl['revenue']
+        current_ratio = (
+            round(current_cost / current_revenue * 100, 2)
+            if current_cost is not None and current_revenue else None)
+        previous_ratio = (
+            round(previous_cost / previous_revenue * 100, 2)
+            if previous_cost is not None and previous_revenue else None)
+        cost_delta = (
+            round(current_cost - previous_cost, 2)
+            if current_cost is not None and previous_cost is not None else None)
+        card_map['cogs']['previous_year_series'].append({
+            'date': point_date,
+            'source_date': previous_month_end.isoformat(),
+            'label': f'{option["label"]} · АПГ',
+            'value': previous_cost,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
+        card_map['cogs']['monthly_comparison'].append({
+            'date': point_date,
+            'label': option['label'],
+            'current_cost': current_cost,
+            'previous_year_cost': previous_cost,
+            'delta': cost_delta,
+            'percent_delta': (
+                round(cost_delta / abs(previous_cost) * 100, 2)
+                if cost_delta is not None and previous_cost else None),
+            'current_revenue': current_revenue,
+            'previous_year_revenue': previous_revenue,
+            'current_ratio': current_ratio,
+            'previous_year_ratio': previous_ratio,
+            'ratio_delta_pp': (
+                round(current_ratio - previous_ratio, 2)
+                if current_ratio is not None and previous_ratio is not None
+                else None),
+        })
         previous_month_capex = _account_turnovers(
             source, '08', previous_month_start, previous_month_end)['debit']
         month_values['capex'] = month_capex_turnovers['debit']
