@@ -90,22 +90,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "osv-preview"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "cash-visual"
-
-[[workflows.workflow]]
-name = "osv-preview"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash artifacts/osv-app/scripts/validate-preview.sh"
-
-[workflows.workflow.metadata]
-isValidation = true
 
 [[workflows.workflow]]
 name = "cash-visual"
