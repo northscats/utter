@@ -118,6 +118,40 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertNotIn('Текущая стоимость', passport_page)
         self.assertNotIn('Предложить по адресу', passport_page)
 
+    def test_capacity_edit_is_immediately_reflected_in_catalog(self):
+        title = 'catalog-capacity-after-passport-edit'
+        with app.app_context():
+            passport = AnalogPassport(
+                title=title,
+                object_type='котельная',
+                work_type='строительство',
+                capacity_kw=Decimal('1.8'),
+                created_by=self.admin_id,
+            )
+            db.session.add(passport)
+            db.session.commit()
+            passport_id = passport.id
+
+        edited = self.client.post(
+            f'/analog-search/passports/{passport_id}/edit',
+            data={'capacity_kw': '1800'},
+        )
+        self.assertEqual(edited.status_code, 302)
+
+        catalog = self.client.get(
+            '/analog-search/simple',
+            query_string={'view': 'base', 'title': title, 'format': 'json'},
+        )
+        self.assertEqual(catalog.status_code, 200)
+        payload = catalog.get_json()
+        self.assertEqual(payload['total'], 1)
+        self.assertEqual(payload['items'][0]['capacity_kw'], '1800.000000')
+        self.assertEqual(payload['items'][0]['capacity_mw_display'], '1,8')
+
+        with app.app_context():
+            db.session.delete(db.session.get(AnalogPassport, passport_id))
+            db.session.commit()
+
     def test_html_confirm_redirects_to_analog_search(self):
         response = self.client.post(
             '/analog-search/import/preview',
