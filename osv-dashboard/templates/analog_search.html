@@ -3,7 +3,7 @@
 {% block content %}
 <a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
 <div class="eyebrow">Теплоснабжение</div>
-<h1>Упрощённый поиск объектов-аналогов</h1>
+<h1>Быстрый поиск объектов-аналогов</h1>
 <p><a href="{{ url_for('analog.index') }}">Изменить способ поиска</a></p>
 <p class="lead">Индексированный поиск по подтверждённым паспортам и стоимости ССР.</p>
 {% for category, message in get_flashed_messages(with_categories=true) %}

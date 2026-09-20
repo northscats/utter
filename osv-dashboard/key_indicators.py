@@ -6,6 +6,7 @@ derived values.  This keeps the new screen independent from the legacy
 dashboard formulas and rating.
 """
 import calendar
+import copy
 import hashlib
 import json
 import re
@@ -16,11 +17,12 @@ from datetime import date as Date, timedelta
 
 _BALANCE_ACCOUNTS = {'50', '51', '52', '55', '60', '62', '66', '67', '70'}
 _CASH_ACCOUNTS = ('50', '51', '52', '55')
-_CARD_ORDER = ('cash', 'revenue', 'collection', 'ar', 'ap', 'cogs',
+_CARD_ORDER = ('cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs',
                'profit', 'credits', 'salary', 'capex')
 _ANALYTIC_SERIES_LIMIT = 200
 _TITLES = {
     'cash': 'Денежные средства',
+    'cash_dz': 'ДЗ',
     'revenue': 'Выручка',
     'collection': 'Собираемость (прокси по ОСВ)',
     'ar': 'Дебиторская задолженность',
@@ -3490,7 +3492,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'date': point_date, 'label': option['label'],
             'value': month_insurance_turnovers['credit']})
         for cid in _CARD_ORDER:
-            if cid == 'cash':
+            if cid in ('cash', 'cash_dz'):
                 continue
             card_map[cid]['series'].append({
                 'date': point_date, 'label': option['label'],
@@ -3942,6 +3944,81 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             advances_cursor += timedelta(days=1)
         advances_item['series'] = advances_series
 
+    # The debtor card has its own explicit series contract.  Keep the
+    # previous-year points aligned to the selected current-period dates while
+    # retaining the authentic source date used to calculate each point.
+    def debtor_daily_series(subaccount, opening, credit=False,
+                            aligned_start=None, aligned_end=None):
+        if opening is None or aligned_start is None or aligned_end is None:
+            return []
+        signed_balance = opening
+        cursor = aligned_start
+        result = []
+        while cursor <= aligned_end:
+            point_rows = _explicit_subaccount_rows(
+                _daily(source, '62', cursor, cursor), subaccount)
+            if point_rows:
+                debit = _known_sum(point_rows, 'obd')
+                credit_turnover = _known_sum(point_rows, 'obk')
+                if debit is None or credit_turnover is None:
+                    return []
+                signed_balance += debit - credit_turnover
+            value = (-signed_balance if credit else signed_balance)
+            result.append({
+                'date': cursor.isoformat(),
+                'source_date': cursor.isoformat(),
+                'label': _options([cursor], 'day')[0]['label'],
+                'value': round(max(0.0, value), 2),
+                'signed_balance': round(signed_balance, 2),
+                'granularity': 'day',
+                'synthetic': False,
+            })
+            cursor += timedelta(days=1)
+        return result
+
+    previous_consumer_raw = debtor_daily_series(
+        '62.01',
+        _sub_signed_opening_balance(
+            source, '62', '62.01', previous_year_start),
+        aligned_start=previous_year_start,
+        aligned_end=previous_year_end)
+    previous_advances_raw = debtor_daily_series(
+        '62.02',
+        _sub_signed_opening_balance(
+            source, '62', '62.02', previous_year_start),
+        credit=True,
+        aligned_start=previous_year_start,
+        aligned_end=previous_year_end)
+    previous_consumer_by_date = {
+        point['date']: point for point in previous_consumer_raw}
+    previous_advances_by_date = {
+        point['date']: point for point in previous_advances_raw}
+    previous_consumer_series = []
+    previous_advances_series = []
+    cursor = start
+    while cursor <= end:
+        source_date = previous_year_date(cursor).isoformat()
+        consumer_point = previous_consumer_by_date.get(source_date)
+        advances_point = previous_advances_by_date.get(source_date)
+        label = _options([cursor], 'day')[0]['label']
+        previous_consumer_series.append({
+            'date': cursor.isoformat(),
+            'source_date': source_date,
+            'label': label,
+            'value': consumer_point.get('value') if consumer_point else None,
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        previous_advances_series.append({
+            'date': cursor.isoformat(),
+            'source_date': source_date,
+            'label': label,
+            'value': advances_point.get('value') if advances_point else None,
+            'granularity': 'day',
+            'synthetic': False,
+        })
+        cursor += timedelta(days=1)
+
     series_accounts = {
         'cash': {'series': value_accounts['cash']},
         'revenue': {'series': ('90',)},
@@ -4336,6 +4413,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     loaded = sorted(source['accounts'])
     metric_accounts = {
         'cash': ('50', '51', '52', '55'),
+        'cash_dz': ('62.01', '62.02'),
         'collection': ('62',),
         'ar': ('62.01',),
         'ap': ('60.01',),
@@ -4343,6 +4421,79 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'salary': ('70',),
         'capex': ('08',),
     }
+    # ``ДЗ`` is a separate debtor card, not a second cash card.  Clone the
+    # already calculated AR card so all authenticated 62.01 analytics remain
+    # available, then attach explicit current/APG series for the modal.
+    cash_dz = copy.deepcopy(card_map['ar'])
+    cash_dz['id'] = 'cash_dz'
+    cash_dz['title'] = _TITLES['cash_dz']
+    cash_dz['formula'] = 'max(СКд − СКк, 0) по 62.01'
+    cash_dz['source'] = 'Дебетовое сальдо 62.01; авансы — кредитовое сальдо 62.02'
+    cash_dz['analytics'] = [
+        item for item in (cash_dz.get('analytics') or [])
+        if item.get('account') == '62.01'
+    ]
+    cash_dz['consumer_series'] = copy.deepcopy(
+        cash_dz.get('series') or [])
+    advances_series = []
+    for item in cash_dz.get('details') or []:
+        if item.get('series_id') == 'consumer-advances':
+            advances_series = copy.deepcopy(item.get('series') or [])
+            break
+    cash_dz['advances_series'] = advances_series
+    cash_dz['previous_year_consumer_series'] = previous_consumer_series
+    cash_dz['previous_year_advances_series'] = previous_advances_series
+    cash_dz['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
+    cash_dz['period_change'] = {
+        'value': round(ar - ar_opening, 2)
+        if ar is not None and ar_opening is not None else None,
+        'comparable': ar is not None and ar_opening is not None,
+        'current': ar,
+        'opening': ar_opening,
+        'unit': 'RUB',
+        'start': start.isoformat(),
+        'end': end.isoformat(),
+    }
+    monthly_comparison = []
+    month_cursor = start.replace(day=1)
+    while month_cursor <= end:
+        month_end = Date(
+            month_cursor.year, month_cursor.month,
+            calendar.monthrange(month_cursor.year, month_cursor.month)[1])
+        month_end = min(month_end, end)
+        previous_month_end = previous_year_date(month_end)
+        current_value = _sub_balance(
+            source, '62', '62.01', month_end)[0]
+        apg_value = _sub_balance(
+            source, '62', '62.01', previous_month_end)[0]
+        percent_delta = (
+            round((current_value - apg_value) / apg_value * 100, 2)
+            if current_value is not None and apg_value not in (None, 0)
+            else None)
+        monthly_comparison.append({
+            'month': month_end.strftime('%Y-%m'),
+            'label': _options([month_end], 'month')[0]['label'],
+            'date': month_end.isoformat(),
+            'current_dz': current_value,
+            'apg_dz': apg_value,
+            'previous_year_dz': apg_value,
+            'delta': (
+                round(current_value - apg_value, 2)
+                if current_value is not None and apg_value is not None
+                else None),
+            'percent_delta': percent_delta,
+        })
+        if month_cursor.month == 12:
+            month_cursor = Date(month_cursor.year + 1, 1, 1)
+        else:
+            month_cursor = Date(month_cursor.year, month_cursor.month + 1, 1)
+    cash_dz['monthly_comparison'] = monthly_comparison
+    cards.append(cash_dz)
+    cards.sort(key=lambda card: _CARD_ORDER.index(card['id']))
+
     missing = []
     if not rev_rows:
         missing.append('90.01')

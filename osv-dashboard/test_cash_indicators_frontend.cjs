@@ -181,7 +181,8 @@ assert.match(html, /class="cash-data-state ok">Загружен/);
 assert.match(html, /class="cash-data-state missing">Нет данных/);
 assert.match(html, /class="cash-share-fill" style="width:100\.0%"/);
 assert.match(html, /class="cash-coverage-note">Частичный охват/);
-assert.match(cashCss, /\.cash-table th\s*\{[^}]*background:#173A66;[^}]*color:#fff;/s);
+assert.match(cashCss,
+    /\.cash-table th\s*\{[^}]*background:#312E91;[^}]*color:#fff;/s);
 assert.match(cashCss, /\.cash-table\s*\{[^}]*min-width:760px;/s);
 assert.match(cashCss, /\.cash-total-row td\s*\{[^}]*border-top:2px solid #2563EB;/s);
 assert.match(cashCss, /\.cash-table-scroll:focus-visible/);
@@ -241,6 +242,7 @@ app.toggleCashChartMode('cash-apg');
 assert.equal(cashChartMounts, 3);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance-apg"/);
 assert.match(element('ki-cash-line-chart').innerHTML, /2025-01-02/);
+
 app.toggleCashChartMode('cumulative-current');
 assert.equal(cashChartMounts, 4);
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-debit"/);
@@ -251,6 +253,94 @@ assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-debit-a
 assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-credit-apg"/);
 assert.match(element('ki-cash-chart-title').textContent,
     /Поступления \/ выплаты и Поступления \/ выплаты АПГ/);
+
+const cashDzCard = {
+    id: 'cash_dz', title: 'ДЗ', unit: 'RUB', value: 900000000,
+    coverage: 'complete', accounts: ['62.01', '62.02'],
+    period_change: {value: -100000000, comparable: true},
+    consumer_series: [
+        {date: '2026-01-01', label: '01.01', value: 1000000000},
+        {date: '2026-01-02', label: '02.01', value: 900000000},
+    ],
+    advances_series: [
+        {date: '2026-01-01', label: '01.01', value: 200000000},
+        {date: '2026-01-02', label: '02.01', value: 250000000},
+    ],
+    previous_year_consumer_series: [
+        {date: '2025-01-01', label: '01.01', value: 800000000},
+        {date: '2025-01-02', label: '02.01', value: 850000000},
+    ],
+    previous_year_advances_series: [
+        {date: '2025-01-01', label: '01.01', value: 150000000},
+        {date: '2025-01-02', label: '02.01', value: 175000000},
+    ],
+    analytics: [{label: 'Потребитель А', value: 600000000},
+        {label: 'Потребитель Б', value: 300000000}],
+    monthly_comparison: [
+        {label: 'Январь 2026', current_dz: 900000000, previous_year_dz: 1000000000, percent_delta: -10},
+        {label: 'Февраль 2026', current_dz: 1100000000, previous_year_dz: 1000000000, percent_delta: 10},
+        {label: 'Март 2026', current_dz: 500000000, previous_year_dz: 0, percent_delta: null},
+    ]
+};
+app.state.data.cards = [card, cashDzCard];
+app.openModal('cash_dz');
+assert.equal(app.state.modalCardId, 'cash_dz');
+assert.equal(element('ki-modal-title').textContent, 'ДЗ');
+const cashDzHtml = element('ki-cash-modal-content').innerHTML;
+assert.match(cashDzHtml, /cash-summary-grid/);
+assert.match(cashDzHtml, /ДЗ потребителей/);
+assert.match(cashDzHtml, /Авансы потребителей/);
+assert.match(cashDzHtml, /ДЗ потребителей АПГ/);
+assert.match(cashDzHtml, /Авансы потребителей АПГ/);
+assert.match(cashDzHtml, /data-cash-chart-mode="debtor-current"/);
+assert.match(cashDzHtml, /data-cash-chart-mode="advances-current"/);
+assert.match(cashDzHtml, /data-cash-chart-mode="debtor-apg"/);
+assert.match(cashDzHtml, /data-cash-chart-mode="advances-apg"/);
+assert.match(cashDzHtml, /Изменение за период: -100,0/);
+assert.match(cashDzHtml, /Потребитель А/);
+assert.ok(!cashDzHtml.includes('Счёт 50'));
+assert.match(cashDzHtml, /Месяц<\/th><th>ДЗ<\/th><th>АПГ<\/th><th>Дельта АПГ/);
+assert.match(cashDzHtml, /-10\.0%/);
+assert.match(cashDzHtml, /10\.0%/);
+assert.match(cashDzHtml, /<td[^>]*>—<\/td>/);
+const cashDzSummaryHtml = cashDzHtml.match(
+    /<div class="cash-summary-grid">([\s\S]*?)<\/div>\s*<button/
+)[1];
+const cashDzSummarySubs = [...cashDzSummaryHtml.matchAll(
+    /<div class="cash-summary-sub">([\s\S]*?)<\/div>/g
+)].map(match => match[1]).join(' ');
+assert.ok(!cashDzSummarySubs.includes('на 2026-01-02'));
+assert.ok(!cashDzSummarySubs.includes('на 2025-01-02'));
+assert.ok(!cashDzHtml.includes('Денежные средства АПГ'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes('Текущая ликвидность'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes(
+    'Коэффициент текущей ликвидности'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes(
+    'Коэффициент абсолютной ликвидности'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes('Cash Runway'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes(
+    'Обеспеченность топливом'));
+assert.ok(!element('ki-cash-modal-content').innerHTML.includes(
+    'Показатели ликвидности'));
+const dzInitialChart = element('ki-cash-line-chart').innerHTML;
+assert.match(dzInitialChart, /class="cash-chart-balance"/);
+assert.match(dzInitialChart, /class="cash-chart-balance-apg"/);
+assert.match(dzInitialChart, /class="cash-chart-advances"/);
+assert.match(dzInitialChart, /class="cash-chart-advances-apg"/);
+assert.match(dzInitialChart, /d="[^"]* C [^"]*" class="cash-chart-balance"/);
+assert.match(dzInitialChart, /d="[^"]* C [^"]*" class="cash-chart-balance-apg"/);
+assert.match(dzInitialChart, /d="[^"]* C [^"]*" class="cash-chart-advances"/);
+assert.match(dzInitialChart, /d="[^"]* C [^"]*" class="cash-chart-advances-apg"/);
+app.toggleCashChartMode('debtor-current');
+assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-balance-apg"/);
+app.toggleCashChartMode('debtor-apg');
+assert.ok(!element('ki-cash-line-chart').innerHTML.includes(
+    'class="cash-chart-balance'));
+assert.match(element('ki-cash-line-chart').innerHTML, /class="cash-chart-advances"/);
+app.toggleCashChartMode('advances-current');
+assert.match(element('ki-cash-line-chart').innerHTML,
+    /class="cash-chart-advances-apg"/);
+assert.notEqual(app.state.modalCharts.cash, app.state.modalCharts.cash_dz);
 
 app.renderCashModal({...card, ...jan2, delta: null});
 html = element('ki-cash-modal-content').innerHTML;

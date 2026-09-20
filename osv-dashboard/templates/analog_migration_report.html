@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}Отчёт миграции JSON v4{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('analog.simple_search') }}">← Упрощённый поиск</a>
+<a class="back" href="{{ url_for('analog.simple_search') }}">← Быстрый поиск</a>
 <h1>Отчёт миграции JSON v4</h1>
 <section class="panel"><dl>
 {% for key, value in report.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}

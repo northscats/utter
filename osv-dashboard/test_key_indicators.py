@@ -603,6 +603,39 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(ar['analytics'][0]['value'], 100)
         self.assertIn('Покупатель А', ar['analytics'][0]['label'])
 
+    def test_cash_dz_uses_consumer_balances_and_percent_apg_comparison(self):
+        rows = [
+            day('2025-01-31', '62.01', skd=100, skk=0),
+            day('2025-01-31', '62.02', skd=0, skk=20),
+            day('2026-01-31', '62.01', skd=150, skk=0),
+            day('2026-01-31', '62.02', skd=0, skk=30),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'62': account('62', rows)}),
+            period='month', date='2026-01-31')
+        cards = {item['id']: item for item in result['cards']}
+        dz = cards['cash_dz']
+
+        self.assertEqual(dz['value'], 150)
+        self.assertEqual(dz['consumer_series'][-1]['value'], 150)
+        self.assertEqual(dz['advances_series'], [])
+        self.assertEqual(dz['previous_year_consumer_series'][-1]['value'], None)
+        self.assertEqual(dz['period_change']['value'], None)
+        self.assertEqual(dz['monthly_comparison'], [{
+            'month': '2026-01',
+            'label': 'Янв 2026',
+            'date': '2026-01-31',
+            'current_dz': 150,
+            'apg_dz': 100,
+            'previous_year_dz': 100,
+            'delta': 50,
+            'percent_delta': 50.0,
+        }])
+        self.assertEqual(cards['ar']['value'], 150)
+        dz['analytics'].append({'label': 'Только копия'})
+        self.assertNotIn(
+            {'label': 'Только копия'}, cards['ar']['analytics'])
+
     def test_ap_detail_exposes_components_opening_turnover_and_analytics(self):
         report_row = dict(lvl=1, label='60.01', p0='60', p1='60.01',
                           p2='', p3='', snd=0, snk=80, obd=0, obk=20,
@@ -858,10 +891,42 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_ten_unavailable_cards(self):
+    def test_empty_source_returns_eleven_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 10)
+        self.assertEqual(len(result['cards']), 11)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
+
+    def test_cash_dz_is_an_independent_debtor_card(self):
+        source = build_indicator_source({
+            '51': account('51', [
+                day('2026-01-30', skd=100),
+                day('2026-01-31', skd=150),
+            ]),
+            '62': account('62', [
+                day('2026-01-31', '62.01', skd=150),
+                day('2026-01-31', '62.02', skk=30),
+            ]),
+        })
+        result = build_key_indicators(source, 'month', '2026-01-31')
+        self.assertEqual(
+            [card['id'] for card in result['cards'][:3]],
+            ['cash', 'cash_dz', 'revenue'])
+        cards = {card['id']: card for card in result['cards']}
+        cash = cards['cash']
+        cash_dz = cards['cash_dz']
+        self.assertEqual(cash_dz['title'], 'ДЗ')
+        self.assertEqual(cash_dz['value'], 150)
+        self.assertEqual(cash_dz['consumer_series'][-1]['value'], 150)
+        self.assertEqual(cash_dz['advances_series'], [])
+        self.assertEqual(cash_dz['monthly_comparison'][-1]['current_dz'], 150)
+        self.assertIsNot(cash_dz['analytics'], cards['ar']['analytics'])
+        self.assertIsNot(cash_dz['breakdown'], cash['breakdown'])
+        cash_dz['series'].append({'date': '2099-01-01', 'value': 1})
+        cash_dz['analytics'].append({'label': 'Только копия'})
+        self.assertNotIn(
+            {'label': 'Только копия'}, cards['ar']['analytics'])
+        self.assertNotIn(
+            {'date': '2099-01-01', 'value': 1}, cards['ar']['series'])
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
         rows = [
@@ -2021,9 +2086,9 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_ten_unavailable_cards(self):
+    def test_empty_source_returns_eleven_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 10)
+        self.assertEqual(len(result['cards']), 11)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
@@ -2518,9 +2583,9 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_ten_unavailable_cards(self):
+    def test_empty_source_returns_eleven_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 10)
+        self.assertEqual(len(result['cards']), 11)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):

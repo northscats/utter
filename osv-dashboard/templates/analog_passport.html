@@ -1,7 +1,7 @@
 {% extends "modules.html" %}
 {% block title %}{{ passport.title }}{% endblock %}
 {% block content %}
-<a class="back" href="{{ url_for('analog.simple_search') }}">← Упрощённый поиск</a>
+<a class="back" href="{{ url_for('analog.simple_search') }}">← Быстрый поиск</a>
 <h1>{{ passport.title }}</h1>
 <section class="panel passport">
   {% if current_user.is_admin %}<form method="post" action="{{ url_for('analog.edit', passport_id=passport.id) }}">

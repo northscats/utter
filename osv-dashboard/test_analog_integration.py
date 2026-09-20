@@ -273,7 +273,7 @@ class AnalogRoutesTest(unittest.TestCase):
         page = self.client.get('/analog-search')
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn('Упрощённый поиск', html)
+        self.assertIn('Быстрый поиск', html)
         self.assertIn('Поиск по нормативно-правовому акту', html)
         self.assertIn('/analog-search/simple', html)
         self.assertIn('/analog-search/regulatory', html)

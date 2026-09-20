@@ -52,6 +52,7 @@
 
     const cardDefinitions = [
         { id: 'cash', icon: '<span aria-hidden="true">₽</span>' },
+        { id: 'cash_dz', icon: '<span aria-hidden="true">₽</span>' },
         { id: 'revenue', icon: svgIcon('M3 3v18h18M3 16l6-6 4 4 8-8') },
         { id: 'collection', icon: svgIcon('M3 10h18M7 15h1m4 0h1M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z') },
         { id: 'ar', icon: svgIcon('M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4') },
@@ -62,6 +63,7 @@
         { id: 'salary', icon: svgIcon('M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 7a4 4 0 100-8 4 4 0 000 8zm14 14v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75') },
         { id: 'capex', icon: svgIcon('M2 20h20M5 20V8l7-5 7 5v12M9 20v-5h6v5M7 11h2M15 11h2') }
     ];
+    const isCashMetric = id => id === 'cash' || id === 'cash_dz';
 
     const esc = (str) => {
         if (str === null || str === undefined) return '';
@@ -1694,7 +1696,7 @@
             if (!state.data.cards) return;
             
             let html = '';
-            const orderedIds = ['cash', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            const orderedIds = ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
             (state.data.cards || []).forEach(card => {
                 if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
             });
@@ -1712,7 +1714,7 @@
                 let formatted = this.formatValue(card.value, card.unit);
                 
                 let deltaHtml = '';
-                if (!isNull && card.delta && (id !== 'cash' || (card.comparison && card.comparison.comparable))) {
+                if (!isNull && card.delta && (!isCashMetric(id) || (card.comparison && card.comparison.comparable))) {
                     let dClass = 'neutral';
                     if (String(card.delta.value).startsWith('+')) dClass = 'up';
                     if (String(card.delta.value).startsWith('-')) dClass = 'down';
@@ -1741,7 +1743,7 @@
                 <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
-                  ${id === 'cash' ? `<div class="kpi-delta neutral">${esc(this.cashCoverageText(card))}${card.date ? ` · на ${esc(card.date)}` : ''}</div>` : ''}
+                  ${isCashMetric(id) ? `<div class="kpi-delta neutral">${esc(this.cashCoverageText(card))}${card.date ? ` · на ${esc(card.date)}` : ''}</div>` : ''}
                   ${deltaHtml}
                     ${metricTooltip}
                 </div>
@@ -5973,7 +5975,7 @@
             const container = chartContainer || state.modalChart.chartContainer ||
                 document.getElementById('ki-metric-modal-svg');
             if (!container) return;
-            if (card.id === 'cash') {
+            if (isCashMetric(card.id)) {
                 this.drawCashMetricModalSvg(card, container);
                 return;
             }
@@ -6384,7 +6386,138 @@
             container.innerHTML = unitNotice
                 + `<div class="metric-modal-chart-plot">${svg}${htmlOverlay}</div>`;
         },
+        renderCashDzModal(card) {
+            const container = document.getElementById('ki-cash-modal-content');
+            const currentDz = card.consumer_series || card.series || [];
+            const advances = card.advances_series || [];
+            const apgDz = card.previous_year_consumer_series || [];
+            const apgAdvances = card.previous_year_advances_series || [];
+            const formatAmount = value => this.formatValue(
+                value !== null && value !== undefined && Number.isFinite(Number(value))
+                    ? Number(value) : null, card.unit || 'RUB');
+            const amount = formatAmount(card.value);
+            const periodChange = card.period_change || {};
+            const changeValue = periodChange.comparable &&
+                Number.isFinite(Number(periodChange.value))
+                ? Number(periodChange.value) : null;
+            const change = formatAmount(changeValue);
+            const changeText = changeValue === null ? 'Нужны данные' :
+                `${changeValue > 0 ? '+' : ''}${change.val} ${change.u}`;
+            const coverage = this.cashCoverageText(card);
+            const analytics = card.analytics || card.breakdown ||
+                card.debtor_segments || card.details || [];
+            const total = card.value !== null && card.value !== undefined &&
+                Number.isFinite(Number(card.value)) ? Number(card.value) : null;
+            const rows = analytics.map((item, index) => {
+                const value = item && item.value !== null && item.value !== undefined &&
+                    Number.isFinite(Number(item.value))
+                    ? Number(item.value) : null;
+                const formatted = formatAmount(value);
+                const share = value !== null && total !== null && total !== 0
+                    ? `${(value / total * 100).toFixed(1)}%` : '—';
+                const label = item && (item.label || item.name || item.account ||
+                    `Аналитика ${index + 1}`);
+                const comment = item && (item.comment || item.description ||
+                    item.reason || 'Дебиторская задолженность потребителя');
+                return `<tr class="cash-tooltip-host" tabindex="0">
+                    <td class="cash-account-cell"><div><strong>${esc(label)}</strong><span class="cash-account-name">62.01</span></div></td>
+                    <td class="cash-number-cell"><span class="cash-number-value">${esc(formatted.val)}</span> <span class="cash-number-unit">${esc(formatted.u)}</span></td>
+                    <td class="cash-share-cell"><span class="cash-share-value">${esc(share)}</span>${share !== '—'
+                        ? `<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:${Math.max(0, Math.min(100, Number(share.slice(0, -1)))).toFixed(1)}%"></span></span>`
+                        : ''}</td>
+                    <td class="cash-comment-cell">${esc(comment)}</td>
+                    <td class="cash-status-cell"><span class="cash-data-state ${value === null ? 'missing' : 'ok'}">${value === null ? 'Нет данных' : 'Загружен'}</span></td>
+                </tr>`;
+            }).join('');
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const formatPercent = value => value !== null && value !== undefined &&
+                Number.isFinite(Number(value))
+                ? `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(1)}%` : '—';
+            const monthlyRows = monthly.map(item => {
+                const current = formatAmount(item.current_dz);
+                const apgValue = item.previous_year_dz ?? item.apg_dz;
+                const apg = formatAmount(apgValue);
+                const currentMissing = !Number.isFinite(Number(item.current_dz));
+                const apgMissing = !Number.isFinite(Number(apgValue));
+                return `<tr>
+                    <td>${esc(item.label || item.month || '—')}</td>
+                    <td class="cash-number-cell">${currentMissing ? '—' : `${esc(current.val)} <span class="cash-number-unit">${esc(current.u)}</span>`}</td>
+                    <td class="cash-number-cell">${apgMissing ? '—' : `${esc(apg.val)} <span class="cash-number-unit">${esc(apg.u)}</span>`}</td>
+                    <td class="${Number(item.percent_delta) < 0 ? 'cash-value-negative' : ''}">${esc(formatPercent(item.percent_delta))}</td>
+                </tr>`;
+            }).join('');
+            const changeClass = changeValue === null ? 'cash-value-missing' :
+                changeValue < 0 ? 'cash-value-negative' : 'cash-value-ok';
+            document.getElementById('ki-modal-title').textContent = 'ДЗ';
+            this.updateModalSubtitle();
+            container.innerHTML = `
+                <div class="cash-info-banner"><strong>Дебиторская задолженность потребителей.</strong>
+                    Расчёт выполнен по счёту 62.01. Авансы потребителей по счёту 62.02 показываются отдельно.</div>
+                <div class="cash-summary-grid">
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="debtor-current"
+                         onclick="window.KI_App.toggleCashChartMode('debtor-current')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('debtor-current')}">
+                        <div class="cash-summary-label">ДЗ потребителей</div>
+                        <div class="cash-summary-value ${card.value == null ? 'cash-value-missing' : 'cash-value-ok'}">${card.value == null ? 'Нужны данные' : `${esc(amount.val)} <span class="metric-inline-unit">${esc(amount.u)}</span>`}</div>
+                        <div class="cash-summary-sub ${changeClass}">Изменение за период: ${esc(changeText)}</div>
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="advances-current"
+                         onclick="window.KI_App.toggleCashChartMode('advances-current')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-current')}">
+                        <div class="cash-summary-label">Авансы потребителей</div>
+                        <div class="cash-summary-value ${advances.length ? 'cash-value-ok' : 'cash-value-missing'}">${advances.length ? esc(formatAmount(advances[advances.length - 1].value).val) : 'Нужны данные'}${advances.length ? ` <span class="metric-inline-unit">${esc(formatAmount(advances[advances.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-sub">${esc(coverage)}</div>
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="debtor-apg"
+                         onclick="window.KI_App.toggleCashChartMode('debtor-apg')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('debtor-apg')}">
+                        <div class="cash-summary-label">ДЗ потребителей АПГ</div>
+                        <div class="cash-summary-value ${apgDz.length ? 'cash-value-ok' : 'cash-value-missing'}">${apgDz.length ? esc(formatAmount(apgDz[apgDz.length - 1].value).val) : 'Нужны данные'}${apgDz.length ? ` <span class="metric-inline-unit">${esc(formatAmount(apgDz[apgDz.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-sub">${esc(coverage)}</div>
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
+                         tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="advances-apg"
+                         onclick="window.KI_App.toggleCashChartMode('advances-apg')"
+                         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-apg')}">
+                        <div class="cash-summary-label">Авансы потребителей АПГ</div>
+                        <div class="cash-summary-value ${apgAdvances.length ? 'cash-value-ok' : 'cash-value-missing'}">${apgAdvances.length ? esc(formatAmount(apgAdvances[apgAdvances.length - 1].value).val) : 'Нужны данные'}${apgAdvances.length ? ` <span class="metric-inline-unit">${esc(formatAmount(apgAdvances[apgAdvances.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-sub">${esc(coverage)}</div>
+                    </div>
+                </div>
+                <button type="button" class="modal-section-title cash-details-toggle"
+                        aria-expanded="false" aria-controls="ki-cash-details-table"
+                        onclick="window.KI_App.toggleCashDetails(this)">
+                    <span>Детализация ДЗ потребителей</span><span class="cash-details-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="ki-cash-details-table" class="cash-table-scroll" tabindex="0" role="region"
+                     aria-label="Детализация ДЗ потребителей" hidden><table class="cash-table">
+                    <thead><tr><th>Потребитель / аналитика</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
+                    <tbody>${rows}<tr class="cash-total-row"><td><div>ИТОГО</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(amount.val)}</span> <span class="cash-number-unit">${esc(amount.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span></td><td></td><td></td></tr></tbody>
+                </table></div>
+                <div class="modal-section-title">ДЗ по месяцам</div>
+                <div class="cash-table-scroll"><table class="cash-table">
+                    <thead><tr><th>Месяц</th><th>ДЗ</th><th>АПГ</th><th>Дельта АПГ</th></tr></thead>
+                    <tbody>${monthlyRows || '<tr><td colspan="4">Нет сопоставимых данных</td></tr>'}</tbody>
+                </table></div>
+                <div id="ki-cash-chart-title" class="modal-section-title">ДЗ потребителей и Авансы потребителей</div>
+                <div id="ki-cash-line-chart" class="cash-line-chart"></div>
+                <div class="cash-chart-legend" aria-label="Легенда графика">
+                    <span><i class="cash-chart-dot" style="background:#111827"></i>ДЗ потребителей</span>
+                    <span><i class="cash-chart-dot" style="background:#DB2777"></i>ДЗ потребителей АПГ</span>
+                    <span><i class="cash-chart-dot" style="background:#2563EB"></i>Авансы потребителей</span>
+                    <span><i class="cash-chart-dot" style="background:#059669"></i>Авансы потребителей АПГ</span>
+                </div>`;
+        },
 renderCashModal(card) {
+            const isCashDz = card.id === 'cash_dz';
+            if (isCashDz) {
+                this.renderCashDzModal(card);
+                return;
+            }
             const container = document.getElementById('ki-cash-modal-content');
             const accounts = ['50', '51', '52', '55'];
             const names = {
@@ -6626,8 +6759,9 @@ renderCashModal(card) {
                 source: 'требуется складская и производственная аналитика 1С'
             };
 
-            document.getElementById('ki-modal-title').textContent =
-                'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
+            document.getElementById('ki-modal-title').textContent = isCashDz
+                ? 'ДЗ'
+                : 'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
             this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Денежные средства по данным бухгалтерского учёта.</strong>
@@ -6639,7 +6773,7 @@ renderCashModal(card) {
                          onclick="window.KI_App.toggleCashChartMode('cash-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-current')}"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)} <span class="metric-inline-unit">${esc(cashFormatted.u)}</span></div>
-                        <div class="cash-summary-sub">${esc(dateText)}<br>${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
+                        <div class="cash-summary-sub">${isCashDz ? '' : `${esc(dateText)}<br>`}${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
                          tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cash-apg"
                          onclick="window.KI_App.toggleCashChartMode('cash-apg')"
@@ -6647,7 +6781,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cashApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cashApgLatest
                             ? `${esc(cashApgFormatted.val)} <span class="metric-inline-unit">${esc(cashApgFormatted.u)}</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cashApgCoverageText)}${cashApgDate ? `<br>на ${esc(cashApgDate)}` : ''}</div>${this.cashTooltip(cashApgTipData)}</div>
+                        <div class="cash-summary-sub">${esc(cashApgCoverageText)}${!isCashDz && cashApgDate ? `<br>на ${esc(cashApgDate)}` : ''}</div>${this.cashTooltip(cashApgTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
                          tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cumulative-current"
                          onclick="window.KI_App.toggleCashChartMode('cumulative-current')"
@@ -6656,7 +6790,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cumulativeLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeLatest
                             ? `${esc(cumulativeDebit)} / ${esc(cumulativeCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cumulativeCoverageText)}${cumulativeDate ? `<br>на ${esc(cumulativeDate)}` : ''}</div>
+                        <div class="cash-summary-sub">${esc(cumulativeCoverageText)}${!isCashDz && cumulativeDate ? `<br>на ${esc(cumulativeDate)}` : ''}</div>
                         ${this.cashTooltip(cumulativeTipData)}
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
@@ -6667,10 +6801,10 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cumulativeApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeApgLatest
                             ? `${esc(cumulativeApgDebit)} / ${esc(cumulativeApgCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cumulativeApgCoverageText)}${cumulativeApgDate ? `<br>на ${esc(cumulativeApgDate)}` : ''}</div>
+                        <div class="cash-summary-sub">${esc(cumulativeApgCoverageText)}${!isCashDz && cumulativeApgDate ? `<br>на ${esc(cumulativeApgDate)}` : ''}</div>
                         ${this.cashTooltip(cumulativeApgTipData)}
                     </div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
+                    ${isCashDz ? '' : `<div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : delta < 0 ? 'cash-value-negative' : 'cash-value-ok'}">${esc(deltaText)}</div>
                         <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Текущая ликвидность</div>
@@ -6678,7 +6812,7 @@ renderCashModal(card) {
                         <div class="cash-summary-sub">нет полного состава оборотных активов</div>${this.cashTooltip(currentLiquidityData)}</div>
                     <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Cash Runway</div>
                         <div class="cash-summary-value cash-value-missing">Нужны данные</div>
-                        <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>
+                        <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>`}
                 </div>
                 <button type="button" class="modal-section-title cash-details-toggle"
                         aria-expanded="false" aria-controls="ki-cash-details-table"
@@ -6702,7 +6836,7 @@ renderCashModal(card) {
                     <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Поступления АПГ</span>
                     <span><i class="cash-chart-dot" style="background:#D97706"></i>Выплаты АПГ</span>
                 </div>
-                <div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
+                ${isCashDz ? '' : `<div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
                 <div class="cash-metrics-grid">
                     ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
                     ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null, '', delta < 0 ? 'cash-value-negative' : '')}
@@ -6710,7 +6844,7 @@ renderCashModal(card) {
                     ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
                     ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
                     ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelData, true)}
-                </div>
+                </div>`}
                 `;
         },
 
@@ -6725,8 +6859,12 @@ renderCashModal(card) {
 
         renderCashChartModes(card) {
             if (!card) return;
+            const isCashDz = card.id === 'cash_dz';
+            const defaultModes = isCashDz
+                ? ['debtor-current', 'advances-current', 'debtor-apg', 'advances-apg']
+                : ['cash-current', 'cash-apg'];
             if (!state.modalChart.cashModes || !state.modalChart.cashModes.size) {
-                state.modalChart.cashModes = new Set(['cash-current', 'cash-apg']);
+                state.modalChart.cashModes = new Set(defaultModes);
             } else if (state.modalChart.cashModes.has('current') ||
                     state.modalChart.cashModes.has('apg')) {
                 state.modalChart.cashModes = new Set(
@@ -6735,7 +6873,12 @@ renderCashModal(card) {
                             : mode === 'apg' ? 'cumulative-apg' : mode));
             }
             const selected = state.modalChart.cashModes;
-            const modeLabels = {
+            const modeLabels = isCashDz ? {
+                'debtor-current': 'ДЗ потребителей',
+                'advances-current': 'Авансы потребителей',
+                'debtor-apg': 'ДЗ потребителей АПГ',
+                'advances-apg': 'Авансы потребителей АПГ'
+            } : {
                 'cash-current': 'Денежные средства',
                 'cash-apg': 'Денежные средства АПГ',
                 'cumulative-current': 'Поступления / выплаты',
@@ -6757,20 +6900,92 @@ renderCashModal(card) {
                     }
                 });
             }
-            this.renderCashLineChart(
-                selected.has('cumulative-current') ? card.series || [] : [],
-                selected.has('cumulative-apg') ? card.previous_year_series || [] : [],
-                selected.has('cash-current') ? card.series || [] : [],
-                selected.has('cash-apg') ? card.previous_year_series || [] : []);
+            if (isCashDz) {
+                this.renderCashLineChart(
+                    [],
+                    [],
+                    [],
+                    [],
+                    'ki-cash-line-chart',
+                    [
+                        {
+                            id: 'debtor-current',
+                            series: selected.has('debtor-current')
+                                ? card.consumer_series || card.series || [] : [],
+                            color: '#111827',
+                            label: 'ДЗ потребителей',
+                            className: 'cash-chart-balance',
+                            connectWithoutAccounts: true
+                        },
+                        {
+                            id: 'debtor-apg',
+                            series: selected.has('debtor-apg')
+                                ? card.previous_year_consumer_series || [] : [],
+                            color: '#DB2777',
+                            dash: ' stroke-dasharray="6 4"',
+                            label: 'ДЗ потребителей АПГ',
+                            suffix: ' АПГ',
+                            className: 'cash-chart-balance-apg',
+                            connectWithoutAccounts: true
+                        },
+                        {
+                            id: 'advances-current',
+                            series: selected.has('advances-current')
+                                ? card.advances_series || [] : [],
+                            color: '#2563EB',
+                            label: 'Авансы потребителей',
+                            className: 'cash-chart-advances',
+                            connectWithoutAccounts: true
+                        },
+                        {
+                            id: 'advances-apg',
+                            series: selected.has('advances-apg')
+                                ? card.previous_year_advances_series || [] : [],
+                            color: '#059669',
+                            dash: ' stroke-dasharray="6 4"',
+                            label: 'Авансы потребителей АПГ',
+                            suffix: ' АПГ',
+                            className: 'cash-chart-advances-apg',
+                            connectWithoutAccounts: true
+                        }
+                    ]);
+            } else {
+                this.renderCashLineChart(
+                    selected.has('cumulative-current') ? card.series || [] : [],
+                    selected.has('cumulative-apg') ? card.previous_year_series || [] : [],
+                    selected.has('cash-current') ? card.series || [] : [],
+                    selected.has('cash-apg') ? card.previous_year_series || [] : []);
+            }
         },
 
         toggleCashChartMode(mode) {
             const card = state.data && Array.isArray(state.data.cards)
-                ? state.data.cards.find(item => item.id === 'cash') : null;
+                ? state.data.cards.find(item => item.id === state.modalCardId &&
+                    isCashMetric(item.id)) : null;
             const allowedModes = [
                 'cash-current', 'cash-apg',
                 'cumulative-current', 'cumulative-apg'
             ];
+            if (card && card.id === 'cash_dz') {
+                const dzModes = [
+                    'debtor-current', 'advances-current',
+                    'debtor-apg', 'advances-apg'
+                ];
+                if (!dzModes.includes(mode)) return;
+                if (!state.modalChart.cashModes ||
+                        !dzModes.some(item => state.modalChart.cashModes.has(item))) {
+                    state.modalChart.cashModes = new Set(dzModes);
+                }
+                if (state.modalChart.cashModes.has(mode)) {
+                    if (state.modalChart.cashModes.size > 1) {
+                        state.modalChart.cashModes.delete(mode);
+                    }
+                } else {
+                    state.modalChart.cashModes.add(mode);
+                }
+                this.renderCashChartModes(card);
+                return;
+            }
             if (!card || !allowedModes.includes(mode)) return;
             if (!state.modalChart.cashModes) {
                 state.modalChart.cashModes = new Set(['cash-current', 'cash-apg']);
@@ -6786,7 +7001,7 @@ renderCashModal(card) {
         },
 
         renderCashLineChart(series, apgSeries = [], cashSeries = [], cashApgSeries = [],
-                containerId = 'ki-cash-line-chart') {
+                containerId = 'ki-cash-line-chart', extraBalanceSeries = []) {
             const container = document.getElementById(containerId);
             if (!container) return;
             const mapPoints = items => items.map((item, index) => ({
@@ -6842,7 +7057,13 @@ renderCashModal(card) {
                     color: '#DB2777',
                     dash: ' stroke-dasharray="6 4"',
                     suffix: ' АПГ'
-                }
+                },
+                ...extraBalanceSeries.map(group => ({
+                    ...group,
+                    points: mapBalancePoints(group.series || []),
+                    dash: group.dash || '',
+                    suffix: group.suffix || ''
+                }))
             ].filter(group => group.points.length);
             const allGroups = [...groups, ...balanceGroups];
             const valid = [
@@ -6873,7 +7094,8 @@ renderCashModal(card) {
                 first && second && first.accounts && first.accounts.length &&
                 second.accounts && second.accounts.length &&
                 [...first.accounts].sort().join(',') === [...second.accounts].sort().join(',');
-            const segmentsFor = (points, keys = ['debit', 'credit']) => {
+            const segmentsFor = (points, keys = ['debit', 'credit'],
+                    connectWithoutAccounts = false) => {
                 const timeline = chartTimeline(points);
                 const consecutive = (previous, current) => (
                     timeline.calendar && containerId === 'ki-cash-line-chart'
@@ -6887,7 +7109,8 @@ renderCashModal(card) {
                     const segment = segments[segments.length - 1];
                     const previous = segment && segment[segment.length - 1];
                     if (!previous || !consecutive(previous, entry) ||
-                            !sameAccounts(previous.point, point)) {
+                            (!connectWithoutAccounts &&
+                                !sameAccounts(previous.point, point))) {
                         segments.push([entry]);
                     } else {
                         segment.push(entry);
@@ -6950,13 +7173,17 @@ renderCashModal(card) {
             });
             balanceGroups.forEach(group => {
                 const x = index => xFor(index, group.points.length);
-                const segments = segmentsFor(group.points, ['balance']);
+                const segments = segmentsFor(
+                    group.points, ['balance'], group.connectWithoutAccounts);
                 const balancePath = segments.map(segment =>
                     curve(segment, 'balance', x)).join(' ');
-                svg += `<path d="${balancePath}" class="cash-chart-balance${group.id === 'cash-apg' ? '-apg' : ''}" fill="none" stroke="${group.color}" stroke-width="2"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
+                const balanceClass = group.className ||
+                    `cash-chart-balance${group.id === 'cash-apg' ? '-apg' : ''}`;
+                svg += `<path d="${balancePath}" class="${balanceClass}" fill="none" stroke="${group.color}" stroke-width="2"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
                 group.points.forEach((item, index) => {
                     if (!Number.isFinite(item.balance)) return;
-                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Денежные средства${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                    const balanceLabel = group.label || `Денежные средства${group.suffix}`;
+                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
                 });
             });
             labelGroup.points.forEach((item, index) => {
@@ -6976,14 +7203,26 @@ renderCashModal(card) {
                 const missingText = item.reasons && item.reasons.length
                     ? ` ${item.reasons.join('; ')}.` : '';
                 if (isBalance) return {
-                    title: `Денежные средства${suffix} — ${item.date || item.label}`,
-                    description: `Фактический остаток денежных средств${suffix} на точную дату.`,
-                    formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                    title: `${group.label || `Денежные средства${suffix}`} — ${item.date || item.label}`,
+                    description: group.label
+                        ? `Фактическое значение «${group.label}» на точную дату.`
+                        : `Фактический остаток денежных средств${suffix} на точную дату.`,
+                    formula: group.label
+                        ? (group.id.startsWith('advances')
+                            ? 'Авансы потребителей = max(СКк(62.02) − СКд(62.02), 0)'
+                            : 'ДЗ потребителей = max(СКд(62.01) − СКк(62.01), 0)')
+                        : 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
                     detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.balance.toFixed(2)} млн ₽`,
-                    deviation: `Фактический остаток денежных средств${suffix}`,
-                    source: 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55'
+                    deviation: group.label
+                        ? `Фактическое значение «${group.label}»`
+                        : `Фактический остаток денежных средств${suffix}`,
+                    source: group.label
+                        ? (group.id.startsWith('advances')
+                            ? 'счёт 62.02 по данным ОСВ'
+                            : 'счёт 62.01 по данным ОСВ')
+                        : 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55'
                 };
                 return isCredit ? {
                     title: `Выплаты${suffix} — ${item.date}`,
@@ -7075,7 +7314,7 @@ renderCashModal(card) {
             const commonHasMainSeries = card.series && card.series.length > 0;
             salaryContent.style.display = 'none';
             capexContent.style.display = 'none';
-            if (cardId === 'cash') {
+            if (isCashMetric(cardId)) {
                 genericContent.style.display = 'none';
                 revenueContent.style.display = 'none';
                 collectionContent.style.display = 'none';

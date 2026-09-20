@@ -346,7 +346,7 @@ assert.equal(app.state.modalChart.activeId, '__main__',
 
 // The real card IDs all route through their specialized renderer and still
 // expose the shared interactive surface.
-const specialized = ['cash', 'revenue', 'collection', 'ar', 'ap',
+const specialized = ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap',
     'cogs', 'profit', 'credits', 'salary', 'capex'];
 const routed = [];
 const specializedCard = id => ({
@@ -355,10 +355,11 @@ const specializedCard = id => ({
     breakdown: [], details: []
 });
 const originalRenderers = {};
-specialized.forEach(id => {
-    const method = `render${id[0].toUpperCase()}${id.slice(1)}Modal`;
+new Set(specialized.map(id => id === 'cash_dz' ? 'cash' : id)).forEach(id => {
+    const rendererId = id === 'cash_dz' ? 'cash' : id;
+    const method = `render${rendererId[0].toUpperCase()}${rendererId.slice(1)}Modal`;
     originalRenderers[method] = app[method];
-    app[method] = () => routed.push(id);
+    app[method] = card => routed.push(card.id);
 });
 app.state.data = {cards: specialized.map(specializedCard)};
 specialized.forEach(id => app.openModal(id));

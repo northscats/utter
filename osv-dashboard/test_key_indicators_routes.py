@@ -699,7 +699,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             response = self.client('kpi_admin').get(self.url(data=True))
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(len(payload['cards']), 10)
+        self.assertEqual(len(payload['cards']), 11)
         self.assertTrue(all(card['value'] is None for card in payload['cards']))
         self.assertIsNone(payload['updated_at'])
         passport = payload['source_passport']

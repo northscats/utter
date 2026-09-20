@@ -43,11 +43,11 @@ assert.deepEqual(JSON.parse(JSON.stringify(manager.mergeLayout('operational', {
 }))), {
   version: 1,
   items: {
-    cash: 'main', revenue: 'hidden', collection: 'main', ar: 'main',
+    cash: 'main', cash_dz: 'main', revenue: 'hidden', collection: 'main', ar: 'main',
     ap: 'main', cogs: 'main', profit: 'main', credits: 'main',
     salary: 'main', capex: 'main',
   },
-  order: ['revenue', 'cash', 'collection', 'ar', 'ap', 'cogs', 'profit',
+  order: ['revenue', 'cash', 'cash_dz', 'collection', 'ar', 'ap', 'cogs', 'profit',
     'credits', 'salary', 'capex'],
 });
 
@@ -113,4 +113,5 @@ assert.equal(elements['[data-action="save"]'].disabled, false);
 assert.equal(elements['.ki-dashboard-layout-title'].textContent, 'Настройка карточек ОСВ');
 assert.equal(manager.close(), true);
 assert.equal(manager.state.dialog.hidden, true);
+assert.equal(manager.labels('operational').cash_dz, 'ДЗ');
 console.log('PASS: actual open/render/close path does not throw');
