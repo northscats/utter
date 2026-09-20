@@ -107,6 +107,13 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('WorkersSalary', passport_page)
         self.assertIn('111.13', passport_page)
         self.assertIn('ГРАНД-Смета', passport_page)
+        self.assertIn('Стоимость по ССР', passport_page)
+        self.assertIn('Строительные работы', passport_page)
+        self.assertIn('Монтажные работы', passport_page)
+        self.assertIn('Оборудование', passport_page)
+        self.assertIn('Прочие затраты', passport_page)
+        self.assertNotIn('Текущая стоимость', passport_page)
+        self.assertNotIn('Предложить по адресу', passport_page)
 
     def test_html_confirm_redirects_to_analog_search(self):
         response = self.client.post(

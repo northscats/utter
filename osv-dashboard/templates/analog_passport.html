@@ -28,39 +28,43 @@
         <dt>Мощность</dt><dd>{{ capacity_display or '—' }}</dd>
         <dt>Кадастровый номер</dt><dd>{{ passport.cadastral_number or '—' }}</dd>
         <dt>Объект строительства</dt><dd>{{ passport.construction_object or '—' }}</dd>
-        <dt>Геологические условия</dt><dd>{{ climate_details.get('geological_conditions') or '—' }}</dd>
-        <dt>Ветровой район</dt><dd>{{ climate_details.get('wind_region') or '—' }}</dd>
-        <dt>Снеговой район</dt><dd>{{ climate_details.get('snow_region') or '—' }}</dd>
-        <dt>Сейсмическая активность</dt><dd>{{ climate_details.get('seismicity') or '—' }}</dd>
       </dl>
       
       <div style="height: 1px; background: var(--line);"></div>
-      
-      <dl>
-        <dt>Климатический район</dt>
-        <dd>
-          <span id="climate-value" style="font-weight: 600;">{{ climate_details.get('climate_zone') or passport.climate_zone or '—' }}</span>
+
+      <div style="display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 16px; overflow-x: auto;">
+        <div><div style="font-size: 12px; color: var(--mut);">Геологические условия</div><div style="font-weight: 600; margin-top: 4px;">{{ climate_details.get('geological_conditions') or '—' }}</div></div>
+        <div><div style="font-size: 12px; color: var(--mut);">Ветровой район</div><div style="font-weight: 600; margin-top: 4px;">{{ climate_details.get('wind_region') or '—' }}</div></div>
+        <div><div style="font-size: 12px; color: var(--mut);">Снеговой район</div><div style="font-weight: 600; margin-top: 4px;">{{ climate_details.get('snow_region') or '—' }}</div></div>
+        <div><div style="font-size: 12px; color: var(--mut);">Сейсмическая активность</div><div style="font-weight: 600; margin-top: 4px;">{{ climate_details.get('seismicity') or '—' }}</div></div>
+        <div>
+          <div style="font-size: 12px; color: var(--mut);">Климатический район</div>
+          <div id="climate-value" style="font-weight: 600; margin-top: 4px;">{{ climate_details.get('climate_zone') or passport.climate_zone or '—' }}</div>
           {% if passport.climate_source %}
-            <div style="font-size: 11px; color: var(--mut); font-weight: normal; margin-top: 4px;">{{ passport.climate_source }} (v{{ passport.climate_reference_version }}, {{ passport.climate_reference_date }})</div>
+            <div style="font-size: 11px; color: var(--mut); margin-top: 4px;">{{ passport.climate_source }} (v{{ passport.climate_reference_version }}, {{ passport.climate_reference_date }})</div>
           {% endif %}
-          {% if current_user.is_admin %}
-            <div style="margin-top: 8px;">
-              <button type="button" class="btn btn-outline" id="suggest-climate" style="height: 24px; font-size: 11px; padding: 0 8px;">Предложить по адресу</button>
-              <span id="climate-suggestion" style="font-size: 12px; margin-left: 8px;"></span>
-            </div>
-          {% endif %}
-        </dd>
-      </dl>
+        </div>
+      </div>
       
       {% if version %}
       <div style="height: 1px; background: var(--line);"></div>
-      <dl>
-        <dt>Текущая стоимость</dt>
-        <dd>
-          <div style="font-size: 18px; font-weight: 700; color: var(--ink);">{{ version.adjusted_cost or version.total_cost or '—' }}</div>
-          <div style="font-size: 12px; color: var(--mut); font-weight: normal; margin-top: 4px;">Уровень цен: {{ version.price_year }} / кв {{ version.price_quarter or '-' }}</div>
-        </dd>
-      </dl>
+      {% set brief_total = gge.get('summary', {}) %}
+      <div>
+        <div style="font-weight: 600; margin-bottom: 10px;">Стоимость по ССР</div>
+        <div class="table-wrap">
+          <table style="border: 1px solid var(--line);">
+            <thead><tr><th>Строительные работы</th><th>Монтажные работы</th><th>Оборудование</th><th>Прочие затраты</th><th>Всего</th></tr></thead>
+            <tbody><tr>
+              <td>{{ brief_total.get('building', 0) }}</td>
+              <td>{{ brief_total.get('mounting', 0) }}</td>
+              <td>{{ brief_total.get('equipment', 0) }}</td>
+              <td>{{ brief_total.get('other', 0) }}</td>
+              <td style="font-weight: 700; color: var(--ink);">{{ brief_total.get('total', version.total_cost) }}</td>
+            </tr></tbody>
+          </table>
+        </div>
+        <div style="font-size: 12px; color: var(--mut); margin-top: 8px;">Уровень цен: {{ version.price_year }} / кв {{ version.price_quarter or '-' }}</div>
+      </div>
       {% endif %}
     </div>
   </div>
