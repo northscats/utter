@@ -20,11 +20,14 @@ os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 
 from app import app, init_db  # noqa: E402
 from database import (AnalogClimateReference, AnalogCostIndexReference,
-                      AnalogDocument, AnalogImport, AnalogNetworkAttribute,
+                       AnalogCostRow, AnalogDocument, AnalogImport,
+                       AnalogNetworkAttribute,
                       AnalogPassport, AnalogPassportVersion, User, db)  # noqa: E402
 from analog_migration import import_json_v4  # noqa: E402
 from analog_parser import _tei_rows  # noqa: E402
-from analog_routes import _format_ru_number, _result_row  # noqa: E402
+from analog_routes import (_backfill_analog_total_costs,
+                           _backfill_inferred_object_types, _format_ru_number,
+                           _result_row, _table_321_total)  # noqa: E402
 
 
 ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
@@ -85,6 +88,7 @@ class AnalogRoutesTest(unittest.TestCase):
         page = html.get_data(as_text=True)
         self.assertIn('31372.62', page)
         self.assertIn('2023 / квартал 4', page)
+        self.assertIn('<option selected>БМК</option>', page)
 
         confirmed = self.client.post(
             f"/analog-search/import/{preview['import_id']}/confirm", json={})
@@ -95,6 +99,7 @@ class AnalogRoutesTest(unittest.TestCase):
                 passport_id=passport_id).order_by(
                     AnalogPassportVersion.version_no.desc()).first()
             passport = version.passport
+            self.assertEqual(passport.object_type, 'БМК')
             self.assertEqual(version.schema_version, '1.01')
             self.assertEqual((version.price_year, version.price_quarter), (2023, 4))
             self.assertEqual(version.total_cost, Decimal('31372.62'))
@@ -117,6 +122,54 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('Прочие затраты', passport_page)
         self.assertNotIn('Текущая стоимость', passport_page)
         self.assertNotIn('Предложить по адресу', passport_page)
+
+    def test_explicit_import_type_overrides_bmk_suggestion(self):
+        conclusion = self.conclusion_101.replace(
+            b'56-1-1-2-044346-2024', b'56-1-1-2-044346-2099')
+        response = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(conclusion, self.ssr_101 + b' '),
+            content_type='multipart/form-data')
+        preview = response.get_json()
+        confirmed = self.client.post(
+            f"/analog-search/import/{preview['import_id']}/confirm",
+            json={'object_type': 'ЦТП'})
+        self.assertEqual(confirmed.status_code, 200)
+        with app.app_context():
+            passport = db.session.get(
+                AnalogPassport, confirmed.get_json()['passport_id'])
+            self.assertEqual(passport.object_type, 'ЦТП')
+
+    def test_legacy_default_types_are_reclassified_from_saved_text(self):
+        with app.app_context():
+            rows = [
+                AnalogPassport(
+                    title='Строительство БМК на 1,2 МВт',
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title=('Блочно-модульная котельная 2,1МВт, '
+                           'взамен действующей г.о. Электросталь'),
+                    extracted_json=json.dumps({
+                        'documents': ['Реконструкция ЦТП № 4']
+                    }, ensure_ascii=False),
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title='Реконструкция объекта',
+                    construction_object='Центральный тепловой пункт № 3',
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title='Обычная котельная',
+                    object_type='котельная', created_by=self.admin_id),
+            ]
+            db.session.add_all(rows)
+            db.session.flush()
+            ids = [row.id for row in rows]
+            self.assertEqual(_backfill_inferred_object_types(), 3)
+            db.session.commit()
+            self.assertEqual(
+                [db.session.get(AnalogPassport, row_id).object_type
+                 for row_id in ids],
+                ['БМК', 'БМК', 'ЦТП', 'котельная'])
 
     def test_capacity_edit_is_immediately_reflected_in_catalog(self):
         title = 'catalog-capacity-after-passport-edit'
@@ -250,6 +303,35 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('gcal-boundary', html)
         self.assertNotIn('gcal-outside', html)
 
+    def test_fractional_capacity_accepts_dot_and_comma_and_filters_results(self):
+        with app.app_context():
+            db.session.add_all([
+                AnalogPassport(
+                    title='fraction-inside', capacity_kw=Decimal('1200'),
+                    object_type='котельная', created_by=self.admin_id),
+                AnalogPassport(
+                    title='fraction-outside', capacity_kw=Decimal('1400'),
+                    object_type='котельная', created_by=self.admin_id),
+            ])
+            db.session.commit()
+        for value in ('1.2', '1,2'):
+            response = self.client.get(
+                '/analog-search/simple',
+                query_string={'view': 'search', 'capacity_value': value,
+                              'capacity_unit': 'mw', 'q': 'fraction-'})
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            self.assertIn(f'value="{value}"', html)
+            self.assertIn('fraction-inside', html)
+            self.assertNotIn('fraction-outside', html)
+
+            api = self.client.get(
+                '/analog-search/api/search',
+                query_string={'capacity_value': value, 'capacity_unit': 'mw',
+                              'q': 'fraction-'}).get_json()
+            self.assertEqual(api['items'][0]['title'], 'fraction-inside')
+            self.assertTrue(api['items'][0]['good'])
+
     def test_power_parser_normalizes_legacy_formats_to_kw(self):
         object_node = ET.fromstring('''
         <Object>
@@ -294,6 +376,47 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('МВт/<strong>Гкал/ч</strong>', html)
         self.assertIn('31/<strong>26,66</strong>', html)
         self.assertIn('1 234,5', html)
+        search = self.client.get(
+            '/analog-search/simple',
+            query_string={'view': 'search', 'q': 'Формат каталога'})
+        search_html = search.get_data(as_text=True)
+        for heading in ('Наименование', 'Адрес', 'Тип', 'Вид работ',
+                        'Стоимость', 'Аналогичность'):
+            self.assertIn(f'<th>{heading}</th>', search_html)
+        self.assertIn('МВт/<strong>Гкал/ч</strong>', search_html)
+        self.assertIn('<td>котельная</td>', search_html)
+        self.assertIn('31/<strong>26,66</strong>', search_html)
+        self.assertIn('<td>1 234,5</td>', search_html)
+
+    def test_network_total_cost_comes_from_table_321_total(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Сеть со стоимостью 3.2.1',
+                object_type='тепловая сеть', created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1,
+                conclusion_number='network-table-321',
+                examination_result='positive',
+                source_hash='network-table-321-source',
+                ssr_hash='network-table-321-ssr',
+                imported_by=self.admin_id)
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.add(AnalogCostRow(
+                passport_id=passport.id, version_id=version.id,
+                ordinal='ctot', name='total',
+                approved_cost=Decimal('40036.33')))
+            db.session.flush()
+            self.assertEqual(_table_321_total(passport.costs),
+                             Decimal('40036.33'))
+            self.assertEqual(_backfill_analog_total_costs(), 1)
+            db.session.commit()
+            self.assertEqual(version.total_cost, Decimal('40036.330000'))
+            row = _result_row(passport)
+            self.assertEqual(row['total_cost_display'], '40 036,33')
 
     def test_thousand_records_are_paginated_by_db(self):
         with app.app_context():
@@ -322,6 +445,8 @@ class AnalogRoutesTest(unittest.TestCase):
             self.assertGreater(report['fields_preserved'], 0)
             self.assertGreater(AnalogPassport.query.filter(
                 AnalogPassport.legacy_json != '{}').count(), 0)
+            self.assertGreater(AnalogPassportVersion.query.filter(
+                AnalogPassportVersion.total_cost.is_not(None)).count(), 0)
 
     def test_reimport_target_and_same_identity_version(self):
         first = self.client.post('/analog-search/import/preview',
@@ -448,6 +573,13 @@ class AnalogRoutesTest(unittest.TestCase):
                 'Наличие водяного перехода', 'Типы ЗОУИТ',
                 'Ориентировочная стоимость на 1 м'):
             self.assertIn(label, html)
+        for document in (
+                'Положительное заключение государственной экспертизы',
+                'Гидравлический расчёт',
+                'Планы и продольные профили трассы',
+                'Спецификации трубопроводов, арматуры, камер и оборудования',
+                'Материалы по ЗОУИТ и пересечениям'):
+            self.assertIn(document, html)
 
     def test_climate_filter_supports_region_and_exact_subregion(self):
         with app.app_context():

@@ -70,6 +70,7 @@ def import_json_v4(payload, user_id=None, commit=True):
             source_hash=f'json-v4:{record.get("id")}'[:64],
             ssr_hash=f'json-v4:{record.get("id")}'[:64],
             price_year=int(record['pyear']) if str(record.get('pyear', '')).isdigit() else None,
+            total_cost=_number(record.get('ctot')),
             imported_by=user_id, payload_json=json.dumps(record, ensure_ascii=False))
         db.session.add(version)
         db.session.flush()

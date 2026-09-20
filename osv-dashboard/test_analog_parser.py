@@ -4,7 +4,8 @@ import pathlib
 import unittest
 from decimal import Decimal
 
-from analog_parser import AnalogParseError, parse_conclusion, parse_gge, parse_pair
+from analog_parser import (AnalogParseError, _suggested_object_type,
+                           parse_conclusion, parse_gge, parse_pair)
 
 
 ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
@@ -87,6 +88,7 @@ class AnalogParserTest(unittest.TestCase):
         self.assertEqual(ssr['price_month'], 11)
         pair = parse_pair(self.conclusion_101, self.ssr_101)
         self.assertTrue(pair['can_confirm'], pair['diagnostics'])
+        self.assertEqual(pair['conclusion']['suggested_object_type'], 'БМК')
         capacity = next(item for item in pair['conclusion']['teps']
                         if item['name'] == 'Производственная мощность')
         self.assertEqual(capacity['value'], Decimal('1.8'))
@@ -95,6 +97,33 @@ class AnalogParserTest(unittest.TestCase):
         self.assertEqual(capacity['normalized_unit'], 'кВт')
         self.assertFalse(any(row['code'] == 'name_mismatch'
                              for row in pair['diagnostics']))
+
+    def test_bmk_type_requires_a_standalone_case_insensitive_abbreviation(self):
+        self.assertEqual(
+            _suggested_object_type('Строительство бмк 1,8 МВт'), 'БМК')
+        self.assertEqual(
+            _suggested_object_type(
+                'Блочно-модульная котельная 2,1МВт, взамен действующей'),
+            'БМК')
+        self.assertEqual(
+            _suggested_object_type('Строительство БМК2 1,8 МВт'), 'котельная')
+
+    def test_ctp_type_is_recognized_in_name_or_parsed_documentation(self):
+        self.assertEqual(
+            _suggested_object_type('Реконструкция ЦТП № 4'), 'ЦТП')
+        self.assertEqual(
+            _suggested_object_type({
+                'documents': [{
+                    'name': 'Проект центрального теплового пункта'
+                }]
+            }),
+            'ЦТП')
+
+    def test_object_name_takes_priority_over_document_mentions(self):
+        conclusion = parse_conclusion(self.conclusion_101)
+        conclusion['expert_object_name'] = 'Блочно-модульная котельная 2,1 МВт'
+        self.assertEqual(
+            _suggested_object_type(conclusion['expert_object_name']), 'БМК')
 
     def test_different_object_name_is_rejected(self):
         changed = self.ssr_101.replace(

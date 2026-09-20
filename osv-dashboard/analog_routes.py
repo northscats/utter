@@ -14,7 +14,8 @@ from flask_login import current_user, login_required
 from sqlalchemy import case, exists, func, or_
 from sqlalchemy.exc import IntegrityError
 
-from analog_parser import AnalogParseError, parse_gge, parse_pair
+from analog_parser import (AnalogParseError, _suggested_object_type, parse_gge,
+                           parse_pair)
 from database import (AnalogClimateReference, AnalogCostIndexReference,
                        AnalogCostRow, AnalogDiagnostic, AnalogDocument,
                       AnalogImport, AnalogNetworkAttribute, AnalogOrganizationRole,
@@ -219,6 +220,81 @@ def _passport_capacity_kw(passport):
     if 'квт' in combined:
         return numbers[-1]
     return None
+
+
+def _backfill_inferred_object_types():
+    """Classify legacy default-type passports from their saved source text."""
+    changed = 0
+    passports = AnalogPassport.query.filter(
+        func.lower(AnalogPassport.object_type).in_(
+            ('котельная', 'бмк', 'цтп'))).all()
+    for passport in passports:
+        sources = [passport.title, passport.construction_object]
+        for raw in (passport.extracted_json,
+                    next((version.payload_json for version in passport.versions
+                          if version.id == passport.current_version_id), '')):
+            if raw:
+                try:
+                    sources.append(json.loads(raw))
+                except (TypeError, ValueError):
+                    sources.append(raw)
+        sources.append([
+            {'name': item.name, 'note': item.note}
+            for item in passport.documents
+            if (not passport.current_version_id
+                or item.version_id == passport.current_version_id)
+        ])
+        inferred = _suggested_object_type(passport.title)
+        if inferred == 'котельная':
+            inferred = _suggested_object_type(*sources)
+        if inferred != 'котельная' and inferred != passport.object_type:
+            passport.object_type = inferred
+            changed += 1
+    return changed
+
+
+def _table_321_total(rows):
+    """Return the approved total from table 3.2.1 rows."""
+    candidates = list(rows or [])
+    for matcher in (
+            lambda row: str(getattr(row, 'ordinal', None)
+                            or row.get('ordinal', '')).lower() == 'ctot',
+            lambda row: str(getattr(row, 'name', None)
+                            or row.get('name', '')).strip().lower()
+            in ('total', 'итого', 'всего'),
+            lambda row: str(getattr(row, 'ordinal', None)
+                            or row.get('ordinal', '')) == '7'):
+        for row in candidates:
+            try:
+                matched = matcher(row)
+            except AttributeError:
+                matched = False
+            if not matched:
+                continue
+            if isinstance(row, dict):
+                value = row.get('approved_cost')
+                if value is None:
+                    value = row.get('submitted_cost')
+            else:
+                value = row.approved_cost
+                if value is None:
+                    value = row.submitted_cost
+            if value is not None:
+                return Decimal(str(value))
+    return None
+
+
+def _backfill_analog_total_costs():
+    """Populate missing version totals from saved table 3.2.1 rows."""
+    changed = 0
+    for version in AnalogPassportVersion.query.filter(
+            AnalogPassportVersion.total_cost.is_(None)).all():
+        total = _table_321_total(AnalogCostRow.query.filter_by(
+            version_id=version.id).all())
+        if total is not None:
+            version.total_cost = total
+            changed += 1
+    return changed
 
 
 def _result_row(passport, query_capacity=None):
@@ -693,7 +769,9 @@ def import_confirm(import_id):
             passport = AnalogPassport(
                 title=conclusion.get('expert_object_name') or ssr.get('name') or 'Без названия',
                 address=conclusion.get('address', ''),
-                object_type=values.get('object_type', 'котельная'),
+                object_type=(values.get('object_type')
+                             or conclusion.get('suggested_object_type')
+                             or 'котельная'),
                 work_type=(values.get('work_type') or conclusion.get('work_type', '')).lower(),
                 climate_zone=conclusion.get('climate_zone', ''),
                 climate_subzone='',
@@ -717,6 +795,9 @@ def import_confirm(import_id):
             passport.construction_object = conclusion.get('construction_object', passport.construction_object)
         version_no = (max((v.version_no for v in passport.versions), default=0) + 1)
         summary = ssr.get('summary') or {}
+        total_cost = summary.get('total')
+        if total_cost is None:
+            total_cost = _table_321_total(conclusion.get('cost_rows', []))
         version = AnalogPassportVersion(
             passport_id=passport.id, version_no=version_no,
             conclusion_number=conclusion.get('conclusion_number') or f'import-{row.id}',
@@ -729,7 +810,7 @@ def import_confirm(import_id):
             natural_conditions=conclusion.get('natural_conditions', ''),
             construction_object=conclusion.get('construction_object', ''),
             price_year=ssr.get('price_year'), price_quarter=ssr.get('price_quarter'),
-            total_cost=summary.get('total'), payload_json=_json(preview),
+            total_cost=total_cost, payload_json=_json(preview),
             imported_by=current_user.id)
         db.session.add(version)
         db.session.flush()

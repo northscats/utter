@@ -24,7 +24,7 @@
   <input type="hidden" name="view" value="search">
   
   <div class="input-group" style="width: 180px; flex-shrink: 0;">
-    <input type="number" name="capacity_value" step="any" min="0"
+    <input type="text" name="capacity_value" inputmode="decimal"
            value="{{ request.args.get('capacity_value','') }}" placeholder="Мощность">
     <select name="capacity_unit" aria-label="Единица мощности">
       <option value="gcal_h" {% if request.args.get('capacity_unit', 'gcal_h') == 'gcal_h' %}selected{% endif %}>Гкал/ч</option>
@@ -59,12 +59,12 @@
     <table>
       <thead>
         <tr>
-          <th style="width:40px">№</th>
-          <th>Объект</th>
+          <th>Наименование</th>
           <th>Адрес</th>
-          <th>Работы</th>
-          <th>Мощность</th>
-          <th>Стоимость (коэфф.)</th>
+          <th>Тип</th>
+          <th>Вид работ</th>
+          <th>МВт/<strong>Гкал/ч</strong></th>
+          <th>Стоимость</th>
           <th>Аналогичность</th>
         </tr>
       </thead>
@@ -73,12 +73,16 @@
           <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--success); letter-spacing: 0.05em;">Хорошие аналоги (отклонение &le; 10%)</td></tr>
           {% for row in good_rows %}
             <tr class="good" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
-              <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
               <td style="font-weight: 500;">{{ row.title }}</td>
               <td>{{ row.address or '—' }}</td>
+              <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
-              <td>{{ row.capacity_display or '—' }}</td>
-              <td>{{ row.adjusted_cost or '—' }}</td>
+              <td>
+                {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
+                  {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ row.total_cost_display or '—' }}</td>
               <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
             </tr>
           {% endfor %}
@@ -88,12 +92,16 @@
           <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--amber); letter-spacing: 0.05em;">Остальные аналоги (отклонение &gt; 10%)</td></tr>
           {% for row in poor_rows %}
             <tr class="poor" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
-              <td>{{ loop.index }}</td>
               <td style="font-weight: 500;">{{ row.title }}</td>
               <td>{{ row.address or '—' }}</td>
+              <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
-              <td>{{ row.capacity_display or '—' }}</td>
-              <td>{{ row.adjusted_cost or '—' }}</td>
+              <td>
+                {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
+                  {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
+                {% else %}—{% endif %}
+              </td>
+              <td>{{ row.total_cost_display or '—' }}</td>
               <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
             </tr>
           {% endfor %}

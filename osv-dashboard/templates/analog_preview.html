@@ -158,7 +158,9 @@
       <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">
         <label style="font-size: 13px; font-weight: 500; color: var(--mut);">Тип</label>
         <select name="object_type" class="search-row" style="margin:0; height:36px; padding: 0 12px; border-color: #cbd5e1; width: 100%;">
-          <option>котельная</option><option>БМК</option><option>ЦТП</option><option>ТП</option><option>тепловая сеть</option><option>Сети</option>
+          {% for object_type in ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть', 'Сети') %}
+          <option{% if pair.conclusion.suggested_object_type == object_type %} selected{% endif %}>{{ object_type }}</option>
+          {% endfor %}
         </select>
       </div>
       <div style="display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 12px;">

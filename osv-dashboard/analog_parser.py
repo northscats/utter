@@ -241,6 +241,37 @@ def _names_match(left, right):
     return difflib.SequenceMatcher(None, a, b).ratio() >= 0.90
 
 
+def _classification_text(value):
+    """Yield textual fields from parsed source structures."""
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _classification_text(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _classification_text(item)
+    elif isinstance(value, str):
+        yield value
+
+
+def _suggested_object_type(*sources):
+    """Recognize supported object types anywhere in parsed source text."""
+    text = ' '.join(
+        item for source in sources for item in _classification_text(source))
+    if (re.search(r'(?<![0-9a-zа-яё])цтп(?![0-9a-zа-яё])',
+                  text, re.IGNORECASE)
+            or re.search(r'центральн(?:ый|ого|ому|ым|ом)\s+теплов(?:ой|ого|ому|ым|ом)'
+                         r'\s+пункт(?:а|у|ом|е)?',
+                         text, re.IGNORECASE)):
+        return 'ЦТП'
+    if (re.search(r'(?<![0-9a-zа-яё])бмк(?![0-9a-zа-яё])',
+                  text, re.IGNORECASE)
+            or re.search(r'блочно[\s-]+модульн(?:ая|ой|ую|ою)'
+                         r'\s+котельн(?:ая|ой|ую|ою)',
+                         text, re.IGNORECASE)):
+        return 'БМК'
+    return 'котельная'
+
+
 def parse_conclusion(raw):
     """Return normalized positive expert-conclusion data."""
     root, raw = _safe_xml(raw, 'заключение')
@@ -400,6 +431,7 @@ def parse_conclusion(raw):
                                _val(root, 'expertiseConclusionDate')),
         'examination_result': result,
         'expert_object_name': name,
+        'suggested_object_type': _suggested_object_type(name),
         'work_type': work,
         'address': _object_address(object_node),
         'region': _object_region(object_node),
@@ -528,6 +560,12 @@ def parse_gge(raw):
 def parse_pair(conclusion, ssr):
     """Validate both sources and return explicit mismatch diagnostics."""
     left, right = parse_conclusion(conclusion), parse_gge(ssr)
+    inferred = _suggested_object_type(left.get('expert_object_name', ''))
+    if inferred == 'котельная':
+        inferred = _suggested_object_type(right.get('name', ''))
+    if inferred == 'котельная':
+        inferred = _suggested_object_type(left, right)
+    left['suggested_object_type'] = inferred
     level = f"{right.get('price_year') or ''}/Q{right.get('price_quarter') or ''}"
     if level != '/Q':
         for row in left.get('cost_rows', []):
