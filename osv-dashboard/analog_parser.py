@@ -21,6 +21,7 @@ MAX_ZIP_SIZE = 100 * 1024 * 1024
 MAX_ZIP_MEMBERS = 10000
 MAX_XML_DEPTH = 100
 PARSER_VERSION = 'analog-1'
+GCAL_H_TO_KW = Decimal('1163')
 
 
 class AnalogParseError(ValueError):
@@ -135,10 +136,16 @@ def _tei_rows(object_node):
         # Гкал without "/ч" is energy, not power. Preserve it exactly instead
         # of silently treating it as Гкал/ч.
         'гкал': ('Гкал', Decimal('1'), 'Гкал'),
-        'гкал/ч': ('Гкал/ч', Decimal('1162.222222222222'), 'кВт'),
+        'гкал/ч': ('Гкал/ч', GCAL_H_TO_KW, 'кВт'),
+        'гигакалория в час': ('Гкал/ч', GCAL_H_TO_KW, 'кВт'),
+        'гигакалорий в час': ('Гкал/ч', GCAL_H_TO_KW, 'кВт'),
+        'гигакалории в час': ('Гкал/ч', GCAL_H_TO_KW, 'кВт'),
         'квт': ('кВт', Decimal('1'), 'кВт'),
         # Source documents commonly use lowercase "мВт" for megawatts.
         'мвт': ('МВт', Decimal('1000'), 'кВт'),
+        'мегаватт': ('МВт', Decimal('1000'), 'кВт'),
+        'мегаватта': ('МВт', Decimal('1000'), 'кВт'),
+        'мегаватты': ('МВт', Decimal('1000'), 'кВт'),
     }
     for item in list(object_node):
         if item.tag.rsplit('}', 1)[-1] != 'TEI':
@@ -155,10 +162,35 @@ def _tei_rows(object_node):
             unit = embedded_unit
         value = _decimal(value_match.group(1) if value_match else value_text)
         normalized_value, normalized_unit = value, unit
-        conversion = unit_aliases.get(unit.strip().lower())
-        if value is not None and conversion:
-            unit, multiplier, normalized_unit = conversion
-            normalized_value = value * multiplier
+        unit_key = re.sub(r'\s+', ' ', unit.strip().lower())
+        combined = f'{name} {unit} {value_text}'.lower().replace(',', '.')
+        pair_match = re.search(
+            r'(\d+(?:[.,]\d+)?)\s*/\s*(\d+(?:[.,]\d+)?)',
+            value_text, re.IGNORECASE)
+        dual_power_unit = ('мвт' in unit_key and 'гкал' in unit_key
+                           and '/ч' in unit_key)
+        if pair_match and dual_power_unit:
+            value = _decimal(pair_match.group(1))
+            normalized_value = value * Decimal('1000')
+            normalized_unit = 'кВт'
+            unit = 'МВт/Гкал/ч'
+        elif ('мощност' in name.lower() and unit_key == 'гкал'):
+            # Old conclusions often omit "/ч" for a field explicitly named
+            # "Мощность котельной". In that context Гкал means Гкал/ч.
+            unit = 'Гкал/ч'
+            normalized_value = value * GCAL_H_TO_KW if value is not None else None
+            normalized_unit = 'кВт'
+        else:
+            conversion = unit_aliases.get(unit_key)
+            if not conversion and 'гигакал' in combined and 'час' in combined:
+                conversion = ('Гкал/ч', GCAL_H_TO_KW, 'кВт')
+            if not conversion and 'мощност' in name.lower() and 'гкал' in combined:
+                conversion = ('Гкал/ч', GCAL_H_TO_KW, 'кВт')
+            if not conversion and 'мощност' in name.lower() and 'мвт' in combined:
+                conversion = ('МВт', Decimal('1000'), 'кВт')
+            if value is not None and conversion:
+                unit, multiplier, normalized_unit = conversion
+                normalized_value = value * multiplier
         rows.append({
             'name': name, 'unit': unit, 'value': value,
             'normalized_value': normalized_value,

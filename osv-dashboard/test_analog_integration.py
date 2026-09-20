@@ -9,6 +9,7 @@ import zipfile
 from io import BytesIO
 from datetime import date
 from decimal import Decimal
+from xml.etree import ElementTree as ET
 
 _tmp = tempfile.mkdtemp(prefix='analog_route_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_tmp}/analog.db'
@@ -22,6 +23,8 @@ from database import (AnalogClimateReference, AnalogCostIndexReference,
                       AnalogDocument, AnalogImport, AnalogNetworkAttribute,
                       AnalogPassport, AnalogPassportVersion, User, db)  # noqa: E402
 from analog_migration import import_json_v4  # noqa: E402
+from analog_parser import _tei_rows  # noqa: E402
+from analog_routes import _format_ru_number, _result_row  # noqa: E402
 
 
 ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
@@ -165,9 +168,9 @@ class AnalogRoutesTest(unittest.TestCase):
             self.assertEqual(
                 passport.address,
                 'Солнечногорский район, с.п. Кривцовское, д. Кривцово')
-            self.assertIsNone(passport.capacity_kw)
+            self.assertEqual(passport.capacity_kw, Decimal('7594.390000'))
             self.assertEqual(passport.teps[-1].value_text, '6,53')
-            self.assertEqual(passport.teps[-1].unit, 'Гкал')
+            self.assertEqual(passport.teps[-1].unit, 'Гкал/ч')
         duplicate = self.client.post('/analog-search/import/preview',
                                      data=self.files(conclusion),
                                      content_type='multipart/form-data')
@@ -212,6 +215,51 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('gcal-inside', html)
         self.assertIn('gcal-boundary', html)
         self.assertNotIn('gcal-outside', html)
+
+    def test_power_parser_normalizes_legacy_formats_to_kw(self):
+        object_node = ET.fromstring('''
+        <Object>
+          <TEI><Name>Мощность котельной</Name><Measure>Гигакалория в час</Measure><Value>14</Value></TEI>
+          <TEI><Name>Мощность котельной Гкал</Name><Value>6,53</Value></TEI>
+          <TEI><Name>Мощность котельной</Name><Measure>МВт/Гкал/ч</Measure><Value>31/26,66</Value></TEI>
+        </Object>
+        ''')
+        rows = _tei_rows(object_node)
+        self.assertEqual(rows[0]['normalized_value'], Decimal('16282'))
+        self.assertEqual(rows[1]['normalized_value'], Decimal('7594.39'))
+        self.assertEqual(rows[2]['normalized_value'], Decimal('31000'))
+        self.assertTrue(all(row['normalized_unit'] == 'кВт' for row in rows))
+
+    def test_catalog_formats_total_cost_and_dual_capacity(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Формат каталога', object_type='котельная',
+                work_type='строительство', capacity_kw=31000,
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1,
+                conclusion_number='catalog-format', examination_result='positive',
+                source_hash='catalog-format-source',
+                ssr_hash='catalog-format-ssr', total_cost=Decimal('1234.5'),
+                imported_by=self.admin_id)
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.commit()
+            row = _result_row(passport)
+        self.assertEqual(_format_ru_number(Decimal('1234.5'), 1), '1 234,5')
+        self.assertEqual(row['capacity_mw_display'], '31')
+        self.assertEqual(row['capacity_gcal_h_display'], '26,66')
+        self.assertEqual(row['total_cost_display'], '1 234,5')
+        response = self.client.get(
+            '/analog-search/simple',
+            query_string={'view': 'base', 'q': 'Формат каталога'})
+        html = response.get_data(as_text=True)
+        self.assertIn('МВт/<strong>Гкал/ч</strong>', html)
+        self.assertIn('31/<strong>26,66</strong>', html)
+        self.assertIn('1 234,5', html)
 
     def test_thousand_records_are_paginated_by_db(self):
         with app.app_context():

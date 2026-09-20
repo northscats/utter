@@ -208,7 +208,7 @@
         <th>Адрес<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..."></th>
         <th>Тип<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..."></th>
         <th>Вид работ<br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..."></th>
-        <th>Мощность<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
+        <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
         <th>Стоимость<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..."></th>
         {% if current_user.is_admin %}<th style="vertical-align: bottom; width: 80px;">Действия</th>{% endif %}
       </tr>
@@ -220,8 +220,12 @@
         <td>{{ row.address or '—' }}</td>
         <td>{{ row.object_type or '—' }}</td>
         <td>{{ row.work_type or '—' }}</td>
-        <td>{{ row.capacity_display or '—' }}</td>
-        <td>{{ row.adjusted_cost or '—' }}</td>
+        <td>
+          {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
+            {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ row.total_cost_display or '—' }}</td>
         {% if current_user.is_admin %}
         <td onclick="event.stopPropagation()">
           <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект?')" style="margin:0;">

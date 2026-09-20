@@ -7078,6 +7078,15 @@ def init_db(perform_durable=True):
                         participation_type='creator', is_primary=False))
             Setting.set('company_membership_backfill_v1', 'done')
             db.session.commit()
+        if Setting.get('analog_capacity_backfill_v1', '') != 'done':
+            from analog_routes import _passport_capacity_kw
+            for _passport in AnalogPassport.query.filter(
+                    AnalogPassport.capacity_kw.is_(None)).all():
+                _capacity_kw = _passport_capacity_kw(_passport)
+                if _capacity_kw is not None and _capacity_kw > 0:
+                    _passport.capacity_kw = _capacity_kw
+            Setting.set('analog_capacity_backfill_v1', 'done')
+            db.session.commit()
         _add_missing('doc_files', [
             ('approved',    "BOOLEAN NOT NULL DEFAULT FALSE"),
             ('approved_at', "TIMESTAMP WITH TIME ZONE"),

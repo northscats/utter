@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -172,23 +173,58 @@ def _duplicate_import_response(existing, pair=None):
 
 
 def _capacity_display(passport):
+    capacity = _passport_capacity_kw(passport)
+    if capacity is not None:
+        mw = _format_ru_number(capacity / Decimal('1000'))
+        gcal_h = _format_ru_number(capacity / CAPACITY_UNITS['gcal_h'])
+        return f'{mw}/{gcal_h} МВт/Гкал/ч'
+    return ''
+
+
+def _format_ru_number(value, minimum_decimals=0):
+    if value is None:
+        return ''
+    text = f'{Decimal(str(value)):,.2f}'
+    whole, fraction = text.split('.')
+    fraction = fraction.rstrip('0')
+    while len(fraction) < minimum_decimals:
+        fraction += '0'
+    whole = whole.replace(',', ' ')
+    return f'{whole},{fraction}' if fraction else whole
+
+
+def _passport_capacity_kw(passport):
+    if passport.capacity_kw is not None:
+        return Decimal(str(passport.capacity_kw))
     current_id = passport.current_version_id
     power = next((
         item for item in passport.teps
         if item.version_id == current_id and 'мощност' in (item.name or '').lower()
     ), None)
-    if power is not None and power.value_text:
-        text = power.value_text.strip()
-        unit = (power.unit or '').strip()
-        if (unit and unit.lower() not in ('не указано', 'нет', '-')
-                and unit.lower() not in text.lower()):
-            text = f'{text} {unit}'
-        return text
-    return f'{passport.capacity_kw} кВт' if passport.capacity_kw is not None else ''
+    if power is None:
+        return None
+    if ((power.normalized_unit or '').lower() == 'квт'
+            and power.normalized_value is not None):
+        return Decimal(str(power.normalized_value))
+    combined = ' '.join((
+        power.name or '', power.unit or '', power.value_text or '')).lower()
+    numbers = [Decimal(value.replace(',', '.'))
+               for value in re.findall(r'\d+(?:[.,]\d+)?', combined)]
+    if not numbers:
+        return None
+    if 'мвт' in combined or 'мегават' in combined:
+        return numbers[-2 if len(numbers) > 1 and '/' in combined else -1] * 1000
+    if 'гкал' in combined or 'гигакал' in combined:
+        return numbers[-1] * CAPACITY_UNITS['gcal_h']
+    if 'квт' in combined:
+        return numbers[-1]
+    return None
 
 
 def _result_row(passport, query_capacity=None):
-    capacity = Decimal(str(passport.capacity_kw)) if passport.capacity_kw is not None else None
+    capacity = _passport_capacity_kw(passport)
+    current_version = next((version for version in passport.versions
+                            if version.id == passport.current_version_id), None)
     deviation = None
     if query_capacity is not None and capacity and Decimal(str(query_capacity)) != 0:
         deviation = abs((capacity - Decimal(str(query_capacity))) /
@@ -196,16 +232,24 @@ def _result_row(passport, query_capacity=None):
     score = Decimal('0')
     if deviation is not None:
         score = max(Decimal('0'), Decimal('100') - deviation)
+    capacity_mw = _format_ru_number(
+        capacity / Decimal('1000')) if capacity is not None else ''
+    capacity_gcal_h = _format_ru_number(
+        capacity / CAPACITY_UNITS['gcal_h']) if capacity is not None else ''
     return {'id': passport.id, 'title': passport.title, 'address': passport.address,
             'object_type': passport.object_type, 'work_type': passport.work_type,
             'climate_zone': passport.climate_zone,
             'capacity_kw': str(capacity) if capacity is not None else None,
             'capacity_display': _capacity_display(passport),
+            'capacity_mw_display': capacity_mw,
+            'capacity_gcal_h_display': capacity_gcal_h,
             'deviation_percent': float(deviation) if deviation is not None else None,
             'similarity_percent': float(score), 'good': deviation is None or deviation <= 10,
-            'adjusted_cost': (str(next((v.adjusted_cost for v in passport.versions
-                                        if v.id == passport.current_version_id), None) or '')
-                              )}
+            'adjusted_cost': str(current_version.adjusted_cost or '')
+            if current_version else '',
+            'total_cost_display': _format_ru_number(
+                current_version.total_cost, minimum_decimals=1)
+            if current_version and current_version.total_cost is not None else ''}
 
 
 def _capacity_kw_from_args(args):
