@@ -2,6 +2,7 @@
 """Range and immutable-file AI analysis for accepted OSV sources."""
 import os
 import hashlib
+import re
 import threading
 from datetime import date
 
@@ -52,6 +53,29 @@ def accepted_sources(uploads):
                     item.get('report_end') or item.get('observed_end')),
             }
     return list(sources.values())
+
+
+def applied_account_sources(uploads):
+    """Return one currently applied source per account in numeric order.
+
+    Uploads are expected newest first. Older immutable versions remain
+    available for audit, but should not create duplicate account pills in the
+    current AI conclusion.
+    """
+    by_account = {}
+    for source in accepted_sources(uploads):
+        account = str(source.get('account') or '').strip()
+        if account and account not in by_account:
+            by_account[account] = source
+
+    def account_key(item):
+        parts = re.findall(r'\d+|[^\d]+', item['account'])
+        return tuple(
+            (0, int(part)) if part.isdigit() else (1, part.casefold())
+            for part in parts
+        )
+
+    return sorted(by_account.values(), key=account_key)
 
 
 def source_set_revision(sources):
@@ -152,6 +176,10 @@ def _format_amount(value):
     return f'{float(value or 0):,.2f}'.replace(',', ' ')
 
 
+def _has_recommendations(content):
+    return '### рекомендации' in str(content or '').casefold()
+
+
 def _file_prompt(company, source, parsed):
     top = parsed.get('top') or {}
     facts = [
@@ -183,12 +211,14 @@ def _file_prompt(company, source, parsed):
 
 _FILE_SYSTEM = (
     'Ты финансовый аналитик. Дай краткое заключение строго только по одному '
-    'указанному файлу ОСВ, на русском языке, не более 700 знаков. Структура: '
-    '### Итог, затем ### Риски (1–2 пункта). В итоге сравни начальное и конечное '
+    'указанному файлу ОСВ, на русском языке, не более 900 знаков. Структура: '
+    '### Итог, затем ### Риски (1–2 пункта), затем ### Рекомендации '
+    '(1–3 конкретных действия, обоснованных только фактами этого файла). '
+    'В итоге сравни начальное и конечное '
     'сальдо, укажи абсолютное и процентное изменение, только если исходные числа '
     'позволяют это вычислить, и приведи обороты Дт/Кт. Не добавляй сведения из '
     'других файлов, не придумывай причины и показатели. При недостатке данных '
-    'скажи об этом.'
+    'рекомендуй, какие данные нужно загрузить или проверить.'
 )
 
 
@@ -278,9 +308,12 @@ def ensure_file_summaries(company_id, uploads_root, source_ids=None,
                 row = OsvFileAiSummary.query.filter_by(
                     company_id=company_id,
                     source_id=source['source_id']).first()
-        elif wanted and row.status == 'error':
+        elif wanted and (
+                row.status == 'error'
+                or (row.status == 'ready'
+                    and not _has_recommendations(row.content))):
             claimed = OsvFileAiSummary.query.filter_by(
-                id=row.id, status='error').update({
+                id=row.id, status=row.status).update({
                     'status': 'queued', 'error_text': '', 'queued_at': utcnow(),
                 }, synchronize_session=False)
             if claimed:
@@ -307,13 +340,17 @@ def serialized_file_summaries(company_id, sources):
     result = []
     for source in sources:
         row = rows.get(source['source_id'])
+        status = row.status if row else 'none'
+        if (row and status == 'ready'
+                and not _has_recommendations(row.content)):
+            status = 'outdated'
         result.append({
             'source_id': source['source_id'], 'filename': source['filename'],
             'account': source['account'], 'period': source['period'] or 'Период не указан',
             'start': source['start'].isoformat() if source['start'] else None,
             'end': source['end'].isoformat() if source['end'] else None,
-            'status': row.status if row else 'none',
-            'content': row.content if row and row.status == 'ready' else '',
+            'status': status,
+            'content': row.content if row and status == 'ready' else '',
             'error': row.error_text if row and row.status == 'error' else '',
             'generated_at': (
                 row.generated_at.strftime('%d.%m.%Y %H:%M')

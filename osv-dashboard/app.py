@@ -2489,7 +2489,8 @@ def _upload_history_rows(uploads, company_id):
 def company_detail(company_id):
     company = db.session.get(Company, company_id) or abort(404)
     uploads = Upload.query.filter_by(company_id=company_id)\
-                          .order_by(Upload.uploaded_at.desc()).all()
+                          .order_by(Upload.uploaded_at.desc(),
+                                    Upload.id.desc()).all()
     completed_job_id = request.args.get('completed_job', '').strip()
     completed_job = get_job(completed_job_id) if completed_job_id else None
     if (not completed_job
@@ -2501,13 +2502,15 @@ def company_detail(company_id):
     ai_summary = AiSummary.query.filter_by(company_id=company_id).first()
     ai_provider_configured = AiProvider.query.filter_by(is_active=True).first() is not None
     from osv_ai_summary import (
-        accepted_sources, serialized_file_summaries, source_set_revision,
+        accepted_sources, applied_account_sources, serialized_file_summaries,
+        source_set_revision,
     )
     ai_file_sources = accepted_sources(uploads)
     if ai_summary and ai_summary.source_revision != source_set_revision(
             ai_file_sources):
         ai_summary = None
-    ai_file_summaries = serialized_file_summaries(company_id, ai_file_sources)
+    ai_file_summaries = serialized_file_summaries(
+        company_id, applied_account_sources(uploads))
 
     upload_history_rows = _upload_history_rows(uploads, company_id)
     consolidated_preview = _load_consolidated_preview(
@@ -3153,9 +3156,11 @@ def company_ai_summary(company_id):
 @login_required
 def company_ai_file_summaries(company_id):
     db.session.get(Company, company_id) or abort(404)
-    from osv_ai_summary import (accepted_sources, serialized_file_summaries)
-    uploads = Upload.query.filter_by(company_id=company_id).all()
-    sources = accepted_sources(uploads)
+    from osv_ai_summary import (applied_account_sources,
+                                serialized_file_summaries)
+    uploads = Upload.query.filter_by(company_id=company_id).order_by(
+        Upload.uploaded_at.desc(), Upload.id.desc()).all()
+    sources = applied_account_sources(uploads)
     return jsonify(ok=True, files=serialized_file_summaries(company_id, sources))
 
 

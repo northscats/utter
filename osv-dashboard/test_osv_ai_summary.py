@@ -87,6 +87,36 @@ class OsvAiSummaryTests(unittest.TestCase):
         self.assertEqual(
             new_revision, service.source_set_revision(list(reversed(result))))
 
+    def test_applied_account_sources_keep_latest_unique_accounts_in_order(self):
+        def manifest_item(account, suffix):
+            relative = f'batch/{account}-{suffix}.xlsx'
+            digest = suffix * 64
+            return {
+                'source_id': hashlib.sha256(
+                    f'{relative}\0{digest}'.encode()).hexdigest(),
+                'sha256': digest,
+                'relative_path': relative,
+                'account': account,
+                'period': '2026',
+            }
+        newest_51 = manifest_item('51', 'a')
+        older_51 = manifest_item('51', 'b')
+        account_8 = manifest_item('8', 'c')
+        account_62 = manifest_item('62', 'd')
+        result = service.applied_account_sources([
+            {'source_manifest': [account_62, newest_51]},
+            {'source_manifest': [older_51, account_8]},
+        ])
+        self.assertEqual(
+            [item['account'] for item in result], ['8', '51', '62'])
+        self.assertEqual(result[1]['source_id'], newest_51['source_id'])
+
+    def test_file_summary_prompt_requires_recommendations(self):
+        self.assertIn('### Рекомендации', service._FILE_SYSTEM)
+        self.assertTrue(service._has_recommendations(
+            '### Итог\\nТекст\\n### Рекомендации\\n- Проверить данные'))
+        self.assertFalse(service._has_recommendations('### Итог\\nТекст'))
+
     def test_file_prompt_contains_only_selected_file_facts(self):
         company = type('Company', (), {'name': 'Тест'})()
         selected = source(

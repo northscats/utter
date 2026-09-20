@@ -123,6 +123,9 @@ tr:last-child td{border-bottom:0}
 .ai-content ul,.ai-content ol{margin:0 0 12px;padding-left:22px}
 .ai-content li{margin:4px 0}
 .ai-meta{margin-top:8px;font-size:12px;color:var(--mut)}
+.ai-source-link{margin-top:10px;font-size:13px}
+.ai-source-link a{color:var(--water);font-weight:700;text-decoration:none}
+.ai-source-link a:hover{text-decoration:underline}
 .ai-err-msg{margin-top:12px;background:#fbeae8;border:1px solid #e7b6b0;color:#7c2018;
   border-radius:7px;padding:10px 14px;font-size:13px}
 .ai-spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.35);
@@ -1146,6 +1149,13 @@ tr:last-child td{border-bottom:0}
     <div class="ai-meta"    id="ai-meta"    style="display:none"></div>
     {% endif %}
     <div class="ai-err-msg" id="ai-err" style="display:none"></div>
+    {% if current_dash %}
+    <div class="ai-source-link">
+      <a href="{{ url_for('dashboard', company_id=company.id, name=current_dash.dashboard_file) }}">
+        Просмотреть загруженную ОСВ →
+      </a>
+    </div>
+    {% endif %}
     {% if ai_file_summaries %}
     <div class="ai-files" id="ai-files" aria-label="Заключения по файлам ОСВ">
       {% for file in ai_file_summaries %}
@@ -1153,7 +1163,7 @@ tr:last-child td{border-bottom:0}
               onclick="selectAiFile('{{ file.source_id }}')" title="{{ file.filename }}">
         <span class="ai-file-account">{{ file.account or '?' }}</span>
         <span class="ai-file-state {{ file.status }}"
-              aria-label="{% if file.status == 'ready' %}готово{% elif file.status in ('queued', 'running') %}формируется{% elif file.status == 'error' %}ошибка{% else %}не сформировано{% endif %}"></span>
+              aria-label="{% if file.status == 'ready' %}готово{% elif file.status in ('queued', 'running') %}формируется{% elif file.status == 'error' %}ошибка{% elif file.status == 'outdated' %}требуется обновление{% else %}не сформировано{% endif %}"></span>
       </button>
       {% endfor %}
     </div>
@@ -1822,7 +1832,8 @@ function updateAiFilePills() {
     if (dot && item) dot.className = 'ai-file-state ' + item.status;
     if (dot && item) dot.setAttribute('aria-label', item.status === 'ready' ? 'готово' :
       (item.status === 'queued' || item.status === 'running') ? 'формируется' :
-      item.status === 'error' ? 'ошибка' : 'не сформировано');
+      item.status === 'error' ? 'ошибка' :
+      item.status === 'outdated' ? 'требуется обновление' : 'не сформировано');
   });
 }
 
@@ -1845,6 +1856,10 @@ function renderAiFile(item) {
       '</span> <button class="ai-file-action" onclick="startAiFile(\'' + item.source_id + '\')">Повторить</button>';
     return;
   }
+  if (item.status === 'outdated') {
+    body.innerHTML = '<span class="ai-spin" style="border-color:#ccd8dd;border-top-color:var(--water)"></span> Обновляется с рекомендациями…';
+    return;
+  }
   body.innerHTML = 'Заключение ещё не сформировано. <button class="ai-file-action" onclick="startAiFile(\'' +
     item.source_id + '\')">Сформировать</button>';
 }
@@ -1855,7 +1870,8 @@ function selectAiFile(sourceId) {
   });
   var item = aiFileById(sourceId);
   renderAiFile(item);
-  if (item && (item.status === 'none' || item.status === 'error')) {
+  if (item && (item.status === 'none' || item.status === 'error' ||
+      item.status === 'outdated')) {
     startAiFile(sourceId);
   }
 }
