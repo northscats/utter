@@ -111,9 +111,6 @@ expertMode = true
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
 
-[nix]
-channel = "stable-25_05"
-packages = ["cargo", "freetype", "gitFull", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "openssl", "pkg-config", "playwright-driver", "rustc", "tcl", "tesseract", "tk", "zlib"]
 
 [userenv]
 
