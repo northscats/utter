@@ -223,7 +223,7 @@ class LimitsRouteTests(unittest.TestCase):
             '/limit-notifications/comparisons/1?category=&year=&ministry='
         ).get_data(as_text=True)
         self.assertIn('200.300', all_page)
-        self.assertIn('Завершение', all_page)
+        self.assertNotIn('<th>Показатель</th>', all_page)
 
     def test_filter_before_pagination_does_not_hide_tail(self):
         with app.app_context():

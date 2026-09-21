@@ -3,12 +3,23 @@
 {% block content %}
 <style>
   .changes-table { table-layout:fixed; }
-  .changes-table th:nth-child(1) { width:24%; }
-  .changes-table th:nth-child(2) { width:14%; }
-  .changes-table th:nth-child(3) { width:18%; }
-  .changes-table th:nth-child(4),
-  .changes-table th:nth-child(5) { width:17%; }
-  .changes-table th:nth-child(6) { width:10%; }
+  .changes-table th:nth-child(1) { width:28%; }
+  .changes-table th:nth-child(2) { width:17%; }
+  .changes-table th:nth-child(3),
+  .changes-table th:nth-child(4) { width:20%; }
+  .changes-table th:nth-child(5) { width:15%; }
+  .changes-table th { position:relative; }
+  .column-resizer {
+    position:absolute; top:0; right:-4px; width:9px; height:100%;
+    padding:0; border:0; background:transparent; cursor:col-resize;
+    touch-action:none; z-index:2;
+  }
+  .column-resizer::after {
+    content:""; position:absolute; top:22%; bottom:22%; left:4px;
+    width:1px; background:#cbd5e1;
+  }
+  .column-resizer:hover::after,
+  .column-resizer.is-resizing::after { width:2px; background:var(--blue); }
   .changes-table td { padding:6px 10px; line-height:1.25; vertical-align:middle; }
   .change-object { min-width:0; }
   .change-object .object-uin {
@@ -18,8 +29,7 @@
     display:block; margin-top:3px; color:var(--mut); font-family:system-ui,-apple-system,sans-serif;
     font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
-  .changes-table .val-text,
-  .changes-table .field-label {
+  .changes-table .val-text {
     display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical;
     -webkit-line-clamp:2; line-clamp:2;
   }
@@ -29,6 +39,7 @@
   }
   .changes-table .src-coord { margin-top:3px; padding:1px 5px; }
   .changes-table .badge { white-space:normal; line-height:1.15; }
+  .changes-table .delta-value { font-weight:700; }
 </style>
 <a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id if dataset else comparison.new_version.dataset_id) }}">← К набору отчётности</a>
 <div class="eyebrow">Сравнение версий</div>
@@ -177,16 +188,18 @@
 </section>
 {% endif %}
 
-<div class="table-wrap panel" style="padding: 0; overflow: hidden;">
-  <table class="data-table changes-table">
+<div class="table-wrap panel" style="padding:0; overflow-x:auto;">
+  <table class="data-table changes-table" id="changes-table">
+    <colgroup>
+      <col><col><col><col><col>
+    </colgroup>
     <thead>
       <tr>
-        <th>Объект / УИН</th>
-        <th>Категория</th>
-        <th>Показатель</th>
-        <th>Было</th>
-        <th>Стало</th>
-        <th>Дельта</th>
+        <th>Объект / УИН<button class="column-resizer" type="button" aria-label="Изменить ширину столбца «Объект / УИН»"></button></th>
+        <th>Категория<button class="column-resizer" type="button" aria-label="Изменить ширину столбца «Категория»"></button></th>
+        <th>Было<button class="column-resizer" type="button" aria-label="Изменить ширину столбца «Было»"></button></th>
+        <th>Стало<button class="column-resizer" type="button" aria-label="Изменить ширину столбца «Стало»"></button></th>
+        <th>Дельта<button class="column-resizer" type="button" aria-label="Изменить ширину столбца «Дельта»"></button></th>
       </tr>
     </thead>
     <tbody>
@@ -207,7 +220,6 @@
             {{ category_label }}
           </span>
         </td>
-        <td><span class="field-label">{{ change.field_label or change.field_key }}</span></td>
         <td class="val-cell">
           {% set old_val = change.old_json|limit_json %}
           <div class="val-text">{{ old_val|limit_value if old_val is not none else '—' }}</div>
@@ -222,7 +234,7 @@
         </td>
         <td>
           {% if change.absolute_delta is not none %}
-            <span class="{{ 'text-success' if change.absolute_delta > 0 else 'text-danger' if change.absolute_delta < 0 else '' }}">
+            <span class="delta-value {{ 'text-success' if change.absolute_delta > 0 else 'text-danger' if change.absolute_delta < 0 else '' }}">
               {{ '+' if change.absolute_delta > 0 else '' }}{{ change.absolute_delta|round(2) }}
             </span>
           {% else %}
@@ -237,7 +249,7 @@
       </tr>
       {% else %}
       <tr>
-        <td colspan="6" class="text-center text-mut" style="padding: 40px;">
+        <td colspan="5" class="text-center text-mut" style="padding: 40px;">
           Изменений по заданным критериям не найдено.
         </td>
       </tr>
@@ -323,4 +335,55 @@
 .notice.error { background: #ffebee; border-left-color: #e53935; color: #b71c1c; }
 .notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
 </style>
+<script>
+(() => {
+  const table = document.getElementById('changes-table');
+  if (!table) return;
+  const columns = [...table.querySelectorAll('colgroup col')];
+  const headers = [...table.querySelectorAll('thead th')];
+  const storageKey = 'limits-comparison-column-widths-v1';
+
+  const applyWidths = widths => {
+    if (!Array.isArray(widths) || widths.length !== columns.length) return;
+    widths.forEach((width, index) => {
+      columns[index].style.width = `${Math.max(90, Number(width) || 90)}px`;
+    });
+    table.style.width = `${widths.reduce((sum, width) => sum + Math.max(90, Number(width) || 90), 0)}px`;
+    table.style.minWidth = '100%';
+  };
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey));
+    if (saved) applyWidths(saved);
+  } catch (_) {}
+
+  headers.forEach((header, index) => {
+    const handle = header.querySelector('.column-resizer');
+    if (!handle) return;
+    handle.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      const widths = headers.map(item => Math.round(item.getBoundingClientRect().width));
+      const startX = event.clientX;
+      const startWidth = widths[index];
+      handle.classList.add('is-resizing');
+      handle.setPointerCapture(event.pointerId);
+
+      const move = moveEvent => {
+        widths[index] = Math.max(90, startWidth + moveEvent.clientX - startX);
+        applyWidths(widths);
+      };
+      const stop = () => {
+        handle.classList.remove('is-resizing');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', stop);
+        handle.removeEventListener('pointercancel', stop);
+        try { localStorage.setItem(storageKey, JSON.stringify(widths)); } catch (_) {}
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', stop);
+      handle.addEventListener('pointercancel', stop);
+    });
+  });
+})();
+</script>
 {% endblock %}
