@@ -325,12 +325,32 @@ class AnalogRoutesTest(unittest.TestCase):
             self.assertIn('fraction-inside', html)
             self.assertNotIn('fraction-outside', html)
 
-            api = self.client.get(
+            api_response = self.client.get(
                 '/analog-search/api/search',
                 query_string={'capacity_value': value, 'capacity_unit': 'mw',
-                              'q': 'fraction-'}).get_json()
+                              'q': 'fraction-'})
+            self.assertEqual(api_response.status_code, 200)
+            api = api_response.get_json()
+            self.assertEqual(api['total'], 1)
             self.assertEqual(api['items'][0]['title'], 'fraction-inside')
             self.assertTrue(api['items'][0]['good'])
+            self.assertNotIn(
+                'fraction-outside',
+                [item['title'] for item in api['items']])
+
+    def test_capacity_search_rejects_invalid_and_nonpositive_values(self):
+        for value in ('invalid', '0', '-1', 'Infinity', 'NaN'):
+            for path in ('/analog-search/simple',
+                         '/analog-search/api/search'):
+                response = self.client.get(
+                    path,
+                    query_string={'view': 'search',
+                                  'capacity_value': value,
+                                  'capacity_unit': 'mw'})
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(
+                    'Мощность должна быть положительным числом',
+                    response.get_data(as_text=True))
 
     def test_power_parser_normalizes_legacy_formats_to_kw(self):
         object_node = ET.fromstring('''

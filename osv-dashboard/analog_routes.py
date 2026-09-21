@@ -340,7 +340,7 @@ def _capacity_kw_from_args(args):
         return None
     try:
         value = Decimal(raw.replace(',', '.'))
-        if value <= 0:
+        if not value.is_finite() or value <= 0:
             raise ValueError
     except (InvalidOperation, TypeError, ValueError):
         abort(400, description='Мощность должна быть положительным числом')
@@ -632,6 +632,8 @@ def search_api():
     per_page = min(max(args.get('per_page', 25, type=int), 1), 100)
     query, group, deviation = _simple_query(args, capacity)
     if capacity:
+        if args.get('capacity_value', '').strip():
+            query = query.filter(deviation <= Decimal('0.10'))
         query = query.order_by(group.asc(), deviation.asc(),
                                AnalogPassport.id.asc())
     else:
