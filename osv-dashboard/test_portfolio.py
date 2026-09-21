@@ -146,6 +146,11 @@ check("портфель открывается внутри аналитики �
       and "ГИС УЗТЭР · Портфель РСО" not in embedded_body
       and "embedded=1" in embedded_body)
 legacy_body = client.get("/home?legacy=1").get_data(as_text=True)
+modules_body = client.get("/modules").get_data(as_text=True)
+check("вход в модуль ведёт сразу на основные показатели",
+      'href="/home?legacy=1"' in modules_body
+      and 'data-nav="cards"' in legacy_body
+      and "var nav = 'cards'" in legacy_body)
 check("портфельная сводка и общий рейтинг вынесены в раздел портфеля",
       "<span>Портфель</span>" in legacy_body
       and legacy_body.index("<span>Портфель</span>") < legacy_body.index('data-nav="portfolio"')
@@ -153,8 +158,9 @@ check("портфельная сводка и общий рейтинг выне
       and "view === 'portfolio'" in legacy_body)
 check("аналитическое меню использует новые названия без раздела алертов",
       "Анализ ОСВ" in legacy_body
-      and "Данные и отчетность" in legacy_body
-      and "Финансовый анализ" in legacy_body
+      and '<span class="ico">📋</span><span>Данные</span>' in legacy_body
+      and 'data-nav="comparison"' not in legacy_body
+      and 'data-nav="expert"' not in legacy_body
       and 'data-nav="alerts"' not in legacy_body
       and "renderAlertsView" not in legacy_body
       and 'data-nav="summary"' not in legacy_body

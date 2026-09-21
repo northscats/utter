@@ -428,11 +428,6 @@ body.splitter-dragging iframe{pointer-events:none}
         <div class="sl-nav-item" data-nav="rating" onclick="setNavView('rating',this)">
           <span class="ico">🏆</span><span>Общий рейтинг</span>
         </div>
-        {% if comparison_enabled %}
-        <div class="sl-nav-item" data-nav="comparison" onclick="setNavView('comparison',this)">
-          <span class="ico">⇄</span><span>Сравнение предприятий</span>
-        </div>
-        {% endif %}
         <div class="sb-section-hdr sl-nav-group-hdr">
           <span>Аналитика предприятия</span>
         </div>
@@ -445,11 +440,6 @@ body.splitter-dragging iframe{pointer-events:none}
         <div class="sl-nav-item" data-nav="history" onclick="setNavView('history',this)">
           <span class="ico">📋</span><span>Данные</span>
         </div>
-        {% if historical_expert_enabled %}
-        <div class="sl-nav-item" data-nav="expert" onclick="setNavView('expert',this)">
-          <span class="ico">◫</span><span>Финансовый анализ</span>
-        </div>
-        {% endif %}
       </div>
     </div>
   </div>

@@ -2176,7 +2176,14 @@ def favicon():
 @login_required
 def modules_dashboard():
     modules = [
-        dict(module, url=url_for(module['endpoint']))
+        dict(
+            module,
+            url=(
+                url_for('home', legacy=1)
+                if module['key'] == 'analytics'
+                else url_for(module['endpoint'])
+            ),
+        )
         for module in registered_modules()
         if current_user.has_module_access(module['key'])
     ]
