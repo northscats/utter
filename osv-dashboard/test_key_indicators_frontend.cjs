@@ -241,7 +241,7 @@ async function checkBootstrap(configuration) {
     'Детализация по данным ОСВ · 01.01.2026 — 30.06.2026');
   if (configuration) {
     assert.doesNotThrow(() => app.renderArModal({
-      id: 'ar', value: 437405275.57, opening_value: 100000000,
+      id: 'cash_dz', value: 437405275.57, opening_value: 100000000,
       consumer_advances: 53124872,
       analytics: [], details: [], series: [],
       debtor_segments: {
@@ -252,6 +252,32 @@ async function checkBootstrap(configuration) {
     }));
     assert.match(nodes.get('ki-ar-modal-content').innerHTML, /ДЗ ПОТРЕБИТЕЛЕЙ/);
     assert.match(nodes.get('ki-ar-modal-content').innerHTML, /АВАНСЫ ПОТРЕБИТЕЛЕЙ/);
+    app.state.data.cards.push({
+      id: 'cash_dz', value: 200000000,
+    });
+    app.renderApModal({
+      id: 'ap', value: 100000000, opening_value: 90000000,
+      known_total: 100000000, credit_turnover: 50000000,
+      analytics: [], components: [], details: [],
+    });
+    assert.match(nodes.get('ki-ap-modal-content').innerHTML, />2\.00</);
+    let reopenedCardId = null;
+    const originalCloseModal = app.closeModal;
+    const originalFetchData = app.fetchData;
+    const originalOpenModal = app.openModal;
+    app.closeModal = () => {};
+    app.fetchData = async () => {};
+    app.openModal = cardId => { reopenedCardId = cardId; };
+    context.fetch = async () => ({
+      ok: true,
+      json: async () => ({ok: true}),
+    });
+    await app.saveDebtorMappings();
+    assert.equal(reopenedCardId, 'cash_dz',
+      'saving debtor categories must reopen the retained debtor card');
+    app.closeModal = originalCloseModal;
+    app.fetchData = originalFetchData;
+    app.openModal = originalOpenModal;
   }
   app.state.data.period.start = '2026-06-30';
   assert.equal(app.displayedPeriodLabel(), '30.06.2026');

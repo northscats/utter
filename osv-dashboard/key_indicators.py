@@ -22,7 +22,7 @@ _CARD_ORDER = ('cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs',
 _ANALYTIC_SERIES_LIMIT = 200
 _TITLES = {
     'cash': 'Денежные средства',
-    'cash_dz': 'ДЗ',
+    'cash_dz': 'Дебиторская задолженность',
     'revenue': 'Выручка',
     'collection': 'Собираемость (прокси по ОСВ)',
     'ar': 'Дебиторская задолженность',
@@ -4509,14 +4509,16 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'salary': ('70',),
         'capex': ('08',),
     }
-    # ``ДЗ`` is a separate debtor card, not a second cash card.  Clone the
-    # already calculated AR card so all authenticated 62.01 analytics remain
-    # available, then attach explicit current/APG series for the modal.
+    # Keep the specialised debtor card backed by the already calculated AR
+    # data so all authenticated 62.01 analytics remain available, then attach
+    # explicit current/APG series for the modal.
     cash_dz = copy.deepcopy(card_map['ar'])
     cash_dz['id'] = 'cash_dz'
     cash_dz['title'] = _TITLES['cash_dz']
     cash_dz['formula'] = 'max(СКд − СКк, 0) по 62.01'
     cash_dz['source'] = 'Дебетовое сальдо 62.01; авансы — кредитовое сальдо 62.02'
+    cash_dz['classification_analytics'] = copy.deepcopy(
+        cash_dz.get('analytics') or [])
     cash_dz['analytics'] = [
         item for item in (cash_dz.get('analytics') or [])
         if item.get('account') == '62.01'
@@ -4579,6 +4581,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         else:
             month_cursor = Date(month_cursor.year, month_cursor.month + 1, 1)
     cash_dz['monthly_comparison'] = monthly_comparison
+    cards = [card for card in cards if card['id'] != 'ar']
     cards.append(cash_dz)
     cards.sort(key=lambda card: _CARD_ORDER.index(card['id']))
 

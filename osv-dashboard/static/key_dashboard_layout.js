@@ -8,14 +8,14 @@
     'use strict';
 
     const FALLBACK_IDS = {
-        operational: ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs',
+        operational: ['cash', 'cash_dz', 'revenue', 'collection', 'ap', 'cogs',
             'profit', 'credits', 'salary', 'capex'],
         annual: ['revenue', 'cogs', 'net_profit', 'profitability', 'cash',
             'ar', 'ap', 'equity', 'assets', 'current_liquidity']
     };
     const FALLBACK_TITLES = {
         cash: 'Денежные средства',
-        cash_dz: 'ДЗ',
+        cash_dz: 'Дебиторская задолженность',
         revenue: 'Выручка',
         collection: 'Уровень собираемости',
         ar: 'Дебиторская задолженность',

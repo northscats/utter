@@ -3757,7 +3757,7 @@ def _ai_report_narrative(payload):
     """Conservative statements that do not infer facts absent from ОСВ."""
     cards = {item.get('id'): item for item in payload.get('cards') or []}
     result = []
-    for card_id in ('revenue', 'profit', 'cash', 'ar'):
+    for card_id in ('revenue', 'profit', 'cash', 'cash_dz'):
         card = cards.get(card_id) or {}
         value = card.get('value')
         if isinstance(value, (int, float)) and not isinstance(value, bool):

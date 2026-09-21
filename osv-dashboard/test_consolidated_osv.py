@@ -154,7 +154,7 @@ class ConsolidatedOsvTests(unittest.TestCase):
             'cash': 1954600.71,
             'revenue': 418611756.49,
             'collection': 71.82,
-            'ar': 437405275.57,
+            'cash_dz': 437405275.57,
             'ap': 392339162.24,
             'cogs': 494453141.09,
             'profit': -139649730.99,
@@ -164,7 +164,7 @@ class ConsolidatedOsvTests(unittest.TestCase):
         }
         self.assertEqual(
             {key: cards[key]['value'] for key in expected}, expected)
-        self.assertEqual(cards['ar']['consumer_advances'], 53124872.0)
+        self.assertEqual(cards['cash_dz']['consumer_advances'], 53124872.0)
         self.assertEqual(cards['ap']['credit_turnover'], 611964238.16)
         self.assertEqual(
             [(item['account'], item['value'])
@@ -183,6 +183,18 @@ class ConsolidatedOsvTests(unittest.TestCase):
         self.assertEqual(
             cards['salary']['insurance']['credit_balance'], 11176101.24)
         self.assertEqual(cards['capex']['credit_turnover'], 122644969.44)
+
+    def test_ai_narrative_uses_the_canonical_debtor_card(self):
+        narrative = app_module._ai_report_narrative({
+            'cards': [{
+                'id': 'cash_dz',
+                'title': 'Дебиторская задолженность',
+                'value': 5000000,
+                'unit': 'RUB',
+            }],
+        })
+        self.assertEqual(
+            narrative, ['Дебиторская задолженность: 5.00 млн ₽.'])
 
     def test_complete_snapshot_wins_balance_and_opening_over_partial_revision(self):
         complete = {

@@ -346,7 +346,7 @@ assert.equal(app.state.modalChart.activeId, '__main__',
 
 // The real card IDs all route through their specialized renderer and still
 // expose the shared interactive surface.
-const specialized = ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap',
+const specialized = ['cash', 'cash_dz', 'revenue', 'collection', 'ap',
     'cogs', 'profit', 'credits', 'salary', 'capex'];
 const routed = [];
 const specializedCard = id => ({

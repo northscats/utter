@@ -55,7 +55,6 @@
         { id: 'cash_dz', icon: '<span aria-hidden="true">₽</span>' },
         { id: 'revenue', icon: svgIcon('M3 3v18h18M3 16l6-6 4 4 8-8') },
         { id: 'collection', icon: svgIcon('M3 10h18M7 15h1m4 0h1M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z') },
-        { id: 'ar', icon: svgIcon('M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4') },
         { id: 'ap', icon: svgIcon('M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12') },
         { id: 'cogs', icon: svgIcon('M3 3v18h18M3 8l6 6 4-4 8 8') },
         { id: 'profit', icon: svgIcon('M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z') },
@@ -3621,7 +3620,7 @@
                 source: 'ОСВ 62.01, 90.01 и 90.03'
             });
 
-            const analytics = card.analytics || [];
+            const analytics = card.classification_analytics || card.analytics || [];
             const debtor = card.debtor_segments || {};
             const rows = analytics.length ? analytics.map(row => {
                 const share = current ? row.value / current * 100 : null;
@@ -3698,7 +3697,7 @@
             const reconciliation = debtor.confirmed_total === null || debtor.confirmed_total === undefined
                 ? 'Сверка недоступна'
                 : `Категории: ${rub(debtor.classified_total)} · Подтверждённая ДЗ: ${rub(debtor.confirmed_total)} · Разница: ${rub(debtor.reconciliation_difference)} · ${debtor.reconciled ? 'сверено' : 'не сверено'}`;
-            const mappingEditor = config.canEditRevenueMappings
+            const mappingEditor = config && config.canEditRevenueMappings
                 ? this.renderDebtorMappingEditor(analytics, debtor) : '';
 
             const overdueTip = this.arTooltip({
@@ -3828,7 +3827,7 @@
                 this.closeModal();
                 await this.fetchData();
                 if (companySwitchToken !== state.companySwitchToken) return;
-                this.openModal('ar');
+                this.openModal('cash_dz');
             } catch (error) {
                 if (companySwitchToken !== state.companySwitchToken) return;
                 status.textContent = error.message;
@@ -3869,7 +3868,7 @@
             const container = document.getElementById('ki-ap-modal-content');
             if (!container) return;
             const required = this.apRequirements();
-            const arCard = state.data.cards.find(item => item.id === 'ar') || {};
+            const arCard = state.data.cards.find(item => item.id === 'cash_dz') || {};
             const current = card.value;
             const opening = card.opening_value;
             const knownTotal = card.known_total;
@@ -6652,31 +6651,11 @@
             const changeText = changeValue === null ? 'Нужны данные' :
                 `${changeValue > 0 ? '+' : ''}${change.val} ${change.u}`;
             const coverage = this.cashCoverageText(card);
-            const analytics = card.analytics || card.breakdown ||
-                card.debtor_segments || card.details || [];
-            const total = card.value !== null && card.value !== undefined &&
-                Number.isFinite(Number(card.value)) ? Number(card.value) : null;
-            const rows = analytics.map((item, index) => {
-                const value = item && item.value !== null && item.value !== undefined &&
-                    Number.isFinite(Number(item.value))
-                    ? Number(item.value) : null;
-                const formatted = formatAmount(value);
-                const share = value !== null && total !== null && total !== 0
-                    ? `${(value / total * 100).toFixed(1)}%` : '—';
-                const label = item && (item.label || item.name || item.account ||
-                    `Аналитика ${index + 1}`);
-                const comment = item && (item.comment || item.description ||
-                    item.reason || 'Дебиторская задолженность потребителя');
-                return `<tr class="cash-tooltip-host" tabindex="0">
-                    <td class="cash-account-cell"><div><strong>${esc(label)}</strong><span class="cash-account-name">62.01</span></div></td>
-                    <td class="cash-number-cell"><span class="cash-number-value">${esc(formatted.val)}</span> <span class="cash-number-unit">${esc(formatted.u)}</span></td>
-                    <td class="cash-share-cell"><span class="cash-share-value">${esc(share)}</span>${share !== '—'
-                        ? `<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:${Math.max(0, Math.min(100, Number(share.slice(0, -1)))).toFixed(1)}%"></span></span>`
-                        : ''}</td>
-                    <td class="cash-comment-cell">${esc(comment)}</td>
-                    <td class="cash-status-cell"><span class="cash-data-state ${value === null ? 'missing' : 'ok'}">${value === null ? 'Нет данных' : 'Загружен'}</span></td>
-                </tr>`;
-            }).join('');
+            const latestNumericPoint = series => [...(series || [])]
+                .reverse().find(point => point && hasNumericValue(point.value));
+            const advancesLatest = latestNumericPoint(advances);
+            const apgDzLatest = latestNumericPoint(apgDz);
+            const apgAdvancesLatest = latestNumericPoint(apgAdvances);
             const monthly = Array.isArray(card.monthly_comparison)
                 ? card.monthly_comparison : [];
             const formatPercent = value => value !== null && value !== undefined &&
@@ -6686,8 +6665,8 @@
                 const current = formatAmount(item.current_dz);
                 const apgValue = item.previous_year_dz ?? item.apg_dz;
                 const apg = formatAmount(apgValue);
-                const currentMissing = !Number.isFinite(Number(item.current_dz));
-                const apgMissing = !Number.isFinite(Number(apgValue));
+                const currentMissing = !hasNumericValue(item.current_dz);
+                const apgMissing = !hasNumericValue(apgValue);
                 return `<tr>
                     <td>${esc(item.label || item.month || '—')}</td>
                     <td class="cash-number-cell">${currentMissing ? '—' : `${esc(current.val)} <span class="cash-number-unit">${esc(current.u)}</span>`}</td>
@@ -6697,7 +6676,8 @@
             }).join('');
             const changeClass = changeValue === null ? 'cash-value-missing' :
                 changeValue < 0 ? 'cash-value-negative' : 'cash-value-ok';
-            document.getElementById('ki-modal-title').textContent = 'ДЗ';
+            document.getElementById('ki-modal-title').textContent =
+                'Дебиторская задолженность';
             this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Дебиторская задолженность потребителей.</strong>
@@ -6716,7 +6696,7 @@
                          onclick="window.KI_App.toggleCashChartMode('advances-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-current')}">
                         <div class="cash-summary-label">Авансы потребителей</div>
-                        <div class="cash-summary-value ${advances.length ? 'cash-value-ok' : 'cash-value-missing'}">${advances.length ? esc(formatAmount(advances[advances.length - 1].value).val) : 'Нужны данные'}${advances.length ? ` <span class="metric-inline-unit">${esc(formatAmount(advances[advances.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-value ${advancesLatest ? 'cash-value-ok' : 'cash-value-missing'}">${advancesLatest ? esc(formatAmount(advancesLatest.value).val) : 'Нужны данные'}${advancesLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(advancesLatest.value).u)}</span>` : ''}</div>
                         <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
@@ -6724,7 +6704,7 @@
                          onclick="window.KI_App.toggleCashChartMode('debtor-apg')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('debtor-apg')}">
                         <div class="cash-summary-label">ДЗ потребителей АПГ</div>
-                        <div class="cash-summary-value ${apgDz.length ? 'cash-value-ok' : 'cash-value-missing'}">${apgDz.length ? esc(formatAmount(apgDz[apgDz.length - 1].value).val) : 'Нужны данные'}${apgDz.length ? ` <span class="metric-inline-unit">${esc(formatAmount(apgDz[apgDz.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-value ${apgDzLatest ? 'cash-value-ok' : 'cash-value-missing'}">${apgDzLatest ? esc(formatAmount(apgDzLatest.value).val) : 'Нужны данные'}${apgDzLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(apgDzLatest.value).u)}</span>` : ''}</div>
                         <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
@@ -6732,25 +6712,10 @@
                          onclick="window.KI_App.toggleCashChartMode('advances-apg')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-apg')}">
                         <div class="cash-summary-label">Авансы потребителей АПГ</div>
-                        <div class="cash-summary-value ${apgAdvances.length ? 'cash-value-ok' : 'cash-value-missing'}">${apgAdvances.length ? esc(formatAmount(apgAdvances[apgAdvances.length - 1].value).val) : 'Нужны данные'}${apgAdvances.length ? ` <span class="metric-inline-unit">${esc(formatAmount(apgAdvances[apgAdvances.length - 1].value).u)}</span>` : ''}</div>
+                        <div class="cash-summary-value ${apgAdvancesLatest ? 'cash-value-ok' : 'cash-value-missing'}">${apgAdvancesLatest ? esc(formatAmount(apgAdvancesLatest.value).val) : 'Нужны данные'}${apgAdvancesLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(apgAdvancesLatest.value).u)}</span>` : ''}</div>
                         <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                 </div>
-                <button type="button" class="modal-section-title cash-details-toggle"
-                        aria-expanded="false" aria-controls="ki-cash-details-table"
-                        onclick="window.KI_App.toggleCashDetails(this)">
-                    <span>Детализация ДЗ потребителей</span><span class="cash-details-chevron" aria-hidden="true">⌄</span>
-                </button>
-                <div id="ki-cash-details-table" class="cash-table-scroll" tabindex="0" role="region"
-                     aria-label="Детализация ДЗ потребителей" hidden><table class="cash-table">
-                    <thead><tr><th>Потребитель / аналитика</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-total-row"><td><div>ИТОГО</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(amount.val)}</span> <span class="cash-number-unit">${esc(amount.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span></td><td></td><td></td></tr></tbody>
-                </table></div>
-                <div class="modal-section-title">ДЗ по месяцам</div>
-                <div class="cash-table-scroll"><table class="cash-table">
-                    <thead><tr><th>Месяц</th><th>ДЗ</th><th>АПГ</th><th>Дельта АПГ</th></tr></thead>
-                    <tbody>${monthlyRows || '<tr><td colspan="4">Нет сопоставимых данных</td></tr>'}</tbody>
-                </table></div>
                 <div id="ki-cash-chart-title" class="modal-section-title">ДЗ потребителей и Авансы потребителей</div>
                 <div id="ki-cash-line-chart" class="cash-line-chart"></div>
                 <div class="cash-chart-legend" aria-label="Легенда графика">
@@ -6758,7 +6723,12 @@
                     <span><i class="cash-chart-dot" style="background:#DB2777"></i>ДЗ потребителей АПГ</span>
                     <span><i class="cash-chart-dot" style="background:#2563EB"></i>Авансы потребителей</span>
                     <span><i class="cash-chart-dot" style="background:#059669"></i>Авансы потребителей АПГ</span>
-                </div>`;
+                </div>
+                <div class="modal-section-title">ДЗ по месяцам</div>
+                <div class="cash-table-scroll"><table class="cash-table">
+                    <thead><tr><th>Месяц</th><th>ДЗ</th><th>АПГ</th><th>Дельта АПГ</th></tr></thead>
+                    <tbody>${monthlyRows || '<tr><td colspan="4">Нет сопоставимых данных</td></tr>'}</tbody>
+                </table></div>`;
         },
 renderCashModal(card) {
             const isCashDz = card.id === 'cash_dz';
@@ -7008,7 +6978,7 @@ renderCashModal(card) {
             };
 
             document.getElementById('ki-modal-title').textContent = isCashDz
-                ? 'ДЗ'
+                ? 'Дебиторская задолженность'
                 : 'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
             this.updateModalSubtitle();
             container.innerHTML = `

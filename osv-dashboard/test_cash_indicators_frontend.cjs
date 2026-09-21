@@ -255,7 +255,7 @@ assert.match(element('ki-cash-chart-title').textContent,
     /Поступления \/ выплаты и Поступления \/ выплаты АПГ/);
 
 const cashDzCard = {
-    id: 'cash_dz', title: 'ДЗ', unit: 'RUB', value: 900000000,
+    id: 'cash_dz', title: 'Дебиторская задолженность', unit: 'RUB', value: 900000000,
     coverage: 'complete', accounts: ['62.01', '62.02'],
     period_change: {value: -100000000, comparable: true},
     consumer_series: [
@@ -265,27 +265,43 @@ const cashDzCard = {
     advances_series: [
         {date: '2026-01-01', label: '01.01', value: 200000000},
         {date: '2026-01-02', label: '02.01', value: 250000000},
+        {date: '2026-01-03', label: '03.01', value: null},
     ],
     previous_year_consumer_series: [
         {date: '2025-01-01', label: '01.01', value: 800000000},
         {date: '2025-01-02', label: '02.01', value: 850000000},
+        {date: '2025-01-03', label: '03.01', value: null},
     ],
     previous_year_advances_series: [
         {date: '2025-01-01', label: '01.01', value: 150000000},
         {date: '2025-01-02', label: '02.01', value: 175000000},
+        {date: '2025-01-03', label: '03.01', value: null},
     ],
     analytics: [{label: 'Потребитель А', value: 600000000},
         {label: 'Потребитель Б', value: 300000000}],
+    classification_analytics: [
+        {account: '62.01', label: 'Потребитель А', value: 600000000},
+        {account: '76.05', label: 'Субсидия', value: 300000000},
+    ],
+    debtor_segments: {
+        categories: [{label: 'Население', value: 600000000}],
+        new: [], unmapped: [], conflicts: [],
+        confirmed_total: 900000000, classified_total: 600000000,
+        reconciliation_difference: 300000000, reconciled: false,
+        mapping_records: [],
+    },
     monthly_comparison: [
         {label: 'Январь 2026', current_dz: 900000000, previous_year_dz: 1000000000, percent_delta: -10},
         {label: 'Февраль 2026', current_dz: 1100000000, previous_year_dz: 1000000000, percent_delta: 10},
         {label: 'Март 2026', current_dz: 500000000, previous_year_dz: 0, percent_delta: null},
+        {label: 'Апрель 2026', current_dz: null, previous_year_dz: 100000000, percent_delta: null},
     ]
 };
 app.state.data.cards = [card, cashDzCard];
 app.openModal('cash_dz');
 assert.equal(app.state.modalCardId, 'cash_dz');
-assert.equal(element('ki-modal-title').textContent, 'ДЗ');
+assert.equal(element('ki-modal-title').textContent, 'Дебиторская задолженность');
+assert.equal(element('ki-ar-modal-content').style.display, 'none');
 const cashDzHtml = element('ki-cash-modal-content').innerHTML;
 assert.match(cashDzHtml, /cash-summary-grid/);
 assert.match(cashDzHtml, /ДЗ потребителей/);
@@ -297,14 +313,22 @@ assert.match(cashDzHtml, /data-cash-chart-mode="advances-current"/);
 assert.match(cashDzHtml, /data-cash-chart-mode="debtor-apg"/);
 assert.match(cashDzHtml, /data-cash-chart-mode="advances-apg"/);
 assert.match(cashDzHtml, /Изменение за период: -100,0/);
-assert.match(cashDzHtml, /Потребитель А/);
 assert.ok(!cashDzHtml.includes('Счёт 50'));
 assert.match(cashDzHtml, /Месяц<\/th><th>ДЗ<\/th><th>АПГ<\/th><th>Дельта АПГ/);
 assert.match(cashDzHtml, /-10\.0%/);
 assert.match(cashDzHtml, /10\.0%/);
 assert.match(cashDzHtml, /<td[^>]*>—<\/td>/);
+assert.match(cashDzHtml, /Апрель 2026<\/td>\s*<td class="cash-number-cell">—<\/td>/);
+assert.match(cashDzHtml, /250,0 <span class="metric-inline-unit">млн ₽/);
+assert.match(cashDzHtml, /850,0 <span class="metric-inline-unit">млн ₽/);
+assert.match(cashDzHtml, /175,0 <span class="metric-inline-unit">млн ₽/);
+assert.equal((cashDzHtml.match(/class="cash-summary-card /g) || []).length, 4);
+assert.ok(!cashDzHtml.includes('Детализация ДЗ потребителей'));
+assert.ok(!cashDzHtml.includes('Категории и фактические аналитики'));
+assert.ok(cashDzHtml.indexOf('id="ki-cash-line-chart"') <
+    cashDzHtml.indexOf('ДЗ по месяцам'));
 const cashDzSummaryHtml = cashDzHtml.match(
-    /<div class="cash-summary-grid">([\s\S]*?)<\/div>\s*<button/
+    /<div class="cash-summary-grid">([\s\S]*?)<\/div>\s*<div id="ki-cash-chart-title"/
 )[1];
 const cashDzSummarySubs = [...cashDzSummaryHtml.matchAll(
     /<div class="cash-summary-sub">([\s\S]*?)<\/div>/g

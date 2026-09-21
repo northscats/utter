@@ -411,7 +411,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         result = build_key_indicators(
             build_indicator_source({'62': raw}),
             period='day', date_from='2026-01-01', date='2026-01-03')
-        card = next(item for item in result['cards'] if item['id'] == 'ar')
+        card = next(item for item in result['cards'] if item['id'] == 'cash_dz')
         self.assertEqual(
             [point['value'] for point in card['series']],
             [115, 115, 95])
@@ -506,7 +506,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             period='day', date_from='2026-01-01', date='2026-08-31',
         )
         cards = {item['id']: item for item in result['cards']}
-        self.assertEqual(cards['ar']['value'], 330)
+        self.assertEqual(cards['cash_dz']['value'], 330)
         self.assertEqual(cards['ap']['value'], 130)
         self.assertTrue(all(
             'previous_year_value' in item
@@ -673,7 +673,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             '62': account('62', [day('2026-01-31')], [row]),
             '76': account('76', [day('2026-01-31')]),
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 12)
         self.assertIn('76', ar['notes'][0])
 
@@ -686,7 +686,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({
             '62': account('62', [analytic], [report_row])
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 100)
         self.assertEqual(ar['opening_value'], 80)
         self.assertEqual(len(ar['analytics']), 1)
@@ -721,10 +721,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             'delta': 50,
             'percent_delta': 50.0,
         }])
-        self.assertEqual(cards['ar']['value'], 150)
-        dz['analytics'].append({'label': 'Только копия'})
-        self.assertNotIn(
-            {'label': 'Только копия'}, cards['ar']['analytics'])
+        self.assertEqual(cards['cash_dz']['value'], 150)
 
     def test_ap_detail_exposes_components_opening_turnover_and_analytics(self):
         report_row = dict(lvl=1, label='60.01', p0='60', p1='60.01',
@@ -1091,12 +1088,12 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_eleven_unavailable_cards(self):
+    def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
-    def test_cash_dz_is_an_independent_debtor_card(self):
+    def test_cash_dz_is_the_only_specialised_debtor_card(self):
         source = build_indicator_source({
             '51': account('51', [
                 day('2026-01-30', skd=100),
@@ -1114,19 +1111,13 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         cards = {card['id']: card for card in result['cards']}
         cash = cards['cash']
         cash_dz = cards['cash_dz']
-        self.assertEqual(cash_dz['title'], 'ДЗ')
+        self.assertEqual(cash_dz['title'], 'Дебиторская задолженность')
         self.assertEqual(cash_dz['value'], 150)
         self.assertEqual(cash_dz['consumer_series'][-1]['value'], 150)
         self.assertEqual(cash_dz['advances_series'], [])
         self.assertEqual(cash_dz['monthly_comparison'][-1]['current_dz'], 150)
-        self.assertIsNot(cash_dz['analytics'], cards['ar']['analytics'])
+        self.assertNotIn('ar', cards)
         self.assertIsNot(cash_dz['breakdown'], cash['breakdown'])
-        cash_dz['series'].append({'date': '2099-01-01', 'value': 1})
-        cash_dz['analytics'].append({'label': 'Только копия'})
-        self.assertNotIn(
-            {'label': 'Только копия'}, cards['ar']['analytics'])
-        self.assertNotIn(
-            {'date': '2099-01-01', 'value': 1}, cards['ar']['series'])
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
         rows = [
@@ -2011,7 +2002,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
             '62': account('62', [day('2026-01-31')], [row]),
             '76': account('76', [day('2026-01-31')]),
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 12)
         self.assertIn('76', ar['notes'][0])
 
@@ -2024,7 +2015,7 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({
             '62': account('62', [analytic], [report_row])
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 100)
         self.assertEqual(ar['opening_value'], 80)
         self.assertEqual(len(ar['analytics']), 1)
@@ -2286,9 +2277,9 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_eleven_unavailable_cards(self):
+    def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
@@ -2712,7 +2703,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
             '62': account('62', [day('2026-01-31')], [row]),
             '76': account('76', [day('2026-01-31')]),
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 12)
         self.assertIn('76', ar['notes'][0])
 
@@ -2725,7 +2716,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         src = build_indicator_source({
             '62': account('62', [analytic], [report_row])
         })
-        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['ar']
+        ar = {x['id']: x for x in build_key_indicators(src)['cards']}['cash_dz']
         self.assertEqual(ar['value'], 100)
         self.assertEqual(ar['opening_value'], 80)
         self.assertEqual(len(ar['analytics']), 1)
@@ -2783,9 +2774,9 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(card['analytics'][0]['credit'], 80)
         self.assertEqual(card['analytics'][0]['turnover_ratio'], 80)
 
-    def test_empty_source_returns_eleven_unavailable_cards(self):
+    def test_empty_source_returns_ten_unavailable_cards(self):
         result = build_key_indicators(build_indicator_source({}))
-        self.assertEqual(len(result['cards']), 11)
+        self.assertEqual(len(result['cards']), 10)
         self.assertTrue(all(x['value'] is None for x in result['cards']))
 
     def test_parent_child_dedup_and_missing_vat_profit_null(self):
@@ -2928,7 +2919,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
             'effective_from': '2026-01-01', 'effective_to': '2026-01-31',
         }
         without76 = {x['id']: x for x in build_key_indicators(
-            src, debtor_mappings=[mapping62])['cards']}['ar']
+            src, debtor_mappings=[mapping62])['cards']}['cash_dz']
         self.assertEqual(without76['value'], 100)
         new76 = next(x for x in without76['debtor_segments']['new']
                      if x['account'] == '76.05')
@@ -2942,7 +2933,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
             'effective_from': '2026-01-01', 'effective_to': '2026-01-31',
         }
         mapped = {x['id']: x for x in build_key_indicators(
-            src, debtor_mappings=[mapping62, mapping76])['cards']}['ar']
+            src, debtor_mappings=[mapping62, mapping76])['cards']}['cash_dz']
         self.assertEqual(mapped['value'], 100)
         self.assertFalse(mapped['debtor_segments']['reconciled'])
         self.assertEqual(mapped['debtor_segments']['included_76'], 40)
@@ -2973,7 +2964,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
             'effective_from': '2026-01-01', 'effective_to': '2026-01-31',
         }
         card = {x['id']: x for x in build_key_indicators(
-            src, debtor_mappings=[mapping])['cards']}['ar']
+            src, debtor_mappings=[mapping])['cards']}['cash_dz']
         self.assertEqual(card['value'], 30)
         self.assertEqual(card['debtor_segments']['included_76'], 10)
         new_items = card['debtor_segments']['new']
@@ -2993,13 +2984,13 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         ]
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31')], rows)})
-        card = {item['id']: item for item in build_key_indicators(src)['cards']}['ar']
+        card = {item['id']: item for item in build_key_indicators(src)['cards']}['cash_dz']
         analytics = card['analytics']
         self.assertEqual(len(analytics), 2)
         self.assertEqual(sum(item['value'] for item in analytics), 100)
         self.assertTrue(all('Должник' in item['label'] for item in analytics))
 
-    def test_debtor_sibling_subaccounts_keep_independent_depths(self):
+    def test_specialised_debtor_card_excludes_sibling_account_76_analytics(self):
         rows = [
             dict(lvl=0, label='76.05', p0='76', p1='76.05',
                  p2='', p3='', skd=10, skk=0),
@@ -3024,10 +3015,11 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         } for account_name, debtor in (
             ('76.05', 'Должник А'), ('76.09.1', 'Должник Б'))]
         card = {item['id']: item for item in build_key_indicators(
-            src, debtor_mappings=mappings)['cards']}['ar']
+            src, debtor_mappings=mappings)['cards']}['cash_dz']
         self.assertEqual(card['debtor_segments']['included_76'], 30)
+        self.assertEqual(card['analytics'], [])
         self.assertEqual(
-            {item['account'] for item in card['analytics']},
+            {item['account'] for item in card['classification_analytics']},
             {'76.05', '76.09.1'})
 
     def test_debtor_identity_preserves_hierarchy_beyond_p3(self):
@@ -3047,7 +3039,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         ]
         src = build_indicator_source({
             '62': account('62', [day('2026-01-31')], rows)})
-        card = {item['id']: item for item in build_key_indicators(src)['cards']}['ar']
+        card = {item['id']: item for item in build_key_indicators(src)['cards']}['cash_dz']
         analytics = card['analytics']
         self.assertEqual(len(analytics), 2)
         self.assertNotEqual(analytics[0]['analytic_key'],
@@ -3071,7 +3063,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
                          effective_to='2026-02-15')]
         card = {x['id']: x for x in build_key_indicators(
             build_indicator_source({'62': account('62', [analytic], [row62])}),
-            debtor_mappings=mappings)['cards']}['ar']
+            debtor_mappings=mappings)['cards']}['cash_dz']
         self.assertEqual(len(card['debtor_segments']['conflicts']), 1)
         self.assertFalse(card['debtor_segments']['reconciled'])
         expired = dict(common, category='population',
@@ -3079,7 +3071,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
                        effective_to='2025-12-31')
         card = {x['id']: x for x in build_key_indicators(
             build_indicator_source({'62': account('62', [analytic], [row62])}),
-            debtor_mappings=[expired])['cards']}['ar']
+            debtor_mappings=[expired])['cards']}['cash_dz']
         self.assertEqual(len(card['debtor_segments']['unmapped']), 1)
 
     def test_debtor_mapping_must_be_effective_on_balance_date(self):
@@ -3096,7 +3088,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
         }
         card = {x['id']: x for x in build_key_indicators(
             build_indicator_source({'62': account('62', [analytic], [row62])}),
-            debtor_mappings=[mapping])['cards']}['ar']
+            debtor_mappings=[mapping])['cards']}['cash_dz']
         segments = card['debtor_segments']
         self.assertEqual(len(segments['unmapped']), 1)
         self.assertEqual(segments['new'], [])
@@ -3110,7 +3102,7 @@ class DebtorMappingKeyIndicatorTests(unittest.TestCase):
                        skd=20, skk=0)
         card = {x['id']: x for x in build_key_indicators(
             build_indicator_source({'62': account('62', [analytic], [row62])})
-        )['cards']}['ar']
+        )['cards']}['cash_dz']
         self.assertEqual(len(card['debtor_segments']['new']), 1)
         self.assertEqual(card['debtor_segments']['unmapped'], [])
 
@@ -3320,7 +3312,7 @@ class PeriodAggregateTests(unittest.TestCase):
             {'62': raw62, '60': raw60}), period='month',
             date='2026-01-31')
         cards = {item['id']: item for item in result['cards']}
-        self.assertEqual(cards['ar']['value'], 40)
+        self.assertEqual(cards['cash_dz']['value'], 40)
         self.assertEqual(cards['ap']['value'], 25)
 
     def test_missing_numeric_subaccount_does_not_fallback_to_root_balance(self):
@@ -3343,14 +3335,14 @@ class PeriodAggregateTests(unittest.TestCase):
         cards = {item['id']: item for item in build_key_indicators(
             build_indicator_source({'62': raw62, '60': raw60}),
             period='month', date='2026-01-31')['cards']}
-        self.assertIsNone(cards['ar']['value'])
-        self.assertIn('отсутствует', cards['ar']['reason'])
+        self.assertIsNone(cards['cash_dz']['value'])
+        self.assertIn('отсутствует', cards['cash_dz']['reason'])
         self.assertIsNone(cards['ap']['value'])
         self.assertIn('отсутствует', cards['ap']['reason'])
         self.assertIsNone(cards['ap']['credit_turnover'])
         self.assertTrue(cards['ap']['analytics'])
         self.assertTrue(all(not item['included_in_total']
-                            for item in cards['ar']['analytics']))
+                            for item in cards['cash_dz']['analytics']))
 
     def test_period_leaf_deduplication_is_partitioned_by_report_interval(self):
         jan = [
@@ -3429,7 +3421,7 @@ class PeriodAggregateTests(unittest.TestCase):
         ar = {item['id']: item for item in build_key_indicators(
             build_indicator_source({'62': raw}), period='month',
             date='2026-02-28', date_from='2026-01-31',
-            debtor_mappings=[mapping])['cards']}['ar']
+            debtor_mappings=[mapping])['cards']}['cash_dz']
         self.assertEqual(ar['value'], 100)
         self.assertEqual(ar['debtor_segments']['classified_total'], 0.0)
         self.assertTrue(ar['debtor_segments']['unmapped'])

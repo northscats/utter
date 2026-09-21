@@ -43,11 +43,11 @@ assert.deepEqual(JSON.parse(JSON.stringify(manager.mergeLayout('operational', {
 }))), {
   version: 1,
   items: {
-    cash: 'main', cash_dz: 'main', revenue: 'hidden', collection: 'main', ar: 'main',
+    cash: 'main', cash_dz: 'main', revenue: 'hidden', collection: 'main',
     ap: 'main', cogs: 'main', profit: 'main', credits: 'main',
     salary: 'main', capex: 'main',
   },
-  order: ['revenue', 'cash', 'cash_dz', 'collection', 'ar', 'ap', 'cogs', 'profit',
+  order: ['revenue', 'cash', 'cash_dz', 'collection', 'ap', 'cogs', 'profit',
     'credits', 'salary', 'capex'],
 });
 
@@ -113,5 +113,13 @@ assert.equal(elements['[data-action="save"]'].disabled, false);
 assert.equal(elements['.ki-dashboard-layout-title'].textContent, 'Настройка карточек ОСВ');
 assert.equal(manager.close(), true);
 assert.equal(manager.state.dialog.hidden, true);
-assert.equal(manager.labels('operational').cash_dz, 'ДЗ');
+assert.equal(manager.labels('operational').cash_dz, 'Дебиторская задолженность');
+const legacyLayout = manager.mergeLayout('operational', {
+  version: 1,
+  items: {ar: 'main', cash_dz: 'hidden'},
+  order: ['ar', 'cash_dz', 'cash'],
+});
+assert.equal(Object.hasOwn(legacyLayout.items, 'ar'), false);
+assert.equal(legacyLayout.order.includes('ar'), false);
+assert.equal(legacyLayout.items.cash_dz, 'hidden');
 console.log('PASS: actual open/render/close path does not throw');
