@@ -1210,6 +1210,53 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
     background: #1E3A8A;
     color: #fff;
 }
+.collection-period-wrap {
+    background:#fff;
+    border:1px solid #E5E7EB;
+    border-radius:8px;
+    margin:10px 0 8px;
+}
+.collection-detail-table.collection-period-table {
+    min-width:900px;
+    width:100%;
+    border:0;
+    table-layout:fixed;
+}
+.collection-period-table th {
+    min-width:0;
+    padding:8px 4px;
+    font-size:10px;
+    white-space:normal;
+    line-height:1.2;
+    overflow-wrap:anywhere;
+}
+.collection-period-table th:first-child { min-width:0; width:11%; }
+.collection-period-table td {
+    padding:8px 4px;
+    font-size:11px;
+    font-family:ui-monospace, monospace;
+    white-space:nowrap;
+}
+.collection-period-table td:first-child {
+    font-family:inherit;
+    font-weight:600;
+    text-transform:capitalize;
+}
+.collection-period-table tfoot td {
+    background:#EFF6FF;
+    border-top:2px solid #93C5FD;
+    font-weight:700;
+}
+.collection-coverage-warning {
+    display:block;
+    margin-top:3px;
+    color:#B45309;
+    font-size:10px;
+    font-weight:500;
+    text-transform:none;
+}
+.collection-period-empty { color:#6B7280; padding:16px; text-align:center !important; }
+.collection-period-note { color:#64748B; font-size:11px; margin:0 0 20px; }
 
 /* Таблицы себестоимости используют ту же шапку, что таблицы окна ДЗ. */
 #ki-cogs-modal-content .collection-detail-table th {

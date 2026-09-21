@@ -1607,6 +1607,113 @@ def _collection_components_from_rows(rows):
     }
 
 
+def _collection_period_table(current_series, previous_series):
+    """Build comparable monthly collection amounts, ratios and totals."""
+    def aggregate(series):
+        months = defaultdict(list)
+        for point in series or []:
+            key = str(point.get('date') or '')[:7]
+            if len(key) == 7:
+                months[key].append(point)
+        result = {}
+        for key, points in months.items():
+            complete = all(
+                (point.get('coverage') or {}).get('state') != 'incomplete'
+                and point.get('numerator') is not None
+                and point.get('denominator') is not None
+                for point in points)
+            amount = (round(sum(point['numerator'] for point in points), 2)
+                      if complete else None)
+            accrual = (round(sum(point['denominator'] for point in points), 2)
+                       if complete else None)
+            level = (round(amount / accrual * 100, 2)
+                     if amount is not None and accrual not in (None, 0)
+                     else None)
+            result[key] = {
+                'amount': amount,
+                'accrual': accrual,
+                'level': level,
+                'coverage': ('complete' if complete and accrual != 0
+                             else 'zero_denominator' if complete
+                             else 'incomplete'),
+            }
+        return result
+
+    current = aggregate(current_series)
+    previous = aggregate(previous_series)
+
+    def comparison(key, current_values, previous_values):
+        amount = current_values.get('amount')
+        previous_amount = previous_values.get('amount')
+        delta = (round(amount - previous_amount, 2)
+                 if amount is not None and previous_amount is not None
+                 else None)
+        return {
+            'month': key,
+            'amount': amount,
+            'accrual': current_values.get('accrual'),
+            'level': current_values.get('level'),
+            'previous_amount': previous_amount,
+            'previous_accrual': previous_values.get('accrual'),
+            'previous_level': previous_values.get('level'),
+            'delta': delta,
+            'delta_percent': (
+                round(delta / abs(previous_amount) * 100, 2)
+                if delta is not None and previous_amount != 0 else None),
+            'coverage': current_values.get('coverage', 'incomplete'),
+            'previous_coverage': previous_values.get(
+                'coverage', 'incomplete'),
+        }
+
+    rows = [
+        comparison(key, current[key], previous.get(key, {}))
+        for key in sorted(current)
+    ]
+
+    def total_side(amount_key, accrual_key, coverage_key):
+        complete = bool(rows) and all(
+            row.get(coverage_key) != 'incomplete'
+            and row.get(amount_key) is not None
+            and row.get(accrual_key) is not None
+            for row in rows)
+        amount = (round(sum(row[amount_key] for row in rows), 2)
+                  if complete else None)
+        accrual = (round(sum(row[accrual_key] for row in rows), 2)
+                   if complete else None)
+        return amount, accrual, (
+            round(amount / accrual * 100, 2)
+            if amount is not None and accrual not in (None, 0) else None)
+
+    amount, accrual, level = total_side(
+        'amount', 'accrual', 'coverage')
+    previous_amount, previous_accrual, previous_level = total_side(
+        'previous_amount', 'previous_accrual', 'previous_coverage')
+    delta = (round(amount - previous_amount, 2)
+             if amount is not None and previous_amount is not None else None)
+    total = {
+        'month': 'total',
+        'amount': amount,
+        'accrual': accrual,
+        'level': level,
+        'previous_amount': previous_amount,
+        'previous_accrual': previous_accrual,
+        'previous_level': previous_level,
+        'delta': delta,
+        'delta_percent': (
+            round(delta / abs(previous_amount) * 100, 2)
+            if delta is not None and previous_amount != 0 else None),
+        'coverage': (
+            'complete' if amount is not None and level is not None
+            else 'zero_denominator' if amount is not None else 'incomplete'),
+        'previous_coverage': (
+            'complete'
+            if previous_amount is not None and previous_level is not None
+            else 'zero_denominator'
+            if previous_amount is not None else 'incomplete'),
+    }
+    return {'rows': rows, 'total': total}
+
+
 def _collection_components(source, start, end):
     """Read the four strict ОСВ components used by collection proxy."""
     daily_rows = []
@@ -3947,8 +4054,21 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         except ValueError:
             previous_cursor += timedelta(days=1)
             continue
-        point_collection = _collection_components_from_rows(
+        previous_point_rows = list(
             previous_collection_rows.get(previous_cursor, []))
+        previous_synthetic_zero = False
+        for collection_sub in ('62.01', '62.02'):
+            if (not _explicit_subaccount_rows(
+                    previous_point_rows, collection_sub)
+                    and collection_subaccount_covered(
+                        collection_sub, previous_cursor)):
+                previous_point_rows.append({
+                    'date': previous_cursor.isoformat(),
+                    'account': collection_sub, 'obd': 0, 'obk': 0,
+                })
+                previous_synthetic_zero = True
+        point_collection = _collection_components_from_rows(
+            previous_point_rows)
         point_values = {
             item['label']: item['value']
             for item in point_collection['components']
@@ -3959,16 +4079,21 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'label': _options([aligned_date], 'day')[0]['label'],
             'value': point_collection['value'],
             'reason': point_collection['reason'],
+            'numerator': point_collection['numerator'],
+            'denominator': point_collection['denominator'],
+            'coverage': point_collection['coverage'],
             'debit_6201': point_values.get('Дебетовый оборот 62.01'),
             'credit_6201': point_values.get('Кредитовый оборот 62.01'),
             'debit_6202': point_values.get('Дебетовый оборот 62.02'),
             'credit_6202': point_values.get('Кредитовый оборот 62.02'),
             'granularity': 'day',
-            'synthetic': False,
+            'synthetic': previous_synthetic_zero,
         })
         previous_cursor += timedelta(days=1)
     card_map['collection']['previous_year_turnover_series'] = (
         previous_collection_series)
+    card_map['collection']['period_table'] = _collection_period_table(
+        collection_daily_series, previous_collection_series)
 
     # Restore intermediate 62.01 balances from an authentic opening balance
     # and daily movements instead of reducing a period ОСВ to one endpoint.

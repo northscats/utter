@@ -136,13 +136,27 @@ async function checkBootstrap(configuration) {
   };
   assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
   const proxyComponents = Object.assign({}, collectionBase, {
     value: 70,
     previous_year_value: 65,
     previous_year_delta: 5,
     accounting_proxy: {value: 70},
+    period_table: {
+      rows: [{
+        month: '2026-01', amount: 185000000, accrual: 200000000, level: 92.5,
+        previous_amount: 177000000, previous_accrual: 200000000, previous_level: 88.5,
+        delta: 8000000, delta_percent: 4.52,
+        coverage: 'complete', previous_coverage: 'complete',
+      }],
+      total: {
+        month: 'total', amount: 185000000, accrual: 200000000, level: 92.5,
+        previous_amount: 177000000, previous_accrual: 200000000, previous_level: 88.5,
+        delta: 8000000, delta_percent: 4.52,
+        coverage: 'complete', previous_coverage: 'complete',
+      },
+    },
     turnover_series: [
       {date: '2026-01-01', label: '01.01', value: 92,
        debit_6201: 100, credit_6201: 80, debit_6202: 3, credit_6202: 15},
@@ -172,7 +186,16 @@ async function checkBootstrap(configuration) {
   app.renderCollectionModal(proxyComponents);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /70\.0%/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
-  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Начислено \(Дт 62\.01\)/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /АПГ значение/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Δ АПГ/);
+  assert.doesNotMatch(nodes.get('ki-collection-modal-content').innerHTML, />Дельта АПГ/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /Итого/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML, /\+8/);
+  assert.doesNotMatch(
+    nodes.get('ki-collection-modal-content').innerHTML,
+    /<td>[^<]*млн ₽<\/td>/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
   const aggregatedProxy = app.collectionProxyAggregate([
     {date: '2026-01-01', debit_6201: 40, credit_6201: 20, debit_6202: 10, credit_6202: 20},

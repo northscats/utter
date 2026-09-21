@@ -2810,49 +2810,10 @@
             const previousYearSeries = linked.available
                 ? card.previous_year_linked_series || []
                 : card.previous_year_turnover_series || [];
-            const collectionAmountsByMonth = inputSeries => {
-                const result = new Map();
-                (inputSeries || []).forEach(point => {
-                    const key = String(point.date || '').slice(0, 7);
-                    if (!key) return;
-                    if (!result.has(key)) {
-                        result.set(key, {
-                            payment: 0,
-                            paymentCount: 0,
-                            credit6201: 0,
-                            credit6201Count: 0,
-                            credit6202: 0,
-                            credit6202Count: 0,
-                            debit6202: 0,
-                            debit6202Count: 0
-                        });
-                    }
-                    const month = result.get(key);
-                    const add = (value, sumKey, countKey) => {
-                        if (value !== null && value !== undefined &&
-                                Number.isFinite(Number(value))) {
-                            month[sumKey] += Number(value);
-                            month[countKey] += 1;
-                        }
-                    };
-                    add(point.payment, 'payment', 'paymentCount');
-                    add(point.credit_6201, 'credit6201', 'credit6201Count');
-                    add(point.credit_6202, 'credit6202', 'credit6202Count');
-                    add(point.debit_6202, 'debit6202', 'debit6202Count');
-                });
-                return new Map([...result.entries()].map(([key, month]) => {
-                    const value = month.paymentCount
-                        ? month.payment
-                        : month.credit6201Count && month.credit6202Count &&
-                            month.debit6202Count
-                        ? month.credit6201 + month.credit6202 - month.debit6202
-                        : null;
-                    return [key, value];
-                }));
-            };
-            const currentMonthAmounts = collectionAmountsByMonth(rawSeries);
-            const previousMonthAmounts = collectionAmountsByMonth(
-                previousYearSeries);
+            const periodTable = card.period_table || {rows: [], total: null};
+            const periodMoney = value => value === null || value === undefined
+                ? 'Н/Д'
+                : this.formatValue(value, 'RUB').val;
             const monthLabel = key => {
                 const monthDate = new Date(`${key}-01T00:00:00`);
                 return Number.isNaN(monthDate.getTime()) ? key :
@@ -2860,42 +2821,58 @@
                         month: 'long', year: 'numeric'
                     }).format(monthDate);
             };
-            const periodRows = [...currentMonthAmounts.entries()]
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([key, value]) => {
-                    const previous = previousMonthAmounts.has(key)
-                        ? previousMonthAmounts.get(key) : null;
-                    const delta = value !== null && previous !== null &&
-                            previous !== 0
-                        ? (value - previous) / Math.abs(previous) * 100
-                        : null;
+            const periodSignedRub = value => value === null || value === undefined
+                ? 'Н/Д'
+                : `${value > 0 ? '+' : ''}${periodMoney(value)}`;
+            const signedPct = value => value === null || value === undefined
+                ? 'Н/Д'
+                : `${value > 0 ? '+' : ''}${pct(value)}`;
+            const periodRowHtml = (row, total = false) => {
+                    const incomplete = row.coverage === 'incomplete' ||
+                        row.previous_coverage === 'incomplete';
+                    const label = total ? 'Итого' : monthLabel(row.month);
                     return `<tr>
-                        <td style="text-align: left; font-weight: 600; color: #1F2937; text-transform: capitalize;">${esc(monthLabel(key))}</td>
-                        <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(rub(value))}</td>
-                        <td style="font-family: ui-monospace, monospace; text-align: right;">${esc(rub(previous))}</td>
-                        <td style="font-family: ui-monospace, monospace; font-weight: 700; text-align: right;">${esc(pct(delta))}</td>
+                        <td class="collection-period-label">${esc(label)}${incomplete ? '<span class="collection-coverage-warning">Неполное покрытие</span>' : ''}</td>
+                        <td>${esc(periodMoney(row.amount))}</td>
+                        <td>${esc(periodMoney(row.accrual))}</td>
+                        <td>${esc(pct(row.level))}</td>
+                        <td>${esc(periodMoney(row.previous_amount))}</td>
+                        <td>${esc(periodMoney(row.previous_accrual))}</td>
+                        <td>${esc(pct(row.previous_level))}</td>
+                        <td>${esc(periodSignedRub(row.delta))}</td>
+                        <td>${esc(signedPct(row.delta_percent))}</td>
                     </tr>`;
-                }).join('');
+                };
+            const periodRows = (periodTable.rows || [])
+                .map(row => periodRowHtml(row)).join('');
+            const periodTotal = periodTable.total && periodTable.rows &&
+                periodTable.rows.length
+                ? `<tfoot>${periodRowHtml(periodTable.total, true)}</tfoot>` : '';
             const periodTableHtml = `
                 <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
                     <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
                     </div>
-                    СОБИРАЕМОСТЬ ЗА ПЕРИОД
+                    СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽
                 </div>
-                <div class="collection-table-wrap" style="background: #fff; border-radius: 8px; border: 1px solid #E5E7EB; overflow: hidden; margin-bottom: 20px; margin-top: 10px;">
-                    <table class="collection-detail-table collection-period-table collection-audit-table" style="min-width: 100%; width: 100%; border: none;">
+                <div class="collection-table-wrap collection-period-wrap">
+                    <table class="collection-detail-table collection-period-table collection-audit-table">
                         <thead style="background: #1E3A8A;">
                             <tr>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: left; width: 25%;">МЕСЯЦ</th>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ЗНАЧЕНИЕ</th>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">АПГ</th>
-                                <th style="color: #fff; border: none; padding: 12px 16px; font-weight: 600; text-align: right; width: 25%;">ДЕЛЬТА АПГ</th>
+                                <th>Месяц</th><th>Значение</th>
+                                <th>Начислено (Дт 62.01)</th>
+                                <th>Уровень собираемости, %</th>
+                                <th>АПГ значение</th>
+                                <th>Начислено АПГ (Дт 62.01)</th>
+                                <th>АПГ, %</th><th>Δ АПГ</th>
+                                <th>Δ АПГ, %</th>
                             </tr>
                         </thead>
-                        <tbody>${periodRows || '<tr><td colspan="4" style="text-align:center;color:#6B7280;padding:16px;">Нет данных за выбранный период</td></tr>'}</tbody>
+                        <tbody>${periodRows || '<tr><td colspan="9" class="collection-period-empty">Нет данных за выбранный период</td></tr>'}</tbody>
+                        ${periodTotal}
                     </table>
-                </div>`;
+                </div>
+                <div class="collection-period-note">Начислено — дебетовый оборот 62.01. Проценты итога пересчитаны из итоговых денежных сумм.</div>`;
 
             const chartHtml = `
                 <div class="ki-modal-dynamics-block" data-layout-key="dynamics" data-layout-title="Динамика" style="margin-bottom: 24px;">

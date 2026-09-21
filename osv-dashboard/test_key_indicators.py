@@ -6,6 +6,7 @@ import time
 from key_indicators import (build_indicator_source, build_key_indicators,
                             revenue_analytic_key, _period_bounds,
                             _collection_components_from_rows,
+                            _collection_period_table,
                             _revenue_activity_groups)
 
 
@@ -3629,6 +3630,72 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertEqual(
             card['previous_year_turnover_series'][0]['source_date'],
             '2025-01-30')
+
+    def test_collection_period_table_recalculates_months_and_total(self):
+        million = 1_000_000
+        current_amounts = [
+            value * million
+            for value in (100, 110, 90, 120, 115, 105, 112, 120.19)]
+        current_accruals = [
+            value * million
+            for value in (130, 140, 120, 150, 145, 140, 150, 163.68)]
+        previous_amounts = [
+            value * million for value in (40, 42, 44, 45, 46, 47, 48, 52)]
+        previous_accruals = [
+            value * million
+            for value in (39, 41, 43, 44, 45, 46, 48, 57.62)]
+
+        def series(amounts, accruals, source_year=None):
+            return [{
+                'date': f'2026-{month:02d}-01',
+                'source_date': (
+                    f'{source_year}-{month:02d}-01'
+                    if source_year else None),
+                'numerator': amount,
+                'denominator': accrual,
+                'coverage': {'state': 'complete'},
+            } for month, (amount, accrual) in enumerate(
+                zip(amounts, accruals), 1)]
+
+        table = _collection_period_table(
+            series(current_amounts, current_accruals),
+            series(previous_amounts, previous_accruals, 2025))
+        self.assertEqual(len(table['rows']), 8)
+        self.assertAlmostEqual(table['rows'][0]['level'], 76.92)
+        self.assertEqual(table['rows'][0]['previous_amount'], 40 * million)
+        self.assertEqual(table['rows'][0]['delta'], 60 * million)
+        self.assertEqual(table['rows'][0]['delta_percent'], 150)
+        self.assertEqual(table['total']['amount'], 872.19 * million)
+        self.assertEqual(table['total']['accrual'], 1138.68 * million)
+        self.assertEqual(table['total']['level'], 76.6)
+        self.assertEqual(table['total']['previous_amount'], 364 * million)
+        self.assertEqual(
+            table['total']['previous_accrual'], 363.62 * million)
+        self.assertEqual(table['total']['previous_level'], 100.1)
+        self.assertEqual(table['total']['delta'], 508.19 * million)
+        self.assertEqual(table['total']['delta_percent'], 139.61)
+
+    def test_collection_period_table_preserves_incomplete_and_zero_states(self):
+        current = [
+            {'date': '2026-01-01', 'numerator': 10, 'denominator': 0,
+             'coverage': {'state': 'zero_denominator'}},
+            {'date': '2026-02-01', 'numerator': None, 'denominator': None,
+             'coverage': {'state': 'incomplete'}},
+        ]
+        previous = [
+            {'date': '2026-01-01', 'numerator': 0, 'denominator': 10,
+             'coverage': {'state': 'complete'}},
+            {'date': '2026-02-01', 'numerator': 5, 'denominator': 10,
+             'coverage': {'state': 'complete'}},
+        ]
+        table = _collection_period_table(current, previous)
+        self.assertEqual(table['rows'][0]['amount'], 10)
+        self.assertIsNone(table['rows'][0]['level'])
+        self.assertIsNone(table['rows'][0]['delta_percent'])
+        self.assertIsNone(table['rows'][1]['amount'])
+        self.assertEqual(table['rows'][1]['coverage'], 'incomplete')
+        self.assertIsNone(table['total']['amount'])
+        self.assertIsNone(table['total']['level'])
 
     def test_linked_collection_is_calculated_by_confirmed_consumer_category(self):
         rows = [

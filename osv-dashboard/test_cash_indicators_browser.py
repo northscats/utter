@@ -128,6 +128,37 @@ def collection_card():
             'series': [],
         },
         'turnover_series': series,
+        'period_table': {
+            'rows': [
+                {
+                    'month': '2026-08', 'amount': 9_200_000,
+                    'accrual': 10_000_000, 'level': 92,
+                    'previous_amount': 8_000_000,
+                    'previous_accrual': 9_000_000,
+                    'previous_level': 88.89, 'delta': 1_200_000,
+                    'delta_percent': 15, 'coverage': 'complete',
+                    'previous_coverage': 'complete',
+                },
+                {
+                    'month': '2026-09', 'amount': 11_520_000,
+                    'accrual': 12_000_000, 'level': 96,
+                    'previous_amount': 10_000_000,
+                    'previous_accrual': 11_000_000,
+                    'previous_level': 90.91, 'delta': 1_520_000,
+                    'delta_percent': 15.2, 'coverage': 'complete',
+                    'previous_coverage': 'complete',
+                },
+            ],
+            'total': {
+                'month': 'total', 'amount': 20_720_000,
+                'accrual': 22_000_000, 'level': 94.18,
+                'previous_amount': 18_000_000,
+                'previous_accrual': 20_000_000,
+                'previous_level': 90, 'delta': 2_720_000,
+                'delta_percent': 15.11, 'coverage': 'complete',
+                'previous_coverage': 'complete',
+            },
+        },
         'components': [
             {'account': '62.01', 'side': 'debit', 'value': 12_000_000},
             {'account': '62.01', 'side': 'credit', 'value': 10_800_000},
@@ -289,7 +320,7 @@ def main():
             dynamics_title = collection_content.get_by_text(
                 'ДИНАМИКА СОБИРАЕМОСТИ', exact=True)
             period_title = collection_content.get_by_text(
-                'СОБИРАЕМОСТЬ ЗА ПЕРИОД', exact=True)
+                'СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽', exact=True)
             components_title = collection_content.get_by_text(
                 'КОМПОНЕНТЫ РАСЧЁТА (ОСВ)', exact=True)
             for section_title in (
@@ -309,7 +340,22 @@ def main():
             expect(period_table).to_be_visible()
             expect(components_table).to_be_visible()
             expect(period_table.locator('tbody tr')).to_have_count(2)
+            expect(period_table.locator('thead th')).to_have_count(9)
+            expect(period_table.locator('tfoot')).to_contain_text('Итого')
+            expect(period_table).to_contain_text('Начислено АПГ (Дт 62.01)')
             expect(components_table.locator('tbody tr')).to_have_count(2)
+            period_wrap = collection_content.locator(
+                '.collection-period-wrap')
+            period_dimensions = period_wrap.evaluate("""element => {
+                element.style.width = '360px';
+                const result = {
+                    clientWidth: element.clientWidth,
+                    scrollWidth: element.scrollWidth
+                };
+                element.style.width = '';
+                return result;
+            }""")
+            assert period_dimensions['scrollWidth'] > period_dimensions['clientWidth']
 
             page.evaluate('window.KI_App.closeModal(true)')
             open_cash(card(['51', '55']))
