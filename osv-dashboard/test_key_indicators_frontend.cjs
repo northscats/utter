@@ -409,6 +409,16 @@ async function checkBootstrap(configuration) {
       delta: 226_690_537.16, percent: 118.11, basis: 'net',
       start: '2025-01-01', end: '2025-06-30',
     },
+    year_over_year_components: {
+      start: '2025-01-01', end: '2025-06-30', metrics: {
+        gross: {current: 510_714_933.29, previous: 231_929_419.40,
+          delta: 278_785_513.89, percent: 120.21, available: true},
+        vat: {current: 92_094_976.73, previous: 40_000_000,
+          delta: 52_094_976.73, percent: 130.24, available: true},
+        net: {current: 418_619_956.56, previous: 191_929_419.40,
+          delta: 226_690_537.16, percent: 118.11, available: true},
+      },
+    },
   };
   app.renderRevenueModal(revenueCard);
   const revenueHtml = nodes.get('ki-revenue-modal-content').innerHTML;
@@ -426,6 +436,11 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-revenue-chart').innerHTML,
     /510,71 млн ₽ − 92,09 млн ₽ = 418,62 млн ₽/);
   assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /НДС \(вычитается\)/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /231,93 млн ₽/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /40,0 млн ₽/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /191,93 млн ₽/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /\+120\.21%/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /\+130\.24%/);
   assert.match(revenueHtml, /Вид деятельности/);
   assert.match(revenueHtml, /Теплоснабжение/);
   assert.match(revenueHtml, /329,99/);
@@ -436,18 +451,27 @@ async function checkBootstrap(configuration) {
   assert.doesNotMatch(revenueHtml, /Нужен утверждённый классификатор соответствия аналитик/);
   switches.find(button => button.dataset.revenueMetric === 'yoy').click();
   assert.doesNotMatch(nodes.get('ki-revenue-summary-table').innerHTML, /Сравнение с АПГ \(/);
-  assert.doesNotMatch(nodes.get('ki-revenue-summary-table').innerHTML, /191,93 млн ₽/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /191,93 млн ₽/);
   switches.find(button => button.dataset.revenueMetric === 'yoy').click();
   app.state.data.revenue_segments.activity_groups = {reconciled: false, rows: []};
   const missingRevenue = {...revenueCard, details: [
     {label: 'Выручка брутто', value: 510_714_933.29},
     {label: 'НДС', value: null, reason: 'Строки 90.03 отсутствуют'},
-  ], value: 510_714_933.29, year_over_year: null};
+  ], value: 510_714_933.29, year_over_year: null,
+    year_over_year_components: {metrics: {
+      gross: {current: 510_714_933.29, previous: 0,
+        delta: 510_714_933.29, percent: null, available: true},
+      vat: {current: null, previous: null, delta: null,
+        percent: null, available: false},
+      net: {current: null, previous: null, delta: null,
+        percent: null, available: false},
+    }}};
   app.renderRevenueModal(missingRevenue);
   assert.match(nodes.get('ki-revenue-chart').innerHTML, /Нужны данные/);
   assert.doesNotMatch(nodes.get('ki-revenue-chart').innerHTML, /Аналогичный период прошлого года<\/strong>/);
+  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /Нужны данные/);
   assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
-    /Сравнение с АПГ \(база не подтверждена\)/);
+    /Выручка без НДС \(база не подтверждена\)<\/td><td><span class="cash-value-missing">Нужны данные/);
   const zeroBaseRevenue = {...missingRevenue, year_over_year: {
     current: 510_714_933.29, previous: 0, delta: 510_714_933.29,
     percent: null, basis: 'gross', start: '2025-01-01', end: '2025-06-30',
@@ -456,7 +480,6 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-revenue-chart').innerHTML, /процент не рассчитывается при нулевой базе/);
   assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
     /Выручка без НДС \(база не подтверждена\)/);
-  assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /Сравнение с АПГ \(брутто\)/);
   assert.match(nodes.get('ki-revenue-summary-table').innerHTML,
     /Не рассчитывается при нулевой базе/);
   assert.match(nodes.get('ki-revenue-summary-table').innerHTML, /510,71 млн ₽/);

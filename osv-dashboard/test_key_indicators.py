@@ -185,6 +185,96 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(revenue['year_over_year']['delta'], 226690537.16)
         self.assertEqual(revenue['year_over_year']['percent'], 118.11)
         self.assertEqual(revenue['year_over_year']['basis'], 'net')
+        comparison = revenue['year_over_year_components']
+        self.assertEqual(comparison['start'], '2025-01-01')
+        self.assertEqual(comparison['end'], '2025-06-30')
+        self.assertEqual(comparison['metrics']['gross'], {
+            'current': 510714933.29,
+            'previous': 231929419.4,
+            'delta': 278785513.89,
+            'percent': 120.2,
+            'available': True,
+        })
+        self.assertEqual(comparison['metrics']['vat'], {
+            'current': 92094976.73,
+            'previous': 40000000.0,
+            'delta': 52094976.73,
+            'percent': 130.24,
+            'available': True,
+        })
+        self.assertEqual(comparison['metrics']['net'], {
+            'current': 418619956.56,
+            'previous': 191929419.4,
+            'delta': 226690537.16,
+            'percent': 118.11,
+            'available': True,
+        })
+        self.assertAlmostEqual(
+            comparison['metrics']['gross']['previous']
+            - comparison['metrics']['vat']['previous'],
+            comparison['metrics']['net']['previous'])
+
+    def test_revenue_yoy_components_keep_missing_vat_unconfirmed(self):
+        raw = account('90')
+        raw['balance_reports'] = [
+            {
+                'period': 'за 1 полугодие 2025 г.',
+                'top': dict(obd=0, obk=100),
+                'rows': [dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                              obd=0, obk=100)],
+            },
+            {
+                'period': 'за 1 полугодие 2026 г.',
+                'top': dict(obd=20, obk=150),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=150),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=20, obk=0),
+                ],
+            },
+        ]
+        revenue = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='year', date='2026-06-30')['cards']}['revenue']
+        metrics = revenue['year_over_year_components']['metrics']
+        self.assertTrue(metrics['gross']['available'])
+        self.assertFalse(metrics['vat']['available'])
+        self.assertFalse(metrics['net']['available'])
+        self.assertIsNone(metrics['net']['previous'])
+
+    def test_revenue_yoy_component_zero_base_has_no_percent(self):
+        raw = account('90')
+        raw['balance_reports'] = [
+            {
+                'period': 'за 1 полугодие 2025 г.',
+                'top': dict(obd=0, obk=0),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=0),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=0, obk=0),
+                ],
+            },
+            {
+                'period': 'за 1 полугодие 2026 г.',
+                'top': dict(obd=20, obk=120),
+                'rows': [
+                    dict(lvl=1, label='90.01', p0='90', p1='90.01',
+                         obd=0, obk=120),
+                    dict(lvl=1, label='90.03', p0='90', p1='90.03',
+                         obd=20, obk=0),
+                ],
+            },
+        ]
+        revenue = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'90': raw}),
+            period='year', date='2026-06-30')['cards']}['revenue']
+        metrics = revenue['year_over_year_components']['metrics']
+        for metric in metrics.values():
+            self.assertTrue(metric['available'])
+            self.assertEqual(metric['previous'], 0)
+            self.assertIsNone(metric['percent'])
 
     def test_cumulative_report_can_subtract_tiled_prefix_for_quarter_vat(self):
         raw = account('90')

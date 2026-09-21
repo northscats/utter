@@ -3096,6 +3096,36 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     previous_year_end = previous_year_date(end)
     previous_year_pl = _pl_facts(
         source, previous_year_start, previous_year_end)
+    def revenue_comparison(current_value, previous_value):
+        available = current_value is not None and previous_value is not None
+        delta = round(current_value - previous_value, 2) if available else None
+        return {
+            'current': current_value,
+            'previous': previous_value,
+            'delta': delta,
+            'percent': (
+                round(delta / previous_value * 100, 2)
+                if available and previous_value != 0 else None),
+            'available': available,
+        }
+
+    revenue_yoy_components = {
+        'gross': revenue_comparison(gross_rev, previous_year_pl['gross']),
+        'vat': revenue_comparison(vat, previous_year_pl['vat']),
+        # ``_pl_facts`` intentionally falls back to gross when VAT is absent.
+        # Net is confirmed only when both gross and VAT exist in that period.
+        'net': revenue_comparison(
+            revenue if gross_rev is not None and vat is not None else None,
+            previous_year_pl['revenue']
+            if previous_year_pl['gross'] is not None
+            and previous_year_pl['vat'] is not None else None),
+    }
+    revenue_card = next(card for card in cards if card['id'] == 'revenue')
+    revenue_card['year_over_year_components'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+        'metrics': revenue_yoy_components,
+    }
     previous_year_value = previous_year_pl['revenue']
     comparison_basis = 'net'
     current_comparison_value = revenue
@@ -3106,8 +3136,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     if current_comparison_value is not None and previous_year_value is not None:
         year_delta = round(
             current_comparison_value - previous_year_value, 2)
-        card_map_for_yoy = {card['id']: card for card in cards}
-        card_map_for_yoy['revenue']['year_over_year'] = {
+        revenue_card['year_over_year'] = {
             'current': current_comparison_value,
             'previous': previous_year_value,
             'delta': year_delta,

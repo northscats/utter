@@ -2457,6 +2457,8 @@
                 total: hasNumericValue(card.value) ? Number(card.value) : null
             };
             const yoy = card.year_over_year || null;
+            const componentComparison = card.year_over_year_components || {};
+            const comparisonMetrics = componentComparison.metrics || {};
             const selected = state.revenueSelection;
             const million = value => `${this.formatValue(value, 'RUB').val} млн ₽`;
             const structureIds = ['gross', 'vat', 'total'].filter(id => selected.has(id));
@@ -2489,18 +2491,32 @@
             chart.innerHTML = structure || comparison ? `<div class="revenue-chart-sections">${structure}${comparison}</div>`
                 : '<div class="chart-empty">Выберите показатель для графика</div>';
             const rows = [];
-            if (selected.has('gross')) rows.push(['Выручка с НДС', values.gross, null, null, null]);
-            if (selected.has('vat')) rows.push(['НДС (вычитается)', values.vat, null, null, null]);
+            const metricRow = (label, key, current) => {
+                const metric = comparisonMetrics[key] || {};
+                const available = metric.available === true;
+                const confirmedCurrent = Object.prototype.hasOwnProperty.call(metric, 'current')
+                    ? metric.current : current;
+                return [
+                    label,
+                    confirmedCurrent,
+                    available ? metric.previous : null,
+                    available ? metric.delta : null,
+                    available ? metric.percent : null,
+                    available && metric.percent === null && Number(metric.previous) === 0
+                        ? 'Не рассчитывается при нулевой базе' : null
+                ];
+            };
+            if (selected.has('gross')) rows.push(
+                metricRow('Выручка с НДС', 'gross', values.gross));
+            if (selected.has('vat')) rows.push(
+                metricRow('НДС (вычитается)', 'vat', values.vat));
             if (selected.has('total')) rows.push([
-                values.vat === null ? 'Выручка без НДС (база не подтверждена)' : 'Выручка без НДС',
-                values.total, null, null, null]);
-            if (selected.has('yoy')) rows.push([
-                !yoy ? 'Сравнение с АПГ (база не подтверждена)' :
-                    (yoy.basis === 'gross' ? 'Сравнение с АПГ (брутто)' : 'Сравнение с АПГ (без НДС)'),
-                yoy ? yoy.current : null, yoy ? yoy.previous : null, yoy ? yoy.delta : null,
-                yoy ? yoy.percent : null,
-                yoy && yoy.percent === null && Number(yoy.previous) === 0
-                    ? 'Не рассчитывается при нулевой базе' : null]);
+                ...metricRow(
+                    values.vat === null
+                        ? 'Выручка без НДС (база не подтверждена)'
+                        : 'Выручка без НДС',
+                    'net', values.total)
+            ]);
             const cell = (value, percent = false, unavailableLabel = null) => value === null || value === undefined
                 ? `<span class="cash-value-missing">${unavailableLabel || 'Нужны данные'}</span>`
                 : `${value >= 0 && percent ? '+' : ''}${percent ? Number(value).toFixed(2) + '%' : million(value)}`;
