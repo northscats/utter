@@ -51,6 +51,8 @@ health_watchdog_event_spool = os.environ.get(
     f'/tmp/osv-watchdog-recoveries-{os.environ.get("PORT", "8080")}.json',
 )
 _pending_recovery_events = []
+_recovery_worker_pid = None
+_recovery_lock = threading.Lock()
 
 
 def _health_url():
@@ -135,6 +137,7 @@ def _deliver_recovery_events(server):
 
 def _terminate_unresponsive_worker(server):
     """Terminate the sole worker and let the Gunicorn master replace it."""
+    global _recovery_worker_pid
     worker_list = list(server.WORKERS.values())
     if len(worker_list) != 1:
         server.log.error(
@@ -142,44 +145,71 @@ def _terminate_unresponsive_worker(server):
             'automatic recovery skipped', len(worker_list))
         return False
     worker = worker_list[0]
-    server.log.error(
-        '[worker %s] health probe timed out; terminating for recovery',
-        worker.pid)
-    event = {
-        'event_id': str(uuid.uuid4()),
-        'occurred_at': datetime.now(timezone.utc).isoformat(),
-        'worker_pid': worker.pid,
-    }
-    _pending_recovery_events.append(event)
-    try:
-        _persist_pending_recovery_events()
-    except Exception:
-        # Observability must never disable the recovery itself. The event
-        # remains queued in master memory and delivery will still be retried.
-        server.log.exception(
-            'health watchdog could not persist queued recovery event')
-    try:
-        # SIGTERM is graceful and can leave a worker waiting on the same stuck
-        # threads. SIGABRT is Gunicorn's own worker-timeout signal and makes the
-        # master reap and replace the unresponsive process promptly.
-        os.kill(worker.pid, signal.SIGABRT)
-    except Exception:
-        _pending_recovery_events.remove(event)
+    with _recovery_lock:
+        if _recovery_worker_pid == worker.pid:
+            # The master may need several probe intervals to reap a worker
+            # after SIGABRT. Do not signal it again or enqueue duplicate
+            # recovery events while that replacement is still in progress.
+            return False
+        # A different PID means Gunicorn has installed the replacement. Allow
+        # that worker to be recovered independently if it also becomes stuck.
+        _recovery_worker_pid = worker.pid
+        server.log.error(
+            '[worker %s] health probe timed out; terminating for recovery',
+            worker.pid)
+        event = {
+            'event_id': str(uuid.uuid4()),
+            'occurred_at': datetime.now(timezone.utc).isoformat(),
+            'worker_pid': worker.pid,
+        }
+        _pending_recovery_events.append(event)
         try:
             _persist_pending_recovery_events()
         except Exception:
+            # Observability must never disable the recovery itself. The event
+            # remains queued in master memory and delivery will still be retried.
             server.log.exception(
-                'health watchdog could not roll back recovery event spool')
-        raise
+                'health watchdog could not persist queued recovery event')
+        try:
+            # SIGTERM is graceful and can leave a worker waiting on the same
+            # stuck threads. SIGABRT is Gunicorn's own worker-timeout signal
+            # and makes the master reap and replace it promptly.
+            os.kill(worker.pid, signal.SIGABRT)
+        except Exception:
+            _pending_recovery_events.remove(event)
+            _recovery_worker_pid = None
+            try:
+                _persist_pending_recovery_events()
+            except Exception:
+                server.log.exception(
+                    'health watchdog could not roll back recovery event spool')
+            raise
     return True
 
 
 def _watchdog_loop(server, stop_event=None):
     """Continuously check real HTTP responsiveness from the master process."""
     stop_event = stop_event or threading.Event()
+    initial_worker_list = list(server.WORKERS.values())
+    last_worker_pid = (
+        initial_worker_list[0].pid
+        if len(initial_worker_list) == 1
+        else None
+    )
     if stop_event.wait(health_watchdog_startup_grace):
         return
     while not stop_event.is_set():
+        worker_list = list(server.WORKERS.values())
+        if len(worker_list) == 1:
+            worker_pid = worker_list[0].pid
+            if last_worker_pid != worker_pid:
+                # The replacement runs post_fork schema work before it can
+                # answer /healthz. Give every new PID the same startup grace
+                # as the initial worker, not only the original master start.
+                last_worker_pid = worker_pid
+                if stop_event.wait(health_watchdog_startup_grace):
+                    return
+                continue
         if not _probe_health():
             _terminate_unresponsive_worker(server)
             # Give the master time to reap and replace the worker before the

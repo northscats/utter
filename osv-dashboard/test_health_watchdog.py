@@ -23,6 +23,8 @@ class HealthWatchdogTest(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.config.health_watchdog_event_spool = str(
             Path(self.temp_dir.name) / 'watchdog-events.json')
+        self.config._pending_recovery_events.clear()
+        self.config._recovery_worker_pid = None
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -50,6 +52,7 @@ class HealthWatchdogTest(unittest.TestCase):
 
     def test_failed_probe_triggers_recovery(self):
         server = Mock()
+        server.WORKERS = {1: Mock(pid=1)}
         stop_event = Mock()
         stop_event.is_set.side_effect = [False]
         stop_event.wait.side_effect = [False, True]
@@ -63,6 +66,39 @@ class HealthWatchdogTest(unittest.TestCase):
             self.config._watchdog_loop(server, stop_event)
 
         terminate.assert_called_once_with(server)
+
+    def test_replacement_worker_gets_a_fresh_startup_grace(self):
+        class Worker:
+            def __init__(self, pid):
+                self.pid = pid
+
+        class Server:
+            def __init__(self):
+                self._worker_sets = [
+                    {1: Worker(1)},
+                    {2: Worker(2)},
+                ]
+                self.log = Mock()
+
+            @property
+            def WORKERS(self):
+                if len(self._worker_sets) > 1:
+                    return self._worker_sets.pop(0)
+                return self._worker_sets[0]
+
+        server = Server()
+        stop_event = Mock()
+        stop_event.is_set.side_effect = [False, False]
+        stop_event.wait.side_effect = [False, False, True]
+
+        with patch.object(self.config, '_probe_health', return_value=True) as probe:
+            self.config._watchdog_loop(server, stop_event)
+
+        self.assertEqual(probe.call_count, 1)
+        self.assertEqual(
+            stop_event.wait.call_args_list[1].args[0],
+            self.config.health_watchdog_startup_grace,
+        )
 
     def test_recovery_event_is_queued_before_worker_is_terminated(self):
         worker = Mock(pid=4321)
@@ -84,6 +120,20 @@ class HealthWatchdogTest(unittest.TestCase):
                 encoding='utf-8') as spool:
             persisted = json.load(spool)
         self.assertEqual(persisted, self.config._pending_recovery_events)
+
+    def test_same_worker_is_not_terminated_twice_while_replacement_is_pending(self):
+        worker = Mock(pid=4321)
+        server = Mock()
+        server.WORKERS = {worker.pid: worker}
+
+        with patch.object(self.config.os, 'kill') as kill:
+            self.assertTrue(
+                self.config._terminate_unresponsive_worker(server))
+            self.assertFalse(
+                self.config._terminate_unresponsive_worker(server))
+
+        kill.assert_called_once_with(worker.pid, signal.SIGABRT)
+        self.assertEqual(len(self.config._pending_recovery_events), 1)
 
     def test_queued_event_is_delivered_separately(self):
         server = Mock()
