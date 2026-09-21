@@ -1,0 +1,400 @@
+2026-09-21 18:42:14.95
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:14 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:15.32
+7beac45b
+User
+[2026-09-21 15:42:15 +0000] [28] [INFO] health watchdog recovery event persisted for worker 176
+2026-09-21 18:42:16.32
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:16 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:17.12
+7beac45b
+User
+[2026-09-21 15:42:17 +0000] [28] [INFO] health watchdog recovery event persisted for worker 178
+2026-09-21 18:42:18.72
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:18 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:19.22
+7beac45b
+User
+[2026-09-21 15:42:19 +0000] [28] [INFO] health watchdog recovery event persisted for worker 180
+2026-09-21 18:42:22.15
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:22 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:22.62
+7beac45b
+User
+[2026-09-21 15:42:22 +0000] [28] [INFO] health watchdog recovery event persisted for worker 198
+2026-09-21 18:42:24.62
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:24 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:25.22
+7beac45b
+User
+[2026-09-21 15:42:25 +0000] [28] [INFO] health watchdog recovery event persisted for worker 198
+2026-09-21 18:42:27.12
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:27 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:27.72
+7beac45b
+User
+[2026-09-21 15:42:27 +0000] [28] [INFO] health watchdog recovery event persisted for worker 224
+2026-09-21 18:42:33.12
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:32 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:42:49.62
+7beac45b
+User
+[2026-09-21 15:42:49 +0000] [28] [ERROR] [worker 496] health probe timed out; terminating for recovery
+2026-09-21 18:42:49.92
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:42:49 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:42:50.92
+7beac45b
+User
+[2026-09-21 15:42:50 +0000] [496] [INFO] Worker exiting (pid: 496)
+2026-09-21 18:43:08.42
+7beac45b
+User
+[2026-09-21 15:43:08 +0000] [28] [ERROR] [worker 496] health probe timed out; terminating for recovery
+2026-09-21 18:43:11.22
+7beac45b
+User
+[2026-09-21 15:43:11 +0000] [28] [WARNING] Worker (pid:496) was sent SIGABRT!
+2026-09-21 18:43:12.82
+7beac45b
+User
+[2026-09-21 15:43:12 +0000] [522] [INFO] Booting worker with pid: 522
+2026-09-21 18:43:13.42
+7beac45b
+User
+[2026-09-21 15:43:13 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:43:27.02
+7beac45b
+User
+[2026-09-21 15:43:27 +0000] [28] [ERROR] [worker 522] health probe timed out; terminating for recovery
+2026-09-21 18:43:27.52
+7beac45b
+User
+[2026-09-21 15:43:27 +0000] [28] [WARNING] Worker (pid:522) was sent SIGABRT!
+2026-09-21 18:43:27.92
+7beac45b
+User
+[2026-09-21 15:43:27 +0000] [524] [INFO] Booting worker with pid: 524
+2026-09-21 18:43:29.22
+7beac45b
+User
+[2026-09-21 15:43:29 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:43:45.42
+7beac45b
+User
+[2026-09-21 15:43:45 +0000] [28] [ERROR] [worker 524] health probe timed out; terminating for recovery
+2026-09-21 18:43:45.72
+7beac45b
+User
+[2026-09-21 15:43:45 +0000] [28] [WARNING] Worker (pid:524) was sent SIGABRT!
+2026-09-21 18:43:46.32
+7beac45b
+User
+[2026-09-21 15:43:46 +0000] [526] [INFO] Booting worker with pid: 526
+2026-09-21 18:43:47.52
+7beac45b
+User
+[2026-09-21 15:43:47 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:44:03.72
+7beac45b
+User
+[2026-09-21 15:44:03 +0000] [28] [ERROR] [worker 526] health probe timed out; terminating for recovery
+2026-09-21 18:44:04.42
+7beac45b
+User
+[2026-09-21 15:44:04 +0000] [28] [WARNING] Worker (pid:526) was sent SIGABRT!
+2026-09-21 18:44:04.72
+7beac45b
+User
+[2026-09-21 15:44:04 +0000] [528] [INFO] Booting worker with pid: 528
+2026-09-21 18:44:06.02
+7beac45b
+User
+[2026-09-21 15:44:06 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:44:22.32
+7beac45b
+User
+[2026-09-21 15:44:22 +0000] [28] [ERROR] [worker 528] health probe timed out; terminating for recovery
+2026-09-21 18:44:23.12
+7beac45b
+User
+[2026-09-21 15:44:23 +0000] [28] [WARNING] Worker (pid:528) was sent SIGABRT!
+2026-09-21 18:44:23.52
+7beac45b
+User
+[2026-09-21 15:44:23 +0000] [530] [INFO] Booting worker with pid: 530
+2026-09-21 18:44:24.52
+7beac45b
+User
+[2026-09-21 15:44:24 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:44:41.12
+7beac45b
+User
+[2026-09-21 15:44:40 +0000] [28] [ERROR] [worker 530] health probe timed out; terminating for recovery
+2026-09-21 18:44:42.02
+7beac45b
+User
+[2026-09-21 15:44:42 +0000] [28] [WARNING] Worker (pid:530) was sent SIGABRT!
+2026-09-21 18:44:42.32
+7beac45b
+User
+[2026-09-21 15:44:42 +0000] [532] [INFO] Booting worker with pid: 532
+2026-09-21 18:44:43.42
+7beac45b
+User
+[2026-09-21 15:44:43 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+artifact manifest discovery completed manifest_location=artifacts/**/.replit-artifact/artifact.toml search_root=artifacts manifests=3
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+artifact mode enabled runnable=2 static=0
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+forwarding local port 0 to external port 80 (mapped as 1104)
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+starting artifact processes for monorepo deployment
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+starting up user application
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+metasidecar: loaded enterprise status from environment is_enterprise=false
+2026-09-21 18:44:50.80
+caf3fb7f
+System
+waiting for artifact servers to listen on their configured ports timeout_seconds=60 ports=[8080 21844]
+2026-09-21 18:44:50.81
+caf3fb7f
+System
+healthcheck failed error=healthcheck /limit-notifications: Get "http://127.0.0.1:1104/limit-notifications": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-09-21 18:44:50.81
+caf3fb7f
+System
+starting artifact processes count=2
+2026-09-21 18:44:50.82
+caf3fb7f
+System
+starting artifact server on its configured port artifact=artifacts/osv-app port=21844
+2026-09-21 18:44:50.82
+caf3fb7f
+System
+starting artifact server on its configured port artifact=artifacts/api-server port=8080
+2026-09-21 18:44:50.82
+caf3fb7f
+System
+healthcheck failed error=healthcheck /api returned status 500
+2026-09-21 18:44:50.82
+caf3fb7f
+System
+healthcheck failed error=healthcheck / returned status 500
+2026-09-21 18:44:50.85
+caf3fb7f
+System
+healthcheck failed error=healthcheck / returned status 500
+2026-09-21 18:44:50.85
+caf3fb7f
+System
+healthcheck failed error=healthcheck /api returned status 500
+2026-09-21 18:44:50.95
+caf3fb7f
+System
+healthcheck failed error=healthcheck / returned status 500
+2026-09-21 18:44:50.97
+caf3fb7f
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-21 18:44:51.36
+caf3fb7f
+System
+healthcheck failed error=healthcheck /limit-notifications returned status 500
+2026-09-21 18:44:51.65
+caf3fb7f
+User
+{"level":30,"time":1790005491657,"pid":30,"hostname":"localhost","port":8080,"msg":"Server listening"}
+2026-09-21 18:44:52.18
+caf3fb7f
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-21 18:44:56.24
+caf3fb7f
+User
+{"level":30,"time":1790005496244,"pid":30,"hostname":"localhost","req":{"id":4,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+2026-09-21 18:44:58.39
+caf3fb7f
+System
+healthcheck failed error=healthcheck /limit-notifications: Get "http://127.0.0.1:1104/limit-notifications": context deadline exceeded
+2026-09-21 18:44:59.82
+7beac45b
+User
+[2026-09-21 15:44:59 +0000] [28] [ERROR] [worker 532] health probe timed out; terminating for recovery
+2026-09-21 18:45:00.07
+caf3fb7f
+User
+{"level":30,"time":1790005500072,"pid":30,"hostname":"localhost","req":{"id":5,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+2026-09-21 18:45:00.52
+7beac45b
+User
+[2026-09-21 15:45:00 +0000] [28] [WARNING] Worker (pid:532) was sent SIGABRT!
+2026-09-21 18:45:00.92
+7beac45b
+User
+[2026-09-21 15:45:00 +0000] [534] [INFO] Booting worker with pid: 534
+2026-09-21 18:45:02.12
+7beac45b
+User
+[2026-09-21 15:45:01 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:45:04.26
+caf3fb7f
+System
+healthcheck failed error=healthcheck /limit-notifications: Get "http://127.0.0.1:1104/limit-notifications": context deadline exceeded
+2026-09-21 18:45:05.15
+caf3fb7f
+User
+{"level":30,"time":1790005505156,"pid":30,"hostname":"localhost","req":{"id":6,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+2026-09-21 18:45:14.34
+caf3fb7f
+User
+[2026-09-21 15:45:14 +0000] [53] [INFO] [worker 53] DB ready
+2026-09-21 18:45:14.36
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.37
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:14.38
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:14 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:45:18.52
+7beac45b
+User
+[2026-09-21 15:45:18 +0000] [28] [ERROR] [worker 534] health probe timed out; terminating for recovery
+2026-09-21 18:45:18.78
+7beac45b
+System
+received signal, shutting down artifact processes signal=terminated
+2026-09-21 18:45:18.78
+7beac45b
+User
+[2026-09-21 15:45:18 +0000] [28] [INFO] Handling signal: term
+2026-09-21 18:45:18.88
+7beac45b
+User
+[2026-09-21 15:45:18 +0000] [28] [WARNING] Worker (pid:534) was sent SIGABRT!
+2026-09-21 18:45:18.98
+7beac45b
+User
+[2026-09-21 15:45:18 +0000] [28] [INFO] Shutting down: Master
+2026-09-21 18:45:19.02
+7beac45b
+System
+main done, exiting
+2026-09-21 18:45:19.02
+7beac45b
+System
+all artifact processes stopped
+2026-09-21 18:45:24.59
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:24 +0000] "GET / HTTP/1.1" 200 130
+2026-09-21 18:45:25.26
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:25 +0000] "GET / HTTP/1.1" 200 130
+2026-09-21 18:45:25.50
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:25 +0000] "GET /favicon.ico HTTP/1.1" 200 130
+2026-09-21 18:45:25.70
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:25 +0000] "GET /favicon.ico HTTP/1.1" 200 130
+2026-09-21 18:45:25.95
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:25 +0000] "GET / HTTP/1.1" 200 130
+2026-09-21 18:45:27.31
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:27 +0000] "GET / HTTP/1.1" 200 130
+2026-09-21 18:45:28.21
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:28 +0000] "GET / HTTP/1.1" 200 130
+2026-09-21 18:45:28.21
+caf3fb7f
+User
+127.0.0.1 [21/Sep/2026:15:45:28 +0000] "GET / HTTP/1.1" 200 130
