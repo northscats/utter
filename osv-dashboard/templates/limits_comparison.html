@@ -76,6 +76,19 @@
           <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ category_labels.get(cat, cat) }}</option>
         {% endfor %}
       </select>
+      <select name="year" aria-label="Год завершения объекта">
+        <option value="">Все годы</option>
+        <option value="2026_plus" {% if selected_year == '2026_plus' %}selected{% endif %}>2026 год и далее</option>
+        {% for year in available_years %}
+          <option value="{{ year }}" {% if selected_year == year|string %}selected{% endif %}>{{ year }} год</option>
+        {% endfor %}
+      </select>
+      <select name="ministry" aria-label="Министерство или ведомство">
+        <option value="">Все министерства и ведомства</option>
+        {% for item in ministries %}
+          <option value="{{ item }}" {% if selected_ministry == item %}selected{% endif %}>{{ ministry_labels.get(item, item) }}</option>
+        {% endfor %}
+      </select>
       <button class="btn-primary">Применить</button>
     </form>
     
@@ -236,13 +249,13 @@
 {% if pages and pages > 1 %}
 <div class="pagination">
   {% if page > 1 %}
-    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page-1, q=search, category=selected_category) }}">← Туда</a>
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page-1, q=search, category=selected_category, year=selected_year, ministry=selected_ministry) }}">← Туда</a>
   {% else %}
     <span class="btn-outline btn-sm disabled">← Туда</span>
   {% endif %}
   <span class="page-info">Страница {{ page }} из {{ pages }}</span>
   {% if page < pages %}
-    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page+1, q=search, category=selected_category) }}">Сюда →</a>
+    <a class="btn-outline btn-sm" href="{{ url_for('limit_comparison_view', comparison_id=comparison.id, page=page+1, q=search, category=selected_category, year=selected_year, ministry=selected_ministry) }}">Сюда →</a>
   {% else %}
     <span class="btn-outline btn-sm disabled">Сюда →</span>
   {% endif %}

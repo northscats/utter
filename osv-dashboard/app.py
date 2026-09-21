@@ -8012,16 +8012,83 @@ def _limit_version_or_404(version_id):
 @login_required
 def limit_comparison_view(comparison_id):
     comparison = db.session.get(LimitComparison, comparison_id) or abort(404)
-    _limit_version_or_404(comparison.old_version_id)
-    _limit_version_or_404(comparison.new_version_id)
-    category = request.args.get('category', '').strip()
+    old_version = _limit_version_or_404(comparison.old_version_id)
+    new_version = _limit_version_or_404(comparison.new_version_id)
+    category = (request.args.get('category', '').strip()
+                if 'category' in request.args else 'limit_cost')
+    year_filter = (request.args.get('year', '').strip()
+                   if 'year' in request.args else '2026_plus')
+    ministry = (request.args.get('ministry', '').strip()
+                if 'ministry' in request.args
+                else 'МИНИСТЕРСТВО ЭНЕРГЕТИКИ МОСКОВСКОЙ ОБЛАСТИ')
     query = LimitChange.query.filter_by(comparison_id=comparison.id)
     if category:
         query = query.filter_by(category=category)
     search = request.args.get('q', '').strip()
     if search:
         query = query.filter(LimitChange.uin.ilike(f'%{search}%'))
-    total = query.count()
+
+    def snapshot_rows(version):
+        try:
+            return json.loads(version.snapshot_json or '{}').get('rows', [])
+        except (TypeError, ValueError, AttributeError):
+            return []
+
+    def cell_value(row, key):
+        cell = row.get('cells', {}).get(key)
+        return cell.get('value') if isinstance(cell, dict) else cell
+
+    # Prefer the new report, while retaining objects which only existed in the
+    # old report. Multiple source rows per UIN remain separate filter profiles.
+    profiles = {}
+    for version in (old_version, new_version):
+        for row in snapshot_rows(version):
+            uin = str(row.get('uin') or cell_value(row, 'uin') or '').strip()
+            if not uin:
+                continue
+            completion = str(cell_value(row, 'work_completion_date') or '')
+            year_match = re.search(r'(20\d{2})', completion)
+            profiles.setdefault(uin, []).append({
+                'year': int(year_match.group(1)) if year_match else None,
+                'ministry': str(cell_value(row, 'cio_grbs') or '').strip(),
+            })
+
+    available_years = sorted({
+        profile['year'] for rows in profiles.values() for profile in rows
+        if profile['year'] is not None
+    })
+    if year_filter and year_filter != '2026_plus':
+        try:
+            int(year_filter)
+        except ValueError:
+            year_filter = ''
+    ministries = sorted({
+        profile['ministry'] for rows in profiles.values() for profile in rows
+        if profile['ministry']
+    })
+    ministry_labels = {
+        'МИНИСТЕРСТВО ЭНЕРГЕТИКИ МОСКОВСКОЙ ОБЛАСТИ': 'Минэнерго МО',
+        'МИНИСТЕРСТВО ЖИЛИЩНО-КОММУНАЛЬНОГО ХОЗЯЙСТВА МОСКОВСКОЙ ОБЛАСТИ':
+            'МинЖКХ МО',
+    }
+
+    def profile_matches(profile):
+        if ministry and profile['ministry'] != ministry:
+            return False
+        if year_filter == '2026_plus':
+            return profile['year'] is not None and profile['year'] >= 2026
+        if year_filter:
+            return profile['year'] == int(year_filter)
+        return True
+
+    changes = query.order_by(LimitChange.uin, LimitChange.id).all()
+    if ministry or year_filter:
+        changes = [
+            change for change in changes
+            if any(profile_matches(profile)
+                   for profile in profiles.get(change.uin, []))
+        ]
+    total = len(changes)
     pages = max(1, (total + 99)//100)
     page = max(1, min(request.args.get('page', 1, type=int), pages))
     category_labels = {
@@ -8040,10 +8107,12 @@ def limit_comparison_view(comparison_id):
         'date': 'Дата',
     }
     return render_template('limits_comparison.html', comparison=comparison,
-                           changes=query.order_by(LimitChange.uin, LimitChange.id).offset((page-1)*100).limit(100).all(),
+                           changes=changes[(page-1)*100:page*100],
                            issues=json.loads(comparison.issues_json or '[]'),
                            total=total, page=page, pages=pages, selected_category=category,
-                           search=search,
+                           selected_year=year_filter, selected_ministry=ministry,
+                           available_years=available_years, ministries=ministries,
+                           ministry_labels=ministry_labels, search=search,
                            category_labels=category_labels,
                            categories=[x[0] for x in db.session.query(
                                LimitChange.category).filter_by(

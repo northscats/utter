@@ -17,7 +17,8 @@ os.environ.setdefault('ENCRYPTION_KEY', 'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA
 from app import app, init_db, _limits_history_ready
 from database import (db, User, UserModuleAccess, Setting, LimitDataset, LimitObject,
                       LimitVersion, LimitVersionTombstone, LimitSubscription,
-                       LimitRecipient, LimitDelivery, LimitComparison, LimitMaxEvent)
+                      LimitRecipient, LimitDelivery, LimitComparison, LimitChange,
+                      LimitMaxEvent)
 from limits_views import objects_context, object_context
 from werkzeug.datastructures import MultiDict
 
@@ -166,6 +167,63 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertNotIn('Текст None', page)
         self.assertNotIn('Прочерк', page)
         self.assertIn('Годовые лимиты', page)
+
+    def test_comparison_defaults_to_cost_2026_plus_and_energy_ministry(self):
+        energy = 'МИНИСТЕРСТВО ЭНЕРГЕТИКИ МОСКОВСКОЙ ОБЛАСТИ'
+        housing = 'МИНИСТЕРСТВО ЖИЛИЩНО-КОММУНАЛЬНОГО ХОЗЯЙСТВА МОСКОВСКОЙ ОБЛАСТИ'
+        with app.app_context():
+            current = db.session.get(LimitVersion, 1)
+            snapshot = json.loads(current.snapshot_json)
+            snapshot['rows'][0]['cells'].update({
+                'cio_grbs': {'value': energy},
+                'work_completion_date': {'value': '2026-10-14'},
+            })
+            snapshot['rows'][1]['uin'] = '200.300'
+            snapshot['rows'][1]['cells']['uin']['value'] = '200.300'
+            snapshot['rows'][1]['cells'].update({
+                'cio_grbs': {'value': housing},
+                'work_completion_date': {'value': '2027-10-14'},
+            })
+            current.snapshot_json = json.dumps(snapshot)
+            db.session.add(LimitVersion(
+                id=2, dataset_id=1, uploaded_by=1, source_date=date(2026, 8, 1),
+                source_name='old.xlsx', source_path='/old.xlsx', sha256='b'*64,
+                status='accepted', snapshot_json=json.dumps(snapshot)))
+            db.session.add(LimitObject(
+                id=2, dataset_id=1, uin='200.300', title='Объект ЖКХ',
+                is_present=True))
+            comparison = LimitComparison(
+                id=1, old_version_id=2, new_version_id=1)
+            db.session.add(comparison)
+            db.session.add_all([
+                LimitChange(comparison_id=1, object_id=1, uin='100.200',
+                            category='limit_cost', field_key='limit_cost',
+                            field_label='Стоимость'),
+                LimitChange(comparison_id=1, object_id=2, uin='200.300',
+                            category='limit_cost', field_key='limit_cost',
+                            field_label='Стоимость'),
+                LimitChange(comparison_id=1, object_id=1, uin='100.200',
+                            category='schedule', field_key='work_completion_date',
+                            field_label='Завершение'),
+            ])
+            db.session.commit()
+
+        page = self.client(1).get(
+            '/limit-notifications/comparisons/1').get_data(as_text=True)
+        self.assertIn('value="limit_cost" selected', page)
+        self.assertIn('value="2026_plus" selected', page)
+        self.assertIn(f'value="{energy}" selected', page)
+        self.assertIn('Минэнерго МО', page)
+        self.assertIn('МинЖКХ МО', page)
+        self.assertIn('100.200', page)
+        self.assertNotIn('200.300', page)
+        self.assertNotIn('Завершение', page)
+
+        all_page = self.client(1).get(
+            '/limit-notifications/comparisons/1?category=&year=&ministry='
+        ).get_data(as_text=True)
+        self.assertIn('200.300', all_page)
+        self.assertIn('Завершение', all_page)
 
     def test_filter_before_pagination_does_not_hide_tail(self):
         with app.app_context():
