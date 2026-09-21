@@ -14,7 +14,7 @@ localPort = 21844
 run = "bash scripts/run-osv.sh"
 
 [services.production]
-build = [ "python3", "../../osv-dashboard/check_runtime_dependencies.py" ]
+build = [ "python3", "osv-dashboard/check_runtime_dependencies.py" ]
 run = [ "bash", "scripts/run-osv.sh" ]
 
 [services.production.health.startup]
