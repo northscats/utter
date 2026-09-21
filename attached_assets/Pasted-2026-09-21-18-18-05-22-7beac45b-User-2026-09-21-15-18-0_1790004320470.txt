@@ -1,0 +1,419 @@
+2026-09-21 18:18:05.22
+7beac45b
+User
+[2026-09-21 15:18:05 +0000] [28] [ERROR] [worker 286] health probe timed out; terminating for recovery
+2026-09-21 18:18:05.92
+7beac45b
+User
+[2026-09-21 15:18:05 +0000] [28] [WARNING] Worker (pid:286) was sent SIGABRT!
+2026-09-21 18:18:06.32
+7beac45b
+User
+[2026-09-21 15:18:06 +0000] [288] [INFO] Booting worker with pid: 288
+2026-09-21 18:18:07.62
+7beac45b
+User
+[2026-09-21 15:18:07 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:18:24.22
+7beac45b
+User
+[2026-09-21 15:18:24 +0000] [28] [ERROR] [worker 288] health probe timed out; terminating for recovery
+2026-09-21 18:18:24.72
+7beac45b
+User
+[2026-09-21 15:18:24 +0000] [28] [WARNING] Worker (pid:288) was sent SIGABRT!
+2026-09-21 18:18:25.12
+7beac45b
+User
+[2026-09-21 15:18:25 +0000] [290] [INFO] Booting worker with pid: 290
+2026-09-21 18:18:26.22
+7beac45b
+User
+[2026-09-21 15:18:26 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:18:42.52
+7beac45b
+User
+[2026-09-21 15:18:42 +0000] [28] [ERROR] [worker 290] health probe timed out; terminating for recovery
+2026-09-21 18:18:42.54
+7beac45b
+User
+[2026-09-21 15:18:42 +0000] [28] [WARNING] Worker (pid:290) was sent SIGABRT!
+2026-09-21 18:18:42.54
+7beac45b
+User
+[2026-09-21 15:18:42 +0000] [308] [INFO] Booting worker with pid: 308
+2026-09-21 18:18:42.54
+7beac45b
+User
+[2026-09-21 15:18:42 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:18:53.97
+7beac45b
+User
+[2026-09-21 15:18:53 +0000] [308] [INFO] [worker 308] DB ready
+2026-09-21 18:18:53.97
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.97
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.98
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:18:53.99
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:18:53 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:19:01.42
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:19:01 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:19:16.22
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:19:16 +0000] "GET /healthz HTTP/1.1" 200 16
+2026-09-21 18:19:17.55
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:19:17 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:19:18.12
+7beac45b
+User
+[2026-09-21 15:19:18 +0000] [28] [INFO] health watchdog recovery event persisted for worker 142
+2026-09-21 18:19:29.52
+7beac45b
+User
+127.0.0.1 [21/Sep/2026:15:19:28 +0000] "POST /healthz/watchdog-recovery HTTP/1.1" 204 0
+2026-09-21 18:19:39.52
+7beac45b
+User
+[2026-09-21 15:19:39 +0000] [28] [ERROR] [worker 308] health probe timed out; terminating for recovery
+2026-09-21 18:19:42.32
+7beac45b
+User
+[2026-09-21 15:19:42 +0000] [308] [INFO] Worker exiting (pid: 308)
+2026-09-21 18:19:58.32
+7beac45b
+User
+[2026-09-21 15:19:58 +0000] [28] [ERROR] [worker 308] health probe timed out; terminating for recovery
+2026-09-21 18:20:01.72
+7beac45b
+User
+[2026-09-21 15:20:01 +0000] [28] [WARNING] Worker (pid:308) was sent SIGABRT!
+2026-09-21 18:20:02.52
+7beac45b
+User
+[2026-09-21 15:20:02 +0000] [334] [INFO] Booting worker with pid: 334
+2026-09-21 18:20:03.32
+7beac45b
+User
+[2026-09-21 15:20:03 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:20:16.82
+7beac45b
+User
+[2026-09-21 15:20:16 +0000] [28] [ERROR] [worker 334] health probe timed out; terminating for recovery
+2026-09-21 18:20:17.32
+7beac45b
+User
+[2026-09-21 15:20:17 +0000] [28] [WARNING] Worker (pid:334) was sent SIGABRT!
+2026-09-21 18:20:17.38
+7beac45b
+User
+[2026-09-21 15:20:17 +0000] [336] [INFO] Booting worker with pid: 336
+2026-09-21 18:20:17.38
+7beac45b
+User
+[2026-09-21 15:20:17 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:20:35.72
+7beac45b
+User
+[2026-09-21 15:20:35 +0000] [28] [ERROR] [worker 336] health probe timed out; terminating for recovery
+2026-09-21 18:20:36.92
+7beac45b
+User
+[2026-09-21 15:20:36 +0000] [28] [WARNING] Worker (pid:336) was sent SIGABRT!
+2026-09-21 18:20:37.72
+7beac45b
+User
+[2026-09-21 15:20:37 +0000] [338] [INFO] Booting worker with pid: 338
+2026-09-21 18:20:37.92
+7beac45b
+User
+[2026-09-21 15:20:37 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:20:54.62
+7beac45b
+User
+[2026-09-21 15:20:54 +0000] [28] [ERROR] [worker 338] health probe timed out; terminating for recovery
+2026-09-21 18:20:56.32
+7beac45b
+User
+[2026-09-21 15:20:56 +0000] [28] [WARNING] Worker (pid:338) was sent SIGABRT!
+2026-09-21 18:20:56.92
+7beac45b
+User
+[2026-09-21 15:20:56 +0000] [340] [INFO] Booting worker with pid: 340
+2026-09-21 18:20:57.32
+7beac45b
+User
+[2026-09-21 15:20:57 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:21:13.62
+7beac45b
+User
+[2026-09-21 15:21:13 +0000] [28] [ERROR] [worker 340] health probe timed out; terminating for recovery
+2026-09-21 18:21:14.22
+7beac45b
+User
+[2026-09-21 15:21:14 +0000] [28] [WARNING] Worker (pid:340) was sent SIGABRT!
+2026-09-21 18:21:14.72
+7beac45b
+User
+[2026-09-21 15:21:14 +0000] [342] [INFO] Booting worker with pid: 342
+2026-09-21 18:21:15.72
+7beac45b
+User
+[2026-09-21 15:21:15 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:21:32.62
+7beac45b
+User
+[2026-09-21 15:21:32 +0000] [28] [ERROR] [worker 342] health probe timed out; terminating for recovery
+2026-09-21 18:21:33.92
+7beac45b
+User
+[2026-09-21 15:21:33 +0000] [28] [WARNING] Worker (pid:342) was sent SIGABRT!
+2026-09-21 18:21:34.72
+7beac45b
+User
+[2026-09-21 15:21:34 +0000] [344] [INFO] Booting worker with pid: 344
+2026-09-21 18:21:35.22
+7beac45b
+User
+[2026-09-21 15:21:35 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:21:51.22
+7beac45b
+User
+[2026-09-21 15:21:51 +0000] [28] [ERROR] [worker 344] health probe timed out; terminating for recovery
+2026-09-21 18:21:51.82
+7beac45b
+User
+[2026-09-21 15:21:51 +0000] [28] [WARNING] Worker (pid:344) was sent SIGABRT!
+2026-09-21 18:21:52.82
+7beac45b
+User
+[2026-09-21 15:21:52 +0000] [346] [INFO] Booting worker with pid: 346
+2026-09-21 18:21:53.12
+7beac45b
+User
+[2026-09-21 15:21:53 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:22:09.92
+7beac45b
+User
+[2026-09-21 15:22:09 +0000] [28] [ERROR] [worker 346] health probe timed out; terminating for recovery
+2026-09-21 18:22:10.42
+7beac45b
+User
+[2026-09-21 15:22:10 +0000] [28] [WARNING] Worker (pid:346) was sent SIGABRT!
+2026-09-21 18:22:11.32
+7beac45b
+User
+[2026-09-21 15:22:10 +0000] [348] [INFO] Booting worker with pid: 348
+2026-09-21 18:22:12.02
+7beac45b
+User
+[2026-09-21 15:22:11 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:22:28.52
+7beac45b
+User
+[2026-09-21 15:22:28 +0000] [28] [ERROR] [worker 348] health probe timed out; terminating for recovery
+2026-09-21 18:22:29.82
+7beac45b
+User
+[2026-09-21 15:22:29 +0000] [28] [WARNING] Worker (pid:348) was sent SIGABRT!
+2026-09-21 18:22:30.12
+7beac45b
+User
+[2026-09-21 15:22:30 +0000] [350] [INFO] Booting worker with pid: 350
+2026-09-21 18:22:31.22
+7beac45b
+User
+[2026-09-21 15:22:31 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:22:47.52
+7beac45b
+User
+[2026-09-21 15:22:47 +0000] [28] [ERROR] [worker 350] health probe timed out; terminating for recovery
+2026-09-21 18:22:48.12
+7beac45b
+User
+[2026-09-21 15:22:48 +0000] [28] [WARNING] Worker (pid:350) was sent SIGABRT!
+2026-09-21 18:22:48.42
+7beac45b
+User
+[2026-09-21 15:22:48 +0000] [352] [INFO] Booting worker with pid: 352
+2026-09-21 18:22:50.02
+7beac45b
+User
+[2026-09-21 15:22:50 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:23:06.12
+7beac45b
+User
+[2026-09-21 15:23:06 +0000] [28] [ERROR] [worker 352] health probe timed out; terminating for recovery
+2026-09-21 18:23:06.82
+7beac45b
+User
+[2026-09-21 15:23:06 +0000] [28] [WARNING] Worker (pid:352) was sent SIGABRT!
+2026-09-21 18:23:07.12
+7beac45b
+User
+[2026-09-21 15:23:07 +0000] [354] [INFO] Booting worker with pid: 354
+2026-09-21 18:23:08.22
+7beac45b
+User
+[2026-09-21 15:23:08 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:23:25.02
+7beac45b
+User
+[2026-09-21 15:23:25 +0000] [28] [ERROR] [worker 354] health probe timed out; terminating for recovery
+2026-09-21 18:23:25.52
+7beac45b
+User
+[2026-09-21 15:23:25 +0000] [28] [WARNING] Worker (pid:354) was sent SIGABRT!
+2026-09-21 18:23:25.92
+7beac45b
+User
+[2026-09-21 15:23:25 +0000] [356] [INFO] Booting worker with pid: 356
+2026-09-21 18:23:26.82
+7beac45b
+User
+[2026-09-21 15:23:26 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:23:43.82
+7beac45b
+User
+[2026-09-21 15:23:43 +0000] [28] [ERROR] [worker 356] health probe timed out; terminating for recovery
+2026-09-21 18:23:44.32
+7beac45b
+User
+[2026-09-21 15:23:44 +0000] [28] [WARNING] Worker (pid:356) was sent SIGABRT!
+2026-09-21 18:23:45.32
+7beac45b
+User
+[2026-09-21 15:23:44 +0000] [358] [INFO] Booting worker with pid: 358
+2026-09-21 18:23:45.82
+7beac45b
+User
+[2026-09-21 15:23:45 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:24:02.52
+7beac45b
+User
+[2026-09-21 15:24:02 +0000] [28] [ERROR] [worker 358] health probe timed out; terminating for recovery
+2026-09-21 18:24:03.33
+7beac45b
+User
+[2026-09-21 15:24:03 +0000] [28] [WARNING] Worker (pid:358) was sent SIGABRT!
+2026-09-21 18:24:03.33
+7beac45b
+User
+[2026-09-21 15:24:03 +0000] [360] [INFO] Booting worker with pid: 360
+2026-09-21 18:24:03.34
+7beac45b
+User
+[2026-09-21 15:24:03 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:24:21.33
+7beac45b
+User
+[2026-09-21 15:24:21 +0000] [28] [ERROR] [worker 360] health probe timed out; terminating for recovery
+2026-09-21 18:24:22.52
+7beac45b
+User
+[2026-09-21 15:24:22 +0000] [28] [WARNING] Worker (pid:360) was sent SIGABRT!
+2026-09-21 18:24:23.32
+7beac45b
+User
+[2026-09-21 15:24:23 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:24:23.32
+7beac45b
+User
+[2026-09-21 15:24:23 +0000] [362] [INFO] Booting worker with pid: 362
+2026-09-21 18:24:23.32
+7beac45b
+User
+[2026-09-21 15:24:23 +0000] [362] [INFO] Booting worker with pid: 362
+2026-09-21 18:24:23.32
+7beac45b
+User
+[2026-09-21 15:24:23 +0000] [28] [INFO] Control socket listening at /home/runner/.gunicorn/gunicorn.ctl
+2026-09-21 18:24:40.22
+7beac45b
+User
+[2026-09-21 15:24:40 +0000] [28] [ERROR] [worker 362] health probe timed out; terminating for recovery
+2026-09-21 18:24:40.62
+7beac45b
+User
+[2026-09-21 15:24:40 +0000] [28] [WARNING] Worker (pid:362) was sent SIGABRT!
+2026-09-21 18:24:41.12
+7beac45b
+User
+[2026-09-21 15:24:41 +0000] [364] [INFO] Booting worker with pid: 364
+2026-09-21 18:24:42.22
+7beac45b
+User
