@@ -4216,11 +4216,13 @@
                         ? group.previous_year_cost /
                             group.previous_year_revenue * 100 : null;
                     const date = new Date(`${group.date}T00:00:00`);
+                    const shortMonths = [
+                        'янв', 'фев', 'мар', 'апр', 'май', 'июн',
+                        'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'
+                    ];
                     return {
                         ...group,
-                        label: new Intl.DateTimeFormat('ru-RU', {
-                            month: 'long', year: 'numeric'
-                        }).format(date),
+                        label: `${shortMonths[date.getMonth()]} ${date.getFullYear()}`,
                         delta,
                         percent_delta: delta !== null && group.previous_year_cost
                             ? delta / Math.abs(group.previous_year_cost) * 100 : null,
@@ -4465,6 +4467,12 @@
             const formatSigned = (value, suffix) =>
                 value === null || value === undefined || !Number.isFinite(Number(value))
                     ? '—' : `${Number(value) > 0 ? '+' : ''}${Number(value).toFixed(2)}${suffix}`;
+            const millionValue = value => missingNumber(value)
+                ? '—' : this.formatValue(value, 'RUB').val;
+            const missingNumber = value => value === null || value === undefined ||
+                !Number.isFinite(Number(value));
+            const percentValue = value => missingNumber(value)
+                ? '—' : `${Number(value).toFixed(2)}%`;
             const periodRows = this.cogsMonthlyRows(card).map(row => {
                 const values = [
                     row.current_cost, row.previous_year_cost, row.delta,
@@ -4472,18 +4480,16 @@
                     row.previous_year_revenue, row.current_ratio,
                     row.previous_year_ratio, row.ratio_delta_pp
                 ];
-                const missing = value => value === null || value === undefined ||
-                    !Number.isFinite(Number(value));
                 return `<tr>
                     <td>${esc(row.label || row.date || '—')}</td>
-                    <td class="cash-number-cell">${missing(values[0]) ? '—' : esc(rub(values[0]))}</td>
-                    <td class="cash-number-cell">${missing(values[1]) ? '—' : esc(rub(values[1]))}</td>
-                    <td class="cash-number-cell">${missing(values[2]) ? '—' : esc(`${values[2] > 0 ? '+' : ''}${rub(values[2])}`)}</td>
+                    <td class="cash-number-cell">${esc(millionValue(values[0]))}</td>
+                    <td class="cash-number-cell">${esc(millionValue(values[1]))}</td>
+                    <td class="cash-number-cell">${missingNumber(values[2]) ? '—' : esc(`${values[2] > 0 ? '+' : ''}${millionValue(values[2])}`)}</td>
                     <td>${esc(formatSigned(values[3], '%'))}</td>
-                    <td class="cash-number-cell">${missing(values[4]) ? '—' : esc(rub(values[4]))}</td>
-                    <td class="cash-number-cell">${missing(values[5]) ? '—' : esc(rub(values[5]))}</td>
-                    <td>${missing(values[6]) ? '—' : esc(pct(values[6]))}</td>
-                    <td>${missing(values[7]) ? '—' : esc(pct(values[7]))}</td>
+                    <td class="cash-number-cell">${esc(millionValue(values[4]))}</td>
+                    <td class="cash-number-cell">${esc(millionValue(values[5]))}</td>
+                    <td>${esc(percentValue(values[6]))}</td>
+                    <td>${esc(percentValue(values[7]))}</td>
                     <td>${esc(formatSigned(values[8], ' п.п.'))}</td>
                 </tr>`;
             }).join('');
@@ -4681,10 +4687,17 @@
                     <div class="modal-section-title">ДИНАМИКА СЕБЕСТОИМОСТИ ПРОДАЖ</div>
                     <div id="ki-cogs-dynamics-chart" class="cash-line-chart"></div>
                 </div>
-                <div class="modal-section-title">СЕБЕСТОИМОСТЬ ПО ПЕРИОДАМ</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table cogs-period-table">
+                <div class="modal-section-title">СЕБЕСТОИМОСТЬ ПО ПЕРИОДАМ, МЛН ₽</div>
+                <div class="collection-table-wrap cogs-period-wrap"><table class="collection-detail-table cogs-period-table">
+                    <colgroup>
+                        <col class="cogs-period-col"><col class="cogs-cost-col">
+                        <col class="cogs-apg-col"><col class="cogs-delta-col">
+                        <col class="cogs-percent-col"><col class="cogs-revenue-col">
+                        <col class="cogs-revenue-apg-col"><col class="cogs-ratio-col">
+                        <col class="cogs-ratio-apg-col"><col class="cogs-pp-col">
+                    </colgroup>
                     <thead><tr>
-                        <th>Период</th><th>Себестоимость</th><th>АПГ</th>
+                        <th>Период</th><th>Себестоимость</th><th>АПГ, ₽</th>
                         <th>Δ, ₽</th><th>Δ, %</th><th>Выручка</th>
                         <th>Выручка АПГ</th><th>С/с / выручка</th>
                         <th>АПГ</th><th>Δ, п.п.</th>

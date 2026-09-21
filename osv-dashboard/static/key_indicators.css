@@ -1210,3 +1210,60 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
     background: #1E3A8A;
     color: #fff;
 }
+
+/* Таблицы себестоимости используют ту же шапку, что таблицы окна ДЗ. */
+#ki-cogs-modal-content .collection-detail-table th {
+    background:#312E91;
+    color:#fff;
+    border-bottom:0;
+    white-space:normal;
+    line-height:1.2;
+    vertical-align:middle;
+}
+#ki-cogs-modal-content .collection-detail-table th:first-child {
+    border-radius:8px 0 0 0;
+}
+#ki-cogs-modal-content .collection-detail-table th:last-child {
+    border-radius:0 8px 0 0;
+}
+.cogs-period-wrap {
+    width:100%;
+    overflow-x:hidden;
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 1px 4px rgba(15,23,42,.14);
+}
+.collection-detail-table.cogs-period-table {
+    width:100%;
+    min-width:0;
+    table-layout:fixed;
+    font-size:11px;
+}
+.cogs-period-table col.cogs-period-col { width:10%; }
+.cogs-period-table col.cogs-cost-col { width:11%; }
+.cogs-period-table col.cogs-apg-col { width:9%; }
+.cogs-period-table col.cogs-delta-col { width:9%; }
+.cogs-period-table col.cogs-percent-col { width:8%; }
+.cogs-period-table col.cogs-revenue-col { width:10%; }
+.cogs-period-table col.cogs-revenue-apg-col { width:11%; }
+.cogs-period-table col.cogs-ratio-col { width:12%; }
+.cogs-period-table col.cogs-ratio-apg-col { width:9%; }
+.cogs-period-table col.cogs-pp-col { width:11%; }
+#ki-cogs-modal-content .cogs-period-table th {
+    min-width:0;
+    padding:9px 4px;
+    text-align:right;
+    font-size:10px;
+}
+#ki-cogs-modal-content .cogs-period-table th:first-child,
+#ki-cogs-modal-content .cogs-period-table td:first-child {
+    min-width:0;
+    text-align:left;
+}
+#ki-cogs-modal-content .cogs-period-table td {
+    padding:8px 4px;
+    font-size:11px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:clip;
+}
