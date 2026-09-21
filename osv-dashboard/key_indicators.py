@@ -3384,8 +3384,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         card_map['profit']['status'] = 'bad'
         card_map['profit']['status_label'] = 'Убыток от продаж'
     if profit_from_sales is None and gross_profit is not None:
-        card_map['profit']['title'] = (
-            'Валовая прибыль (отдельные расходы недоступны)')
+        card_map['profit']['title'] = 'Валовая прибыль'
         card_map['profit']['status_label'] = (
             'Валовая прибыль' if gross_profit >= 0 else 'Валовой убыток')
     if cogs is not None and revenue is not None and cogs > revenue:

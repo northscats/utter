@@ -4946,9 +4946,9 @@
                     <thead><tr><th>Аналитика 1С</th><th>Доходы</th><th>Расходы</th><th>Сальдо</th><th>Классификация</th></tr></thead>
                     <tbody>${otherRows}</tbody>
                 </table></div>
-                <div class="modal-section-title">Валовая рентабельность по аналитикам счёта 90</div>
+                <div class="modal-section-title">Валовая прибыль</div>
                 <div class="revenue-classification-note">Полная прибыль услуги требует распределения 90.07, 90.08 и статей 91 по тому же аналитическому ключу.</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table profit-object-table">
+                <div class="cash-table-scroll"><table class="cash-table profit-object-table">
                     <thead><tr><th>Услуга / объект</th><th>Выручка</th><th>Себестоимость</th><th>Валовая прибыль</th><th>Рентабельность</th><th>Статус</th></tr></thead>
                     <tbody>${objectRows}</tbody>
                 </table></div>

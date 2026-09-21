@@ -549,6 +549,14 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cash-table td:last-child { border-right:0; }
 .cash-table tbody tr:not(.cash-total-row):hover td { background:#F9FAFB; }
 .cash-table tbody tr:focus-visible { outline:2px solid #2563EB; outline-offset:-2px; }
+.cash-table.profit-object-table { min-width:940px; }
+.cash-table.profit-object-table th { width:auto; }
+.cash-table.profit-object-table th:nth-child(1) { width:28%; }
+.cash-table.profit-object-table th:nth-child(2),
+.cash-table.profit-object-table th:nth-child(3),
+.cash-table.profit-object-table th:nth-child(4) { width:15%; }
+.cash-table.profit-object-table th:nth-child(5) { width:13%; }
+.cash-table.profit-object-table th:nth-child(6) { width:14%; }
 .cash-account-cell strong { display:block; color:#172033; font-size:13px; }
 .cash-account-name {
   display:block; margin-top:2px; color:#64748B; font-size:11px;
