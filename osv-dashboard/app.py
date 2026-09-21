@@ -81,8 +81,8 @@ from dashboard_compat import (json_for_script,
                                upgrade_legacy_salary_daily_labels,
                                upgrade_saved_dashboard_template)
 from metric_layouts import (
-    RESERVED_DASHBOARD_IDS, LayoutValidationError, validate_layout_payload,
-    validate_mode_metric,
+    RESERVED_DASHBOARD_IDS, LayoutValidationError, default_layout,
+    validate_layout_payload, validate_mode_metric,
 )
 from password_policy import validate_password
 
@@ -3957,7 +3957,7 @@ def metric_layout(company_id, mode, metric_id):
         row = query.one_or_none()
         if row is None:
             return _metric_layout_response({
-                'layout': {'version': 1, 'items': {}},
+                'layout': default_layout(mode, metric_id),
                 'revision': 0,
             })
         try:

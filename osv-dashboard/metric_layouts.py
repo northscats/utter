@@ -2,7 +2,10 @@
 """Validation helpers for per-user key-indicator modal layouts."""
 from __future__ import annotations
 
+import copy
+import json
 import re
+from pathlib import Path
 
 from annual_key_indicators import CARD_SPECS
 from key_indicators import _CARD_ORDER
@@ -27,9 +30,29 @@ MAX_ITEMS = 250
 ITEM_KEY_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$')
 PLACEMENTS = frozenset(('main', 'detail', 'hidden'))
 
+with (Path(__file__).parent / 'data' / 'default_metric_layouts.json').open(
+        encoding='utf-8') as _default_layouts_file:
+    DEFAULT_METRIC_LAYOUTS = json.load(_default_layouts_file)
+
 
 class LayoutValidationError(ValueError):
     """A client supplied an invalid layout document."""
+
+
+def default_layout(mode, metric_id):
+    """Return the checked-in default without exposing mutable module state."""
+    if metric_id in RESERVED_DASHBOARD_IDS:
+        order = list(_CARD_ORDER if mode == 'osv'
+                     else (spec['id'] for spec in CARD_SPECS))
+        return {
+            'version': LAYOUT_VERSION,
+            'items': {key: 'main' for key in order},
+            'order': order,
+        }
+    return copy.deepcopy(DEFAULT_METRIC_LAYOUTS.get(
+        f'{mode}:{metric_id}',
+        {'version': LAYOUT_VERSION, 'items': {}},
+    ))
 
 
 def validate_mode_metric(mode, metric_id):
@@ -126,9 +149,9 @@ def validate_layout_payload(payload, mode=None, metric_id=None):
 
 
 __all__ = [
-    'ITEM_KEY_RE', 'LAYOUT_MODES', 'LAYOUT_VERSION',
+    'DEFAULT_METRIC_LAYOUTS', 'ITEM_KEY_RE', 'LAYOUT_MODES', 'LAYOUT_VERSION',
     'MAX_ITEM_KEY_LENGTH', 'MAX_ITEMS', 'METRIC_IDS_BY_MODE',
     'PLACEMENTS', 'RESERVED_DASHBOARD_IDS', 'LayoutValidationError',
-    'validate_layout_payload',
+    'default_layout', 'validate_layout_payload',
     'validate_mode_metric',
 ]

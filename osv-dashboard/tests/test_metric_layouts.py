@@ -10,6 +10,7 @@ os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(
     _TMP.name, 'layouts.db')
 
 import app as app_module
+from metric_layouts import DEFAULT_METRIC_LAYOUTS, default_layout
 from database import (
     Company, CompanyMembership, MetricLayout, User, UserModuleAccess, db,
 )
@@ -74,7 +75,7 @@ class MetricLayoutApiTests(unittest.TestCase):
         url = self._url()
         self.assertEqual(client.get(url).status_code, 200)
         self.assertEqual(client.get(url).get_json(), {
-            'layout': {'version': 1, 'items': {}}, 'revision': 0})
+            'layout': default_layout('osv', 'revenue'), 'revision': 0})
 
         headers = self._csrf_headers(client)
         saved = client.put(
@@ -99,6 +100,16 @@ class MetricLayoutApiTests(unittest.TestCase):
         self.assertEqual(reset.status_code, 200)
         self.assertEqual(reset.get_json(), {
             'layout': {'version': 1, 'items': {}}, 'revision': 2})
+
+    def test_checked_in_defaults_are_returned_without_shared_mutation(self):
+        first = default_layout('osv', 'salary')
+        self.assertEqual(first, DEFAULT_METRIC_LAYOUTS['osv:salary'])
+        first['items']['salary-card-0'] = 'hidden'
+        self.assertEqual(
+            default_layout('osv', 'salary')['items']['salary-card-0'],
+            'main')
+        self.assertEqual(default_layout('annual', 'net_profit'), {
+            'version': 1, 'items': {}})
 
     def test_conflict_does_not_overwrite(self):
         client = self._client(self.user_id)
@@ -159,7 +170,7 @@ class MetricLayoutApiTests(unittest.TestCase):
         client = self._client(self.user_id)
         url = self._url(metric='__dashboard__')
         self.assertEqual(client.get(url).get_json(), {
-            'layout': {'version': 1, 'items': {}}, 'revision': 0})
+            'layout': default_layout('osv', '__dashboard__'), 'revision': 0})
         layout = {
             'version': 1,
             'items': {'cash': 'hidden', 'revenue': 'main', 'profit': 'main'},
@@ -279,7 +290,10 @@ class MetricLayoutApiTests(unittest.TestCase):
         }
         self.assertEqual(owner.put(
             url, json=body, headers=self._csrf_headers(owner)).status_code, 200)
-        default = {'layout': {'version': 1, 'items': {}}, 'revision': 0}
+        default = {
+            'layout': default_layout('osv', 'salary'),
+            'revision': 0,
+        }
         self.assertEqual(colleague.get(url).get_json(), default)
         self.assertEqual(owner.get(self._url(
             metric='salary', company=other_company_id)).get_json(), default)
