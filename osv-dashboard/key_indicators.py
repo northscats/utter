@@ -1207,6 +1207,21 @@ def _rolled_report_balance(source, account, end):
     return None
 
 
+def _exact_balance_report(source, account, end):
+    """Select the strongest accepted report ending at the requested boundary."""
+    acc = source.get('accounts', {}).get(str(account), {})
+    candidates = [
+        (index, report)
+        for index, report in enumerate(acc.get('balance_reports') or [])
+        if report.get('report_end') == end.isoformat()
+        and isinstance(report.get('top'), dict)
+    ]
+    return max(
+        candidates,
+        key=lambda item: _report_precedence(item[1], item[0], account),
+    )[1] if candidates else None
+
+
 def _sub_balance(source, account, sub, end, credit=False):
     acc = source['accounts'].get(account)
     if not acc:
@@ -1218,8 +1233,7 @@ def _sub_balance(source, account, sub, end, credit=False):
         if signed_debit is not None:
             value = -signed_debit if credit else signed_debit
             return round(max(0.0, value), 2), None
-    report = next((r for r in reversed(acc.get('balance_reports') or [])
-                   if r.get('report_end') == end.isoformat()), None)
+    report = _exact_balance_report(source, account, end)
     # A report at the exact endpoint is the latest accepted source for that
     # interval. Never add or prefer an overlapping older daily observation.
     if report is None:
@@ -1314,9 +1328,7 @@ def _sub_balance_analytics(source, account, sub, end, credit=False):
     observations = _exact_balance_rows(source, account, end)
     debtor_scope = sub == '62.01' or sub == '76'
     if not debtor_scope:
-        report_at_end = next((
-            item for item in reversed(acc.get('balance_reports') or [])
-            if item.get('report_end') == end.isoformat()), None)
+        report_at_end = _exact_balance_report(source, account, end)
         explicit = [] if report_at_end is not None else [
             row for row in observations
             if _has_prefix(row, sub)
@@ -1825,15 +1837,7 @@ def _top_balance(source, account, end, credit=False):
     ), None)
     if _complete_snapshot_at(source, end, 'end') and complete_report is None:
         return 0.0, None
-    report_candidates = [
-        (index, report)
-        for index, report in enumerate(acc.get('balance_reports') or [])
-        if report.get('report_end') == end.isoformat()
-    ]
-    report = max(
-        report_candidates,
-        key=lambda item: _report_precedence(item[1], item[0], account),
-    )[1] if report_candidates else None
+    report = _exact_balance_report(source, account, end)
     if report is None and str(account) in {
             '60', '62', '66', '67', '68', '69', '70'}:
         signed_debit = _rolled_report_balance(source, account, end)

@@ -752,6 +752,116 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             {item['account']: item['value'] for item in ap['components']},
             {'60.01': 100, '68': 12, '69': 3, '70': 5})
 
+    def test_ap_detail_uses_mixed_proven_boundaries_for_august_2026(self):
+        def report(period, top, rows=(), complete=False, updated=''):
+            return {
+                'period': period,
+                'top': top,
+                'rows': list(rows),
+                'complete_snapshot': complete,
+                'source_updated_at': updated,
+            }
+
+        def credit_top(opening, debit, credit):
+            closing = opening + credit - debit
+            return dict(
+                snd=0, snk=opening, obd=debit, obk=credit,
+                skd=0, skk=closing)
+
+        supplier_current = dict(
+            lvl=1, label='60.01', p0='60', p1='60.01', p2='', p3='',
+            **credit_top(80, 30, 70))
+        supplier_current_analytic = dict(
+            lvl=2, label='Поставщик А', p0='60', p1='60.01',
+            p2='Поставщик А', p3='', **credit_top(80, 30, 70))
+        supplier_previous = dict(
+            lvl=1, label='60.01', p0='60', p1='60.01', p2='', p3='',
+            **credit_top(50, 20, 50))
+        raw_60 = account('60', [], [], period='за 01.01.2026 - 31.08.2026')
+        raw_60['balance_reports'] = [
+            report(
+                'за 01.01.2026 - 31.08.2026',
+                credit_top(80, 30, 70),
+                [supplier_current, supplier_current_analytic],
+                updated='2026-09-02T00:00:00+00:00'),
+            # A later narrow revision must not displace the complete parent
+            # report at the same exact boundary.
+            report(
+                'за 01.01.2026 - 31.08.2026',
+                credit_top(999, 0, 0), [], updated='2026-09-03T00:00:00+00:00'),
+            report(
+                'за 01.01.2025 - 31.08.2025',
+                credit_top(50, 20, 50), [supplier_previous]),
+        ]
+
+        raw_68 = account('68', [], [], period='за 01.01.2026 - 31.08.2026')
+        raw_68['balance_reports'] = [
+            report(
+                'за 01.01.2026 - 31.08.2026',
+                credit_top(30, 20, 60), complete=True),
+            report(
+                'за 01.01.2025 - 31.08.2025',
+                credit_top(20, 10, 40), complete=True),
+        ]
+
+        raw_69 = account(
+            '69',
+            [
+                day('2025-08-31', obd=5, obk=15),
+                day('2026-08-31', obd=10, obk=30),
+                day('2026-09-15', obd=0, obk=5),
+            ],
+            period='за 01.01.2025 - 15.09.2026',
+            top=credit_top(25, 15, 50),
+        )
+        raw_70 = account('70', [], [], period='')
+        raw_70['balance_observations'] = [
+            dict(date='2025-08-31', skd=0, skk=40),
+            dict(date='2026-08-31', skd=0, skk=50),
+        ]
+
+        source = build_indicator_source({
+            '60': raw_60, '68': raw_68, '69': raw_69, '70': raw_70,
+        })
+        cards = {item['id']: item for item in build_key_indicators(
+            source, period='day',
+            date_from='2026-01-01', date='2026-08-31')['cards']}
+        ap = cards['ap']
+        components = {item['account']: item for item in ap['components']}
+
+        self.assertEqual(
+            {key: components[key]['value'] for key in components},
+            {'60.01': 120, '68': 70, '69': 55, '70': 50})
+        self.assertEqual(
+            {key: components[key]['previous_year_value'] for key in components},
+            {'60.01': 80, '68': 50, '69': 35, '70': 40})
+        self.assertEqual(ap['known_total'], 295)
+        self.assertEqual(len(ap['analytics']), 1)
+        self.assertIn('Поставщик А', ap['analytics'][0]['label'])
+        self.assertEqual(ap['analytics'][0]['value'], 120)
+        self.assertEqual(
+            [round(item['value'] / ap['known_total'] * 100, 2)
+             for item in ap['components']],
+            [40.68, 23.73, 18.64, 16.95])
+
+    def test_ap_detail_keeps_missing_when_intermediate_balance_is_unproven(self):
+        raw = account(
+            '68', [
+                day('2026-01-01'),
+                day('2026-08-31', obd=10, obk=20),
+            ],
+            period='за 01.01.2026 - 15.09.2026',
+            top=dict(snd=0, snk=30, obd=999, obk=999, skd=0, skk=30),
+        )
+        source = build_indicator_source({'68': raw})
+        ap = {item['id']: item for item in build_key_indicators(
+            source, period='day',
+            date_from='2026-01-01', date='2026-08-31')['cards']}['ap']
+        taxes = next(
+            item for item in ap['components'] if item['account'] == '68')
+        self.assertIsNone(taxes['value'])
+        self.assertIn('исходную границу', taxes['reason'])
+
     def test_cogs_detail_keeps_recognized_and_forming_costs_separate(self):
         src = build_indicator_source({
             '90': account('90', [
