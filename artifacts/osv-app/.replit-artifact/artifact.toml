@@ -15,7 +15,7 @@ run = "bash scripts/run-osv.sh"
 
 [services.production]
 build = [ "python3", "osv-dashboard/check_runtime_dependencies.py" ]
-run = [ "bash", "scripts/run-osv.sh" ]
+run = [ "bash", "artifacts/osv-app/scripts/run-osv.sh" ]
 
 [services.production.health.startup]
 path = "/healthz"
