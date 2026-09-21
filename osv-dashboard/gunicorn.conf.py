@@ -236,10 +236,14 @@ def post_fork(server, worker):
 
     def finish_startup():
         try:
-            _finish_durable_startup(restore=True)
+            deployed = os.environ.get('REPLIT_DEPLOYMENT', '').strip().lower()
+            restore = deployed in ('1', 'true')
+            _finish_durable_startup(restore=restore)
             _ensure_imap_thread()
             server.log.info(
-                f'[worker {worker.pid}] durable recovery ready, IMAP thread started')
+                f'[worker {worker.pid}] durable startup ready '
+                f'(restore={"enabled" if restore else "development-skip"}), '
+                'IMAP thread started')
         except Exception:
             server.log.exception(
                 f'[worker {worker.pid}] background startup failed')

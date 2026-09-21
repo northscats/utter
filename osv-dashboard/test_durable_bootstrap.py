@@ -105,7 +105,7 @@ class DurableBootstrapTest(unittest.TestCase):
         finally:
             _limits_startup_lock.release()
 
-    def test_gunicorn_worker_runs_durable_startup_before_imap(self):
+    def _gunicorn_startup_calls(self, deployment=''):
         config_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), 'gunicorn.conf.py')
         spec = importlib.util.spec_from_file_location(
@@ -123,14 +123,27 @@ class DurableBootstrapTest(unittest.TestCase):
 
         server = SimpleNamespace(log=MagicMock())
         worker = SimpleNamespace(pid=123)
-        with patch('app.init_db', side_effect=lambda **_kw: calls.append('schema')), \
+        with patch.dict(os.environ, {'REPLIT_DEPLOYMENT': deployment}), \
+                patch('app.init_db',
+                      side_effect=lambda **_kw: calls.append('schema')), \
                 patch('app._finish_durable_startup',
-                      side_effect=lambda **_kw: calls.append('durable')), \
+                      side_effect=lambda **kw: calls.append(
+                          ('durable', kw.get('restore')))), \
                 patch('app._ensure_imap_thread',
                       side_effect=lambda: calls.append('imap')), \
                 patch.object(config.threading, 'Thread', ImmediateThread):
             config.post_fork(server, worker)
-        self.assertEqual(['schema', 'durable', 'imap'], calls)
+        return calls
+
+    def test_development_worker_reconciles_without_remote_restore(self):
+        self.assertEqual(
+            ['schema', ('durable', False), 'imap'],
+            self._gunicorn_startup_calls())
+
+    def test_deployment_worker_restores_before_imap(self):
+        self.assertEqual(
+            ['schema', ('durable', True), 'imap'],
+            self._gunicorn_startup_calls('true'))
 
 
 if __name__ == '__main__':
