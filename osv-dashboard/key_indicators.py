@@ -3118,6 +3118,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                if gross_rev is not None and vat is None else
                'Недостаточно данных выручки или себестоимости'),
               gross_profit=gross_profit,
+               previous_year_gross_profit=None,
+               gross_profit_delta=None,
               selling_expense=selling_expense,
               admin_expense=admin_expense,
               profit_from_sales=profit_from_sales,
@@ -3127,6 +3129,9 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               profit_before_tax=profit_before_tax,
               other_analytics=other_analytics,
               gross_series=[],
+               previous_year_gross_series=[],
+               gross_profit_delta_series=[],
+               monthly_comparison=[],
               sales_profit_series=[],
               other_result_series=[],
               pretax_series=[],
@@ -3172,6 +3177,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                   'analytics': insurance_analytics,
               },
               accrual_series=[],
+              previous_year_accrual_series=[],
+              accrual_delta_series=[],
+              previous_year_accrual=None,
+              accrual_delta=None,
+              monthly_comparison=[],
               insurance_series=[],
               notes=[
                   'Кредитовое сальдо — расчётная задолженность работникам; ОСВ не подтверждает просрочку.',
@@ -3207,6 +3217,12 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     previous_year_end = previous_year_date(end)
     previous_year_pl = _pl_facts(
         source, previous_year_start, previous_year_end)
+    profit_card = next(card for card in cards if card['id'] == 'profit')
+    profit_card['previous_year_gross_profit'] = previous_year_pl['profit']
+    profit_card['gross_profit_delta'] = (
+        round(gross_profit - previous_year_pl['profit'], 2)
+        if gross_profit is not None and previous_year_pl['profit'] is not None
+        else None)
     def revenue_comparison(current_value, previous_value):
         available = current_value is not None and previous_value is not None
         delta = round(current_value - previous_value, 2) if available else None
@@ -3272,6 +3288,17 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     }
     card_map['cogs']['previous_year_series'] = []
     card_map['cogs']['monthly_comparison'] = []
+    previous_year_salary_accrual = _account_turnovers(
+        source, '70', previous_year_start, previous_year_end)['credit']
+    card_map['salary']['previous_year_accrual'] = previous_year_salary_accrual
+    card_map['salary']['accrual_delta'] = (
+        round(salary_turnovers['credit'] - previous_year_salary_accrual, 2)
+        if salary_turnovers['credit'] is not None
+        and previous_year_salary_accrual is not None else None)
+    card_map['salary']['previous_year_period'] = {
+        'start': previous_year_start.isoformat(),
+        'end': previous_year_end.isoformat(),
+    }
     previous_year_capex = _account_turnovers(
         source, '08', previous_year_start, previous_year_end)['debit']
     card_map['capex']['previous_year_value'] = previous_year_capex
@@ -3557,9 +3584,35 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                        else month_pl['profit']),
         }
         point_date = option['value']
+        previous_month_start = previous_year_date(month_start)
+        previous_month_end = previous_year_date(month_end)
+        previous_month_pl = _pl_facts(
+            source, previous_month_start, previous_month_end)
         card_map['profit']['gross_series'].append({
             'date': point_date, 'label': option['label'],
             'value': month_pl['profit']})
+        previous_month_gross_profit = previous_month_pl['profit']
+        month_gross_delta = (
+            round(month_pl['profit'] - previous_month_gross_profit, 2)
+            if month_pl['profit'] is not None
+            and previous_month_gross_profit is not None else None)
+        card_map['profit']['previous_year_gross_series'].append({
+            'date': point_date,
+            'source_date': previous_month_end.isoformat(),
+            'label': f'{option["label"]} · АПГ',
+            'value': previous_month_gross_profit,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
+        card_map['profit']['gross_profit_delta_series'].append({
+            'date': point_date,
+            'label': f'{option["label"]} · дельта АПГ',
+            'value': month_gross_delta,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
         card_map['profit']['sales_profit_series'].append({
             'date': point_date, 'label': option['label'],
             'value': month_sales_profit})
@@ -3571,10 +3624,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'value': month_pretax})
         month_capex_turnovers = _account_turnovers(
             source, '08', month_start, month_end)
-        previous_month_start = previous_year_date(month_start)
-        previous_month_end = previous_year_date(month_end)
-        previous_month_pl = _pl_facts(
-            source, previous_month_start, previous_month_end)
         current_cost = month_pl['cost']
         current_revenue = month_pl['revenue']
         previous_cost = previous_month_pl['cost']
@@ -3677,11 +3726,36 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             source, '70', month_end, credit=True)[0]
         month_salary_turnovers = _account_turnovers(
             source, '70', month_start, month_end)
+        previous_month_salary_turnovers = _account_turnovers(
+            source, '70', previous_month_start, previous_month_end)
+        month_salary_accrual = month_salary_turnovers['credit']
+        previous_month_salary_accrual = previous_month_salary_turnovers['credit']
+        month_salary_delta = (
+            round(month_salary_accrual - previous_month_salary_accrual, 2)
+            if month_salary_accrual is not None
+            and previous_month_salary_accrual is not None else None)
         month_insurance_turnovers = _account_turnovers(
             source, '69', month_start, month_end)
         card_map['salary']['accrual_series'].append({
             'date': point_date, 'label': option['label'],
-            'value': month_salary_turnovers['credit']})
+            'value': month_salary_accrual})
+        card_map['salary']['previous_year_accrual_series'].append({
+            'date': point_date,
+            'source_date': previous_month_end.isoformat(),
+            'label': f'{option["label"]} · АПГ',
+            'value': previous_month_salary_accrual,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
+        card_map['salary']['accrual_delta_series'].append({
+            'date': point_date,
+            'label': f'{option["label"]} · дельта АПГ',
+            'value': month_salary_delta,
+            'unit': 'RUB',
+            'granularity': series_kind,
+            'synthetic': False,
+        })
         card_map['salary']['insurance_series'].append({
             'date': point_date, 'label': option['label'],
             'value': month_insurance_turnovers['credit']})
@@ -3854,6 +3928,59 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
              'Дебетовое сальдо 08': _top_balance(
                  source, '08', month_end)[0]},
             'RUB')
+
+    # The chart follows the selected display granularity, while the comparison
+    # table is always calendar-month based.
+    comparison_month = start.replace(day=1)
+    while comparison_month <= end:
+        comparison_end = Date(
+            comparison_month.year, comparison_month.month,
+            calendar.monthrange(
+                comparison_month.year, comparison_month.month)[1])
+        comparison_start = max(comparison_month, start)
+        comparison_end = min(comparison_end, end)
+        previous_comparison_start = previous_year_date(comparison_start)
+        previous_comparison_end = previous_year_date(comparison_end)
+        current_accrual = _account_turnovers(
+            source, '70', comparison_start, comparison_end)['credit']
+        previous_accrual = _account_turnovers(
+            source, '70', previous_comparison_start,
+            previous_comparison_end)['credit']
+        employee_debt = _top_balance(
+            source, '70', comparison_end, credit=True)[0]
+        comparison_delta = (
+            round(current_accrual - previous_accrual, 2)
+            if current_accrual is not None and previous_accrual is not None
+            else None)
+        card_map['salary']['monthly_comparison'].append({
+            'date': comparison_end.isoformat(),
+            'label': _options([comparison_end], 'month')[0]['label'],
+            'current_accrual': current_accrual,
+            'employee_debt': employee_debt,
+            'previous_year_accrual': previous_accrual,
+            'delta': comparison_delta,
+        })
+        current_gross_profit = _pl_facts(
+            source, comparison_start, comparison_end)['profit']
+        previous_gross_profit = _pl_facts(
+            source, previous_comparison_start,
+            previous_comparison_end)['profit']
+        gross_delta = (
+            round(current_gross_profit - previous_gross_profit, 2)
+            if current_gross_profit is not None
+            and previous_gross_profit is not None else None)
+        card_map['profit']['monthly_comparison'].append({
+            'date': comparison_end.isoformat(),
+            'label': _options([comparison_end], 'month')[0]['label'],
+            'current_gross_profit': current_gross_profit,
+            'previous_year_gross_profit': previous_gross_profit,
+            'delta': gross_delta,
+        })
+        if comparison_month.month == 12:
+            comparison_month = Date(comparison_month.year + 1, 1, 1)
+        else:
+            comparison_month = Date(
+                comparison_month.year, comparison_month.month + 1, 1)
 
     # Cash is a balance snapshot, not a period movement. Keep its modal
     # series on the real calendar even when another account has only monthly

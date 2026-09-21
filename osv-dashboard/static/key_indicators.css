@@ -1026,6 +1026,8 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .cogs-object-table { min-width:1160px; }
 .cogs-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .profit-summary { margin-bottom:18px; }
+.profit-summary { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.profit-chart-block { width:100%; min-width:0; grid-column:1 / -1; }
 .profit-line-chart { height:270px; }
 .profit-waterfall-table { min-width:840px; }
 .profit-dynamics-table { min-width:880px; }
@@ -1039,6 +1041,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .credits-analytics-table { min-width:1160px; }
 .credits-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .salary-summary { margin-bottom:18px; }
+.salary-chart-block { width:100%; min-width:0; grid-column:1 / -1; }
 .salary-line-chart { height:270px; }
 .salary-account-table { min-width:1040px; }
 .salary-analytics-table { min-width:980px; }

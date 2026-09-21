@@ -41,6 +41,36 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(cards['salary']['value'], 150)
         self.assertEqual(cards['salary']['debit_balance'], 0)
 
+    def test_salary_exposes_comparable_apg_accruals_and_preserves_missing(self):
+        raw = account(
+            '70',
+            [
+                day('2025-01-31', 'Работник А', obk=80),
+                day('2025-02-28', 'Работник А', obk=0),
+                day('2026-01-31', 'Работник А', obk=100),
+            ],
+            period='за 01.01.2025 - 28.02.2026',
+        )
+        salary = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'70': raw}),
+            period='month', date_from='2026-01-31', date='2026-02-28',
+        )['cards']}['salary']
+
+        self.assertEqual(salary['previous_year_accrual'], 80)
+        self.assertEqual(salary['accrual_delta'], 20)
+        self.assertEqual(
+            [row['current_accrual'] for row in salary['monthly_comparison']],
+            [100, None])
+        self.assertEqual(
+            [row['previous_year_accrual'] for row in salary['monthly_comparison']],
+            [80, 0])
+        self.assertEqual(
+            [row['employee_debt'] for row in salary['monthly_comparison']],
+            [None, 0])
+        self.assertEqual(
+            [row['delta'] for row in salary['monthly_comparison']],
+            [20, None])
+
     def test_quality_missing_accounts_use_account_numbers_not_metric_ids(self):
         result = build_key_indicators(build_indicator_source({
             '90': account('90', [day('2026-01-31', '90.01', obk=100)]),
@@ -1034,6 +1064,39 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(profit['other_result'])
         self.assertIsNone(profit['profit_before_tax'])
         self.assertIn('Валовая прибыль', profit['title'])
+
+    def test_profit_exposes_comparable_gross_profit_and_preserves_missing(self):
+        src = build_indicator_source({
+            '90': account('90', [
+                day('2025-01-31', '90.01', obk=80),
+                day('2025-01-31', '90.03', obd=20),
+                day('2025-01-31', '90.02', obd=40),
+                day('2025-02-28', '90.01', obk=0),
+                day('2025-02-28', '90.03', obd=0),
+                day('2025-02-28', '90.02', obd=0),
+                day('2026-01-31', '90.01', obk=100),
+                day('2026-01-31', '90.03', obd=20),
+                day('2026-01-31', '90.02', obd=50),
+            ], period='за 01.01.2025 - 28.02.2026'),
+        })
+        profit = {item['id']: item for item in build_key_indicators(
+            src, period='month', date_from='2026-01-31',
+            date='2026-02-28')['cards']}['profit']
+
+        self.assertEqual(profit['gross_profit'], 30)
+        self.assertEqual(profit['previous_year_gross_profit'], 20)
+        self.assertEqual(profit['gross_profit_delta'], 10)
+        self.assertEqual(
+            [row['current_gross_profit']
+             for row in profit['monthly_comparison']],
+            [30, None])
+        self.assertEqual(
+            [row['previous_year_gross_profit']
+             for row in profit['monthly_comparison']],
+            [20, 0])
+        self.assertEqual(
+            [row['delta'] for row in profit['monthly_comparison']],
+            [10, None])
 
     def test_credit_detail_exposes_accounts_turnovers_and_analytics_without_double_count(self):
         src = build_indicator_source({

@@ -204,6 +204,21 @@
                 series_id: 'credit-turnover'
             }, 'salary', 0, false);
         }
+        if (card.previous_year_accrual_series &&
+                card.previous_year_accrual_series.length) {
+            add({
+                label: 'Начисления АПГ',
+                series: card.previous_year_accrual_series,
+                series_id: 'previous-year-accrual'
+            }, 'salary', 1, false);
+        }
+        if (card.accrual_delta_series && card.accrual_delta_series.length) {
+            add({
+                label: 'Дельта АПГ',
+                series: card.accrual_delta_series,
+                series_id: 'accrual-delta'
+            }, 'salary', 2, false);
+        }
         return result;
     };
 
@@ -4739,6 +4754,18 @@
                 card.gross_profit,
                 'Это не прибыль от продаж и не чистая прибыль.',
                 req.sales);
+            const grossApgTip = metricTip(
+                'Валовая прибыль АПГ',
+                '[ОбК(90.01) − ОбД(90.03)] − ОбД(90.02) за сопоставимый период предыдущего года',
+                card.previous_year_gross_profit,
+                'Используется тот же календарный интервал предыдущего года. Пропуски не заменяются нулями.',
+                req.sales);
+            const grossDeltaTip = metricTip(
+                'Дельта АПГ',
+                'Валовая прибыль − Валовая прибыль АПГ',
+                card.gross_profit_delta,
+                'Дельта рассчитывается только при наличии обеих сопоставимых величин.',
+                req.sales);
             const salesTip = metricTip(
                 'Прибыль от продаж',
                 'Валовая прибыль − ОбД(90.07) − ОбД(90.08)',
@@ -4848,6 +4875,39 @@
                     ${this.collectionCell(esc(rub((pretaxSeries[index] || {}).value)), tip, (pretaxSeries[index] || {}).value === null ? 'cash-value-missing' : '')}
                 </tr>`;
             }).join('') : '<tr><td colspan="5" class="chart-empty">Нет дневной серии.</td></tr>';
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const monthlyRows = monthly.map(item => {
+                const amountCell = value => hasNumericValue(value)
+                    ? `${esc(this.formatValue(value, 'RUB').val)} <span class="cash-number-unit">млн ₽</span>`
+                    : '—';
+                return `<tr>
+                    <td>${esc(item.label || item.date || '—')}</td>
+                    <td class="cash-number-cell">${amountCell(item.current_gross_profit)}</td>
+                    <td class="cash-number-cell">${amountCell(item.previous_year_gross_profit)}</td>
+                    <td class="cash-number-cell ${Number(item.delta) < 0 ? 'cash-value-negative' : ''}">${amountCell(item.delta)}</td>
+                </tr>`;
+            }).join('');
+            const profitModes = ['profit-gross', 'profit-gross-apg', 'profit-gross-delta'];
+            if (!state.modalChart.profitModes ||
+                    !profitModes.some(mode => state.modalChart.profitModes.has(mode))) {
+                state.modalChart.profitModes = new Set(['profit-gross']);
+            }
+            const summaryCard = (label, value, sub, mode, tooltip) => {
+                const available = hasNumericValue(value);
+                const formatted = this.formatValue(value, 'RUB');
+                const selected = state.modalChart.profitModes.has(mode);
+                return `<div class="cash-summary-card cash-tooltip-host cash-chart-mode-card ${selected ? 'cash-chart-mode-selected' : ''}"
+                    tabindex="0" role="button" aria-pressed="${selected ? 'true' : 'false'}"
+                    data-profit-chart-mode="${esc(mode)}"
+                    onclick="window.KI_App.toggleProfitChartMode('${esc(mode)}')"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleProfitChartMode('${esc(mode)}')}">
+                    <div class="cash-summary-label">${esc(label)}</div>
+                    <div class="cash-summary-value ${available ? (Number(value) < 0 ? 'cash-value-negative' : 'cash-value-ok') : 'cash-value-missing'}">${available ? `${esc(formatted.val)} <span class="metric-inline-unit">${esc(formatted.u)}</span>` : 'Нужны данные'}</div>
+                    <div class="cash-summary-sub">${esc(sub)}</div>
+                    ${this.cashTooltip(tooltip)}
+                </div>`;
+            };
 
             const unavailable = [
                 ['EBIT', 'до процентов и налога', `${req.classification} ${req.interest}`],
@@ -4871,12 +4931,26 @@
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Уровни результата разделены.</strong>
                     Валовая прибыль, прибыль от продаж и результат до налога не называются чистой прибылью.</div>
-                <div class="collection-summary profit-summary">
-                    ${this.cashMetricCard('Валовая прибыль', rub(card.gross_profit), `Рв = ${pct(margin(card.gross_profit))}`, grossTip, card.gross_profit === null || card.gross_profit === undefined, '__main__')}
-                    ${this.cashMetricCard('Прибыль от продаж', rub(card.profit_from_sales), `Рп = ${pct(margin(card.profit_from_sales))}`, salesTip, card.profit_from_sales === null || card.profit_from_sales === undefined)}
-                    ${this.cashMetricCard('Сальдо счёта 91', rub(card.other_result), '91.01 − 91.02', otherTip, card.other_result === null || card.other_result === undefined)}
-                    ${this.cashMetricCard('Результат до налога', rub(card.profit_before_tax), 'не чистая прибыль', pretaxTip, card.profit_before_tax === null || card.profit_before_tax === undefined)}
+                <div class="cash-summary-grid profit-summary">
+                    ${summaryCard('Валовая прибыль', card.gross_profit, `Рв = ${pct(margin(card.gross_profit))}`, 'profit-gross', grossTip)}
+                    ${summaryCard('Валовая прибыль АПГ', card.previous_year_gross_profit, 'сопоставимый период прошлого года', 'profit-gross-apg', grossApgTip)}
+                    ${summaryCard('Дельта АПГ', card.gross_profit_delta, 'текущая валовая прибыль минус АПГ', 'profit-gross-delta', grossDeltaTip)}
                 </div>
+                <div class="ki-modal-dynamics-block profit-chart-block"
+                     data-layout-key="dynamics" data-layout-title="Динамика">
+                    <div id="ki-profit-chart-title" class="modal-section-title">Валовая прибыль</div>
+                    <div id="ki-profit-line-chart" class="cash-line-chart"></div>
+                    <div class="cash-chart-legend" aria-label="Легенда графика">
+                        <span><i class="cash-chart-dot" style="background:#111827"></i>Валовая прибыль</span>
+                        <span><i class="cash-chart-dot" style="background:#DB2777"></i>Валовая прибыль АПГ</span>
+                        <span><i class="cash-chart-dot" style="background:#059669"></i>Дельта АПГ</span>
+                    </div>
+                </div>
+                <div class="modal-section-title">Валовая прибыль по месяцам</div>
+                <div class="cash-table-scroll"><table class="cash-table profit-comparison-table">
+                    <thead><tr><th>Месяц</th><th>Валовая прибыль</th><th>Валовая прибыль АПГ</th><th>Дельта АПГ</th></tr></thead>
+                    <tbody>${monthlyRows || '<tr><td colspan="4">Нет сопоставимых данных</td></tr>'}</tbody>
+                </table></div>
                 <div class="modal-section-title">Декомпозиция финансового результата</div>
                 <div class="collection-table-wrap"><table class="collection-detail-table profit-waterfall-table">
                     <thead><tr><th>Уровень</th><th>Сумма</th><th>Комментарий</th></tr></thead>
@@ -4899,6 +4973,105 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid profit-missing-grid">${unavailable}</div>`;
+            this.scheduleChart('ki-profit-line-chart',
+                () => this.renderProfitChartModes(card), 50);
+        },
+
+        renderProfitChartModes(card) {
+            if (!card) return;
+            const allModes = [
+                'profit-gross', 'profit-gross-apg', 'profit-gross-delta'
+            ];
+            if (!state.modalChart.profitModes ||
+                    !allModes.some(mode => state.modalChart.profitModes.has(mode))) {
+                state.modalChart.profitModes = new Set(['profit-gross']);
+            }
+            const selected = state.modalChart.profitModes;
+            const labels = {
+                'profit-gross': 'Валовая прибыль',
+                'profit-gross-apg': 'Валовая прибыль АПГ',
+                'profit-gross-delta': 'Дельта АПГ'
+            };
+            const root = document.getElementById('ki-profit-modal-content');
+            if (root && root.querySelectorAll) {
+                root.querySelectorAll('[data-profit-chart-mode]').forEach(tile => {
+                    const active = selected.has(tile.dataset.profitChartMode);
+                    tile.classList.toggle('cash-chart-mode-selected', active);
+                    tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+            }
+            const title = document.getElementById('ki-profit-chart-title');
+            if (title) {
+                title.textContent = [...selected].map(mode => labels[mode])
+                    .filter(Boolean).join(' и ');
+            }
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const seriesFor = (field, fallback) => monthly.length
+                ? monthly.map(item => ({
+                    date: item.date,
+                    label: item.label || item.date,
+                    value: item[field]
+                }))
+                : (fallback || []);
+            this.renderCashLineChart([], [], [], [], 'ki-profit-line-chart', [
+                {
+                    id: 'profit-gross',
+                    series: selected.has('profit-gross')
+                        ? seriesFor('current_gross_profit', card.gross_series) : [],
+                    color: '#111827',
+                    label: 'Валовая прибыль',
+                    className: 'cash-chart-profit-gross',
+                    connectWithoutAccounts: true,
+                    formula: '[ОбК(90.01) − ОбД(90.03)] − ОбД(90.02)',
+                    source: 'субсчета 90.01, 90.02 и 90.03 по данным ОСВ'
+                },
+                {
+                    id: 'profit-gross-apg',
+                    series: selected.has('profit-gross-apg')
+                        ? seriesFor('previous_year_gross_profit',
+                            card.previous_year_gross_series) : [],
+                    color: '#DB2777',
+                    dash: ' stroke-dasharray="6 4"',
+                    label: 'Валовая прибыль АПГ',
+                    className: 'cash-chart-profit-gross-apg',
+                    connectWithoutAccounts: true,
+                    formula: 'Валовая прибыль за сопоставимый период предыдущего года',
+                    source: 'субсчета 90.01, 90.02 и 90.03 за предыдущий год'
+                },
+                {
+                    id: 'profit-gross-delta',
+                    series: selected.has('profit-gross-delta')
+                        ? seriesFor('delta', card.gross_profit_delta_series) : [],
+                    color: '#059669',
+                    label: 'Дельта АПГ',
+                    className: 'cash-chart-profit-gross-delta',
+                    connectWithoutAccounts: true,
+                    formula: 'Валовая прибыль − Валовая прибыль АПГ',
+                    source: 'сопоставимые данные субсчетов 90'
+                }
+            ]);
+        },
+
+        toggleProfitChartMode(mode) {
+            const card = state.data && Array.isArray(state.data.cards)
+                ? state.data.cards.find(item =>
+                    item.id === state.modalCardId && item.id === 'profit') : null;
+            const allowed = [
+                'profit-gross', 'profit-gross-apg', 'profit-gross-delta'
+            ];
+            if (!card || !allowed.includes(mode)) return;
+            if (!state.modalChart.profitModes) {
+                state.modalChart.profitModes = new Set(['profit-gross']);
+            }
+            if (state.modalChart.profitModes.has(mode)) {
+                if (state.modalChart.profitModes.size > 1) {
+                    state.modalChart.profitModes.delete(mode);
+                }
+            } else {
+                state.modalChart.profitModes.add(mode);
+            }
+            this.renderProfitChartModes(card);
         },
 
         creditsRequirements() {
@@ -5123,6 +5296,23 @@
             const salaryDebitId = metricSeriesIdForLabel(card, 'details', 'Дебетовое сальдо 70');
             const salaryAccrualId = metricSeriesItems(card).find(item =>
                 item.data === card.accrual_series)?.id || '';
+            const salaryApgId = metricSeriesItems(card).find(item =>
+                item.data === card.previous_year_accrual_series)?.id || '';
+            const salaryDeltaId = metricSeriesItems(card).find(item =>
+                item.data === card.accrual_delta_series)?.id || '';
+            const salarySeriesIds = new Set([
+                salaryAccrualId, salaryMainId, salaryApgId, salaryDeltaId
+            ].filter(Boolean));
+            if (!salarySeriesIds.has(state.modalChart.activeId)) {
+                state.modalChart.activeId = salaryAccrualId;
+            }
+            const salaryModes = [
+                'salary-accrual', 'salary-debt', 'salary-apg', 'salary-delta'
+            ];
+            if (!state.modalChart.salaryModes ||
+                    !salaryModes.some(mode => state.modalChart.salaryModes.has(mode))) {
+                state.modalChart.salaryModes = new Set(['salary-accrual']);
+            }
             const seriesKind = state.data?.period?.series_kind;
             const granularity = seriesKind === 'day' ? 'Дневная' : seriesKind === 'month' ? 'Месячная' : 'По периодам источника';
             const rub = value => value === null || value === undefined
@@ -5157,6 +5347,18 @@
                 'max(СКк(69) − СКд(69), 0)', ins.credit_balance,
                 'Сальдо не подтверждает просрочку и не разделяется на виды взносов без субсчетов и обязательств.',
                 `${req.balances} Для сроков: ${req.insurancePayments}`);
+            const apgTip = tip(
+                'Начисления АПГ',
+                'ОбК(70) за сопоставимый период предыдущего года',
+                card.previous_year_accrual,
+                'Сопоставляется тот же календарный интервал предыдущего года. Пропущенные данные не заменяются нулями.',
+                req.balances);
+            const deltaTip = tip(
+                'Дельта АПГ',
+                'Начисления работникам − Начисления АПГ',
+                card.accrual_delta,
+                'Дельта рассчитывается только при наличии обеих сопоставимых величин.',
+                req.balances);
             const movementTip = (account, side, value) => tip(
                 `${side === 'debit' ? 'Дебетовый' : 'Кредитовый'} оборот счёта ${account}`,
                 `Об${side === 'debit' ? 'Д' : 'К'}(${account}) за выбранный период`, value,
@@ -5176,12 +5378,13 @@
                 side === 'debit' ? `max(СКд(${account}) − СКк(${account}), 0)` : `max(СКк(${account}) − СКд(${account}), 0)`,
                 value, 'Конечное бухгалтерское сальдо на дату; не подтверждает платёжный статус.', req.balances,
                 `ОСВ счёта ${account}${label ? `, аналитика: ${label}` : ''}`);
-            const accountRows = [
+            const accountData = [
                 ['70', 'Расчёты с персоналом', card.debit_balance, card.value,
                     card.debit_turnover, card.credit_turnover],
                 ['69', 'Социальное страхование и обеспечение', ins.debit_balance,
                     ins.credit_balance, ins.debit_turnover, ins.credit_turnover]
-            ].map(([account, label, debitBalance, creditBalance, debitTurnover, creditTurnover]) => {
+            ];
+            const accountRows = accountData.map(([account, label, debitBalance, creditBalance, debitTurnover, creditTurnover]) => {
                 const rowTip = tip(
                     `Счёт ${account} — ${label}`, 'Сальдо и обороты по данным ОСВ',
                     creditBalance,
@@ -5189,13 +5392,22 @@
                     account === '70' ? `${req.balances} ${req.payroll} ${req.payments}` :
                         `${req.balances} ${req.insurance} ${req.insurancePayments}`);
                 return `<tr>
-                    ${this.collectionCell(`<strong>${esc(label)}</strong><br><span class="ki-muted">сч. ${account}</span>`, Object.assign({}, rowTip, {fact: label}))}
-                    ${this.collectionCell(esc(rub(debitBalance)), balanceTip(account, 'debit', debitBalance), debitBalance == null ? 'cash-value-missing' : '')}
-                    ${this.collectionCell(esc(rub(creditBalance)), balanceTip(account, 'credit', creditBalance), creditBalance == null ? 'cash-value-missing' : '')}
-                    ${this.collectionCell(esc(rub(debitTurnover)), movementTip(account, 'debit', debitTurnover), debitTurnover == null ? 'cash-value-missing' : '')}
-                    ${this.collectionCell(esc(rub(creditTurnover)), movementTip(account, 'credit', creditTurnover), creditTurnover == null ? 'cash-value-missing' : '')}
+                    ${this.collectionCell(`<strong>${esc(account)}</strong><br><span class="ki-muted">${esc(label)}</span>`, Object.assign({}, rowTip, {fact: label}))}
+                    ${this.collectionCell(esc(rub(creditTurnover)), movementTip(account, 'credit', creditTurnover), `cash-number-cell ${creditTurnover == null ? 'cash-value-missing' : ''}`)}
+                    ${this.collectionCell(esc(rub(debitTurnover)), movementTip(account, 'debit', debitTurnover), `cash-number-cell ${debitTurnover == null ? 'cash-value-missing' : ''}`)}
+                    ${this.collectionCell(esc(rub(creditBalance)), balanceTip(account, 'credit', creditBalance), `cash-number-cell ${creditBalance == null ? 'cash-value-missing' : ''}`)}
                 </tr>`;
             }).join('');
+            const strictTotal = index => accountData.every(row =>
+                hasNumericValue(row[index]))
+                ? accountData.reduce((sum, row) => sum + Number(row[index]), 0)
+                : null;
+            const totalRows = `${accountRows}<tr class="cash-total-row">
+                <td>Итого</td>
+                <td class="cash-number-cell">${esc(rub(strictTotal(5)))}</td>
+                <td class="cash-number-cell">${esc(rub(strictTotal(4)))}</td>
+                <td class="cash-number-cell">${esc(rub(strictTotal(3)))}</td>
+            </tr>`;
 
             const analyticTable = (rows, account) => rows && rows.length
                 ? rows.map(row => {
@@ -5244,6 +5456,37 @@
                     </tr>`;
                 }).join('')
                 : '<tr><td colspan="5" class="chart-empty">Нет точной серии оборотов счёта 70 за выбранный период.</td></tr>';
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const monthlyRows = monthly.map(item => {
+                const current = this.formatValue(item.current_accrual, 'RUB');
+                const apg = this.formatValue(item.previous_year_accrual, 'RUB');
+                const delta = this.formatValue(item.delta, 'RUB');
+                const amountCell = (value, formatted) => hasNumericValue(value)
+                    ? `${esc(formatted.val)} <span class="cash-number-unit">${esc(formatted.u)}</span>`
+                    : '—';
+                return `<tr>
+                    <td>${esc(item.label || item.date || '—')}</td>
+                    <td class="cash-number-cell">${amountCell(item.current_accrual, current)}</td>
+                    <td class="cash-number-cell">${amountCell(item.previous_year_accrual, apg)}</td>
+                    <td class="cash-number-cell ${Number(item.delta) < 0 ? 'cash-value-negative' : ''}">${amountCell(item.delta, delta)}</td>
+                </tr>`;
+            }).join('');
+            const summaryCard = (label, value, sub, mode, tooltip) => {
+                const available = hasNumericValue(value);
+                const formatted = this.formatValue(value, 'RUB');
+                const selected = state.modalChart.salaryModes.has(mode);
+                return `<div class="cash-summary-card cash-tooltip-host cash-chart-mode-card ${selected ? 'cash-chart-mode-selected' : ''}"
+                    tabindex="0" role="button" aria-pressed="${selected ? 'true' : 'false'}"
+                    data-salary-chart-mode="${esc(mode)}"
+                    onclick="window.KI_App.toggleSalaryChartMode('${esc(mode)}')"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleSalaryChartMode('${esc(mode)}')}">
+                    <div class="cash-summary-label">${esc(label)}</div>
+                    <div class="cash-summary-value ${available ? (Number(value) < 0 ? 'cash-value-negative' : 'cash-value-ok') : 'cash-value-missing'}">${available ? `${esc(formatted.val)} <span class="metric-inline-unit">${esc(formatted.u)}</span>` : 'Нужны данные'}</div>
+                    <div class="cash-summary-sub">${esc(sub)}</div>
+                    ${this.cashTooltip(tooltip)}
+                </div>`;
+            };
 
             const unavailable = [
                 ['Подтверждённый ФОТ', 'начисления, включаемые в ФОТ', req.payroll],
@@ -5271,16 +5514,32 @@
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Бухгалтерское сальдо не равно просроченной зарплате.</strong>
                     Обороты 70 и 69 показываются как движения ОСВ без неподтверждённых платёжных статусов.</div>
-                <div class="collection-summary salary-summary">
-                    ${this.cashMetricCard('Задолженность работникам', rub(card.value), 'кредитовое сальдо 70', debtTip, card.value == null, salaryMainId)}
-                    ${this.cashMetricCard('Дебетовое сальдо 70', rub(card.debit_balance), 'переплаты и другие расчёты', debitTip, card.debit_balance == null, salaryDebitId)}
-                    ${this.cashMetricCard('Начисления работникам', rub(card.credit_turnover), 'ОбК 70 · не подтверждённый ФОТ', accrualTip, card.credit_turnover == null, salaryAccrualId)}
-                    ${this.cashMetricCard('Сальдо счёта 69', rub(ins.credit_balance), 'не статус просрочки', insuranceDebtTip, ins.credit_balance == null)}
+                <div class="cash-summary-grid salary-summary">
+                    ${summaryCard('Начисления работникам', card.credit_turnover, 'ОбК 70 · не подтверждённый ФОТ', 'salary-accrual', accrualTip)}
+                    ${summaryCard('Задолженность работникам', card.value, 'кредитовое сальдо 70', 'salary-debt', debtTip)}
+                    ${summaryCard('Начисления АПГ', card.previous_year_accrual, 'сопоставимый период прошлого года', 'salary-apg', apgTip)}
+                    ${summaryCard('Дельта АПГ', card.accrual_delta, 'текущие начисления минус АПГ', 'salary-delta', deltaTip)}
                 </div>
+                <div class="ki-modal-dynamics-block salary-chart-block"
+                     data-layout-key="dynamics" data-layout-title="Динамика">
+                    <div id="ki-salary-chart-title" class="modal-section-title">Начисления работникам</div>
+                    <div id="ki-salary-line-chart" class="cash-line-chart"></div>
+                    <div class="cash-chart-legend" aria-label="Легенда графика">
+                        <span><i class="cash-chart-dot" style="background:#111827"></i>Начисления работникам</span>
+                        <span><i class="cash-chart-dot" style="background:#2563EB"></i>Задолженность работникам</span>
+                        <span><i class="cash-chart-dot" style="background:#DB2777"></i>Начисления АПГ</span>
+                        <span><i class="cash-chart-dot" style="background:#059669"></i>Дельта АПГ</span>
+                    </div>
+                </div>
+                <div class="modal-section-title">Начисления по месяцам</div>
+                <div class="cash-table-scroll"><table class="cash-table salary-comparison-table">
+                    <thead><tr><th>Месяц</th><th>Начисления</th><th>Начисления АПГ</th><th>Дельта АПГ</th></tr></thead>
+                    <tbody>${monthlyRows || '<tr><td colspan="4">Нет сопоставимых данных</td></tr>'}</tbody>
+                </table></div>
                 <div class="modal-section-title">Сальдо и бухгалтерские обороты</div>
-                <div class="collection-table-wrap"><table class="collection-detail-table salary-account-table">
-                    <thead><tr><th>Счёт</th><th>Дебетовое сальдо</th><th>Кредитовое сальдо</th><th>Дебетовый оборот</th><th>Кредитовый оборот</th></tr></thead>
-                    <tbody>${accountRows}</tbody>
+                <div class="cash-table-scroll"><table class="cash-table salary-account-table">
+                    <thead><tr><th>Счёт</th><th>Начислено</th><th>Выплачено</th><th>Задолженность</th></tr></thead>
+                    <tbody>${totalRows}</tbody>
                 </table></div>
                 <div class="modal-section-title">Динамика начислений и расчётных остатков</div>
                 <p class="ki-muted">${granularity} динамика. Единственная мера графика — ОбК70 (кредитовый оборот), млн ₽. Остатки и ОбК69 приведены только в таблице. Оборот не равен денежным выплатам или подтверждённому ФОТ.</p>
@@ -5300,6 +5559,117 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid salary-missing-grid">${unavailable}</div>`;
+            this.scheduleChart('ki-salary-line-chart',
+                () => this.renderSalaryChartModes(card), 50);
+        },
+
+        renderSalaryChartModes(card) {
+            if (!card) return;
+            const allModes = [
+                'salary-accrual', 'salary-debt', 'salary-apg', 'salary-delta'
+            ];
+            if (!state.modalChart.salaryModes ||
+                    !allModes.some(mode => state.modalChart.salaryModes.has(mode))) {
+                state.modalChart.salaryModes = new Set(['salary-accrual']);
+            }
+            const selected = state.modalChart.salaryModes;
+            const modeLabels = {
+                'salary-accrual': 'Начисления работникам',
+                'salary-debt': 'Задолженность работникам',
+                'salary-apg': 'Начисления АПГ',
+                'salary-delta': 'Дельта АПГ'
+            };
+            const root = document.getElementById('ki-salary-modal-content');
+            if (root && root.querySelectorAll) {
+                root.querySelectorAll('[data-salary-chart-mode]').forEach(tile => {
+                    const active = selected.has(tile.dataset.salaryChartMode);
+                    tile.classList.toggle('cash-chart-mode-selected', active);
+                    tile.setAttribute('aria-pressed', active ? 'true' : 'false');
+                });
+            }
+            const title = document.getElementById('ki-salary-chart-title');
+            if (title) {
+                title.textContent = [...selected].map(mode => modeLabels[mode])
+                    .filter(Boolean).join(' и ');
+            }
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const seriesFor = (field, fallback) => monthly.length
+                ? monthly.map(item => ({
+                    date: item.date,
+                    label: item.label || item.date,
+                    value: item[field]
+                }))
+                : (fallback || []);
+            this.renderCashLineChart([], [], [], [], 'ki-salary-line-chart', [
+                {
+                    id: 'salary-accrual',
+                    series: selected.has('salary-accrual')
+                        ? seriesFor('current_accrual', card.accrual_series) : [],
+                    color: '#111827',
+                    label: 'Начисления работникам',
+                    className: 'cash-chart-salary-accrual',
+                    connectWithoutAccounts: true,
+                    formula: 'ОбК(70) за месяц',
+                    source: 'кредитовые обороты счёта 70 по данным ОСВ'
+                },
+                {
+                    id: 'salary-debt',
+                    series: selected.has('salary-debt')
+                        ? seriesFor('employee_debt', card.series) : [],
+                    color: '#2563EB',
+                    label: 'Задолженность работникам',
+                    className: 'cash-chart-salary-debt',
+                    connectWithoutAccounts: true,
+                    formula: 'max(СКк(70) − СКд(70), 0)',
+                    source: 'конечное кредитовое сальдо счёта 70 по данным ОСВ'
+                },
+                {
+                    id: 'salary-apg',
+                    series: selected.has('salary-apg')
+                        ? seriesFor('previous_year_accrual',
+                            card.previous_year_accrual_series) : [],
+                    color: '#DB2777',
+                    dash: ' stroke-dasharray="6 4"',
+                    label: 'Начисления АПГ',
+                    className: 'cash-chart-salary-apg',
+                    connectWithoutAccounts: true,
+                    formula: 'ОбК(70) за сопоставимый месяц предыдущего года',
+                    source: 'кредитовые обороты счёта 70 за аналогичный период прошлого года'
+                },
+                {
+                    id: 'salary-delta',
+                    series: selected.has('salary-delta')
+                        ? seriesFor('delta', card.accrual_delta_series) : [],
+                    color: '#059669',
+                    label: 'Дельта АПГ',
+                    className: 'cash-chart-salary-delta',
+                    connectWithoutAccounts: true,
+                    formula: 'Начисления работникам − Начисления АПГ',
+                    source: 'сопоставимые кредитовые обороты счёта 70'
+                }
+            ]);
+        },
+
+        toggleSalaryChartMode(mode) {
+            const card = state.data && Array.isArray(state.data.cards)
+                ? state.data.cards.find(item =>
+                    item.id === state.modalCardId && item.id === 'salary') : null;
+            const allowed = [
+                'salary-accrual', 'salary-debt', 'salary-apg', 'salary-delta'
+            ];
+            if (!card || !allowed.includes(mode)) return;
+            if (!state.modalChart.salaryModes) {
+                state.modalChart.salaryModes = new Set(['salary-accrual']);
+            }
+            if (state.modalChart.salaryModes.has(mode)) {
+                if (state.modalChart.salaryModes.size > 1) {
+                    state.modalChart.salaryModes.delete(mode);
+                }
+            } else {
+                state.modalChart.salaryModes.add(mode);
+            }
+            this.renderSalaryChartModes(card);
         },
 
         capexRequirements() {
@@ -5627,6 +5997,7 @@
                 if (tile.classList) {
                     tile.classList.toggle('ki-metric-tile-active', active);
                     tile.classList.toggle('ki-metric-tile-pinned', pinned);
+                    tile.classList.toggle('cash-chart-mode-selected', active);
                 }
                 if (tile.style) {
                     const color = metricChartColor(id);
@@ -6190,6 +6561,27 @@
                     salarySeries.label, salarySeries.series, false,
                     salarySeries, 'salary');
             }
+            if (card.previous_year_accrual_series &&
+                    card.previous_year_accrual_series.length) {
+                const salaryApgSeries = {
+                    label: 'Начисления АПГ',
+                    series: card.previous_year_accrual_series,
+                    series_id: 'previous-year-accrual'
+                };
+                addSeries(metricSeriesId(salaryApgSeries, 'salary', 1),
+                    salaryApgSeries.label, salaryApgSeries.series, false,
+                    salaryApgSeries, 'salary');
+            }
+            if (card.accrual_delta_series && card.accrual_delta_series.length) {
+                const salaryDeltaSeries = {
+                    label: 'Дельта АПГ',
+                    series: card.accrual_delta_series,
+                    series_id: 'accrual-delta'
+                };
+                addSeries(metricSeriesId(salaryDeltaSeries, 'salary', 2),
+                    salaryDeltaSeries.label, salaryDeltaSeries.series, false,
+                    salaryDeltaSeries, 'salary');
+            }
 
             const activeSeries = availableSeries.find(
                 series => series.id === state.modalChart.activeId);
@@ -6552,7 +6944,12 @@
             const unitNotice = state.modalChart.unitNotice
                 ? `<div style="font-size:11px;color:#92400E;margin-bottom:6px;">${esc(state.modalChart.unitNotice)}</div>`
                 : '';
-            container.innerHTML = unitNotice
+            const legend = `<div class="cash-modal-chart-legend" role="group" aria-label="Легенда графика">${
+                seriesToDraw.map(series =>
+                    `<span><i style="background:${metricChartColor(series.id)}"></i>${esc(series.label)}</span>`
+                ).join('')
+            }</div>`;
+            container.innerHTML = unitNotice + legend
                 + `<div class="metric-modal-chart-plot">${svg}${htmlOverlay}</div>`;
         },
         renderCashDzModal(card) {
@@ -7344,25 +7741,25 @@ renderCashModal(card) {
                     ? ` ${item.reasons.join('; ')}.` : '';
                 if (isBalance) return {
                     title: `${group.label || `Денежные средства${suffix}`} — ${item.date || item.label}`,
-                    description: group.label
+                    description: group.description || (group.label
                         ? `Фактическое значение «${group.label}» на точную дату.`
-                        : `Фактический остаток денежных средств${suffix} на точную дату.`,
-                    formula: group.label
+                        : `Фактический остаток денежных средств${suffix} на точную дату.`),
+                    formula: group.formula || (group.label
                         ? (group.id.startsWith('advances')
                             ? 'Авансы потребителей = max(СКк(62.02) − СКд(62.02), 0)'
                             : 'ДЗ потребителей = max(СКд(62.01) − СКк(62.01), 0)')
-                        : 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
+                        : 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55'),
                     detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.balance.toFixed(2)} млн ₽`,
                     deviation: group.label
                         ? `Фактическое значение «${group.label}»`
                         : `Фактический остаток денежных средств${suffix}`,
-                    source: group.label
+                    source: group.source || (group.label
                         ? (group.id.startsWith('advances')
                             ? 'счёт 62.02 по данным ОСВ'
                             : 'счёт 62.01 по данным ОСВ')
-                        : 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55'
+                        : 'точные дневные конечные сальдо ОСВ по счетам 50, 51, 52 и 55')
                 };
                 return isCredit ? {
                     title: `Выплаты${suffix} — ${item.date}`,
@@ -7681,7 +8078,9 @@ renderCashModal(card) {
                 } else if (activeContainer !== cashContent &&
                         activeContainer !== revenueContent &&
                         activeContainer !== collectionContent &&
-                        activeContainer !== capexContent) {
+                        activeContainer !== capexContent &&
+                        activeContainer !== salaryContent &&
+                        activeContainer !== profitContent) {
                     this.mountSharedDynamics(card, activeContainer);
                     this.bindMetricTiles(card, activeContainer);
                 }
