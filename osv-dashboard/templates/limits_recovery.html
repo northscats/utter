@@ -6,6 +6,36 @@
 <h1>Восстановление после сбоя</h1>
 <p class="lead">Ниже показаны только <b>идентификаторы</b> и статусы доставки для заблокированной версии.<br>Содержимое сообщений и финансовых данных скрыто.</p>
 
+<div class="panel recovery-status">
+  {% if status == 'restoring' %}
+    <h2>Восстановление выполняется</h2>
+    <p>Дождитесь завершения восстановления App Storage и проверки окна хранения.</p>
+  {% elif status == 'error' %}
+    <h2>Восстановление не завершено</h2>
+    <p>Произошёл временный сбой на этапе
+      {% if startup_error == 'restore' %}восстановления данных
+      {% elif startup_error == 'reconcile' %}проверки истории
+      {% else %}завершения безопасного запуска{% endif %}.
+      Финансовые данные и фоновые обработчики остаются закрыты.</p>
+    <form method="post" action="{{ url_for('limit_history_recovery') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="retry_startup">
+      <button type="submit" class="btn-outline">Повторить полное восстановление</button>
+    </form>
+  {% elif status == 'blocked' %}
+    <h2>Нужна сверка истории</h2>
+    <p>Обнаружены конфликты окна хранения. Устраните их и повторите проверку.</p>
+    <form method="post" action="{{ url_for('limit_history_recovery') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="reconcile">
+      <button type="submit" class="btn-outline">Повторить проверку истории</button>
+    </form>
+  {% else %}
+    <h2>Проверка завершена</h2>
+    <p>История согласована, модуль доступен.</p>
+  {% endif %}
+</div>
+
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
     <div class="flash-messages">
@@ -65,6 +95,9 @@
 
 <style>
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); }
+.recovery-status { padding: 20px; }
+.recovery-status h2 { margin: 0 0 8px; font-size: 18px; }
+.recovery-status p { margin: 0 0 16px; color: var(--mut); }
 
 .data-table { width: 100%; border-collapse: collapse; text-align: left; }
 .data-table th { padding: 14px 20px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }

@@ -195,6 +195,39 @@ class LimitsRouteTests(unittest.TestCase):
             self.assertEqual(503, client.get(path).status_code)
         _limits_history_ready.set()
 
+    def test_admin_can_open_recovery_panel_after_startup_error(self):
+        with app.app_context():
+            Setting.set('limits_history_ready', 'error')
+            Setting.set('limits_startup_error', 'restore')
+            db.session.commit()
+        _limits_history_ready.clear()
+        response = self.client(1).get('/limit-notifications/recovery')
+        self.assertEqual(200, response.status_code)
+        self.assertIn('Повторить полное восстановление',
+                      response.get_data(as_text=True))
+
+    def test_admin_retry_redirects_to_module_after_success(self):
+        with app.app_context():
+            Setting.set('limits_history_ready', 'error')
+            db.session.commit()
+        _limits_history_ready.clear()
+
+        def complete_retry(**_kwargs):
+            with app.app_context():
+                Setting.set('limits_history_ready', 'ready')
+                db.session.commit()
+            _limits_history_ready.set()
+            return True
+
+        with patch('app._finish_durable_startup',
+                   side_effect=complete_retry) as retry:
+            response = self.client(1).post(
+                '/limit-notifications/recovery',
+                data={'action': 'retry_startup'})
+        self.assertEqual(302, response.status_code)
+        self.assertIn('/limit-notifications', response.headers['Location'])
+        retry.assert_called_once_with(restore=True)
+
     def test_filters_keep_all_repeated_uin_rows(self):
         with app.app_context():
             dataset = db.session.get(LimitDataset, 1)

@@ -229,7 +229,10 @@ def _durable_restore():
         db.session.rollback()
         app.logger.exception('durable restore failed')
         try:
-            Setting.set('durable_restore_error', str(exc))
+            # Keep exception details in server logs only. This persisted value
+            # may be shown to an administrator and must not contain paths,
+            # credentials, or provider response bodies.
+            Setting.set('durable_restore_error', 'restore_failed')
             db.session.commit()
         except Exception:
             db.session.rollback()
@@ -342,6 +345,7 @@ _limits_history_ready = threading.Event()
 _limits_parse_slots = threading.Semaphore(1)
 _limits_recovery_started = False
 _limits_recovery_lock = threading.Lock()
+_limits_startup_lock = threading.Lock()
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -7308,51 +7312,72 @@ def init_db(perform_durable=True):
             # startup phase after this schema-only step.
             app.config['DURABLE_STARTUP_READY'] = False
             return
-        if not _durable_restore():
-            app.config['DURABLE_STARTUP_READY'] = False
-            raise RuntimeError(
-                'Durable restore failed; bootstrap was not attempted')
-        _ensure_initial_admin_after_restore()
-        _finish_durable_startup()
-        app.config['DURABLE_STARTUP_READY'] = True
+        _finish_durable_startup(restore=True)
+
 def _finish_durable_startup(restore=False):
-    """Complete restore, bootstrap, and backup after schema readiness."""
-    with app.app_context():
-        if restore:
-            if not _durable_restore():
+    """Complete startup once; persist a retryable, non-sensitive failure state."""
+    if not _limits_startup_lock.acquire(blocking=False):
+        return False
+    stage = 'restore'
+    try:
+        with app.app_context():
+            _limits_history_ready.clear()
+            Setting.set('limits_history_ready', 'restoring')
+            Setting.set('limits_startup_error', '')
+            db.session.commit()
+            if restore:
+                if not _durable_restore():
+                    raise RuntimeError(
+                        'Durable restore failed; bootstrap was not attempted')
+                _ensure_initial_admin_after_restore()
+            stage = 'reconcile'
+            _import_bundled_mup_kgh_account55()
+            _reconcile_limits_after_restore()
+            if not app.config.get('TESTING'):
+                stage = 'backup'
+                from durable_data import has_snapshot
+                limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
+                if Setting.get('limits_tombstones_external_pending') == '1':
+                    try:
+                        from durable_data import backup_limit_tombstones
+                        backup_limit_tombstones(db)
+                        Setting.set('limits_tombstones_external_pending', '0')
+                        Setting.set('limits_tombstone_backup_error', '')
+                        db.session.commit()
+                    except Exception as exc:
+                        db.session.rollback()
+                        Setting.set('limits_tombstone_backup_error', str(exc))
+                        db.session.commit()
+                result = _durable_backup(
+                    'очистка лимитов после запуска' if limit_cleanup else
+                    'первичный снимок после запуска',
+                    required=not has_snapshot(),
+                    allowed_removed_tables=(
+                        'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
+                        'limit_comparison_resolutions', 'limit_changes', 'limit_deliveries',
+                        'limit_delivery_attempts', 'limit_delivery_parts') if limit_cleanup else ())
+                if limit_cleanup and result and result.get('promoted'):
+                    Setting.set('limits_rotation_needs_backup', '0')
+                    db.session.commit()
+            # Reconciliation owns ready/blocked. Backups do not gate access once
+            # the restored financial history has been checked successfully.
+            if Setting.get('limits_history_ready') == 'ready':
+                _ensure_limits_recovery()
+                app.config['DURABLE_STARTUP_READY'] = True
+            else:
                 app.config['DURABLE_STARTUP_READY'] = False
-                raise RuntimeError(
-                    'Durable restore failed; bootstrap was not attempted')
-            _ensure_initial_admin_after_restore()
-        _import_bundled_mup_kgh_account55()
-        _reconcile_limits_after_restore()
-        if not app.config.get('TESTING'):
-            from durable_data import has_snapshot
-            limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
-            if Setting.get('limits_tombstones_external_pending') == '1':
-                try:
-                    from durable_data import backup_limit_tombstones
-                    backup_limit_tombstones(db)
-                    Setting.set('limits_tombstones_external_pending', '0')
-                    Setting.set('limits_tombstone_backup_error', '')
-                    db.session.commit()
-                except Exception as exc:
-                    db.session.rollback()
-                    Setting.set('limits_tombstone_backup_error', str(exc))
-                    db.session.commit()
-            result = _durable_backup(
-                'очистка лимитов после запуска' if limit_cleanup else
-                'первичный снимок после запуска',
-                required=not has_snapshot(),
-                allowed_removed_tables=(
-                    'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
-                    'limit_comparison_resolutions', 'limit_changes', 'limit_deliveries',
-                    'limit_delivery_attempts', 'limit_delivery_parts') if limit_cleanup else ())
-            if limit_cleanup and result and result.get('promoted'):
-                Setting.set('limits_rotation_needs_backup', '0')
-                db.session.commit()
-        _ensure_limits_recovery()
-        app.config['DURABLE_STARTUP_READY'] = True
+            return True
+    except Exception:
+        with app.app_context():
+            db.session.rollback()
+            _limits_history_ready.clear()
+            Setting.set('limits_history_ready', 'error')
+            Setting.set('limits_startup_error', stage)
+            db.session.commit()
+            app.config['DURABLE_STARTUP_READY'] = False
+        raise
+    finally:
+        _limits_startup_lock.release()
 
 def _reconcile_limits_after_restore():
     from limits_service import (cleanup_purged_files, cleanup_temporary_versions,
@@ -7703,9 +7728,25 @@ def limit_subscription_revoke(subscription_id):
 @admin_required
 def limit_history_recovery():
     """Minimal recovery controls: never expose pre-reconciliation financial data."""
-    if Setting.get('limits_history_ready') == 'restoring':
-        return jsonify(status='restoring', message='Дождитесь завершения восстановления.'), 503
+    status = Setting.get('limits_history_ready', 'restoring')
     if request.method == 'POST':
+        action = request.form.get('action', 'reconcile')
+        if action == 'retry_startup':
+            try:
+                started = _finish_durable_startup(restore=True)
+            except Exception:
+                app.logger.exception('administrator limits startup retry failed')
+                flash('Восстановление не завершено. Повторите попытку позже.', 'error')
+            else:
+                if not started:
+                    flash('Восстановление уже выполняется.', 'warning')
+                elif _limits_history_ready.is_set():
+                    flash('Восстановление и проверка истории завершены.', 'success')
+                    return redirect(url_for('limit_notifications'))
+            return redirect(url_for('limit_history_recovery'))
+        if status == 'restoring':
+            flash('Восстановление уже выполняется.', 'warning')
+            return redirect(url_for('limit_history_recovery'))
         delivery_id = request.form.get('delivery_id', type=int)
         if delivery_id:
             from limits_bot import cancel_delivery
@@ -7718,6 +7759,8 @@ def limit_history_recovery():
     pending = LimitDelivery.query.filter(LimitDelivery.status.in_(
         ('queued', 'retry', 'sending', 'unknown', 'error'))).all()
     return render_template('limits_recovery.html', deliveries=pending,
+                           status=Setting.get('limits_history_ready', status),
+                           startup_error=Setting.get('limits_startup_error', ''),
                            blocked=json.loads(Setting.get('limits_history_blocked', '[]')))
 
 @app.template_filter('limit_json')
@@ -8138,8 +8181,15 @@ def _limits_history_gate():
     if not current_user.is_authenticated:
         return
     if not _limits_history_ready.is_set() or Setting.get('limits_history_ready') != 'ready':
+        status = Setting.get('limits_history_ready', 'restoring')
+        details = {
+            'restoring': 'Восстановление и проверка истории выполняются.',
+            'error': 'Восстановление не завершилось. Администратор может повторить запуск.',
+            'blocked': 'Проверка истории обнаружила конфликт, требующий решения администратора.',
+        }
         return render_template('limits_unavailable.html',
-                               detail='Проверка восстановления и окна хранения ещё не завершена.'), 503
+                               detail=details.get(
+                                   status, 'Проверка восстановления ещё не завершена.')), 503
 
 @app.route('/limit-notifications/comparisons/<int:comparison_id>/resolve', methods=['POST'])
 @admin_required
