@@ -1633,7 +1633,6 @@
             this.renderPeriodSelector();
             this.renderWarnings();
             this.renderCards();
-            this.renderObjectsTable();
             this.renderQuality();
             this.renderRecommendations();
             if (window.KI_SourcePassport &&
@@ -1920,7 +1919,7 @@
             
             if (state.data.quality) {
                 const q = state.data.quality;
-                let qHtml = '<div class="quality-box"><div class="quality-title">Качество данных (ОСВ)</div>';
+                let qHtml = '<details class="quality-box"><summary class="quality-title">Качество данных (ОСВ)</summary><div class="quality-content">';
                 if (q.source_label) {
                     qHtml += `<div style="margin-bottom:8px; font-size:12px;"><strong>Источник:</strong> ${esc(q.source_label)}</div>`;
                 }
@@ -1930,7 +1929,7 @@
                 if (q.missing_accounts && q.missing_accounts.length > 0) {
                     qHtml += `<div style="font-size:12px; color:#EF4444; margin-top:4px;"><strong>Отсутствующие счета:</strong> ${esc(q.missing_accounts.join(', '))}</div>`;
                 }
-                qHtml += '</div>';
+                qHtml += '</div></details>';
                 html += qHtml;
             }
             

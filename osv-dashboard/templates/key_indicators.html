@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Основные показатели - {{ company.name }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='key_indicators.css', v='20260921-2') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='key_indicators.css', v='20260921-3') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_source_passport.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_indicator_layout.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='key_dashboard_layout.css') }}">
@@ -126,6 +126,22 @@
 
     <!-- АНАЛИТИКА -->
     <div class="tab-content active" id="tab-analytics">
+      <div class="container" id="ki-operational-container">
+        <div id="ki-warnings-container" style="display:none"></div>
+
+        <div class="kpi-row" id="ki-cards-grid">
+          <!-- Populated by JS -->
+        </div>
+
+        <div id="ki-quality-section"></div>
+      </div>
+
+      <div class="container" id="ki-annual-container" style="display:none;">
+        <div id="ki-annual-warnings" style="display:none"></div>
+        <div class="kpi-row" id="ki-annual-cards-grid"></div>
+        <div id="ki-annual-empty-state" style="display:none"></div>
+        <div id="ki-annual-quality"></div>
+      </div>
       <section class="ki-source-passport" id="ki-source-passport" aria-labelledby="ki-source-passport-title">
         <div class="ki-source-passport-header">
           <div class="ki-source-passport-heading">
@@ -147,60 +163,6 @@
         </div>
         <div class="ki-source-passport-body" id="ki-source-passport-body" hidden></div>
       </section>
-      <div class="container" id="ki-operational-container">
-        <div id="ki-warnings-container" style="display:none"></div>
-
-        <div class="kpi-row" id="ki-cards-grid">
-          <!-- Populated by JS -->
-        </div>
-
-        <div class="section">
-          <div class="section-header" onclick="this.parentElement.classList.toggle('collapsed')">
-            <div class="section-title">
-                <span class="section-icon" aria-hidden="true">₽</span>
-                Выручка, себестоимость и финансовый результат по объектам учёта
-            </div>
-            <div class="section-toggle">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-            </div>
-          </div>
-          <div class="section-body">
-            <div class="info-note">
-              <strong>Детализация по объектам аналитического учёта счёта 90.</strong> Позволяет выявить убыточные направления деятельности, оценить рентабельность каждого вида услуг и принять решение.
-            </div>
-
-            <div id="ki-objects-notes"></div>
-
-            <div style="overflow-x:auto;">
-                <table class="objects-table" id="ki-objects-table">
-                <thead>
-                    <tr>
-                    <th style="width: 25%;">Объект учёта (услуга)</th>
-                    <th>Выручка, млн ₽</th>
-                    <th>Себестоимость, млн ₽</th>
-                    <th>Валовая прибыль, млн ₽</th>
-                    <th>Рент-ть, %</th>
-                    <th>Доля в выручке, %</th>
-                    <th>Статус</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-                <tfoot id="ki-objects-totals"></tfoot>
-                </table>
-            </div>
-            <div id="ki-objects-chart"></div>
-          </div>
-        </div>
-        
-        <div id="ki-quality-section"></div>
-      </div>
-
-      <div class="container" id="ki-annual-container" style="display:none;">
-        <div id="ki-annual-warnings" style="display:none"></div>
-        <div class="kpi-row" id="ki-annual-cards-grid"></div>
-        <div id="ki-annual-empty-state" style="display:none"></div>
-        <div id="ki-annual-quality"></div>
-      </div>
     </div>
 
     <!-- РЕКОМЕНДАЦИИ -->
@@ -279,7 +241,7 @@
       </div>
     </div>
 
-    <script src="{{ url_for('static', filename='key_indicators.js', v='20260921-3') }}"></script>
+    <script src="{{ url_for('static', filename='key_indicators.js', v='20260921-4') }}"></script>
     <script src="{{ url_for('static', filename='annual_key_indicators.js') }}"></script>
     <script src="{{ url_for('static', filename='key_source_passport.js') }}"></script>
     <script src="{{ url_for('static', filename='key_indicator_layout.js', v='20260919-3') }}"></script>
