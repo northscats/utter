@@ -7356,8 +7356,10 @@ def _finish_durable_startup(restore=False):
 
 def _reconcile_limits_after_restore():
     from limits_service import (cleanup_purged_files, cleanup_temporary_versions,
-                                reconcile_history_window)
+                                reconcile_history_window,
+                                rename_legacy_limits_dataset)
     try:
+        rename_legacy_limits_dataset()
         cleanup_purged_files()
         cleanup_temporary_versions(int(os.environ.get('LIMITS_TEMP_TTL_HOURS', '72')))
         blocked = reconcile_history_window()

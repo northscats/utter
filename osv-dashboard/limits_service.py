@@ -23,7 +23,7 @@ from database import (
     LimitBotDialog, LimitBotOutbound, LimitChange, LimitComparison, LimitComparisonResolution,
     LimitDataset, LimitDelivery, LimitDeliveryAttempt, LimitDeliveryPart, LimitMaxEvent,
     LimitModerationRequest, LimitObject, LimitRecipient, LimitRowSnapshot,
-    LimitSubscription, LimitVersion, LimitVersionTombstone, db, utcnow,
+    LimitSubscription, LimitVersion, LimitVersionTombstone, Setting, db, utcnow,
 )
 
 MAX_HISTORY = 10
@@ -104,6 +104,27 @@ def make_dataset(name, scope, owner_id):
     db.session.add(dataset)
     db.session.commit()
     return dataset
+
+
+def rename_legacy_limits_dataset():
+    """Apply the one-time rename of the shipped registry with stable identity."""
+    marker = 'limits_dataset_1_renamed'
+    if Setting.get(marker, '') == '1':
+        return False
+
+    dataset = db.session.get(LimitDataset, 1)
+    if (dataset is not None and dataset.name == '1'
+            and dataset.current_version_id == 22):
+        dataset.name = 'Лимиты'
+        renamed = True
+    else:
+        renamed = False
+
+    # The migration runs only after additive restore has completed. Recording
+    # even a no-op prevents a future user-created registry named "1" from
+    # becoming migration input on an installation that never had the legacy row.
+    Setting.set(marker, '1')
+    return renamed
 
 
 @_serialized

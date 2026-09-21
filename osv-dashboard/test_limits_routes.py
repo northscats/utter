@@ -110,6 +110,73 @@ class LimitsRouteTests(unittest.TestCase):
                      '/limit-notifications/comparisons/1/export.xlsx'):
             self.assertEqual(403, client.get(path).status_code, path)
 
+    def test_legacy_dataset_rename_preserves_dashboard_and_bot_binding(self):
+        from app import _reconcile_limits_after_restore
+
+        with app.app_context():
+            dataset = db.session.get(LimitDataset, 1)
+            dataset.name = '1'
+            db.session.add(LimitVersion(
+                id=22, dataset_id=1, uploaded_by=1,
+                source_date=date(2026, 9, 21),
+                source_name='current.xlsx', source_path='/current.xlsx',
+                sha256='b' * 64, status='accepted',
+                snapshot_json=json.dumps(self.snapshot)))
+            dataset.current_version_id = 22
+            unrelated = LimitDataset(
+                id=2, owner_id=1, name='1', scope='Другой реестр')
+            db.session.add(unrelated)
+            Setting.set('limits_bot_dataset_id', str(dataset.id))
+            recipient = LimitRecipient(max_user_id='rename-regression')
+            db.session.add(recipient)
+            db.session.flush()
+            subscription = LimitSubscription(
+                dataset_id=dataset.id, uin='100.200',
+                recipient_id=recipient.id, is_active=True)
+            db.session.add(subscription)
+            original_version_id = dataset.current_version_id
+            original_object_ids = [
+                row.id for row in LimitObject.query.filter_by(
+                    dataset_id=dataset.id).order_by(LimitObject.id).all()
+            ]
+            db.session.commit()
+            original_subscription_id = subscription.id
+
+            _reconcile_limits_after_restore()
+            _reconcile_limits_after_restore()
+            db.session.expire_all()
+
+            renamed = db.session.get(LimitDataset, 1)
+            self.assertEqual('Лимиты', renamed.name)
+            self.assertEqual(original_version_id, renamed.current_version_id)
+            self.assertEqual(
+                original_object_ids,
+                [row.id for row in LimitObject.query.filter_by(
+                    dataset_id=renamed.id).order_by(LimitObject.id).all()])
+            self.assertEqual(str(renamed.id),
+                             Setting.get('limits_bot_dataset_id'))
+            self.assertEqual('1', db.session.get(LimitDataset, 2).name)
+            preserved_subscription = db.session.get(
+                LimitSubscription, original_subscription_id)
+            self.assertEqual(renamed.id, preserved_subscription.dataset_id)
+            self.assertTrue(preserved_subscription.is_active)
+
+            db.session.add(LimitDataset(
+                id=3, owner_id=1, name='1', scope='Создан после миграции'))
+            db.session.commit()
+            _reconcile_limits_after_restore()
+            self.assertEqual('1', db.session.get(LimitDataset, 3).name)
+
+        client = self.client(1)
+        dashboard = client.get('/limit-notifications?dataset=1')
+        settings = client.get('/limit-notifications/settings?dataset=1')
+        self.assertEqual(200, dashboard.status_code)
+        self.assertIn('Лимиты', dashboard.get_data(as_text=True))
+        self.assertEqual(200, settings.status_code)
+        settings_html = settings.get_data(as_text=True)
+        self.assertIn('>Лимиты</option>', settings_html)
+        self.assertIn('value="1" selected', settings_html)
+
     def test_viewer_cannot_access_admin_or_mutate(self):
         client = self.client(2)
         self.assertEqual(403, client.get('/limit-notifications/datasets/1/subscribers').status_code)
