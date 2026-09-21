@@ -4,6 +4,12 @@ const vm = require('node:vm');
 
 const modalCss = fs.readFileSync('static/key_indicators.css', 'utf8');
 assert.match(modalCss,
+    /\.modal-overlay\s*\{[^}]*padding:\s*8px;/s,
+    'Metric dialog must use nearly all of the central indicators viewport');
+assert.match(modalCss,
+    /\.modal\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*max-width:\s*none;[^}]*max-height:\s*none;/s,
+    'Metric dialog must fill its iframe without fixed desktop size limits');
+assert.match(modalCss,
     /\.ki-modal-dynamics-block \.modal-chart-wrap\s*\{[^}]*height:auto;[^}]*padding:0;[^}]*border:0;/s,
     'Shared dynamics wrapper must grow with the chart and not draw a second layer');
 assert.match(modalCss, /\.ki-metric-tile-active,\s*\.ki-metric-tile-pinned\s*\{/,
