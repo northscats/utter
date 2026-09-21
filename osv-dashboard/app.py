@@ -419,6 +419,40 @@ def _ensure_limits_recovery() -> None:
 
     threading.Thread(target=work, name='limits-recovery', daemon=True).start()
 @app.before_request
+def _durable_startup_http_gate():
+    """Keep routing probes responsive while protected data is restored.
+
+    Production restores run in a background thread after Gunicorn starts
+    accepting connections.  Returning a lightweight response here prevents
+    proxy probes from occupying every HTTP thread while the database is being
+    reconciled.  Real routes are restored immediately after reconciliation;
+    a failed startup falls through to the normal recovery UI.
+    """
+    if request.endpoint in ('healthz', 'healthz_watchdog_recovery', 'static'):
+        return None
+    if app.config.get('DURABLE_STARTUP_READY', True):
+        return None
+    if app.config.get('DURABLE_STARTUP_FAILED', False):
+        return None
+    if request.method in ('GET', 'HEAD'):
+        return Response(
+            'Приложение запускается. Восстановление и проверка данных выполняются.',
+            status=200,
+            mimetype='text/plain',
+            headers={
+                'Cache-Control': 'no-store',
+                'Retry-After': '5',
+            },
+        )
+    return Response(
+        'Приложение запускается. Повторите запрос после завершения восстановления.',
+        status=503,
+        mimetype='text/plain',
+        headers={'Retry-After': '5'},
+    )
+
+
+@app.before_request
 def _maybe_start_imap_thread():
     """Lazy IMAP thread starter — fires on the first HTTP request."""
     if request.endpoint in ('healthz', 'healthz_watchdog_recovery'):
@@ -7311,6 +7345,7 @@ def init_db(perform_durable=True):
             # Gunicorn completes recovery and bootstrap in its background
             # startup phase after this schema-only step.
             app.config['DURABLE_STARTUP_READY'] = False
+            app.config['DURABLE_STARTUP_FAILED'] = False
             return
         _finish_durable_startup(restore=True)
 
@@ -7322,6 +7357,8 @@ def _finish_durable_startup(restore=False):
     try:
         with app.app_context():
             _limits_history_ready.clear()
+            app.config['DURABLE_STARTUP_READY'] = False
+            app.config['DURABLE_STARTUP_FAILED'] = False
             Setting.set('limits_history_ready', 'restoring')
             Setting.set('limits_startup_error', '')
             db.session.commit()
@@ -7333,6 +7370,14 @@ def _finish_durable_startup(restore=False):
             stage = 'reconcile'
             _import_bundled_mup_kgh_account55()
             _reconcile_limits_after_restore()
+            # Reconciliation, not the optional safety snapshot below, owns
+            # application readiness.  Open HTTP routes before the backup so
+            # deployment probes and users are not blocked by App Storage I/O.
+            if Setting.get('limits_history_ready') == 'ready':
+                _ensure_limits_recovery()
+                app.config['DURABLE_STARTUP_READY'] = True
+            else:
+                app.config['DURABLE_STARTUP_READY'] = False
             if not app.config.get('TESTING'):
                 stage = 'backup'
                 from durable_data import has_snapshot
@@ -7361,11 +7406,7 @@ def _finish_durable_startup(restore=False):
                     db.session.commit()
             # Reconciliation owns ready/blocked. Backups do not gate access once
             # the restored financial history has been checked successfully.
-            if Setting.get('limits_history_ready') == 'ready':
-                _ensure_limits_recovery()
-                app.config['DURABLE_STARTUP_READY'] = True
-            else:
-                app.config['DURABLE_STARTUP_READY'] = False
+            app.config['DURABLE_STARTUP_FAILED'] = False
             return True
     except Exception:
         with app.app_context():
@@ -7375,6 +7416,7 @@ def _finish_durable_startup(restore=False):
             Setting.set('limits_startup_error', stage)
             db.session.commit()
             app.config['DURABLE_STARTUP_READY'] = False
+            app.config['DURABLE_STARTUP_FAILED'] = True
         raise
     finally:
         _limits_startup_lock.release()

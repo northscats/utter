@@ -78,6 +78,20 @@ class DurableBootstrapTest(unittest.TestCase):
             self.assertEqual('error', Setting.get('limits_history_ready'))
             self.assertEqual('restore', Setting.get('limits_startup_error'))
             self.assertFalse(_limits_history_ready.is_set())
+            self.assertTrue(app.config['DURABLE_STARTUP_FAILED'])
+
+    def test_startup_gate_keeps_get_probes_responsive(self):
+        app.config['DURABLE_STARTUP_READY'] = False
+        app.config['DURABLE_STARTUP_FAILED'] = False
+        try:
+            response = app.test_client().get('/limit-notifications')
+        finally:
+            app.config['DURABLE_STARTUP_READY'] = True
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            'Приложение запускается',
+            response.get_data(as_text=True))
+        self.assertIn('no-store', response.headers['Cache-Control'])
 
     def test_successful_retry_opens_history_gate(self):
         self._empty_schema()
