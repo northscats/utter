@@ -64,6 +64,12 @@ def _database_unavailable(_error):
     return _admin_error('Временная ошибка базы данных', 503)
 
 
+@bp.get('/api/1c')
+def one_c_health():
+    """Cheap routing probe; the integration endpoints remain under /push."""
+    return jsonify(status='ok', service='one_c')
+
+
 class NumberLexeme:
     def __init__(self, text):
         self.text = text

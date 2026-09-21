@@ -46,10 +46,14 @@ health_watchdog_timeout = float(
     os.environ.get('HEALTH_WATCHDOG_TIMEOUT', '3'))
 health_watchdog_startup_grace = float(
     os.environ.get('HEALTH_WATCHDOG_STARTUP_GRACE', '30'))
+health_watchdog_max_startup_seconds = float(
+    os.environ.get('HEALTH_WATCHDOG_MAX_STARTUP_SECONDS', '600'))
 health_watchdog_event_spool = os.environ.get(
     'HEALTH_WATCHDOG_EVENT_SPOOL',
     f'/tmp/osv-watchdog-recoveries-{os.environ.get("PORT", "8080")}.json',
 )
+health_watchdog_state_dir = os.environ.get(
+    'HEALTH_WATCHDOG_STATE_DIR', '/tmp')
 _pending_recovery_events = []
 _recovery_worker_pid = None
 _recovery_lock = threading.Lock()
@@ -58,6 +62,69 @@ _recovery_lock = threading.Lock()
 def _health_url():
     port = os.environ.get('PORT', '8080')
     return f'http://127.0.0.1:{port}/healthz'
+
+
+def _startup_state_path(worker_pid):
+    return os.path.join(
+        health_watchdog_state_dir, f'osv-startup-{int(worker_pid)}.json')
+
+
+def _write_startup_state(worker_pid, status):
+    """Publish worker bootstrap state to the Gunicorn master.
+
+    The master and worker do not share Python memory after fork.  A small
+    atomic file lets the watchdog distinguish an intentional long restore from
+    a genuinely wedged worker without weakening recovery forever.
+    """
+    path = _startup_state_path(worker_pid)
+    temporary = f'{path}.tmp'
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(temporary, 'w', encoding='utf-8') as state:
+            json.dump({
+                'pid': int(worker_pid),
+                'status': status,
+                'updated_at': time.time(),
+            }, state)
+            state.flush()
+            os.fsync(state.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        # Observability must never stop Gunicorn from starting or replacing a
+        # worker.  The watchdog falls back to its ordinary probe in this case.
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def _read_startup_state(worker_pid):
+    try:
+        with open(_startup_state_path(worker_pid), encoding='utf-8') as state:
+            payload = json.load(state)
+        if (payload.get('pid') != int(worker_pid)
+                or payload.get('status') not in ('starting', 'ready', 'failed')):
+            return None
+        return payload
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return None
+
+
+def _worker_is_starting(server, worker_pid):
+    """Return whether a worker is within its bounded restore window."""
+    state = _read_startup_state(worker_pid)
+    if not state or state.get('status') != 'starting':
+        return False
+    try:
+        age = max(0.0, time.time() - float(state['updated_at']))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if age < health_watchdog_max_startup_seconds:
+        return True
+    server.log.error(
+        '[worker %s] startup exceeded max grace of %ss',
+        worker_pid, health_watchdog_max_startup_seconds)
+    return False
 
 
 def _probe_health(timeout=None):
@@ -198,6 +265,7 @@ def _watchdog_loop(server, stop_event=None):
     )
     if stop_event.wait(health_watchdog_startup_grace):
         return
+    startup_logged_pid = None
     while not stop_event.is_set():
         worker_list = list(server.WORKERS.values())
         if len(worker_list) == 1:
@@ -208,6 +276,16 @@ def _watchdog_loop(server, stop_event=None):
                 # as the initial worker, not only the original master start.
                 last_worker_pid = worker_pid
                 if stop_event.wait(health_watchdog_startup_grace):
+                    return
+                continue
+            if _worker_is_starting(server, worker_pid):
+                if startup_logged_pid != worker_pid:
+                    server.log.info(
+                        '[worker %s] health probes paused during bounded '
+                        'durable startup (max %ss)',
+                        worker_pid, health_watchdog_max_startup_seconds)
+                    startup_logged_pid = worker_pid
+                if stop_event.wait(max(health_watchdog_interval, 1)):
                     return
                 continue
         if not _probe_health():
@@ -252,6 +330,7 @@ def post_fork(server, worker):
 
     from app import app, init_db, _finish_durable_startup, _ensure_imap_thread
 
+    _write_startup_state(worker.pid, 'starting')
     for attempt in range(10):
         try:
             init_db(perform_durable=False)
@@ -261,6 +340,7 @@ def post_fork(server, worker):
             server.log.warning(
                 f'[worker {worker.pid}] DB not ready (attempt {attempt + 1}/10): {exc}')
             if attempt == 9:
+                _write_startup_state(worker.pid, 'failed')
                 raise
             time.sleep(2)
 
@@ -269,12 +349,14 @@ def post_fork(server, worker):
             deployed = os.environ.get('REPLIT_DEPLOYMENT', '').strip().lower()
             restore = deployed in ('1', 'true')
             _finish_durable_startup(restore=restore)
+            _write_startup_state(worker.pid, 'ready')
             _ensure_imap_thread()
             server.log.info(
                 f'[worker {worker.pid}] durable startup ready '
                 f'(restore={"enabled" if restore else "development-skip"}), '
                 'IMAP thread started')
         except Exception:
+            _write_startup_state(worker.pid, 'failed')
             server.log.exception(
                 f'[worker {worker.pid}] background startup failed')
 

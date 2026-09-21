@@ -6748,15 +6748,21 @@ def _ensure_initial_admin_after_restore():
     """Create the bootstrap account only after durable recovery has settled."""
     if User.query.first():
         return False
-    initial_password = os.environ.get('INITIAL_ADMIN_PASSWORD', '')
+    # Keep compatibility with the original Replit environment key while the
+    # canonical deployment name remains INITIAL_ADMIN_PASSWORD.
+    initial_password = (
+        os.environ.get('INITIAL_ADMIN_PASSWORD', '')
+        or os.environ.get('ADMIN_INITIAL_PASSWORD', ''))
     if not initial_password:
         raise RuntimeError(
             'No initial admin account was created. Set '
-            'INITIAL_ADMIN_PASSWORD (a compliant secret) before '
+            'INITIAL_ADMIN_PASSWORD (or legacy ADMIN_INITIAL_PASSWORD) '
+            '(a compliant secret) before '
             'starting a clean database.')
     if validate_password(initial_password, username='admin'):
         raise RuntimeError(
-            'INITIAL_ADMIN_PASSWORD does not satisfy the password policy')
+            'INITIAL_ADMIN_PASSWORD (or legacy ADMIN_INITIAL_PASSWORD) '
+            'does not satisfy the password policy')
     admin = User(
         username='admin',
         password_hash=_hash_password(initial_password),
@@ -7351,7 +7357,16 @@ def init_db(perform_durable=True):
         if not perform_durable:
             # Gunicorn completes recovery and bootstrap in its background
             # startup phase after this schema-only step.
-            app.config['DURABLE_STARTUP_READY'] = False
+            # Tests intentionally call the schema-only path without starting
+            # Gunicorn's background thread. Keep normal route/auth assertions
+            # meaningful there; production remains gated until reconcile.
+            if app.config.get('TESTING'):
+                _limits_history_ready.set()
+                Setting.set('limits_history_ready', 'ready')
+                db.session.commit()
+                app.config['DURABLE_STARTUP_READY'] = True
+            else:
+                app.config['DURABLE_STARTUP_READY'] = False
             app.config['DURABLE_STARTUP_FAILED'] = False
             return
         _finish_durable_startup(restore=True)
@@ -7361,6 +7376,9 @@ def _finish_durable_startup(restore=False):
     if not _limits_startup_lock.acquire(blocking=False):
         return False
     stage = 'restore'
+    started_at = time.monotonic()
+    app.logger.info(
+        'durable startup started (restore=%s)', 'enabled' if restore else 'skip')
     try:
         with app.app_context():
             _limits_history_ready.clear()
@@ -7370,13 +7388,17 @@ def _finish_durable_startup(restore=False):
             Setting.set('limits_startup_error', '')
             db.session.commit()
             if restore:
+                app.logger.info('durable startup stage started: restore')
                 if not _durable_restore():
                     raise RuntimeError(
                         'Durable restore failed; bootstrap was not attempted')
                 _ensure_initial_admin_after_restore()
+                app.logger.info('durable startup stage completed: restore')
             stage = 'reconcile'
+            app.logger.info('durable startup stage started: reconcile')
             _import_bundled_mup_kgh_account55()
             _reconcile_limits_after_restore()
+            app.logger.info('durable startup stage completed: reconcile')
             # Reconciliation, not the optional safety snapshot below, owns
             # application readiness.  Open HTTP routes before the backup so
             # deployment probes and users are not blocked by App Storage I/O.
@@ -7387,6 +7409,7 @@ def _finish_durable_startup(restore=False):
                 app.config['DURABLE_STARTUP_READY'] = False
             if not app.config.get('TESTING'):
                 stage = 'backup'
+                app.logger.info('durable startup stage started: backup')
                 from durable_data import has_snapshot
                 limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
                 if Setting.get('limits_tombstones_external_pending') == '1':
@@ -7411,9 +7434,13 @@ def _finish_durable_startup(restore=False):
                 if limit_cleanup and result and result.get('promoted'):
                     Setting.set('limits_rotation_needs_backup', '0')
                     db.session.commit()
+                app.logger.info('durable startup stage completed: backup')
             # Reconciliation owns ready/blocked. Backups do not gate access once
             # the restored financial history has been checked successfully.
             app.config['DURABLE_STARTUP_FAILED'] = False
+            app.logger.info(
+                'durable startup completed in %.1fs',
+                time.monotonic() - started_at)
             return True
     except Exception:
         with app.app_context():
@@ -7424,6 +7451,9 @@ def _finish_durable_startup(restore=False):
             db.session.commit()
             app.config['DURABLE_STARTUP_READY'] = False
             app.config['DURABLE_STARTUP_FAILED'] = True
+            app.logger.exception(
+                'durable startup failed at stage %s after %.1fs',
+                stage, time.monotonic() - started_at)
         raise
     finally:
         _limits_startup_lock.release()
