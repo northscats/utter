@@ -228,6 +228,8 @@
     const operationalModel = data => {
         const passport = data && (data.source_passport || data.sourcePassport);
         if (!isObject(passport)) return null;
+        const quality = isObject(data.quality) ? data.quality : {};
+        const periodData = isObject(data.period) ? data.period : {};
         const period = passport.actual_period;
         const periodObject = isObject(period) ? period : {};
         const selectedPeriod = isObject(passport.period) ? passport.period : {};
@@ -369,7 +371,12 @@
                 listValue(overlaps)).concat(listValue(failures)),
             dailyControlReconciliations,
             cardReasons,
-            coverageStatus: coverageStatuses.join(', ')
+            coverageStatus: coverageStatuses.join(', '),
+            qualitySource: first(quality, ['source_label']),
+            qualityAccounts: accountList(first(quality, ['accounts'])),
+            qualityMissingAccounts: accountList(first(quality, ['missing_accounts'])),
+            warnings: unique(listValue(first(periodData, ['warnings'])).concat(
+                listValue(first(quality, ['warnings']))))
         };
     };
 
@@ -648,7 +655,20 @@
                 `<li><strong>${esc(card.title)}</strong><span>${esc(card.reason)}</span></li>`
             ).join('')}</ul>` :
             '<div class="ki-source-passport-empty">Недоступные карточки в выбранном ответе не обнаружены.</div>';
+        const qualityFacts = [
+            fact('Источник', model.qualitySource ? esc(model.qualitySource) : ''),
+            fact('Загруженные счета', model.qualityAccounts.length ?
+                esc(model.qualityAccounts.join(', ')) : ''),
+            fact('Отсутствующие счета', model.qualityMissingAccounts.length ?
+                esc(model.qualityMissingAccounts.join(', ')) : 'Нет')
+        ].join('');
+        const warningsSection = model.warnings.length ?
+            section(`Предупреждения и ограничения (${model.warnings.length})`,
+                issueList(model.warnings, 'Предупреждений нет')) : '';
         return [
+            section('Качество данных (ОСВ)',
+                `<dl class="ki-source-passport-facts">${qualityFacts}</dl>`),
+            warningsSection,
             `<dl class="ki-source-passport-facts">${facts}</dl>`,
             section('Файлы и фактические границы периода',
                 sourcesTable(model.sources, null, false)),

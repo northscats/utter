@@ -1631,9 +1631,7 @@
             subtitle.textContent = `${config.companyName} · ${this.displayedPeriodLabel()}`;
             
             this.renderPeriodSelector();
-            this.renderWarnings();
             this.renderCards();
-            this.renderQuality();
             this.renderRecommendations();
             if (window.KI_SourcePassport &&
                 typeof window.KI_SourcePassport.renderOperational === 'function') {
@@ -1643,35 +1641,6 @@
         
         renderPeriodSelector() {
             this.renderPeriodPicker();
-        },
-        
-        renderWarnings() {
-            const c = document.getElementById('ki-warnings-container');
-            const warnings = new Set();
-            
-            if (state.data.period && state.data.period.warnings) {
-                state.data.period.warnings.forEach(w => warnings.add(w));
-            }
-            if (state.data.quality && state.data.quality.warnings) {
-                state.data.quality.warnings.forEach(w => warnings.add(w));
-            }
-
-            if (warnings.size === 0) {
-                c.style.display = 'none';
-                return;
-            }
-            
-            let html = `<details class="warnings-details">
-                <summary>Предупреждения и ограничения (${warnings.size})</summary>
-                <div class="warnings-content"><ul>`;
-            
-            warnings.forEach(w => {
-                html += `<li>${esc(w)}</li>`;
-            });
-            html += `</ul></div></details>`;
-            
-            c.innerHTML = html;
-            c.style.display = 'block';
         },
         
         formatValue(v, unit) {
@@ -1913,29 +1882,6 @@
             container.innerHTML = svg;
         },
 
-        renderQuality() {
-            const container = document.getElementById('ki-quality-section');
-            let html = '';
-            
-            if (state.data.quality) {
-                const q = state.data.quality;
-                let qHtml = '<details class="quality-box"><summary class="quality-title">Качество данных (ОСВ)</summary><div class="quality-content">';
-                if (q.source_label) {
-                    qHtml += `<div style="margin-bottom:8px; font-size:12px;"><strong>Источник:</strong> ${esc(q.source_label)}</div>`;
-                }
-                if (q.accounts && q.accounts.length > 0) {
-                    qHtml += `<div style="font-size:12px;"><strong>Загруженные счета:</strong> ${esc(q.accounts.join(', '))}</div>`;
-                }
-                if (q.missing_accounts && q.missing_accounts.length > 0) {
-                    qHtml += `<div style="font-size:12px; color:#EF4444; margin-top:4px;"><strong>Отсутствующие счета:</strong> ${esc(q.missing_accounts.join(', '))}</div>`;
-                }
-                qHtml += '</div></details>';
-                html += qHtml;
-            }
-            
-            container.innerHTML = html;
-        },
-        
         renderRecommendations() {
             const list = document.getElementById('ki-recommendations-list');
             const badge = document.getElementById('ki-rec-badge');
