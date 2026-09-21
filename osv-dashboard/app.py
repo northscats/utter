@@ -8024,11 +8024,27 @@ def limit_comparison_view(comparison_id):
     total = query.count()
     pages = max(1, (total + 99)//100)
     page = max(1, min(request.args.get('page', 1, type=int), pages))
+    category_labels = {
+        'annual_funding': 'Годовое финансирование',
+        'object': 'Объект',
+        'completion_year': 'Год завершения',
+        'programme_transfer': 'Перенос программы',
+        'programme': 'Программа',
+        'schedule': 'Сроки',
+        'funding_snapshot': 'Срез финансирования',
+        'requisite': 'Реквизиты',
+        'requisites': 'Реквизиты',
+        'limit_cost': 'Лимит стоимости',
+        'row': 'Строка объекта',
+        'status': 'Статус',
+        'date': 'Дата',
+    }
     return render_template('limits_comparison.html', comparison=comparison,
                            changes=query.order_by(LimitChange.uin, LimitChange.id).offset((page-1)*100).limit(100).all(),
                            issues=json.loads(comparison.issues_json or '[]'),
                            total=total, page=page, pages=pages, selected_category=category,
                            search=search,
+                           category_labels=category_labels,
                            categories=[x[0] for x in db.session.query(
                                LimitChange.category).filter_by(
                                comparison_id=comparison.id).distinct().all()])

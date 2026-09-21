@@ -1,6 +1,35 @@
 {% extends "modules.html" %}
 {% block title %}Сравнение лимитов — {{ comparison.id }}{% endblock %}
 {% block content %}
+<style>
+  .changes-table { table-layout:fixed; }
+  .changes-table th:nth-child(1) { width:24%; }
+  .changes-table th:nth-child(2) { width:14%; }
+  .changes-table th:nth-child(3) { width:18%; }
+  .changes-table th:nth-child(4),
+  .changes-table th:nth-child(5) { width:17%; }
+  .changes-table th:nth-child(6) { width:10%; }
+  .changes-table td { padding:6px 10px; line-height:1.25; vertical-align:middle; }
+  .change-object { min-width:0; }
+  .change-object .object-uin {
+    display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .change-object .object-title {
+    display:block; margin-top:3px; color:var(--mut); font-family:system-ui,-apple-system,sans-serif;
+    font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .changes-table .val-text,
+  .changes-table .field-label {
+    display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical;
+    -webkit-line-clamp:2; line-clamp:2;
+  }
+  .changes-table .val-text {
+    -webkit-line-clamp:1; line-clamp:1;
+    white-space:normal;
+  }
+  .changes-table .src-coord { margin-top:3px; padding:1px 5px; }
+  .changes-table .badge { white-space:normal; line-height:1.15; }
+</style>
 <a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id if dataset else comparison.new_version.dataset_id) }}">← К набору отчётности</a>
 <div class="eyebrow">Сравнение версий</div>
 <h1>Анализ изменений</h1>
@@ -44,7 +73,7 @@
       <select name="category">
         <option value="">Все категории изменений</option>
         {% for cat in categories %}
-          <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ cat }}</option>
+          <option value="{{ cat }}" {% if selected_category == cat %}selected{% endif %}>{{ category_labels.get(cat, cat) }}</option>
         {% endfor %}
       </select>
       <button class="btn-primary">Применить</button>
@@ -136,10 +165,10 @@
 {% endif %}
 
 <div class="table-wrap panel" style="padding: 0; overflow: hidden;">
-  <table class="data-table">
+  <table class="data-table changes-table">
     <thead>
       <tr>
-        <th>УИН</th>
+        <th>Объект / УИН</th>
         <th>Категория</th>
         <th>Показатель</th>
         <th>Было</th>
@@ -150,19 +179,22 @@
     <tbody>
       {% for change in changes %}
       <tr>
-        <td class="font-mono">
+        <td class="font-mono change-object">
           {% if change.object_id %}
-            <a href="{{ url_for('limit_object_card', object_id=change.object_id) }}" class="text-link" target="_blank">{{ change.uin }}</a>
+            <a href="{{ url_for('limit_object_card', object_id=change.object_id) }}" class="text-link object-uin" target="_blank">{{ change.uin }}</a>
+            <span class="object-title" title="{{ change.object.title if change.object and change.object.title else 'Наименование объекта не указано' }}">{{ change.object.title if change.object and change.object.title else 'Наименование объекта не указано' }}</span>
           {% else %}
-            <span>{{ change.uin }}</span>
+            <span class="object-uin">{{ change.uin }}</span>
+            <span class="object-title">Наименование объекта не указано</span>
           {% endif %}
         </td>
         <td>
-          <span class="badge {{ 'success' if 'финанс' in change.category|lower or 'стоимост' in change.category|lower else 'neutral' }}">
-            {{ change.category }}
+          {% set category_label = category_labels.get(change.category, change.category) %}
+          <span class="badge {{ 'success' if 'финанс' in category_label|lower or 'стоимост' in category_label|lower else 'neutral' }}">
+            {{ category_label }}
           </span>
         </td>
-        <td>{{ change.field_label or change.field_key }}</td>
+        <td><span class="field-label">{{ change.field_label or change.field_key }}</span></td>
         <td class="val-cell">
           {% set old_val = change.old_json|limit_json %}
           <div class="val-text">{{ old_val|limit_value if old_val is not none else '—' }}</div>
