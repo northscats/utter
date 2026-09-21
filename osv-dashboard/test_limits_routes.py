@@ -127,6 +127,7 @@ class LimitsRouteTests(unittest.TestCase):
                 id=2, owner_id=1, name='1', scope='Другой реестр')
             db.session.add(unrelated)
             Setting.set('limits_bot_dataset_id', str(dataset.id))
+            Setting.set('limits_dataset_1_renamed', '1')
             recipient = LimitRecipient(max_user_id='rename-regression')
             db.session.add(recipient)
             db.session.flush()

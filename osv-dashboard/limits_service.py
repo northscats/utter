@@ -108,11 +108,23 @@ def make_dataset(name, scope, owner_id):
 
 def rename_legacy_limits_dataset():
     """Apply the one-time rename of the shipped registry with stable identity."""
-    marker = 'limits_dataset_1_renamed'
+    marker = 'limits_legacy_dataset_renamed_v2'
     if Setting.get(marker, '') == '1':
         return False
 
-    dataset = db.session.get(LimitDataset, 1)
+    dataset = None
+    configured_id = str(Setting.get('limits_bot_dataset_id', '') or '').strip()
+    if configured_id.isdigit():
+        candidate = db.session.get(LimitDataset, int(configured_id))
+        if (candidate is not None and candidate.name == '1'
+                and candidate.current_version_id == 22):
+            dataset = candidate
+    if dataset is None:
+        candidates = LimitDataset.query.filter_by(
+            name='1', current_version_id=22).limit(2).all()
+        if len(candidates) == 1:
+            dataset = candidates[0]
+
     if (dataset is not None and dataset.name == '1'
             and dataset.current_version_id == 22):
         dataset.name = 'Лимиты'
