@@ -302,3 +302,31 @@ mtime_ms = 1789727107846
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/ef7f3eab-935d-426a-8918-ffc76ce900fa/745d84f9-5250-41d8-8b9f-d2317d510df4"
 storage_version_token = "1789727139367587"
 content_type = "image/png"
+
+[[outputs]]
+id = "KVO-6KkijskvevdTPR1RD"
+uri = "file://osv-dashboard/migrations/20260922_since_20260901_external_up.sql"
+type = "unspecified"
+title = "Миграция PostgreSQL: 01.09.2026 → текущая схема"
+description = "Единый транзакционный UP-скрипт со строгой проверкой исходной схемы. Любая ошибка до COMMIT откатывает все изменения."
+logical_id = "9142205c-c6e1-4a00-b0b7-70f35b11563d"
+content_hash = "sha256:2dd966087ea883309c30716f931e3596e2a0720e9024e132060b352431d19b8e"
+size = 52346
+mtime_ms = 1790080459138
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9142205c-c6e1-4a00-b0b7-70f35b11563d/8f78526f-b4dd-4b01-999d-e19c86a903e7"
+storage_version_token = "1790080543433437"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "l8WctdUO5XaHnul7fIorf"
+uri = "file://osv-dashboard/migrations/20260922_since_20260901_external_down.sql"
+type = "unspecified"
+title = "Защищённый откат миграции PostgreSQL"
+description = "DOWN-скрипт после COMMIT. Требует явного разрешения и откажется удалять схему, если в новых таблицах уже появились прикладные данные."
+logical_id = "9c90f44e-2b06-4cd4-9da7-f161ca233342"
+content_hash = "sha256:3d747c1c5cede863f39c82648f170379dfc9be11ef93e0cf1f60e1fc72ad7e6f"
+size = 7246
+mtime_ms = 1790080459442
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9c90f44e-2b06-4cd4-9da7-f161ca233342/aa79e9b3-09cf-4ba7-b748-e9d6bafbaae6"
+storage_version_token = "1790080544807715"
+content_type = "application/octet-stream"
