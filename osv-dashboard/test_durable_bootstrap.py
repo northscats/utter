@@ -7,6 +7,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from sqlalchemy.exc import OperationalError
+
 _TMP = tempfile.mkdtemp(prefix='osv_durable_bootstrap_')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_TMP, 'startup.db')
 os.environ['ENCRYPTION_KEY'] = (
@@ -14,7 +16,7 @@ os.environ['ENCRYPTION_KEY'] = (
 os.environ.pop('INITIAL_ADMIN_PASSWORD', None)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import (app, db, init_db, _finish_durable_startup,
+from app import (app, db, init_db, _durable_restore, _finish_durable_startup,
                  _limits_history_ready, _limits_startup_lock)
 from database import Setting, User
 
@@ -79,6 +81,21 @@ class DurableBootstrapTest(unittest.TestCase):
             self.assertEqual('restore', Setting.get('limits_startup_error'))
             self.assertFalse(_limits_history_ready.is_set())
             self.assertTrue(app.config['DURABLE_STARTUP_FAILED'])
+
+    def test_restore_retries_after_database_connection_loss(self):
+        connection_error = OperationalError(
+            'connection lost', {}, RuntimeError('SSL connection closed'))
+        with app.app_context(), \
+                patch.dict(os.environ, {'DURABLE_BACKUP_DIR': _TMP}), \
+                patch(
+                    'durable_data.restore',
+                    side_effect=[connection_error, {
+                        'rows': 0, 'files': 0, 'skipped': 0,
+                        'conflicts': 0,
+                    }]), \
+                patch.object(db.engine, 'dispose') as dispose:
+            self.assertTrue(_durable_restore())
+        dispose.assert_called_once_with()
 
     def test_startup_gate_keeps_get_probes_responsive(self):
         app.config['DURABLE_STARTUP_READY'] = False

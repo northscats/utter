@@ -34,7 +34,7 @@ from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import and_, func, or_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 
 from jobs import create_job, get_job, finish_job, fail_job
 
@@ -222,7 +222,35 @@ def _durable_restore():
         return True
     from durable_data import restore
     try:
-        result = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
+        # A long additive restore can lose its PostgreSQL connection after
+        # several minutes.  The restore uses checkpoint commits, so retrying
+        # from a fresh session is safe: already committed rows are skipped
+        # and the final pointer reconciliation runs again.
+        max_attempts = max(
+            1, int(os.environ.get('DURABLE_RESTORE_MAX_ATTEMPTS', '2')))
+        result = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
+                break
+            except Exception as exc:
+                db.session.rollback()
+                retryable = (
+                    isinstance(exc, (DBAPIError, OperationalError))
+                    or (
+                        exc.__class__.__name__ == 'OperationalError'
+                        and exc.__class__.__module__.startswith('psycopg2')
+                    )
+                )
+                if not retryable or attempt >= max_attempts:
+                    raise
+                db.session.remove()
+                db.engine.dispose()
+                app.logger.warning(
+                    'durable restore lost its database connection; '
+                    'retrying with a fresh session (%s/%s)',
+                    attempt + 1, max_attempts)
+                time.sleep(min(2.0, float(attempt)))
         app.logger.info('durable restore completed: %s', result)
         return True
     except Exception as exc:
@@ -284,7 +312,14 @@ if SCRIPT_NAME:
 # --- PostgreSQL —  DATABASE_URL из переменной окружения ---
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'hide_parameters': True}
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'hide_parameters': True,
+    # Do not hand a dead pooled SSL connection to a request or a restore.
+    'pool_pre_ping': True,
+    # Recycle idle connections before platform-side connection lifetimes can
+    # make them stale.  An active restore still relies on checkpoints/retry.
+    'pool_recycle': 180,
+}
 
 db.init_app(app)
 csrf = CSRFProtect(app)

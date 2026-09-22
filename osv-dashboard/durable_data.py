@@ -571,6 +571,22 @@ def _restore_json(db, manifest, models, include_parents=True,
     restored = skipped = conflicts = 0
     deferred_limit_heads = []
     tombstoned_object_ids = set()
+    checkpoint_size = max(
+        1, int(os.environ.get("DURABLE_RESTORE_COMMIT_BATCH_SIZE", "250")))
+    processed_since_checkpoint = 0
+    # A retry may encounter rows committed by an earlier attempt.  Sequence
+    # repair must still run in that case, even when this attempt inserts zero
+    # new rows.
+    manifest_has_rows = any(
+        manifest.get("tables", {}).get(model.__name__)
+        for model in models)
+
+    def checkpoint():
+        nonlocal processed_since_checkpoint
+        if processed_since_checkpoint >= checkpoint_size:
+            db.session.commit()
+            processed_since_checkpoint = 0
+
     by_name = {model.__name__: model for model in models}
     (tombstoned_versions, tombstoned_comparisons,
      tombstoned_deliveries) = _limit_tombstone_sets(
@@ -598,6 +614,7 @@ def _restore_json(db, manifest, models, include_parents=True,
         if not include_parents and model.__name__ in ("User", "Company"):
             continue
         for values in manifest.get("tables", {}).get(model.__name__, []):
+            processed_since_checkpoint += 1
             row_id = values.get("id")
             if (model.__name__ == "LimitObject"
                     and values.get("last_seen_version_id") in tombstoned_versions
@@ -607,9 +624,22 @@ def _restore_json(db, manifest, models, include_parents=True,
                     model.__name__, values, tombstoned_versions,
                     tombstoned_comparisons, tombstoned_deliveries):
                 skipped += 1
+                checkpoint()
                 continue
-            if row_id is None or db.session.get(model, row_id) is not None:
+            existing = (
+                None if row_id is None else db.session.get(model, row_id))
+            if existing is not None:
+                # If a previous checkpoint committed the dataset but the
+                # connection died before pointer reconciliation, retain the
+                # manifest head as a deferred repair.  A non-NULL live head
+                # is never overwritten.
+                if (model.__name__ == "LimitDataset"
+                        and existing.current_version_id is None
+                        and values.get("current_version_id") is not None):
+                    deferred_limit_heads.append(
+                        (model, row_id, values["current_version_id"]))
                 skipped += 1
+                checkpoint()
                 continue
             converted = {
                 column.name: _decoded(column, values.get(column.name))
@@ -650,8 +680,10 @@ def _restore_json(db, manifest, models, include_parents=True,
             except IntegrityError:
                 skipped += 1
                 conflicts += 1
+            checkpoint()
     has_limit_tombstones = bool(_database_limit_tombstones(db))
-    if (restored or has_limit_tombstones) and db.engine.dialect.name == "postgresql":
+    if ((restored or manifest_has_rows or has_limit_tombstones)
+            and db.engine.dialect.name == "postgresql"):
         # Explicit recovery IDs do not advance PostgreSQL sequences.
         for model in models:
             table_name = model.__tablename__
