@@ -1,0 +1,84 @@
+2026-09-22 14:15:38.20
+ec77e774
+User
+[2026-09-22 11:15:38 +0000] [27] [INFO] Handling signal: term
+2026-09-22 14:15:42.44
+ec77e774
+System
+healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-09-22 15:28:29.59
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c: Get "http://127.0.0.1:1104/api/1c": dial tcp 127.0.0.1:1104: connect: connection refused
+2026-09-22 15:28:29.61
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:29.63
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:29.63
+76b28896
+System
+healthcheck failed error=healthcheck / returned status 500
+2026-09-22 15:28:29.68
+76b28896
+System
+healthcheck failed error=healthcheck / returned status 500
+2026-09-22 15:28:29.77
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:29.96
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:30.06
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:30.17
+76b28896
+System
+healthcheck failed error=healthcheck /api returned status 500
+2026-09-22 15:28:30.49
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c returned status 500
+2026-09-22 15:28:37.32
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c: Get "http://127.0.0.1:1104/api/1c": context deadline exceeded
+2026-09-22 15:28:42.22
+76b28896
+System
+healthcheck failed error=healthcheck /: Get "http://127.0.0.1:1104/": context deadline exceeded
+2026-09-22 15:28:53.31
+76b28896
+System
+healthcheck failed error=healthcheck /api/1c: Get "http://127.0.0.1:1104/api/1c": context deadline exceeded
+2026-09-22 15:28:56.52
+76b28896
+User
+[2026-09-22 12:28:56 +0000] [52] [INFO] [worker 52] DB ready
+2026-09-22 15:29:00.58
+63bbb38e
+User
+[2026-09-22 12:29:00 +0000] [28] [INFO] Handling signal: term
+2026-09-22 15:29:00.59
+63bbb38e
+User
+[2026-09-22 12:29:00 +0000] [52] [INFO] Worker exiting (pid: 52)
+2026-09-22 15:29:02.19
+63bbb38e
+User
+[2026-09-22 12:29:02 +0000] [28] [INFO] Shutting down: Master
+2026-09-22 15:29:31.66
+76b28896
+User
+[2026-09-22 12:29:31 +0000] [29] [INFO] [worker 52] health probes paused during bounded durable startup (max 600.0s)
+2026-09-22 15:38:48.06
+76b28896
+User
+[2026-09-22 12:38:48 +0000] [29] [ERROR] [worker 52] startup exceeded max grace of 600.0s
