@@ -1098,6 +1098,13 @@ def restore(db, uploads_root, output_root, models):
             "rows": 0, "files": 0, "skipped": 0, "conflicts": 0,
             "database_restored": False, "recovery_needed": False,
         }
+    # Older snapshots keep every protected row in one large JSON object.
+    # Loading that object with get_json can monopolise the production worker
+    # long enough for the Autoscale readiness probe to time out. Convert it
+    # through the bounded streaming path first, then restore from small chunks.
+    conversion = convert_latest_to_sharded()
+    if conversion.get("converted"):
+        pointer = store.get_json(LATEST_KEY)
     manifest = store.get_json(pointer["manifest"])
     if not manifest:
         raise DurableDataError("Latest manifest отсутствует.")

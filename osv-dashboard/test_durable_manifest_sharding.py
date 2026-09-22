@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from durable_data import (
     DurableDataError,
@@ -13,6 +14,7 @@ from durable_data import (
     _table_rows_from_manifest,
     _write_table_chunks,
     convert_latest_to_sharded,
+    restore,
 )
 
 
@@ -97,6 +99,37 @@ class DurableManifestShardingTests(unittest.TestCase):
         with self.assertRaises(DurableDataError):
             list(_table_rows_from_manifest(
                 self.store, manifest, "Example"))
+
+    def test_restore_converts_legacy_latest_before_loading_manifest(self):
+        old_key = "osv-dashboard/snapshots/legacy/manifest.json"
+        self.store.put_json(old_key, {
+            "format": 2,
+            "snapshot_id": "legacy",
+            "created_at": "2026-09-01T00:00:00+00:00",
+            "counts": {},
+            "files": [],
+            "tables": {
+                "Example": [{"id": 1, "payload": "x" * 200}],
+            },
+        }, immutable=True)
+        self.store.put_json(
+            LATEST_KEY, {"snapshot_id": "legacy", "manifest": old_key})
+
+        with patch("durable_data._store", return_value=self.store), \
+                patch("durable_data._restore_json",
+                      return_value=(0, 0, 0)) as restore_json, \
+                patch("durable_data._restore_files", return_value=0):
+            restore(object(), self.tmp.name, self.tmp.name, ())
+
+        pointer = self.store.get_json(LATEST_KEY)
+        converted = self.store.get_json(pointer["manifest"])
+        self.assertEqual(3, converted["format"])
+        self.assertNotIn("tables", converted)
+        self.assertEqual(
+            [{"id": 1, "payload": "x" * 200}],
+            list(_table_rows_from_manifest(
+                self.store, converted, "Example")))
+        restore_json.assert_called_once()
 
 
 if __name__ == "__main__":

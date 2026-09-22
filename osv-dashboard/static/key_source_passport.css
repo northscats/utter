@@ -116,6 +116,41 @@
   letter-spacing: .35px;
   text-transform: uppercase;
 }
+.ki-source-passport-collapsible > summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding-right: 28px;
+  cursor: pointer;
+  list-style: none;
+}
+.ki-source-passport-collapsible > summary::-webkit-details-marker { display: none; }
+.ki-source-passport-collapsible > summary::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #64748B;
+  border-bottom: 2px solid #64748B;
+  transform: rotate(45deg);
+  transition: transform .15s ease;
+}
+.ki-source-passport-collapsible[open] > summary::after {
+  transform: rotate(225deg);
+}
+.ki-source-passport-collapsible > summary:hover h3 { color: #1E3A5F; }
+.ki-source-passport-collapsible > summary:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #3B82F6;
+  outline-offset: 2px;
+}
+.ki-source-passport-collapsible > summary h3 { margin-bottom: 0; }
+.ki-source-passport-section-body { padding-top: 9px; }
+.ki-source-passport-section-body > .ki-source-passport-facts {
+  margin-top: 0;
+}
 .ki-source-passport-section h4 {
   margin-bottom: 6px;
   color: #475569;

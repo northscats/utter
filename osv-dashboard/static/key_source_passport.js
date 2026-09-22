@@ -106,6 +106,11 @@
         `<section class="ki-source-passport-section${modifier ? ` ${modifier}` : ''}">
             <h3>${esc(title)}</h3>${body}
         </section>`;
+    const collapsibleSection = (title, body, open = false, modifier = '') =>
+        `<details class="ki-source-passport-section ki-source-passport-collapsible${modifier ? ` ${modifier}` : ''}"${open ? ' open' : ''}>
+            <summary><h3>${esc(title)}</h3></summary>
+            <div class="ki-source-passport-section-body">${body}</div>
+        </details>`;
     const fact = (label, value, modifier = '') =>
         `<div class="ki-source-passport-fact${modifier ? ` ${modifier}` : ''}">
             <dt>${esc(label)}</dt><dd>${value || '<span class="ki-source-passport-muted">Не указано</span>'}</dd>
@@ -662,29 +667,31 @@
             fact('Отсутствующие счета', model.qualityMissingAccounts.length ?
                 esc(model.qualityMissingAccounts.join(', ')) : 'Нет')
         ].join('');
-        const warningsSection = model.warnings.length ?
-            section(`Предупреждения и ограничения (${model.warnings.length})`,
-                issueList(model.warnings, 'Предупреждений нет')) : '';
+        const warningsSection = collapsibleSection(
+            `Предупреждения и ограничения (${model.warnings.length})`,
+            issueList(model.warnings, 'Предупреждений и ограничений нет'),
+            true);
         return [
-            section('Качество данных (ОСВ)',
-                `<dl class="ki-source-passport-facts">${qualityFacts}</dl>`),
+            collapsibleSection('Качество данных (ОСВ)',
+                `<dl class="ki-source-passport-facts">${qualityFacts}</dl>`, true),
             warningsSection,
-            `<dl class="ki-source-passport-facts">${facts}</dl>`,
-            section('Файлы и фактические границы периода',
+            collapsibleSection('Фактические даты и покрытие',
+                `<dl class="ki-source-passport-facts">${facts}</dl>`),
+            collapsibleSection('Файлы и фактические границы периода',
                 sourcesTable(model.sources, null, false)),
-            section('Счета: факт и метаданные', accounts),
-            section('Точные остатки на границах периода',
+            collapsibleSection('Счета: факт и метаданные', accounts),
+            collapsibleSection('Точные остатки на границах периода',
                 balancesTable(model.balanceRows)),
-            section('Точные даты доступного сальдо', dates),
-            section('Пропуски оборотов', issueList(model.turnoverGaps,
+            collapsibleSection('Точные даты доступного сальдо', dates),
+            collapsibleSection('Пропуски оборотов', issueList(model.turnoverGaps,
                 'Пропуски оборотов не обнаружены или не переданы')),
-            section('Сверка дневных оборотов с контрольной ОСВ',
+            collapsibleSection('Сверка дневных оборотов с контрольной ОСВ',
                 reconciliationTable(model.dailyControlReconciliations)),
-            section('Дубли', issueList(model.duplicates,
+            collapsibleSection('Дубли', issueList(model.duplicates,
                 'Дубли не обнаружены или не переданы')),
-            section('Расхождения и контрольные проверки', issueList(model.discrepancies,
+            collapsibleSection('Расхождения и контрольные проверки', issueList(model.discrepancies,
                 'Расхождения не обнаружены или не переданы')),
-            section('Недоступность карточек', cardReasons)
+            collapsibleSection('Недоступность карточек', cardReasons)
         ].join('');
     };
 

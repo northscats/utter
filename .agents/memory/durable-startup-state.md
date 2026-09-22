@@ -20,3 +20,9 @@ Production может быть liveness-ready и при этом не пройт
 **Why:** Manifest около 233 МБ с дублированными снимками лимитов раздувался в Python более чем до 1,2 ГБ и приводил к SIGKILL production worker до первой checkpoint-записи.
 
 **How to apply:** Root хранит counts, ID-index и ссылки с checksum; restore читает по одному чанку и сразу commit-ит особо большие строки. Не подтверждать миграцию формата на малом fixture: сначала прогонять точную копию live manifest с замером peak RSS, сохраняя неизменяемый predecessor для rollback.
+
+Legacy-manifest нужно потоково конвертировать в шардированный формат до первого полного чтения при restore; наличия функции конвертации недостаточно, если production-путь её не вызывает.
+
+**Why:** Фоновый поток с монолитным `json.loads` удерживал CPU/GIL и память настолько долго, что даже лёгкие HTTP-ответы startup gate не проходили readiness Autoscale, хотя сборка образа и API завершались успешно.
+
+**How to apply:** После чтения указателя `latest`, но до загрузки manifest как JSON, атомарно запускать bounded streaming conversion; старый manifest оставлять неизменяемым, а restore продолжать по новому указателю и небольшим чанкам.

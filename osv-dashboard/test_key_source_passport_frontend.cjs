@@ -95,6 +95,26 @@ assert.match(html, /строк: 2/);
 assert.match(html, /Контрольное равенство &lt;не сходится&gt;/);
 assert.match(html, /ОСВ &lt;июнь&gt;\.xlsx/);
 assert.ok(!html.includes('<июнь>'), 'untrusted source text must be escaped');
+assert.match(
+  html,
+  /<details class="ki-source-passport-section ki-source-passport-collapsible" open>\s*<summary><h3>Качество данных \(ОСВ\)<\/h3>/,
+  'data quality must be expanded when the operational passport opens'
+);
+assert.match(
+  html,
+  /<details class="ki-source-passport-section ki-source-passport-collapsible" open>\s*<summary><h3>Предупреждения и ограничения \(0\)<\/h3>/,
+  'warnings and limitations must stay expanded even when empty'
+);
+assert.match(
+  html,
+  /<details class="ki-source-passport-section ki-source-passport-collapsible">\s*<summary><h3>Фактические даты и покрытие<\/h3>/,
+  'factual dates and coverage must start collapsed'
+);
+assert.match(
+  html,
+  /<details class="ki-source-passport-section ki-source-passport-collapsible">\s*<summary><h3>Счета: факт и метаданные<\/h3>/,
+  'account details must start collapsed'
+);
 
 assert.equal(nodes.get('ki-source-passport-body').hidden, true);
 assert.equal(nodes.get('ki-source-passport-toggle')['aria-expanded'], 'false');
