@@ -349,7 +349,7 @@
         restorePageHeaderControls() {
             const host = document.getElementById('ki-modal-period-controls');
             if (!host) return;
-            Array.from(host.children).forEach(node => {
+            Array.from(host.children || []).forEach(node => {
                 const marker = node._kiRestoreMarker;
                 if (!marker || !marker.parentNode) return;
                 marker.parentNode.insertBefore(node, marker);
@@ -5928,6 +5928,87 @@
                 }).join('')
                 : '<tr><td colspan="6" class="chart-empty">Нет точной периодной серии счёта 08.</td></tr>';
 
+            const capexPeriodRows = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const capexDate = value => {
+                if (!value) return '—';
+                const parts = String(value).split('-');
+                return parts.length === 3
+                    ? `${parts[2]}.${parts[1]}.${parts[0]}` : String(value);
+            };
+            const capexDates = values => (Array.isArray(values) && values.length
+                ? values.map(capexDate).join(', ') : '—');
+            const capexMoney = value => value == null ? 'Н/Д' : rub(value);
+            const capexPeriodBody = capexPeriodRows.length
+                ? capexPeriodRows.map((row, index) => {
+                    const isMonth = row.kind === 'month';
+                    const hasDetails = isMonth && Array.isArray(row.details) &&
+                        row.details.length > 0;
+                    const toggle = hasDetails
+                        ? `<button type="button" class="capex-month-toggle"
+                             data-capex-month-toggle="${index}"
+                             aria-expanded="false"
+                             aria-controls="ki-capex-month-details-${index}">
+                             <span class="capex-month-chevron" aria-hidden="true">›</span>
+                             <span>${esc(row.label)}</span>
+                           </button>`
+                        : `<span class="capex-period-label">${esc(row.label)}</span>`;
+                    const detailRows = hasDetails
+                        ? row.details.map(detail => `<tr>
+                            <td>${esc(detail.subaccount || '08')}</td>
+                            <td>${esc(detail.object || 'Без аналитики')}</td>
+                            <td>${esc(capexMoney(detail.invested))}</td>
+                            <td>${esc(capexDates(detail.investment_dates))}</td>
+                            <td>${esc(capexMoney(detail.developed))}</td>
+                            <td>${esc(capexDates(detail.development_dates))}</td>
+                            <td>${esc(capexMoney(detail.not_developed))}</td>
+                          </tr>`).join('')
+                        : `<tr><td colspan="7" class="chart-empty">
+                             Нет точных строк детализации за этот месяц.
+                           </td></tr>`;
+                    const detailPanel = hasDetails
+                        ? `<tr class="capex-month-details-row"
+                             id="ki-capex-month-details-${index}" hidden>
+                             <td colspan="5">
+                               <div class="capex-month-details-wrap">
+                                 <table class="cash-table capex-month-details-table">
+                                   <thead><tr>
+                                     <th>Субсчёт</th><th>Объект</th>
+                                     <th>Вложено</th><th>Дата вложения</th>
+                                     <th>Освоено</th><th>Дата освоения</th>
+                                     <th>Не освоено</th>
+                                   </tr></thead>
+                                   <tbody>${detailRows}</tbody>
+                                 </table>
+                               </div>
+                             </td>
+                           </tr>` : '';
+                    return `<tr class="${isMonth ? 'capex-month-row' : 'capex-total-row'}">
+                        <td>${toggle}</td>
+                        <td>${esc(capexMoney(row.invested))}</td>
+                        <td>${esc(capexMoney(row.developed))}</td>
+                        <td>${esc(capexMoney(row.not_developed))}</td>
+                        <td>${esc(capexMoney(row.not_developed_total))}</td>
+                    </tr>${detailPanel}`;
+                }).join('')
+                : '<tr><td colspan="5" class="chart-empty">Нет месячных данных счёта 08.</td></tr>';
+            const capexPeriodTableHtml = `
+                <section class="capex-period-overview">
+                  <div class="modal-section-title">Помесячная таблица капитальных вложений</div>
+                  <div class="revenue-classification-note">
+                    В свернутом виде показаны только суммы. Нажмите на месяц, чтобы увидеть субсчета, объекты и даты движений.
+                  </div>
+                  <div class="cash-table-scroll">
+                    <table class="cash-table capex-period-table">
+                      <thead><tr>
+                        <th>Месяц / подитог</th><th>Вложено</th><th>Освоено</th>
+                        <th>Не освоено</th><th>Не освоено всего</th>
+                      </tr></thead>
+                      <tbody>${capexPeriodBody}</tbody>
+                    </table>
+                  </div>
+                </section>`;
+
             const unavailable = [
                 ['План инвестпрограммы', 'утверждённый план на отчётную дату', req.program],
                 ['Исполнение плана', 'сопоставимый факт / план', `${req.program} ${req.fact}`],
@@ -5967,6 +6048,7 @@
                     <div id="ki-capex-chart-legend" class="cash-chart-legend"
                          aria-label="Легенда графика капитальных вложений"></div>
                 </section>
+                 ${capexPeriodTableHtml}
                 <button type="button" class="modal-section-title cash-details-toggle capex-details-toggle"
                         aria-expanded="false" aria-controls="ki-capex-details-panel"
                         onclick="window.KI_App.toggleCashDetails(this)">
@@ -5991,6 +6073,16 @@
                 </table></div>
                 <div class="modal-section-title">Показатели, требующие дополнительных данных 1С</div>
                 <div class="revenue-missing-grid capex-missing-grid">${unavailable}</div>`;
+            container.querySelectorAll('[data-capex-month-toggle]').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    const panel = document.getElementById(
+                        toggle.getAttribute('aria-controls'));
+                    if (!panel) return;
+                    const expanded = toggle.getAttribute('aria-expanded') === 'true';
+                    toggle.setAttribute('aria-expanded', String(!expanded));
+                    panel.hidden = expanded;
+                });
+            });
         },
 
         renderCapexChartModes(card) {

@@ -2306,6 +2306,191 @@ def _account_turnovers(source, account, start, end):
     }
 
 
+def _capex_detail_identity(row):
+    """Return the subaccount and analytic object labels for one 08 row."""
+    coordinates = [
+        str(row.get(key) or '').strip()
+        for key in ('account', 'path1', 'path2', 'path3')
+    ]
+    numeric = [
+        value for value in coordinates
+        if re.match(r'^08(?:\.\d+)+$', value)
+    ]
+    subaccount = max(numeric, key=lambda value: value.count('.')) \
+        if numeric else '08'
+    labels = [
+        value for value in coordinates
+        if value and not re.match(r'^\d{2}(?:\.\d+)*$', value)
+    ]
+    return subaccount, ' / '.join(dict.fromkeys(labels)) or 'Без аналитики'
+
+
+def _capex_month_details(source, start, end):
+    """Group authentic daily 08 movements into expandable object rows."""
+    rows = _daily(source, '08', start, end)
+    # Daily ОСВ often contains an account total and its analytic children.
+    # Keep only the deepest analytic coordinate so the detail does not
+    # double-count the monthly total.
+    rows = _leaf_rows(rows, lambda row: True)
+    grouped = {}
+    for row in rows:
+        if not _iso(row.get('date')):
+            continue
+        subaccount, object_label = _capex_detail_identity(row)
+        key = (subaccount, object_label)
+        item = grouped.setdefault(key, {
+            'subaccount': subaccount,
+            'object': object_label,
+            'invested': 0.0,
+            'developed': 0.0,
+            'invested_known': True,
+            'developed_known': True,
+            'investment_dates': [],
+            'development_dates': [],
+        })
+        invested_known = row.get('obd_known') is not False
+        developed_known = row.get('obk_known') is not False
+        item['invested_known'] = item['invested_known'] and invested_known
+        item['developed_known'] = item['developed_known'] and developed_known
+        if invested_known:
+            item['invested'] += float(row.get('obd') or 0)
+        if developed_known:
+            item['developed'] += float(row.get('obk') or 0)
+        date_text = _iso(row.get('date')).isoformat()
+        if invested_known and float(row.get('obd') or 0) != 0:
+            item['investment_dates'].append(date_text)
+        if developed_known and float(row.get('obk') or 0) != 0:
+            item['development_dates'].append(date_text)
+
+    details = []
+    for item in grouped.values():
+        invested = round(item['invested'], 2) if item['invested_known'] else None
+        developed = round(item['developed'], 2) if item['developed_known'] else None
+        details.append({
+            'subaccount': item['subaccount'],
+            'object': item['object'],
+            'invested': invested,
+            'investment_dates': sorted(set(item['investment_dates'])),
+            'developed': developed,
+            'development_dates': sorted(set(item['development_dates'])),
+            'not_developed': (
+                round(invested - developed, 2)
+                if invested is not None and developed is not None else None),
+        })
+    return sorted(details, key=lambda item: (
+        item['subaccount'], item['object']))
+
+
+def _capex_monthly_rows(source, start, end):
+    """Build the monthly investment/development rows for the selected range."""
+    rows = []
+    cursor = start.replace(day=1)
+    while cursor <= end:
+        month_end = Date(
+            cursor.year, cursor.month,
+            calendar.monthrange(cursor.year, cursor.month)[1])
+        point_start = max(cursor, start)
+        point_end = min(month_end, end)
+        turnovers = _account_turnovers(source, '08', point_start, point_end)
+        invested = turnovers['debit']
+        developed = turnovers['credit']
+        rows.append({
+            'kind': 'month',
+            'date': point_end.isoformat(),
+            'start': point_start.isoformat(),
+            'end': point_end.isoformat(),
+            'label': _options([point_end], 'month')[0]['label'],
+            'invested': invested,
+            'developed': developed,
+            'not_developed': (
+                round(invested - developed, 2)
+                if invested is not None and developed is not None else None),
+            'not_developed_total': _top_balance(
+                source, '08', point_end)[0],
+            'details': _capex_month_details(source, point_start, point_end),
+        })
+        if cursor.month == 12:
+            cursor = Date(cursor.year + 1, 1, 1)
+        else:
+            cursor = Date(cursor.year, cursor.month + 1, 1)
+    return rows
+
+
+def _capex_sum_rows(source, rows, kind, label, start, end):
+    """Create a subtotal from monthly movement rows, not from balances."""
+    values = {}
+    for key in ('invested', 'developed', 'not_developed'):
+        values[key] = (
+            round(sum(row[key] for row in rows), 2)
+            if rows and all(row[key] is not None for row in rows) else None)
+    return {
+        'kind': kind,
+        'date': end.isoformat(),
+        'start': start.isoformat(),
+        'end': end.isoformat(),
+        'label': label,
+        **values,
+        'not_developed_total': _top_balance(source, '08', end)[0],
+        'details': [],
+    }
+
+
+def _capex_period_rows(source, start, end):
+    """Add quarter and half-year rows after complete calendar month groups."""
+    months = _capex_monthly_rows(source, start, end)
+    if not months:
+        return []
+    output = []
+    for index, month in enumerate(months):
+        output.append(month)
+        month_date = _iso(month['date'])
+        if not month_date or month_date.month not in (3, 6, 9, 12):
+            continue
+        quarter_start_month = month_date.month - 2
+        quarter = [
+            row for row in months
+            if (_iso(row['date']).year, _iso(row['date']).month) in {
+                (month_date.year, quarter_start_month),
+                (month_date.year, quarter_start_month + 1),
+                (month_date.year, quarter_start_month + 2),
+            }
+        ]
+        if len(quarter) != 3:
+            continue
+        quarter_start = _iso(quarter[0]['start'])
+        quarter_end = _iso(quarter[-1]['end'])
+        expected_start = Date(month_date.year, quarter_start_month, 1)
+        expected_end = Date(
+            month_date.year, month_date.month,
+            calendar.monthrange(month_date.year, month_date.month)[1])
+        if quarter_start != expected_start or quarter_end != expected_end:
+            continue
+        quarter_number = (month_date.month - 1) // 3 + 1
+        output.append(_capex_sum_rows(
+            source,
+            quarter, 'quarter', f'{quarter_number} квартал',
+            expected_start, expected_end))
+
+        half_start_month = 1 if month_date.month == 6 else 7
+        half_months = [
+            row for row in months
+            if _iso(row['date']).year == month_date.year
+            and half_start_month <= _iso(row['date']).month <= month_date.month
+        ]
+        if month_date.month in (6, 12) and len(half_months) == 6:
+            half_start = Date(month_date.year, half_start_month, 1)
+            half_end = expected_end
+            if (_iso(half_months[0]['start']) == half_start and
+                    _iso(half_months[-1]['end']) == half_end):
+                output.append(_capex_sum_rows(
+                    source,
+                    half_months, 'half',
+                    '1 полугодие' if month_date.month == 6
+                    else '2 полугодие',
+                    half_start, half_end))
+    return output
+
+
 def _balance_provenance(source, account, end):
     acc = source['accounts'].get(account, {})
     report_candidates = [
@@ -3198,6 +3383,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               analytics=capex_analytics,
               credit_series=[],
               balance_series=[],
+               monthly_comparison=[],
                previous_year_series=[],
                previous_year_value=None,
                previous_year_period=None,
@@ -3987,6 +4173,9 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         else:
             comparison_month = Date(
                 comparison_month.year, comparison_month.month + 1, 1)
+
+    card_map['capex']['monthly_comparison'] = _capex_period_rows(
+        source, start, end)
 
     # Cash is a balance snapshot, not a period movement. Keep its modal
     # series on the real calendar even when another account has only monthly

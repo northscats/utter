@@ -2055,6 +2055,46 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(capex['value'], 25)
         self.assertEqual(capex['delta']['value'], 15)
 
+    def test_capex_monthly_table_adds_quarters_half_and_object_details(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2026-01-15', p1='08.04.1', p3='Объект А',
+                    obd=100, obk=80),
+                day('2026-02-12', p1='08.04.1', p3='Объект А',
+                    obd=200, obk=200),
+                day('2026-03-03', p1='08.04.2', p3='Объект Б',
+                    obd=300, obk=250),
+                day('2026-04-10', p1='08.04.2', p3='Объект Б',
+                    obd=400, obk=500),
+                day('2026-05-10', p1='08.04.2', p3='Объект Б',
+                    obd=500, obk=500),
+                day('2026-06-10', p1='08.04.2', p3='Объект Б',
+                    obd=600, obk=600),
+            ], top=dict(snd=0, snk=0, obd=2100, obk=2130,
+                        skd=2100, skk=0),
+               period='01.01.2026 - 30.06.2026'),
+        })
+        capex = {item['id']: item for item in build_key_indicators(
+            src, period='year', date='2026-06-30')['cards']}['capex']
+        rows = capex['monthly_comparison']
+        self.assertEqual(
+            [row['kind'] for row in rows],
+            ['month', 'month', 'month', 'quarter', 'month', 'month',
+             'month', 'quarter', 'half'])
+        self.assertEqual(rows[3]['label'], '1 квартал')
+        self.assertEqual(rows[3]['invested'], 600)
+        self.assertEqual(rows[3]['developed'], 530)
+        self.assertEqual(rows[3]['not_developed'], 70)
+        self.assertEqual(rows[-1]['label'], '1 полугодие')
+        self.assertEqual(rows[-1]['invested'], 2100)
+        self.assertEqual(rows[-1]['developed'], 2130)
+        self.assertEqual(rows[-1]['not_developed'], -30)
+        self.assertEqual(rows[0]['details'][0]['object'], 'Объект А')
+        self.assertEqual(rows[0]['details'][0]['investment_dates'],
+                         ['2026-01-15'])
+        self.assertEqual(rows[0]['details'][0]['development_dates'],
+                         ['2026-01-15'])
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({

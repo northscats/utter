@@ -522,6 +522,56 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .capex-details-panel .cash-table-scroll { margin-bottom:12px; }
 .capex-dynamics-table { min-width:920px; }
 .capex-dynamics-table th { width:auto !important; }
+.capex-period-overview { margin: 4px 0 18px; }
+.capex-period-table { min-width: 920px; }
+.capex-period-table th { width:auto !important; }
+.capex-period-table th:first-child { width:28%; }
+.capex-period-table th:nth-child(2),
+.capex-period-table th:nth-child(3),
+.capex-period-table th:nth-child(4),
+.capex-period-table th:nth-child(5) { width:18%; }
+.capex-period-table .capex-total-row td {
+  background:#EEF2FF; color:#1E1B4B; font-weight:800;
+  border-top:2px solid #C7D2FE;
+}
+.capex-period-table .capex-total-row td:first-child {
+  border-left:4px solid #4F46E5;
+}
+.capex-month-toggle {
+  display:inline-flex; align-items:center; gap:6px; padding:0;
+  border:0; background:transparent; color:#1F2937; cursor:pointer;
+  font:inherit; font-weight:700; text-align:left;
+}
+.capex-month-toggle:hover { color:#312E91; }
+.capex-month-toggle:focus-visible {
+  outline:2px solid #2563EB; outline-offset:3px; border-radius:3px;
+}
+.capex-month-chevron {
+  display:inline-block; width:14px; color:#4F46E5; font-size:20px;
+  line-height:12px; transition:transform .18s ease;
+}
+.capex-month-toggle[aria-expanded="true"] .capex-month-chevron {
+  transform:rotate(90deg);
+}
+.capex-period-label { font-weight:800; }
+.capex-month-details-row[hidden] { display:none; }
+.capex-month-details-row > td {
+  padding:0 !important; background:#F8FAFC;
+}
+.capex-month-details-wrap {
+  padding:12px 14px 14px 28px; border-left:4px solid #A5B4FC;
+}
+.capex-month-details-table {
+  min-width:1180px; font-size:12px; box-shadow:none;
+}
+.capex-month-details-table th { background:#4F46E5; }
+.capex-month-details-table th:first-child { width:13%; }
+.capex-month-details-table th:nth-child(2) { width:25%; }
+.capex-month-details-table th:nth-child(3),
+.capex-month-details-table th:nth-child(4),
+.capex-month-details-table th:nth-child(5),
+.capex-month-details-table th:nth-child(6),
+.capex-month-details-table th:nth-child(7) { width:12.4%; }
 .cash-details-toggle {
   display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px;
   margin-bottom:12px; padding:9px 0; border:0; border-bottom:1px solid #E5E7EB;
