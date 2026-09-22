@@ -40,7 +40,12 @@ _BACKUP_LOCK = threading.Lock()
 _LIMIT_TOMBSTONE_LOCK = threading.Lock()
 LIMIT_TOMBSTONES_KEY = f"{ROOT}/limit-version-tombstones.json"
 MANIFEST_FORMAT = 3
-TABLE_CHUNK_TARGET_BYTES = 4 * 1024 * 1024
+# App Storage has non-trivial per-object latency. Four-megabyte chunks turned a
+# large legacy-manifest migration into dozens of serial upload/readback calls
+# and kept the whole application behind its startup gate for tens of minutes.
+# Sixteen MiB remains bounded well below the single-row safety limit while
+# reducing those round trips by roughly four times.
+TABLE_CHUNK_TARGET_BYTES = 16 * 1024 * 1024
 TABLE_CHUNK_MAX_ROW_BYTES = 64 * 1024 * 1024
 
 
@@ -652,9 +657,26 @@ def convert_latest_to_sharded():
             store.get_file(pointer["manifest"], legacy_path)
             top_level = {}
             model_names = []
+            metadata = {"counts": {}, "files": []}
+            metadata_builder = None
+            metadata_prefix = None
             with open(legacy_path, "rb") as source:
                 for prefix, event, value in ijson.parse(
                         source, use_float=True):
+                    if metadata_builder is not None:
+                        metadata_builder.event(event, value)
+                        if (prefix == metadata_prefix
+                                and event in ("end_map", "end_array")):
+                            metadata[metadata_prefix] = metadata_builder.value
+                            metadata_builder = None
+                            metadata_prefix = None
+                        continue
+                    if (prefix in ("counts", "files")
+                            and event in ("start_map", "start_array")):
+                        metadata_prefix = prefix
+                        metadata_builder = ijson.common.ObjectBuilder()
+                        metadata_builder.event(event, value)
+                        continue
                     if prefix == "tables" and event == "map_key":
                         if not str(value).replace("_", "").isalnum():
                             raise DurableDataError(
@@ -677,11 +699,6 @@ def convert_latest_to_sharded():
             if not model_names:
                 raise DurableDataError(
                     "Legacy manifest не содержит встроенных таблиц.")
-
-            def read_item(prefix, default):
-                with open(legacy_path, "rb") as source:
-                    return next(
-                        ijson.items(source, prefix, use_float=True), default)
 
             snapshot_id = _snapshot_id()
             snapshot_prefix = f"{SNAPSHOTS_PREFIX}/{snapshot_id}"
@@ -716,8 +733,8 @@ def convert_latest_to_sharded():
                 "reason": (
                     f"sharded migration from {previous_snapshot_id}"),
                 "converted_from_snapshot": previous_snapshot_id,
-                "counts": read_item("counts", {}),
-                "files": read_item("files", []),
+                "counts": metadata["counts"],
+                "files": metadata["files"],
                 "table_chunks": table_chunks,
                 "table_ids": table_ids,
                 "table_row_counts": table_row_counts,

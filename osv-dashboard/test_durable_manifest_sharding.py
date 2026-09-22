@@ -41,7 +41,11 @@ class DurableManifestShardingTests(unittest.TestCase):
             "snapshot_id": "legacy",
             "created_at": "2026-09-01T00:00:00+00:00",
             "counts": {"limit_versions": 2},
-            "files": [],
+            "files": [
+                {"area": "uploads", "path": "source.xlsx",
+                 "object": "osv-dashboard/blobs/example",
+                 "sha256": "example"},
+            ],
             "tables": {
                 "LimitVersion": [
                     {"id": 1, "snapshot_json": "x" * 150,
@@ -63,6 +67,8 @@ class DurableManifestShardingTests(unittest.TestCase):
         self.assertEqual(3, converted["format"])
         self.assertNotIn("tables", converted)
         self.assertEqual(2, converted["table_row_counts"]["LimitVersion"])
+        self.assertEqual(old_manifest["counts"], converted["counts"])
+        self.assertEqual(old_manifest["files"], converted["files"])
         self.assertEqual(
             old_manifest, self.store.get_json(old_key),
             "conversion must not alter the predecessor")
