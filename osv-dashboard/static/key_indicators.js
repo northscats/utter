@@ -5319,6 +5319,10 @@
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
                 ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const deltaPercent = card.accrual_delta_percent;
+            const deltaSub = deltaPercent === null || deltaPercent === undefined
+                ? 'текущие начисления минус АПГ'
+                : `текущие начисления минус АПГ · ${deltaPercent >= 0 ? '+' : ''}${Number(deltaPercent).toFixed(2)}% к АПГ`;
             const tip = (title, formula, value, detail, required, source = 'ОСВ 70/69') =>
                 this.salaryTooltip({
                     title, formula, detail, required, source,
@@ -5499,8 +5503,7 @@
                 ['Начислено взносов', 'по видам и расчётным периодам', req.insurance],
                 ['Уплачено взносов', 'платежи, распределённые по обязательствам', req.insurancePayments],
                 ['Фактические тарифы', 'база, предельная база и применённый тариф', req.insurance],
-                ['План-факт ФОТ', 'утверждённая версия бюджета', `${req.budget} ${req.payroll}`],
-                ['Изменение к АПГ', 'сопоставимые периоды и классификация', req.comparable]
+                ['План-факт ФОТ', 'утверждённая версия бюджета', `${req.budget} ${req.payroll}`]
             ].map(([label, sub, required]) => this.cashMetricCard(
                 label, 'Нужны данные', sub, this.salaryTooltip({
                     title: label,
@@ -5518,7 +5521,7 @@
                     ${summaryCard('Начисления работникам', card.credit_turnover, 'ОбК 70 · не подтверждённый ФОТ', 'salary-accrual', accrualTip)}
                     ${summaryCard('Задолженность работникам', card.value, 'кредитовое сальдо 70', 'salary-debt', debtTip)}
                     ${summaryCard('Начисления АПГ', card.previous_year_accrual, 'сопоставимый период прошлого года', 'salary-apg', apgTip)}
-                    ${summaryCard('Дельта АПГ', card.accrual_delta, 'текущие начисления минус АПГ', 'salary-delta', deltaTip)}
+                    ${summaryCard('Дельта АПГ', card.accrual_delta, deltaSub, 'salary-delta', deltaTip)}
                 </div>
                 <div class="ki-modal-dynamics-block salary-chart-block"
                      data-layout-key="dynamics" data-layout-title="Динамика">

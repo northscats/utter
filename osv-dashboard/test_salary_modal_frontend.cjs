@@ -42,6 +42,7 @@ for (const kind of ['day', 'month']) {
     ],
     previous_year_accrual: 18000000,
     accrual_delta: 3000000,
+    accrual_delta_percent: 16.67,
     previous_year_accrual_series: [
       {date:'2026-01-05', label:'A · АПГ', value:18000000},
       {date:'2026-01-12', label:'B · АПГ', value:0},
@@ -85,6 +86,10 @@ for (const kind of ['day', 'month']) {
     'employee accruals are the default chart series');
   for (const label of ['Начисления работникам', 'Задолженность работникам',
     'Начисления АПГ', 'Дельта АПГ']) assert.match(html, new RegExp(label));
+  assert.match(html, /Дельта АПГ[\s\S]*\+16\.67% к АПГ/,
+    'the delta card shows the reference percentage when APG is non-zero');
+  assert.doesNotMatch(html, /Изменение к АПГ/,
+    'the calculated APG delta is not repeated as an unavailable metric');
   assert.match(html, /Месяц<\/th><th>Начисления<\/th><th>Начисления АПГ<\/th><th>Дельта АПГ/);
   assert.match(html, /class="cash-table salary-account-table"/);
   assert.match(html, /<thead><tr><th>Счёт<\/th><th>Начислено<\/th><th>Выплачено<\/th><th>Задолженность<\/th><\/tr><\/thead>/);

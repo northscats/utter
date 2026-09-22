@@ -58,6 +58,7 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
 
         self.assertEqual(salary['previous_year_accrual'], 80)
         self.assertEqual(salary['accrual_delta'], 20)
+        self.assertEqual(salary['accrual_delta_percent'], 25.0)
         self.assertEqual(
             [row['current_accrual'] for row in salary['monthly_comparison']],
             [100, None])
@@ -70,6 +71,20 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(
             [row['delta'] for row in salary['monthly_comparison']],
             [20, None])
+
+    def test_salary_apg_percent_is_missing_for_zero_or_missing_comparison_base(self):
+        raw = account(
+            '70',
+            [day('2025-01-31', 'Работник А', obk=0),
+             day('2026-01-31', 'Работник А', obk=100)],
+            period='за 01.01.2025 - 31.01.2026',
+        )
+        salary = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'70': raw}),
+            period='month', date_from='2026-01-31', date='2026-01-31',
+        )['cards']}['salary']
+        self.assertEqual(salary['accrual_delta'], 100)
+        self.assertIsNone(salary['accrual_delta_percent'])
 
     def test_quality_missing_accounts_use_account_numbers_not_metric_ids(self):
         result = build_key_indicators(build_indicator_source({

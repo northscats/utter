@@ -3181,6 +3181,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               accrual_delta_series=[],
               previous_year_accrual=None,
               accrual_delta=None,
+              accrual_delta_percent=None,
               monthly_comparison=[],
               insurance_series=[],
               notes=[
@@ -3295,6 +3296,11 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         round(salary_turnovers['credit'] - previous_year_salary_accrual, 2)
         if salary_turnovers['credit'] is not None
         and previous_year_salary_accrual is not None else None)
+    card_map['salary']['accrual_delta_percent'] = (
+        round(card_map['salary']['accrual_delta']
+              / previous_year_salary_accrual * 100, 2)
+        if card_map['salary']['accrual_delta'] is not None
+        and previous_year_salary_accrual not in (None, 0) else None)
     card_map['salary']['previous_year_period'] = {
         'start': previous_year_start.isoformat(),
         'end': previous_year_end.isoformat(),
