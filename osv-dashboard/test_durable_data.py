@@ -41,9 +41,10 @@ with app.app_context():
     company = Company(name="Durable", created_by=admin.id)
     db.session.add(company)
     db.session.commit()
+    company_id = company.id
 
-    upload_dir = Path(UPLOADS, str(company.id), "batch")
-    output_dir = Path(OUTPUT, str(company.id))
+    upload_dir = Path(UPLOADS, str(company_id), "batch")
+    output_dir = Path(OUTPUT, str(company_id))
     upload_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     source = upload_dir / "osv.xls"
@@ -85,11 +86,14 @@ with app.app_context():
         db, UPLOADS, OUTPUT, _DURABLE_MODELS, "initial_complete")
     latest_path = backup_root / LATEST_KEY
     first_pointer = json.loads(latest_path.read_text(encoding="utf-8"))
+    first_manifest = json.loads(
+        (backup_root / first_pointer["manifest"]).read_text(
+            encoding="utf-8"))
     check("first immutable version is promoted",
           first["promoted"] and first_pointer["snapshot_id"] == first["snapshot_id"]
-          and "User" in json.loads(
-              (backup_root / first_pointer["manifest"]).read_text(
-                  encoding="utf-8"))["tables"])
+          and first_manifest["format"] == 3
+          and "User" in first_manifest["table_chunks"]
+          and first_manifest["table_row_counts"]["User"] == 1)
 
     first_manifest_path = backup_root / first_pointer["manifest"]
     inconsistent_manifest = json.loads(
@@ -135,8 +139,8 @@ with app.app_context():
     for model in reversed(_DURABLE_MODELS):
         model.query.delete()
     db.session.commit()
-    shutil.rmtree(Path(UPLOADS, str(company.id)))
-    shutil.rmtree(Path(OUTPUT, str(company.id)))
+    shutil.rmtree(Path(UPLOADS, str(company_id)))
+    shutil.rmtree(Path(OUTPUT, str(company_id)))
 
     outcome = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
     check("latest restores all protected tables and both file areas",
@@ -163,7 +167,7 @@ with app.app_context():
           and admin.password_hash == "newer-password-state"
           and Setting.get("unrelated_newer_setting") == "keep-me")
 
-    protected_company_id = company.id
+    protected_company_id = company_id
     Upload.query.filter_by(company_id=protected_company_id).delete()
     DailyRow.query.filter_by(company_id=protected_company_id).delete()
     HistoricalRawValue.query.delete()

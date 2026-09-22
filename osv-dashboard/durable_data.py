@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Versioned durable database and file backups for Replit App Storage."""
 import hashlib
+import itertools
 import json
 import os
 import shutil
@@ -12,7 +13,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import text
+import ijson
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
@@ -37,6 +39,11 @@ COUNT_TABLES = (
 _BACKUP_LOCK = threading.Lock()
 _LIMIT_TOMBSTONE_LOCK = threading.Lock()
 LIMIT_TOMBSTONES_KEY = f"{ROOT}/limit-version-tombstones.json"
+MANIFEST_FORMAT = 3
+TABLE_CHUNK_TARGET_BYTES = 4 * 1024 * 1024
+TABLE_CHUNK_MAX_ROW_BYTES = 64 * 1024 * 1024
+
+
 class DurableDataError(RuntimeError):
     """The durable store or PostgreSQL backup utility failed."""
 
@@ -253,13 +260,176 @@ def _snapshot_rows(models):
         for model in models
     }
 
+
+def _json_bytes(value):
+    return json.dumps(
+        value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _table_rows_from_manifest(store, manifest, model_name):
+    """Yield one table without retaining unrelated durable rows in memory."""
+    inline = manifest.get("tables", {}).get(model_name)
+    if inline is not None:
+        yield from inline
+        return
+    chunks = manifest.get("table_chunks", {}).get(model_name, [])
+    if chunks and store is None:
+        raise DurableDataError(
+            f"Для чтения шардированной таблицы {model_name} требуется store.")
+    for chunk in chunks:
+        rows = store.get_json(chunk["key"])
+        if not isinstance(rows, list):
+            raise DurableDataError(
+                f"Недопустимый формат чанка {chunk.get('key')}.")
+        encoded = _json_bytes(rows)
+        if len(rows) != int(chunk.get("rows", -1)):
+            raise DurableDataError(
+                f"Количество строк чанка {chunk.get('key')} не совпадает.")
+        if chunk.get("sha256") and hashlib.sha256(encoded).hexdigest() != chunk["sha256"]:
+            raise DurableDataError(
+                f"Контрольная сумма чанка {chunk.get('key')} не совпадает.")
+        yield from rows
+
+
+def _manifest_model_count(manifest, model_name):
+    counts = manifest.get("table_row_counts", {})
+    if model_name in counts:
+        return int(counts[model_name])
+    return len(manifest.get("tables", {}).get(model_name, []))
+
+
+def _manifest_model_ids(manifest, model_name):
+    indexes = manifest.get("table_ids", {})
+    if model_name in indexes:
+        return {
+            row_id for row_id in indexes[model_name]
+            if row_id is not None
+        }
+    return {
+        row.get("id")
+        for row in manifest.get("tables", {}).get(model_name, [])
+        if row.get("id") is not None
+    }
+
+
+def _write_table_chunks(store, snapshot_prefix, model_name, rows,
+                        target_bytes=TABLE_CHUNK_TARGET_BYTES):
+    """Write byte-bounded immutable JSON arrays and return root metadata."""
+    chunks = []
+    row_ids = []
+    current = []
+    current_bytes = 2
+    chunk_no = 0
+
+    def flush():
+        nonlocal current, current_bytes, chunk_no
+        if not current:
+            return
+        key = (
+            f"{snapshot_prefix}/tables/{model_name}/"
+            f"{chunk_no:06d}.json")
+        encoded = _json_bytes(current)
+        store.put_json(key, current, immutable=True)
+        chunks.append({
+            "key": key,
+            "rows": len(current),
+            "bytes": len(encoded),
+            "sha256": hashlib.sha256(encoded).hexdigest(),
+        })
+        current = []
+        current_bytes = 2
+        chunk_no += 1
+
+    for row in rows:
+        encoded_size = len(_json_bytes(row))
+        if encoded_size > TABLE_CHUNK_MAX_ROW_BYTES:
+            raise DurableDataError(
+                f"Строка {model_name} превышает безопасный размер чанка.")
+        projected = current_bytes + encoded_size + (1 if current else 0)
+        if current and projected > target_bytes:
+            flush()
+        current.append(row)
+        current_bytes += encoded_size + (1 if len(current) > 1 else 0)
+        if row.get("id") is not None:
+            row_ids.append(row["id"])
+    flush()
+    return chunks, row_ids
+
+
+def _snapshot_table_chunks(db, store, snapshot_prefix, models):
+    """Read one consistent DB snapshot and upload bounded table objects."""
+    table_chunks = {}
+    table_ids = {}
+    table_row_counts = {}
+    connection = db.engine.connect()
+    transaction = None
+    try:
+        if db.engine.dialect.name == "postgresql":
+            connection = connection.execution_options(
+                isolation_level="REPEATABLE READ")
+        transaction = connection.begin()
+        for model in models:
+            columns = tuple(model.__table__.columns)
+            result = connection.execution_options(
+                stream_results=True).execute(
+                    select(*columns).order_by(model.__table__.c.id))
+
+            def rows():
+                for record in result.mappings():
+                    yield {
+                        column.name: _encoded(record[column.name])
+                        for column in columns
+                    }
+
+            chunks, row_ids = _write_table_chunks(
+                store, snapshot_prefix, model.__name__, rows())
+            table_chunks[model.__name__] = chunks
+            table_ids[model.__name__] = row_ids
+            table_row_counts[model.__name__] = sum(
+                chunk["rows"] for chunk in chunks)
+        transaction.commit()
+    except Exception:
+        if transaction is not None:
+            transaction.rollback()
+        raise
+    finally:
+        connection.close()
+    return table_chunks, table_ids, table_row_counts
+
+
+def _legacy_table_rows(path):
+    """Yield ``(model_name, row)`` from a format-2 manifest in one pass."""
+    builder = None
+    row_prefix = None
+    model_name = None
+    with open(path, "rb") as source:
+        for prefix, event, value in ijson.parse(source, use_float=True):
+            if builder is None:
+                parts = prefix.split(".")
+                if (event == "start_map"
+                        and len(parts) == 3
+                        and parts[0] == "tables"
+                        and parts[2] == "item"):
+                    model_name = parts[1]
+                    row_prefix = prefix
+                    builder = ijson.common.ObjectBuilder()
+                    builder.event(event, value)
+                continue
+            builder.event(event, value)
+            if prefix == row_prefix and event == "end_map":
+                yield model_name, builder.value
+                builder = None
+                row_prefix = None
+                model_name = None
+
+
 def _manifest_counts(manifest, models):
     """Use the rows actually stored in a manifest for protected model counts."""
     counts = dict(manifest.get("counts", {}))
-    tables = manifest.get("tables", {})
     for model in models:
-        if model.__tablename__ in COUNT_TABLES and model.__name__ in tables:
-            counts[model.__tablename__] = len(tables[model.__name__])
+        if model.__tablename__ in COUNT_TABLES:
+            counts[model.__tablename__] = _manifest_model_count(
+                manifest, model.__name__)
     return counts
 def _counts(db):
     inspector = __import__("sqlalchemy").inspect(db.engine)
@@ -357,19 +527,13 @@ def _snapshot_id():
 def _removed_snapshot_tables(previous, current, models):
     """Detect removals even when replacement rows keep aggregate counts equal."""
     removed = set()
-    previous_tables = previous.get("tables", {}) if previous else {}
-    current_tables = current.get("tables", {})
     for model in models:
         if model.__name__ == "User":
             continue
-        old_ids = {
-            row.get("id") for row in previous_tables.get(model.__name__, [])
-            if row.get("id") is not None
-        }
-        new_ids = {
-            row.get("id") for row in current_tables.get(model.__name__, [])
-            if row.get("id") is not None
-        }
+        old_ids = (
+            _manifest_model_ids(previous, model.__name__)
+            if previous else set())
+        new_ids = _manifest_model_ids(current, model.__name__)
         if old_ids - new_ids:
             removed.add(model.__tablename__)
     return removed
@@ -382,14 +546,15 @@ def backup(db, uploads_root, output_root, models, reason,
         store = _store()
         snapshot_id = _snapshot_id()
         snapshot_prefix = f"{SNAPSHOTS_PREFIX}/{snapshot_id}"
-        tables = _snapshot_rows(models)
-        counts = _counts(db)
+        table_chunks, table_ids, table_row_counts = _snapshot_table_chunks(
+            db, store, snapshot_prefix, models)
+        counts = {}
         for model in models:
             if model.__tablename__ in COUNT_TABLES:
-                counts[model.__tablename__] = len(tables.get(model.__name__, []))
+                counts[model.__tablename__] = table_row_counts[model.__name__]
         files = _backup_files(store, uploads_root, output_root)
         manifest = {
-            "format": 2,
+            "format": MANIFEST_FORMAT,
             "snapshot_id": snapshot_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "reason": reason,
@@ -397,9 +562,11 @@ def backup(db, uploads_root, output_root, models, reason,
                         else "json",
             "counts": counts,
             "files": files,
-            # JSON is retained even for PostgreSQL. It is the non-destructive
-            # repair path when a live database has only partially lost rows.
-            "tables": tables,
+            # Bounded immutable chunks are the non-destructive repair path
+            # when a live database has only partially lost rows.
+            "table_chunks": table_chunks,
+            "table_ids": table_ids,
+            "table_row_counts": table_row_counts,
         }
         if db.engine.dialect.name == "postgresql":
             fd, dump_path = tempfile.mkstemp(prefix="osv_", suffix=".dump")
@@ -462,8 +629,123 @@ def backup(db, uploads_root, output_root, models, reason,
             "snapshot_id": snapshot_id, "promoted": promoted,
             "shrink_rejected": sorted(shrunk), "files": len(files),
             "superseded": superseded,
-            "rows": sum(len(rows) for rows in manifest.get("tables", {}).values()),
+            "rows": sum(table_row_counts.values()),
         }
+
+
+def convert_latest_to_sharded():
+    """Atomically convert a legacy inline latest manifest to format 3.
+
+    The predecessor and all of its referenced files remain immutable.  Only
+    the latest pointer changes, after every table chunk has been read back and
+    validated.
+    """
+    with _BACKUP_LOCK:
+        store = _store()
+        pointer, pointer_generation = store.get_json_versioned(LATEST_KEY)
+        if not pointer or not pointer.get("manifest"):
+            raise DurableDataError("Latest manifest отсутствует.")
+        fd, legacy_path = tempfile.mkstemp(
+            prefix="osv_manifest_", suffix=".json")
+        os.close(fd)
+        try:
+            store.get_file(pointer["manifest"], legacy_path)
+            top_level = {}
+            model_names = []
+            with open(legacy_path, "rb") as source:
+                for prefix, event, value in ijson.parse(
+                        source, use_float=True):
+                    if prefix == "tables" and event == "map_key":
+                        if not str(value).replace("_", "").isalnum():
+                            raise DurableDataError(
+                                f"Недопустимое имя таблицы {value}.")
+                        model_names.append(str(value))
+                    elif ("." not in prefix
+                          and prefix not in ("tables", "counts", "files")
+                          and event in (
+                              "string", "number", "boolean", "null")):
+                        top_level[prefix] = value
+            if int(top_level.get("format", 1)) >= MANIFEST_FORMAT:
+                current = store.get_json(pointer["manifest"])
+                return {
+                    "converted": False,
+                    "snapshot_id": current.get("snapshot_id"),
+                    "rows": sum(
+                        int(value) for value in
+                        current.get("table_row_counts", {}).values()),
+                }
+            if not model_names:
+                raise DurableDataError(
+                    "Legacy manifest не содержит встроенных таблиц.")
+
+            def read_item(prefix, default):
+                with open(legacy_path, "rb") as source:
+                    return next(
+                        ijson.items(source, prefix, use_float=True), default)
+
+            snapshot_id = _snapshot_id()
+            snapshot_prefix = f"{SNAPSHOTS_PREFIX}/{snapshot_id}"
+            table_chunks = {}
+            table_ids = {}
+            table_row_counts = {}
+            for model_name in model_names:
+                table_chunks[model_name] = []
+                table_ids[model_name] = []
+                table_row_counts[model_name] = 0
+            for model_name, grouped in itertools.groupby(
+                    _legacy_table_rows(legacy_path),
+                    key=lambda item: item[0]):
+                chunks, row_ids = _write_table_chunks(
+                    store, snapshot_prefix, model_name,
+                    (row for _name, row in grouped))
+                table_chunks[model_name] = chunks
+                table_ids[model_name] = row_ids
+                table_row_counts[model_name] = sum(
+                    chunk["rows"] for chunk in chunks)
+
+            previous_snapshot_id = top_level.get(
+                "snapshot_id", pointer.get("snapshot_id", "legacy"))
+            manifest = {
+                key: value for key, value in top_level.items()
+                if key not in ("format", "snapshot_id", "created_at", "reason")
+            }
+            manifest.update({
+                "format": MANIFEST_FORMAT,
+                "snapshot_id": snapshot_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "reason": (
+                    f"sharded migration from {previous_snapshot_id}"),
+                "converted_from_snapshot": previous_snapshot_id,
+                "counts": read_item("counts", {}),
+                "files": read_item("files", []),
+                "table_chunks": table_chunks,
+                "table_ids": table_ids,
+                "table_row_counts": table_row_counts,
+            })
+            for model_name, expected in table_row_counts.items():
+                actual = sum(
+                    1 for _ in _table_rows_from_manifest(
+                        store, manifest, model_name))
+                if actual != expected:
+                    raise DurableDataError(
+                        f"Проверка таблицы {model_name} после конвертации "
+                        f"дала {actual} строк вместо {expected}.")
+
+            manifest_key = f"{snapshot_prefix}/manifest.json"
+            store.put_json(manifest_key, manifest, immutable=True)
+            store.put_json(
+                LATEST_KEY,
+                {"snapshot_id": snapshot_id, "manifest": manifest_key},
+                if_generation_match=pointer_generation,
+            )
+            return {
+                "converted": True,
+                "snapshot_id": snapshot_id,
+                "rows": sum(table_row_counts.values()),
+                "chunks": sum(len(value) for value in table_chunks.values()),
+            }
+        finally:
+            Path(legacy_path).unlink(missing_ok=True)
 
 
 def _decoded(column, value):
@@ -507,12 +789,12 @@ def _same_company_identity(row, snapshot):
         return current == expected
 
 
-def _parent_identity_conflicts(db, manifest, by_name):
+def _parent_identity_conflicts(db, manifest, by_name, store=None):
     blocked_users = set()
     blocked_companies = set()
     user_model = by_name.get("User")
     company_model = by_name.get("Company")
-    for snapshot in manifest.get("tables", {}).get("User", []):
+    for snapshot in _table_rows_from_manifest(store, manifest, "User"):
         current = db.session.get(user_model, snapshot.get("id")) if user_model else None
         if current is not None and current.username != snapshot.get("username"):
             blocked_users.add(snapshot["id"])
@@ -521,7 +803,7 @@ def _parent_identity_conflicts(db, manifest, by_name):
                 username=snapshot.get("username")).first()
             if same_identity is not None:
                 blocked_users.add(snapshot["id"])
-    for snapshot in manifest.get("tables", {}).get("Company", []):
+    for snapshot in _table_rows_from_manifest(store, manifest, "Company"):
         current = (db.session.get(company_model, snapshot.get("id"))
                    if company_model else None)
         if current is not None and not _same_company_identity(current, snapshot):
@@ -567,7 +849,7 @@ def _database_limit_tombstones(db):
         "source_sha256": row.source_sha256 or "",
     } for row in LimitVersionTombstone.query.all()]
 def _restore_json(db, manifest, models, include_parents=True,
-                  external_tombstones=None):
+                  external_tombstones=None, store=None):
     restored = skipped = conflicts = 0
     deferred_limit_heads = []
     tombstoned_object_ids = set()
@@ -578,19 +860,19 @@ def _restore_json(db, manifest, models, include_parents=True,
     # repair must still run in that case, even when this attempt inserts zero
     # new rows.
     manifest_has_rows = any(
-        manifest.get("tables", {}).get(model.__name__)
+        _manifest_model_count(manifest, model.__name__) > 0
         for model in models)
 
-    def checkpoint():
+    def checkpoint(force=False):
         nonlocal processed_since_checkpoint
-        if processed_since_checkpoint >= checkpoint_size:
+        if force or processed_since_checkpoint >= checkpoint_size:
             db.session.commit()
             processed_since_checkpoint = 0
 
     by_name = {model.__name__: model for model in models}
     (tombstoned_versions, tombstoned_comparisons,
      tombstoned_deliveries) = _limit_tombstone_sets(
-         manifest, db, external_tombstones)
+         manifest, db, external_tombstones, store=store)
     # Persist sidecar markers into the recovered database as well.  Otherwise
     # a later backup would lose the only evidence that an older manifest must
     # continue to filter this version.
@@ -608,13 +890,19 @@ def _restore_json(db, manifest, models, include_parents=True,
         db.session.flush()
         restored += 1
     blocked_users, blocked_companies = _parent_identity_conflicts(
-        db, manifest, by_name)
+        db, manifest, by_name, store=store)
     conflicts += len(blocked_users) + len(blocked_companies)
     for model in models:
         if not include_parents and model.__name__ in ("User", "Company"):
             continue
-        for values in manifest.get("tables", {}).get(model.__name__, []):
+        for values in _table_rows_from_manifest(
+                store, manifest, model.__name__):
             processed_since_checkpoint += 1
+            large_payload = sum(
+                len(value.encode("utf-8"))
+                for value in values.values()
+                if isinstance(value, str)
+            ) >= TABLE_CHUNK_TARGET_BYTES
             row_id = values.get("id")
             if (model.__name__ == "LimitObject"
                     and values.get("last_seen_version_id") in tombstoned_versions
@@ -680,7 +968,9 @@ def _restore_json(db, manifest, models, include_parents=True,
             except IntegrityError:
                 skipped += 1
                 conflicts += 1
-            checkpoint()
+            # LimitVersion can contain a 20+ MiB snapshot.  Do not retain
+            # several such pending ORM objects until the normal row checkpoint.
+            checkpoint(force=large_payload)
     has_limit_tombstones = bool(_database_limit_tombstones(db))
     if ((restored or manifest_has_rows or has_limit_tombstones)
             and db.engine.dialect.name == "postgresql"):
@@ -777,7 +1067,8 @@ def _restore_files(store, manifest, uploads_root, output_root,
         if item.get("path"):
             tombstoned_paths.add(item["path"])
     for item in _normalise_limit_tombstones(
-            manifest.get("tables", {}).get("LimitVersionTombstone", [])):
+            list(_table_rows_from_manifest(
+                store, manifest, "LimitVersionTombstone"))):
         if item.get("path"):
             tombstoned_paths.add(item["path"])
     restored = 0
@@ -813,7 +1104,7 @@ def restore(db, uploads_root, output_root, models):
     external_tombstones = _read_limit_tombstones(store)
     restored, skipped, conflicts = _restore_json(
         db, manifest, models, include_parents=True,
-        external_tombstones=external_tombstones)
+        external_tombstones=external_tombstones, store=store)
     recovery_needed = restored > 0 or conflicts > 0
     files = _restore_files(
         store, manifest, uploads_root, output_root,
@@ -901,7 +1192,7 @@ def _normalise_limit_tombstones(value):
         })
     return result
 
-def _limit_tombstone_sets(manifest, db, external_tombstones=None):
+def _limit_tombstone_sets(manifest, db, external_tombstones=None, store=None):
     """Combine current DB, manifest, and external deletion knowledge."""
     records = {}
     for item in _database_limit_tombstones(db):
@@ -909,30 +1200,34 @@ def _limit_tombstone_sets(manifest, db, external_tombstones=None):
     for item in _normalise_limit_tombstones(external_tombstones or []):
         records[int(item["version_id"])] = item
     for item in _normalise_limit_tombstones(
-            manifest.get("tables", {}).get("LimitVersionTombstone", [])):
+            list(_table_rows_from_manifest(
+                store, manifest, "LimitVersionTombstone"))):
         records[int(item["version_id"])] = item
     version_ids = set(records)
     # SQLite may reuse a deleted integer primary key.  A marker must block
     # the old manifest row, but not a newer upload that legitimately reused
     # that ID with a different immutable source.
-    for row in manifest.get("tables", {}).get("LimitVersion", []):
-        version_id = row.get("id")
-        try:
-            version_id = int(version_id)
-        except (TypeError, ValueError):
-            continue
-        marker = records.get(version_id)
-        if marker and not _limit_version_matches_tombstone(row, marker):
-            version_ids.discard(version_id)
-    tables = manifest.get("tables", {})
+    if version_ids:
+        for row in _table_rows_from_manifest(store, manifest, "LimitVersion"):
+            version_id = row.get("id")
+            try:
+                version_id = int(version_id)
+            except (TypeError, ValueError):
+                continue
+            marker = records.get(version_id)
+            if marker and not _limit_version_matches_tombstone(row, marker):
+                version_ids.discard(version_id)
     comparison_ids = {
-        row.get("id") for row in tables.get("LimitComparison", [])
+        row.get("id")
+        for row in _table_rows_from_manifest(
+            store, manifest, "LimitComparison")
         if row.get("id") is not None and (
             row.get("old_version_id") in version_ids
             or row.get("new_version_id") in version_ids)
     }
     delivery_ids = {
-        row.get("id") for row in tables.get("LimitDelivery", [])
+        row.get("id")
+        for row in _table_rows_from_manifest(store, manifest, "LimitDelivery")
         if row.get("id") is not None and row.get("version_id") in version_ids
     }
     return version_ids, comparison_ids, delivery_ids

@@ -7406,6 +7406,43 @@ def init_db(perform_durable=True):
             return
         _finish_durable_startup(restore=True)
 
+def _run_post_startup_backup(limit_cleanup):
+    """Persist a safety snapshot without extending deployment readiness."""
+    with app.app_context():
+        try:
+            app.logger.info('post-startup backup started')
+            from durable_data import has_snapshot
+            if Setting.get('limits_tombstones_external_pending') == '1':
+                try:
+                    from durable_data import backup_limit_tombstones
+                    backup_limit_tombstones(db)
+                    Setting.set('limits_tombstones_external_pending', '0')
+                    Setting.set('limits_tombstone_backup_error', '')
+                    db.session.commit()
+                except Exception as exc:
+                    db.session.rollback()
+                    Setting.set('limits_tombstone_backup_error', str(exc))
+                    db.session.commit()
+            result = _durable_backup(
+                'очистка лимитов после запуска' if limit_cleanup else
+                'первичный снимок после запуска',
+                required=not has_snapshot(),
+                allowed_removed_tables=(
+                    'limit_versions', 'limit_row_snapshots',
+                    'limit_comparisons', 'limit_comparison_resolutions',
+                    'limit_changes', 'limit_deliveries',
+                    'limit_delivery_attempts', 'limit_delivery_parts',
+                ) if limit_cleanup else ())
+            if limit_cleanup and result and result.get('promoted'):
+                Setting.set('limits_rotation_needs_backup', '0')
+                db.session.commit()
+            app.logger.info('post-startup backup completed')
+        except Exception:
+            db.session.rollback()
+            app.logger.exception(
+                'post-startup backup failed without closing application access')
+
+
 def _finish_durable_startup(restore=False):
     """Complete startup once; persist a retryable, non-sensitive failure state."""
     if not _limits_startup_lock.acquire(blocking=False):
@@ -7439,37 +7476,18 @@ def _finish_durable_startup(restore=False):
             # deployment probes and users are not blocked by App Storage I/O.
             if Setting.get('limits_history_ready') == 'ready':
                 _ensure_limits_recovery()
-                app.config['DURABLE_STARTUP_READY'] = True
-            else:
-                app.config['DURABLE_STARTUP_READY'] = False
+            # Global startup succeeded even when only the limits module is
+            # blocked.  Its own gate exposes the recovery UI without hiding
+            # every unrelated application route behind the startup message.
+            app.config['DURABLE_STARTUP_READY'] = True
             if not app.config.get('TESTING'):
-                stage = 'backup'
-                app.logger.info('durable startup stage started: backup')
-                from durable_data import has_snapshot
                 limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
-                if Setting.get('limits_tombstones_external_pending') == '1':
-                    try:
-                        from durable_data import backup_limit_tombstones
-                        backup_limit_tombstones(db)
-                        Setting.set('limits_tombstones_external_pending', '0')
-                        Setting.set('limits_tombstone_backup_error', '')
-                        db.session.commit()
-                    except Exception as exc:
-                        db.session.rollback()
-                        Setting.set('limits_tombstone_backup_error', str(exc))
-                        db.session.commit()
-                result = _durable_backup(
-                    'очистка лимитов после запуска' if limit_cleanup else
-                    'первичный снимок после запуска',
-                    required=not has_snapshot(),
-                    allowed_removed_tables=(
-                        'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
-                        'limit_comparison_resolutions', 'limit_changes', 'limit_deliveries',
-                        'limit_delivery_attempts', 'limit_delivery_parts') if limit_cleanup else ())
-                if limit_cleanup and result and result.get('promoted'):
-                    Setting.set('limits_rotation_needs_backup', '0')
-                    db.session.commit()
-                app.logger.info('durable startup stage completed: backup')
+                threading.Thread(
+                    target=_run_post_startup_backup,
+                    args=(limit_cleanup,),
+                    name='post-startup-backup',
+                    daemon=True,
+                ).start()
             # Reconciliation owns ready/blocked. Backups do not gate access once
             # the restored financial history has been checked successfully.
             app.config['DURABLE_STARTUP_FAILED'] = False
