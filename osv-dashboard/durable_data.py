@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
@@ -315,6 +316,23 @@ def _manifest_model_ids(manifest, model_name):
         for row in manifest.get("tables", {}).get(model_name, [])
         if row.get("id") is not None
     }
+
+
+def _manifest_model_fully_present(db, manifest, model):
+    """Check the manifest ID index without downloading the table chunks."""
+    ids = _manifest_model_ids(manifest, model.__name__)
+    expected = _manifest_model_count(manifest, model.__name__)
+    if expected == 0:
+        return True
+    if len(ids) != expected:
+        return False
+    ordered = list(ids)
+    found = 0
+    for offset in range(0, len(ordered), 500):
+        batch = ordered[offset:offset + 500]
+        found += len(db.session.execute(
+            select(model.id).where(model.id.in_(batch))).all())
+    return found == expected
 
 
 def _write_table_chunks(store, snapshot_prefix, model_name, rows,
@@ -887,6 +905,16 @@ def _restore_json(db, manifest, models, include_parents=True,
             processed_since_checkpoint = 0
 
     by_name = {model.__name__: model for model in models}
+    fully_present = {
+        model.__name__: _manifest_model_fully_present(
+            db, manifest, model)
+        for model in models
+    }
+    # Preserve dependency order within each group, but recover missing tables
+    # before scanning tables whose complete ID set is already in PostgreSQL.
+    # This makes a populated deployment restore newly added modules promptly.
+    ordered_models = sorted(
+        models, key=lambda model: fully_present[model.__name__])
     (tombstoned_versions, tombstoned_comparisons,
      tombstoned_deliveries) = _limit_tombstone_sets(
          manifest, db, external_tombstones, store=store)
@@ -909,8 +937,15 @@ def _restore_json(db, manifest, models, include_parents=True,
     blocked_users, blocked_companies = _parent_identity_conflicts(
         db, manifest, by_name, store=store)
     conflicts += len(blocked_users) + len(blocked_companies)
-    for model in models:
+    # Existing datasets may need their deferred current-version pointer
+    # repaired. Other fully present tables require no payload download.
+    always_scan = {"LimitDataset"}
+    for model in ordered_models:
         if not include_parents and model.__name__ in ("User", "Company"):
+            continue
+        if (fully_present[model.__name__]
+                and model.__name__ not in always_scan):
+            skipped += _manifest_model_count(manifest, model.__name__)
             continue
         for values in _table_rows_from_manifest(
                 store, manifest, model.__name__):
@@ -1088,7 +1123,8 @@ def _restore_files(store, manifest, uploads_root, output_root,
                 store, manifest, "LimitVersionTombstone"))):
         if item.get("path"):
             tombstoned_paths.add(item["path"])
-    restored = 0
+    pending = []
+    seen = set()
     for item in manifest.get("files", []):
         if item.get("area") not in roots:
             raise DurableDataError("Неизвестная файловая область в manifest.")
@@ -1096,17 +1132,35 @@ def _restore_files(store, manifest, uploads_root, output_root,
                 and _limit_path(item.get("path", "")) in tombstoned_paths):
             continue
         destination = _safe_destination(roots[item["area"]], item.get("path", ""))
-        if destination.exists():
+        if destination.exists() or destination in seen:
             continue
-        store.get_file(f"{BLOBS_PREFIX}/{item['sha256']}", str(destination))
-        if _sha256(destination) != item["sha256"]:
-            destination.unlink(missing_ok=True)
-            raise DurableDataError(f"Неверная контрольная сумма: {item['path']}")
-        restored += 1
-    return restored
+        seen.add(destination)
+        pending.append((item, destination))
+
+    def download(entry):
+        item, destination = entry
+        temporary = destination.with_name(
+            f".{destination.name}.restore-{uuid.uuid4().hex}.tmp")
+        try:
+            store.get_file(
+                f"{BLOBS_PREFIX}/{item['sha256']}", str(temporary))
+            if _sha256(temporary) != item["sha256"]:
+                raise DurableDataError(
+                    f"Неверная контрольная сумма: {item['path']}")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(temporary, destination)
+            return 1
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    workers = max(
+        1, min(16, int(os.environ.get("DURABLE_FILE_RESTORE_WORKERS", "8"))))
+    with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix="durable-file") as pool:
+        return sum(pool.map(download, pending))
 
 
-def restore(db, uploads_root, output_root, models):
+def restore(db, uploads_root, output_root, models, after_database=None):
     """Safely merge missing protected rows/files; never overwrite live data."""
     store = _store()
     pointer = store.get_json(LATEST_KEY)
@@ -1129,6 +1183,8 @@ def restore(db, uploads_root, output_root, models):
     restored, skipped, conflicts = _restore_json(
         db, manifest, models, include_parents=True,
         external_tombstones=external_tombstones, store=store)
+    if after_database is not None:
+        after_database()
     recovery_needed = restored > 0 or conflicts > 0
     files = _restore_files(
         store, manifest, uploads_root, output_root,

@@ -34,7 +34,7 @@ class DurableBootstrapTest(unittest.TestCase):
             db.create_all()
 
     @staticmethod
-    def _restore_original():
+    def _restore_original(after_database=None):
         restored = User(
             username='restored-original',
             password_hash='restored-hash',
@@ -42,6 +42,8 @@ class DurableBootstrapTest(unittest.TestCase):
         )
         db.session.add(restored)
         db.session.commit()
+        if after_database is not None:
+            after_database()
         return True
 
     def test_restore_wins_without_initial_secret(self):
@@ -100,8 +102,10 @@ class DurableBootstrapTest(unittest.TestCase):
             db.session.commit()
             self.assertTrue(_database_can_serve_during_restore())
 
-        def observe_open_gate():
+        def observe_open_gate(after_database=None):
             self.assertTrue(app.config['DURABLE_STARTUP_READY'])
+            self.assertIsNotNone(after_database)
+            after_database()
             return True
 
         with patch('app._durable_restore', side_effect=observe_open_gate), \
@@ -115,8 +119,9 @@ class DurableBootstrapTest(unittest.TestCase):
         with app.app_context():
             self.assertFalse(_database_can_serve_during_restore())
 
-        def observe_closed_gate():
+        def observe_closed_gate(after_database=None):
             self.assertFalse(app.config['DURABLE_STARTUP_READY'])
+            self.assertIsNotNone(after_database)
             return False
 
         with patch('app._durable_restore', side_effect=observe_closed_gate):

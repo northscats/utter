@@ -216,7 +216,7 @@ def _schedule_durable_safety_backup(reason):
         _durable_safety_thread.start()
 
 
-def _durable_restore():
+def _durable_restore(after_database=None):
     """Merge durable data after schema creation and report its status."""
     if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
         return True
@@ -231,7 +231,9 @@ def _durable_restore():
         result = None
         for attempt in range(1, max_attempts + 1):
             try:
-                result = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
+                result = restore(
+                    db, UPLOADS, OUTPUT, _DURABLE_MODELS,
+                    after_database=after_database)
                 break
             except Exception as exc:
                 db.session.rollback()
@@ -7476,7 +7478,18 @@ def _finish_durable_startup(restore=False):
                     'populated PostgreSQL database serves application routes')
             if restore:
                 app.logger.info('durable startup stage started: restore')
-                if not _durable_restore():
+                def database_restored():
+                    if not serve_live_database:
+                        return
+                    app.logger.info(
+                        'durable startup priority stage started: limits')
+                    _reconcile_limits_after_restore()
+                    if Setting.get('limits_history_ready') == 'ready':
+                        _ensure_limits_recovery()
+                    app.logger.info(
+                        'durable startup priority stage completed: limits')
+
+                if not _durable_restore(after_database=database_restored):
                     raise RuntimeError(
                         'Durable restore failed; bootstrap was not attempted')
                 _ensure_initial_admin_after_restore()
