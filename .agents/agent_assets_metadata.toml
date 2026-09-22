@@ -330,3 +330,31 @@ mtime_ms = 1790080459442
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9c90f44e-2b06-4cd4-9da7-f161ca233342/aa79e9b3-09cf-4ba7-b748-e9d6bafbaae6"
 storage_version_token = "1790080544807715"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "40bHeoHKY-WSt7wWvqfv-"
+uri = "file://deliverables/local_observability_development_plan.doc"
+type = "word_document"
+title = "План разработки локальной наблюдаемости (.doc)"
+description = "Оценка сложности, управление категориями логов, аудит действий пользователей, подробные этапы, трудоёмкость и план релизов."
+logical_id = "9994a2c9-ed6a-49eb-8638-07013f2accfb"
+content_hash = "sha256:33a6be0527df68da1ebe111a6100edc37459d830535f1c7eccab051714cc703b"
+size = 78336
+mtime_ms = 1790101017683
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/9994a2c9-ed6a-49eb-8638-07013f2accfb/1ef36292-7f18-41aa-9019-2000ae7b85f1"
+storage_version_token = "1790101032598980"
+content_type = "application/msword"
+
+[[outputs]]
+id = "orOzSlPytoD-i2aZFSVzY"
+uri = "file://deliverables/local_observability_development_plan.docx"
+type = "word_document"
+title = "План разработки локальной наблюдаемости (.docx)"
+description = "Современная версия документа для Microsoft Word и совместимых редакторов."
+logical_id = "c7681938-a489-4183-833b-3c9bee253ca5"
+content_hash = "sha256:34c5eb110dd00dadd76076e6a01eeff73076522a889d5c219b1917f4d6aba7dd"
+size = 46749
+mtime_ms = 1790101006035
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/c7681938-a489-4183-833b-3c9bee253ca5/b1a609b4-d8e7-4edc-9347-6befb3b29786"
+storage_version_token = "1790101033954112"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
