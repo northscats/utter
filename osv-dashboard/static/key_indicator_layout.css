@@ -22,7 +22,8 @@
 }
 
 #ki-modal .ki-modal-header-controls .ki-layout-tab,
-#ki-modal .ki-modal-header-controls .ki-layout-btn-gear {
+#ki-modal .ki-modal-header-controls .ki-layout-btn-gear,
+#ki-modal .ki-modal-header-controls .ki-tooltip-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -34,6 +35,21 @@
     border-radius: 8px;
     background: rgba(255,255,255,.08);
     color: #fff;
+}
+
+#ki-modal .ki-modal-period-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+#ki-modal .ki-modal-period-controls .mode-selector {
+    margin-right: 0;
+}
+
+#ki-modal .ki-modal-period-controls .ki-tooltip-toggle {
+    margin-left: 0;
 }
 
 #ki-modal .ki-modal-header-controls button.active,
@@ -64,6 +80,12 @@
 
     #ki-modal .ki-modal-header-controls {
         margin-left: auto;
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    #ki-modal .ki-modal-period-controls {
+        flex: 1 0 auto;
     }
 }
 

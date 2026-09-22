@@ -167,6 +167,11 @@
             this.syncLocation();
             // Do not leave cards, charts, or the AI tab showing the previous
             // selection while the new interval is being calculated.
+            if (window.KI_App &&
+                    typeof window.KI_App.prepareOpenModalRefresh === 'function') {
+                window.KI_App.prepareOpenModalRefresh(
+                    'Загрузка годовых данных за выбранный период…');
+            }
             state.data = null;
             state.chartJob = null;
             this.fetchData();
@@ -569,6 +574,10 @@
             this.renderWarnings();
             this.renderCards();
             this.renderQuality();
+            if (window.KI_App &&
+                    typeof window.KI_App.refreshOpenModalAfterData === 'function') {
+                window.KI_App.refreshOpenModalAfterData('annual');
+            }
         },
 
         renderYearSelector() {
@@ -848,6 +857,10 @@
             }
 
             const modal = document.getElementById('ki-modal');
+            if (window.KI_App &&
+                    typeof window.KI_App.activateModalHeaderControls === 'function') {
+                window.KI_App.activateModalHeaderControls();
+            }
             modal.style.visibility = 'visible';
             modal.classList.add('visible');
             modal.setAttribute('aria-hidden', 'false');

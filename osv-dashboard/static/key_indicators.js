@@ -326,6 +326,82 @@
                 `Детализация по данным ${source} · ${label}`;
         },
 
+        activateModalHeaderControls() {
+            const host = document.getElementById('ki-modal-period-controls');
+            if (!host || host.dataset.active === 'true') return;
+            [
+                'ki-mode-selector',
+                'ki-period-selector',
+                'ki-annual-year-select',
+                'ki-annual-year-buttons',
+                'ki-tooltip-toggle'
+            ].forEach(id => {
+                const node = document.getElementById(id);
+                if (!node || node.parentNode === host) return;
+                const marker = document.createComment(`restore-${id}`);
+                node.parentNode.insertBefore(marker, node);
+                node._kiRestoreMarker = marker;
+                host.appendChild(node);
+            });
+            host.dataset.active = 'true';
+        },
+
+        restorePageHeaderControls() {
+            const host = document.getElementById('ki-modal-period-controls');
+            if (!host) return;
+            Array.from(host.children).forEach(node => {
+                const marker = node._kiRestoreMarker;
+                if (!marker || !marker.parentNode) return;
+                marker.parentNode.insertBefore(node, marker);
+                marker.remove();
+                delete node._kiRestoreMarker;
+            });
+            host.dataset.active = 'false';
+        },
+
+        prepareOpenModalRefresh(message) {
+            if (!this.isModalOpen()) return null;
+            const annualState = window.KI_AnnualApp && window.KI_AnnualApp.state;
+            const cardId = state.modalCardId ||
+                (annualState && annualState.modalCardId) || null;
+            if (!cardId) return null;
+            state.pendingModalCardId = cardId;
+            state.modalCardId = null;
+            if (annualState) annualState.modalCardId = null;
+            if (window.KI_Layout &&
+                    typeof window.KI_Layout.onModalClose === 'function') {
+                window.KI_Layout.onModalClose(true);
+            }
+            this.showModalSwitchStatus(message || 'Обновление данных показателя…');
+            return cardId;
+        },
+
+        refreshOpenModalAfterData(mode) {
+            if (state.companySwitching) return;
+            const cardId = state.pendingModalCardId;
+            if (!cardId || !this.isModalOpen()) return;
+            const source = mode === 'annual' && window.KI_AnnualApp
+                ? window.KI_AnnualApp.state.data : state.data;
+            const cards = source && Array.isArray(source.cards) ? source.cards : [];
+            if (!cards.some(card => card.id === cardId)) {
+                state.pendingModalCardId = null;
+                document.getElementById('ki-modal-title').textContent =
+                    'Показатель недоступен';
+                this.updateModalSubtitle();
+                this.showModalSwitchStatus(
+                    'Этот показатель отсутствует в выбранном режиме или периоде.',
+                    true
+                );
+                return;
+            }
+            state.pendingModalCardId = null;
+            if (mode === 'annual') {
+                window.KI_AnnualApp.openModal(cardId);
+            } else {
+                this.openModal(cardId);
+            }
+        },
+
         isModalOpen() {
             const modal = document.getElementById('ki-modal');
             return !!(modal && modal.classList.contains('visible'));
@@ -742,6 +818,11 @@
                 window.KI_DashboardLayout.prepareModeSwitch(mode) === false) {
                 return;
             }
+            const keepModalOpen = !!this.prepareOpenModalRefresh(
+                mode === 'annual'
+                    ? 'Загрузка годовых данных показателя…'
+                    : 'Загрузка данных ОСВ за выбранный период…'
+            );
             state.mode = mode;
             if (window.KI_SourcePassport &&
                 typeof window.KI_SourcePassport.setMode === 'function') {
@@ -775,7 +856,7 @@
                 document.getElementById('ki-operational-container').style.display = 'none';
                 document.getElementById('ki-annual-container').style.display = 'block';
                 document.getElementById('ki-error').style.display = 'none';
-                this.closeModal(true);
+                if (!keepModalOpen) this.closeModal(true);
                 this.hideLoading();
                 if (window.KI_AnnualApp) window.KI_AnnualApp.activate();
             } else {
@@ -790,7 +871,7 @@
                 document.getElementById('ki-operational-container').style.display = 'block';
                 document.getElementById('ki-annual-container').style.display = 'none';
                 document.getElementById('ki-error').style.display = 'none';
-                this.closeModal(true);
+                if (!keepModalOpen) this.closeModal(true);
                 this.fetchData();
             }
         },
@@ -1389,6 +1470,7 @@
             state.period = 'day';
             state.dateFrom = state.pendingDateFrom;
             state.date = state.pendingDate;
+            this.prepareOpenModalRefresh('Загрузка данных ОСВ за выбранный период…');
             this.invalidateAiReport('loading');
             this.renderPeriodPicker();
             this.fetchData();
@@ -1614,6 +1696,7 @@
                 }
                 
                 this.render();
+                this.refreshOpenModalAfterData('operational');
                 this.finishCompanySwitch(companySwitchToken);
             } catch (e) {
                 if (reqId !== state.reqId ||
@@ -8095,6 +8178,7 @@ renderCashModal(card) {
             }
 
             const overlay = document.getElementById('ki-modal');
+            this.activateModalHeaderControls();
             this.enhanceTables(overlay);
             overlay.style.visibility = 'visible';
             overlay.setAttribute('aria-hidden', 'false');
@@ -8126,6 +8210,7 @@ renderCashModal(card) {
             overlay.classList.remove('visible');
             overlay.style.visibility = 'hidden';
             overlay.setAttribute('aria-hidden', 'true');
+            this.restorePageHeaderControls();
             state.modalCardId = null;
             state.pendingModalCardId = null;
             state.companySwitchPeriodFallback = null;
