@@ -216,8 +216,19 @@
         </td>
         <td>
           {% set category_label = category_labels.get(change.category, change.category) %}
-          <span class="badge {{ 'success' if 'финанс' in category_label|lower or 'стоимост' in category_label|lower else 'neutral' }}">
-            {{ category_label }}
+          {% set change_kind = (change.source_json|limit_json).get('kind') %}
+          {% if change.category == 'object' and change_kind == 'object_added' %}
+            {% set badge_label = 'Новый объект' %}
+            {% set badge_class = 'success' %}
+          {% elif change.category == 'object' and change_kind == 'object_absent' %}
+            {% set badge_label = 'Отсутствует в новой выгрузке' %}
+            {% set badge_class = 'danger' %}
+          {% else %}
+            {% set badge_label = category_label %}
+            {% set badge_class = 'success' if 'финанс' in category_label|lower or 'стоимост' in category_label|lower else 'neutral' %}
+          {% endif %}
+          <span class="badge {{ badge_class }}">
+            {{ badge_label }}
           </span>
         </td>
         <td class="val-cell">

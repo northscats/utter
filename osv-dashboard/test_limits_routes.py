@@ -326,6 +326,47 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertIn('200.300', all_page)
         self.assertNotIn('<th>Показатель</th>', all_page)
 
+    def test_comparison_distinguishes_added_and_absent_objects(self):
+        with app.app_context():
+            db.session.add(LimitVersion(
+                id=2, dataset_id=1, uploaded_by=1, source_date=date(2026, 8, 1),
+                source_name='old.xlsx', source_path='/old.xlsx', sha256='b'*64,
+                status='accepted', snapshot_json=json.dumps(self.snapshot)))
+            db.session.add(LimitComparison(
+                id=1, old_version_id=2, new_version_id=1))
+            db.session.add_all([
+                LimitChange(
+                    comparison_id=1, object_id=1, uin='100.200',
+                    category='object', field_key='object_added',
+                    field_label='Новый объект',
+                    source_json=json.dumps({'kind': 'object_added'})),
+                LimitChange(
+                    comparison_id=1, object_id=None, uin='200.300',
+                    category='object', field_key='object_absent',
+                    field_label='Объект отсутствует в выгрузке',
+                    source_json=json.dumps({'kind': 'object_absent'})),
+                LimitChange(
+                    comparison_id=1, object_id=1, uin='100.200',
+                    category='schedule', field_key='work_completion_date',
+                    field_label='Завершение'),
+            ])
+            db.session.commit()
+
+        page = self.client(1).get(
+            '/limit-notifications/comparisons/1?category=&year=&ministry='
+        ).get_data(as_text=True)
+        compact_page = ' '.join(page.split())
+
+        self.assertIn(
+            '<span class="badge success"> Новый объект </span>', compact_page)
+        self.assertIn(
+            '<span class="badge danger"> Отсутствует в новой выгрузке </span>',
+            compact_page)
+        self.assertIn(
+            '<span class="badge neutral"> Сроки </span>', compact_page)
+        self.assertNotIn(
+            '<span class="badge neutral"> Объект </span>', compact_page)
+
     def test_filter_before_pagination_does_not_hide_tail(self):
         with app.app_context():
             for i in range(1501):
