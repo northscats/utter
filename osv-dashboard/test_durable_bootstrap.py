@@ -17,8 +17,9 @@ os.environ.pop('INITIAL_ADMIN_PASSWORD', None)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import (app, db, init_db, _durable_restore, _finish_durable_startup,
-                 _limits_history_ready, _limits_startup_lock)
-from database import Setting, User
+                 _database_can_serve_during_restore, _limits_history_ready,
+                 _limits_startup_lock)
+from database import Company, Setting, User
 
 
 class DurableBootstrapTest(unittest.TestCase):
@@ -81,6 +82,46 @@ class DurableBootstrapTest(unittest.TestCase):
             self.assertEqual('restore', Setting.get('limits_startup_error'))
             self.assertFalse(_limits_history_ready.is_set())
             self.assertTrue(app.config['DURABLE_STARTUP_FAILED'])
+
+    def test_populated_database_serves_while_remote_restore_continues(self):
+        self._empty_schema()
+        with app.app_context():
+            user = User(
+                username='existing-admin',
+                password_hash='existing-hash',
+                role='admin',
+            )
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(Company(
+                name='Existing company',
+                created_by=user.id,
+            ))
+            db.session.commit()
+            self.assertTrue(_database_can_serve_during_restore())
+
+        def observe_open_gate():
+            self.assertTrue(app.config['DURABLE_STARTUP_READY'])
+            return True
+
+        with patch('app._durable_restore', side_effect=observe_open_gate), \
+                patch('app._ensure_initial_admin_after_restore'), \
+                patch('app._import_bundled_mup_kgh_account55'), \
+                patch('app._reconcile_limits_after_restore'):
+            self.assertTrue(_finish_durable_startup(restore=True))
+
+    def test_empty_database_remains_closed_during_remote_restore(self):
+        self._empty_schema()
+        with app.app_context():
+            self.assertFalse(_database_can_serve_during_restore())
+
+        def observe_closed_gate():
+            self.assertFalse(app.config['DURABLE_STARTUP_READY'])
+            return False
+
+        with patch('app._durable_restore', side_effect=observe_closed_gate):
+            with self.assertRaisesRegex(RuntimeError, 'Durable restore failed'):
+                _finish_durable_startup(restore=True)
 
     def test_restore_retries_after_database_connection_loss(self):
         connection_error = OperationalError(

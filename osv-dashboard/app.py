@@ -267,6 +267,15 @@ def _durable_restore():
             app.logger.exception('could not record durable restore error')
         return False
 
+
+def _database_can_serve_during_restore():
+    """Whether PostgreSQL already has enough identity data to serve routes."""
+    return (
+        db.session.query(User.id).limit(1).scalar() is not None
+        and db.session.query(Company.id).limit(1).scalar() is not None
+    )
+
+
 # Тот же набор из 20 аналитических счетов используется для оценки
 # комплектности загрузок и для блока покрытия данными.
 REQUIRED_ACCOUNTS = list(ANALYTICAL_ACCOUNT_NAMES)
@@ -7454,11 +7463,17 @@ def _finish_durable_startup(restore=False):
     try:
         with app.app_context():
             _limits_history_ready.clear()
-            app.config['DURABLE_STARTUP_READY'] = False
+            serve_live_database = (
+                restore and _database_can_serve_during_restore())
+            app.config['DURABLE_STARTUP_READY'] = serve_live_database
             app.config['DURABLE_STARTUP_FAILED'] = False
             Setting.set('limits_history_ready', 'restoring')
             Setting.set('limits_startup_error', '')
             db.session.commit()
+            if serve_live_database:
+                app.logger.warning(
+                    'durable restore continues in background while the '
+                    'populated PostgreSQL database serves application routes')
             if restore:
                 app.logger.info('durable startup stage started: restore')
                 if not _durable_restore():
