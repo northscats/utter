@@ -2191,6 +2191,43 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual([row['not_developed_total'] for row in rows],
                          [30, 35])
 
+    def test_capex_chart_keeps_monthly_lines_separate_from_period_totals(self):
+        top = dict(snd=10, snk=0, obd=150, obk=125, skd=35, skk=0)
+        raw = account('08', [
+            day('2025-01-31', obd=7),
+            day('2025-02-28', obd=9),
+            day('2026-01-31', obd=100, obk=80),
+            day('2026-02-28', obd=20, obk=15),
+        ], top=top, period='01.01.2026 - 28.02.2026')
+        raw['balance_reports'] = [{
+            'period': '01.01.2026 - 28.02.2026',
+            'source_file': 'half.xlsx', 'top': top,
+            'rows': [dict(lvl=0, label='08', p0='08', p1='', p2='', p3='',
+                          **top)],
+        }]
+        src = build_indicator_source({'08': raw})
+        result = build_key_indicators(
+            src, period='month', date='2026-02-28',
+            date_from='2026-01-31')
+        card = next(item for item in result['cards'] if item['id'] == 'capex')
+        self.assertEqual(result['period']['series_kind'], 'period')
+        self.assertEqual(card['debit_turnover'], 150)
+        self.assertEqual(card['credit_turnover'], 125)
+        chart = card['chart_monthly_series']
+        self.assertEqual(
+            [point['value'] for point in chart['debit']], [100, 20])
+        self.assertEqual(
+            [point['value'] for point in chart['credit']], [80, 15])
+        self.assertEqual(
+            [point['value'] for point in chart['apg']], [7, 9])
+        self.assertEqual(
+            [point['source_date'] for point in chart['apg']],
+            ['2025-01-31', '2025-02-28'])
+        reconciliation = card['chart_monthly_reconciliation']
+        self.assertEqual(reconciliation['debit']['difference'], 30)
+        self.assertEqual(reconciliation['credit']['difference'], 30)
+        self.assertEqual(card['series'][0]['value'], 150)
+
     def test_capex_does_not_infer_balance_from_conflicting_report(self):
         src = build_indicator_source({
             '08': account('08', [

@@ -6234,6 +6234,7 @@
                     <div id="ki-capex-line-chart" class="cash-line-chart capex-cash-style-chart"></div>
                     <div id="ki-capex-chart-legend" class="cash-chart-legend"
                          aria-label="Легенда графика капитальных вложений"></div>
+                    <div id="ki-capex-chart-note" class="revenue-classification-note"></div>
                 </section>
                  ${capexPeriodTableHtml}
                 <button type="button" class="modal-section-title cash-details-toggle capex-details-toggle"
@@ -6275,13 +6276,19 @@
         renderCapexChartModes(card) {
             if (!card) return;
             if (!state.modalChart.capexModes || !state.modalChart.capexModes.size) {
-                state.modalChart.capexModes = new Set(['current', 'apg']);
+                state.modalChart.capexModes = new Set(['current', 'apg', 'credit']);
             }
             const selected = state.modalChart.capexModes;
+            const monthly = card.chart_monthly_series;
+            const useMonthly = monthly && Object.values(monthly).some(points =>
+                (points || []).some(point => Number.isFinite(point.value)));
+            const currentSeries = useMonthly ? monthly.debit : card.series;
+            const apgSeries = useMonthly ? monthly.apg : card.previous_year_series;
+            const creditSeries = useMonthly ? monthly.credit : card.credit_series;
             const available = new Set([
-                ['current', card.series],
-                ['apg', card.previous_year_series],
-                ['credit', card.credit_series]
+                ['current', currentSeries],
+                ['apg', apgSeries],
+                ['credit', creditSeries]
             ].filter(([, points]) => (points || []).some(point =>
                 Number.isFinite(point.value))).map(([mode]) => mode));
             [...selected].forEach(mode => {
@@ -6316,6 +6323,31 @@
                         : ''
                 ].join('');
             }
+            const note = document.getElementById('ki-capex-chart-note');
+            if (note) {
+                const reconciliation = card.chart_monthly_reconciliation || {};
+                const differences = [
+                    ['дебетового оборота', reconciliation.debit],
+                    ['кредитового оборота', reconciliation.credit],
+                    ['АПГ', reconciliation.apg]
+                ].filter(([, item]) => item && Number.isFinite(item.difference)
+                    && Math.abs(item.difference) > 0.01);
+                const missing = Object.values(reconciliation).some(item =>
+                    item && (item.missing_months || []).length);
+                const formatAmount = value => new Intl.NumberFormat('ru-RU', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                }).format(Math.abs(value));
+                const parts = useMonthly
+                    ? ['Линии построены по доступным месячным оборотам счёта 08; итоги ОСВ за весь период показаны в карточках выше.']
+                    : ['Месячных оборотов нет: показаны только доступные итоги отчётного периода.'];
+                if (differences.length) {
+                    parts.push(`Сумма месяцев отличается от итога ОСВ: ${differences.map(
+                        ([label, item]) => `${label} — ${formatAmount(item.difference)} ₽`
+                    ).join('; ')}. Разница не распределена по месяцам.`);
+                }
+                if (missing) parts.push('Пропуски месячных данных не означают ноль; линия в этих точках прерывается.');
+                note.textContent = parts.join(' ');
+            }
             const capexPoints = series => (series || []).map(point => ({
                 ...point, accounts: Number.isFinite(point.value) ? ['08'] : [],
                 missing_accounts: Number.isFinite(point.value) ? [] : ['08'],
@@ -6329,7 +6361,7 @@
                         formula: 'ОбД(08) за период точки',
                         description: 'Дебетовый оборот счёта 08 за указанный период.',
                         source: 'ОСВ счёта 08',
-                        series: selected.has('current') ? capexPoints(card.series) : []
+                        series: selected.has('current') ? capexPoints(currentSeries) : []
                     },
                     {
                         id: 'capex-apg', label: 'Формирование вложений АПГ',
@@ -6338,16 +6370,16 @@
                         description: 'Дебетовый оборот счёта 08 за период АПГ.',
                         source: 'ОСВ счёта 08 за прошлый год',
                         series: selected.has('apg')
-                            ? capexPoints(card.previous_year_series) : []
+                            ? capexPoints(apgSeries) : []
                     },
                     {
                         id: 'capex-credit', label: 'Кредитовый оборот 08',
-                        color: '#2563EB',
+                        color: '#2563EB', dash: ' stroke-dasharray="9 4"',
                         formula: 'ОбК(08) за период точки',
                         description: 'Кредитовый оборот счёта 08; без корреспонденции не подтверждает ввод.',
                         source: 'ОСВ счёта 08',
                         series: selected.has('credit')
-                            ? capexPoints(card.credit_series) : []
+                            ? capexPoints(creditSeries) : []
                     }
                 ]);
         },
@@ -6357,7 +6389,7 @@
                 ? state.data.cards.find(item => item.id === 'capex') : null;
             if (!card || !['current', 'apg', 'credit'].includes(mode)) return;
             if (!state.modalChart.capexModes || !state.modalChart.capexModes.size) {
-                state.modalChart.capexModes = new Set(['current', 'apg']);
+                state.modalChart.capexModes = new Set(['current', 'apg', 'credit']);
             }
             if (state.modalChart.capexModes.has(mode)) {
                 if (state.modalChart.capexModes.size > 1) {

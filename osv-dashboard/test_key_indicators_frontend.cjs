@@ -117,6 +117,31 @@ async function checkBootstrap(configuration) {
       date: '2026-01-31', source_date: '2025-01-31',
       label: 'Январь', value: 50_000_000,
     }],
+    chart_monthly_series: {
+      debit: [
+        {date: '2026-01-31', label: 'Январь', value: 10_000_000},
+        {date: '2026-02-28', label: 'Февраль', value: 30_000_000},
+        {date: '2026-03-31', label: 'Март', value: 50_000_000},
+      ],
+      credit: [
+        {date: '2026-01-31', label: 'Январь', value: 2_000_000},
+        {date: '2026-02-28', label: 'Февраль', value: 8_000_000},
+        {date: '2026-03-31', label: 'Март', value: 10_000_000},
+      ],
+      apg: [
+        {date: '2026-01-31', source_date: '2025-01-31',
+          label: 'Январь', value: null},
+        {date: '2026-02-28', source_date: '2025-02-28',
+          label: 'Февраль', value: 20_000_000},
+        {date: '2026-03-31', source_date: '2025-03-31',
+          label: 'Март', value: 30_000_000},
+      ],
+    },
+    chart_monthly_reconciliation: {
+      debit: {difference: 10_000_000, missing_months: []},
+      credit: {difference: 0, missing_months: []},
+      apg: {difference: null, missing_months: ['Январь']},
+    },
     monthly_comparison: [{
       kind: 'month', label: 'Январь', invested: 100_000_000,
       developed: 20_000_000, not_developed: 80_000_000,
@@ -160,7 +185,7 @@ async function checkBootstrap(configuration) {
   const capexPreviousData = app.state.data;
   const capexPreviousModalChart = app.state.modalChart;
   app.state.data = {cards: [capexCard]};
-  app.state.modalChart = {capexModes: new Set(['current', 'apg'])};
+  app.state.modalChart = {};
   const chartCalls = [];
   const renderCapexSvg = app.renderCashLineChart;
   app.renderCashLineChart = (...args) => {
@@ -170,16 +195,28 @@ async function checkBootstrap(configuration) {
   app.renderCapexChartModes(capexCard);
   assert.deepEqual(Array.from(chartCalls.at(-1)[5].map(group => group.label)),
     ['Формирование вложений', 'Формирование вложений АПГ', 'Кредитовый оборот 08']);
-  assert.equal(chartCalls.at(-1)[5][0].series[0].value, 100_000_000);
-  assert.equal(chartCalls.at(-1)[5][2].series.length, 0);
+  assert.deepEqual(Array.from(chartCalls.at(-1)[5][0].series.map(point => point.value)),
+    [10_000_000, 30_000_000, 50_000_000]);
+  assert.equal(chartCalls.at(-1)[5][2].series.length, 3,
+    'all three series must be visible by default');
+  assert.match(nodes.get('ki-capex-chart-note').textContent, /10\s?000\s?000,00 ₽/);
+  assert.match(nodes.get('ki-capex-chart-note').textContent, /Пропуски месячных данных/);
+  assert.match(nodes.get('ki-capex-line-chart').innerHTML,
+    /<path d="M [^"]* C [^"]*" class="cash-chart-balance"/);
   app.toggleCapexChartMode('credit');
-  assert.equal(chartCalls.at(-1)[5][2].series[0].value, 20_000_000);
+  assert.equal(chartCalls.at(-1)[5][2].series.length, 0,
+    'credit line must be hidden when toggled off');
+  app.toggleCapexChartMode('credit');
+  assert.equal(chartCalls.at(-1)[5][2].series[0].value, 2_000_000);
+  assert.match(chartCalls.at(-1)[5][2].dash, /stroke-dasharray/);
   assert.match(nodes.get('ki-capex-chart-title').textContent, /Кредитовый оборот 08/);
   const svg = nodes.get('ki-capex-line-chart').innerHTML;
   assert.ok(svg.includes('aria-label="Кредитовый оборот 08 на 2026-01-31'),
     'credit turnover should have its own chart point');
-  assert.ok(svg.includes('aria-label="Формирование вложений АПГ на 2025-01-31'),
+  assert.ok(svg.includes('aria-label="Формирование вложений АПГ на 2025-02-28'),
     'previous-year point should name its actual source date');
+  assert.ok(!svg.includes('Формирование вложений АПГ на 2025-01-31'),
+    'missing prior-year month must not be plotted as zero');
   app.state.data = capexPreviousData;
   app.state.modalChart = capexPreviousModalChart;
   assert.deepEqual(

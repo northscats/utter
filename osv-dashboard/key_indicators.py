@@ -4362,6 +4362,50 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
 
     card_map['capex']['monthly_comparison'] = _capex_period_rows(
         source, start, end)
+    # The general chart slots may be a single half-year report.  Account 08
+    # also has genuine month-level movements: expose those separately for its
+    # chart, without replacing the authoritative period totals on the cards.
+    capex_months = [
+        row for row in card_map['capex']['monthly_comparison']
+        if row['kind'] == 'month'
+    ]
+    capex_chart = {
+        'debit': [], 'credit': [], 'apg': [],
+    }
+    for row in capex_months:
+        point = {
+            'date': row['date'], 'label': row['label'],
+            'granularity': 'month', 'synthetic': False,
+        }
+        capex_chart['debit'].append({**point, 'value': row['invested']})
+        capex_chart['credit'].append({**point, 'value': row['developed']})
+        previous_start = previous_year_date(_iso(row['start']))
+        previous_end = previous_year_date(_iso(row['end']))
+        capex_chart['apg'].append({
+            **point, 'source_date': previous_end.isoformat(),
+            'value': _account_turnovers(
+                source, '08', previous_start, previous_end)['debit'],
+        })
+    card_map['capex']['chart_monthly_series'] = capex_chart
+    chart_totals = {
+        'debit': capex_turnovers['debit'],
+        'credit': capex_turnovers['credit'],
+        'apg': previous_year_capex,
+    }
+    card_map['capex']['chart_monthly_reconciliation'] = {
+        key: {
+            'difference': (
+                round(chart_totals[key] - sum(point['value'] for point in points), 2)
+                if chart_totals[key] is not None and points
+                and all(point['value'] is not None for point in points)
+                else None
+            ),
+            'missing_months': [
+                point['label'] for point in points if point['value'] is None
+            ],
+        }
+        for key, points in capex_chart.items()
+    }
 
     # Cash is a balance snapshot, not a period movement. Keep its modal
     # series on the real calendar even when another account has only monthly
