@@ -52,6 +52,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         DebtorAnalyticMapping, ConsumerCollectionAccrual,
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
+                       MetricSnapshot, MetricSnapshotValue, ActiveMetricSnapshot,
                        OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
@@ -3782,6 +3783,62 @@ def key_indicators_data(company_id):
     return response
 
 
+@app.route('/analytics/summary')
+@login_required
+def metric_snapshot_summary():
+    """Compact comparison from published versions; never opens source files."""
+    from datetime import date as _date
+    raw_ids = request.args.get('company_ids', '')
+    raw_metrics = request.args.get('metric_ids', '')
+    try:
+        company_ids = [int(value) for value in raw_ids.split(',')]
+        metrics = [value.strip() for value in raw_metrics.split(',')]
+        start = _date.fromisoformat(request.args['from'])
+        end = _date.fromisoformat(request.args['to'])
+    except (ValueError, KeyError):
+        return jsonify(error='Укажите company_ids, metric_ids, from и to.'), 400
+    granularity = request.args.get('granularity', 'quarter')
+    if (not company_ids or len(company_ids) > 60 or
+            len(set(company_ids)) != len(company_ids) or
+            any(value <= 0 for value in company_ids) or
+            not metrics or len(metrics) > 30 or
+            any(not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', value) for value in metrics) or
+            granularity not in ('month', 'quarter', 'year') or start > end):
+        return jsonify(error='Некорректные параметры сравнения.'), 400
+    for company_id in company_ids:
+        _require_company_access(company_id)
+    pointers = (ActiveMetricSnapshot.query
+                .filter(ActiveMetricSnapshot.company_id.in_(company_ids)).all())
+    snapshots = {row.company_id: row.snapshot for row in pointers}
+    snapshot_ids = [row.snapshot_id for row in pointers]
+    values = []
+    if snapshot_ids:
+        values = (MetricSnapshotValue.query
+                  .filter(MetricSnapshotValue.snapshot_id.in_(snapshot_ids),
+                          MetricSnapshotValue.metric_id.in_(metrics),
+                          MetricSnapshotValue.granularity == granularity,
+                          MetricSnapshotValue.period_start == start,
+                          MetricSnapshotValue.period_end == end).all())
+    owner = {row.snapshot_id: row.company_id for row in pointers}
+    response = jsonify(
+        period={'from': start.isoformat(), 'to': end.isoformat(),
+                'granularity': granularity},
+        companies=[{
+            'company_id': company_id,
+            'status': 'ready' if company_id in snapshots else 'not_built',
+            'snapshot_id': snapshots[company_id].id if company_id in snapshots else None,
+            'published_at': (snapshots[company_id].created_at.isoformat()
+                             if company_id in snapshots else None),
+        } for company_id in company_ids],
+        values=[{
+            'company_id': owner[row.snapshot_id], 'snapshot_id': row.snapshot_id,
+            'metric_id': row.metric_id, 'value': json.loads(row.value_json),
+        } for row in values],
+    )
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
 def _ai_report_period_label(payload, annual=False):
     """Present the exact normalized period, rather than a source-file label."""
     if annual:
@@ -5880,6 +5937,18 @@ def _delete_company_records(company):
     for model in (OneCAttempt, OneCIdempotency):
         deleted_counts[model.__tablename__] = model.query.filter(
             model.channel_id.in_(channel_ids)).delete(synchronize_session=False)
+    snapshot_ids = db.session.query(MetricSnapshot.id).filter_by(
+        company_id=company_id)
+    deleted_counts[ActiveMetricSnapshot.__tablename__] = (
+        ActiveMetricSnapshot.query.filter_by(company_id=company_id)
+        .delete(synchronize_session=False))
+    deleted_counts[MetricSnapshotValue.__tablename__] = (
+        MetricSnapshotValue.query.filter(
+            MetricSnapshotValue.snapshot_id.in_(snapshot_ids))
+        .delete(synchronize_session=False))
+    deleted_counts[MetricSnapshot.__tablename__] = (
+        MetricSnapshot.query.filter_by(company_id=company_id)
+        .delete(synchronize_session=False))
     dependent_models = (
         OneCChannel,
         EmailRule,

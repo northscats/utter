@@ -650,6 +650,63 @@ class MetricLayout(db.Model):
                            onupdate=utcnow, nullable=False)
 
 
+class MetricSnapshot(db.Model):
+    """Immutable, compact publication of calculated card values.
+
+    The calculated source and full response are deliberately not persisted;
+    only scalar card observations are kept in ``values``.
+    """
+    __tablename__ = 'metric_snapshots'
+    __table_args__ = (
+        db.UniqueConstraint('company_id', 'version', name='uq_metric_snapshot_version'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           nullable=False, index=True)
+    version = db.Column(db.Integer, nullable=False)
+    revision_fingerprint = db.Column(db.String(64), nullable=False, index=True)
+    period = db.Column(db.String(20), nullable=False, default='month')
+    endpoint_date = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    values = db.relationship('MetricSnapshotValue', backref='snapshot',
+                             cascade='all, delete-orphan', lazy=True)
+
+
+class MetricSnapshotValue(db.Model):
+    """One scalar value from one dynamically discovered metric card."""
+    __tablename__ = 'metric_snapshot_values'
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('metric_snapshots.id',
+                                                       ondelete='CASCADE'),
+                            nullable=False, index=True)
+    metric_id = db.Column(db.String(128), nullable=False, index=True)
+    value_date = db.Column(db.Date, nullable=True, index=True)
+    period_start = db.Column(db.Date, nullable=True, index=True)
+    period_end = db.Column(db.Date, nullable=True, index=True)
+    granularity = db.Column(db.String(16), nullable=False, default='month',
+                            index=True)
+    value_json = db.Column(db.Text, nullable=False, default='null')
+    __table_args__ = (
+        db.UniqueConstraint('snapshot_id', 'metric_id', 'period_start',
+                            'period_end', 'granularity',
+                            name='uq_metric_snapshot_value'),
+    )
+
+
+class ActiveMetricSnapshot(db.Model):
+    """Small mutable pointer; replacing it is the only publication operation."""
+    __tablename__ = 'active_metric_snapshots'
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('metric_snapshots.id',
+                                                       ondelete='RESTRICT'),
+                            nullable=False, unique=True)
+    revision_fingerprint = db.Column(db.String(64), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
+    snapshot = db.relationship('MetricSnapshot', lazy=True)
+
+
 # Descriptive alias for callers that refer to the record as a preference.
 # Both names identify the same mapped table; no second schema object exists.
 MetricLayoutPreference = MetricLayout
