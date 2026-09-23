@@ -4269,20 +4269,10 @@
             const supplierTip = this.apTooltip({
                 fact: rub(current),
                 deviation: current === null || current === undefined
-                    ? 'Нет точного сальдо 60.01' : 'Фактическое подтверждённое сальдо',
+                    ? 'Нет точного сальдо 60.01'
+                    : change === null ? 'Нет сопоставимого начального сальдо'
+                    : `Изменение за период: ${signedRub(change)}`,
                 deviationClass: current === null || current === undefined ? 'missing' : 'neutral'
-            });
-            const changeTip = this.apTooltip({
-                title: 'Изменение задолженности поставщикам',
-                description: 'Изменение подтверждённого кредитового сальдо 60.01 за выбранный период.',
-                formula: 'Δ КЗ = КЗ на конец − КЗ на начало',
-                detail: 'Сравниваются одинаковые субсчета и аналитики на точных границах одного периода.',
-                required: change === null ? 'ОСВ 60.01 с начальным и конечным дебетовым/кредитовым сальдо за один полный период.' : null,
-                fact: change === null ? 'Н/Д' : `${change >= 0 ? '+' : ''}${rub(change)}`,
-                deviation: change === null ? 'Нет сопоставимых границ периода' :
-                    (change > 0 ? 'Задолженность выросла' : change < 0 ? 'Задолженность снизилась' : 'Без изменения'),
-                deviationClass: change === null ? 'missing' : 'neutral',
-                source: 'начальное и конечное сальдо ОСВ 60.01'
             });
             const ratioTip = this.apTooltip({
                 title: 'Узкое соотношение ДЗ / КЗ',
@@ -4333,6 +4323,24 @@
             };
 
             const components = card.components || [];
+            const supplierComponent = components.find(item => item.account === '60.01');
+            const lastComparison = (card.monthly_comparison || [])
+                .find(item => item.date === period.end);
+            const previousYear = supplierComponent
+                ? supplierComponent.previous_year_value
+                : lastComparison ? lastComparison.previous_year_value : null;
+            const currentAmount = this.formatValue(current, 'RUB');
+            const previousAmount = this.formatValue(previousYear, 'RUB');
+            const apgTip = this.apTooltip({
+                title: 'КЗ поставщикам АПГ',
+                description: 'Задолженность поставщикам на ту же дату прошлого года.',
+                formula: 'АПГ = max(СКк(60.01) − СКд(60.01), 0) на сопоставимую дату',
+                fact: rub(previousYear),
+                deviation: previousYear === null || previousYear === undefined
+                    ? 'Нет подтверждённого сальдо АПГ на эту дату'
+                    : 'Сопоставимый остаток прошлого года',
+                source: 'ОСВ 60.01 аналогичного периода прошлого года',
+            });
             const componentRows = components.map(item => {
                 const tip = Object.assign({}, componentTips[item.account] || this.apTooltip(), {
                     fact: rub(item.value),
@@ -4463,10 +4471,43 @@
                 <div class="cash-info-banner"><strong>Основной факт — задолженность поставщикам 60.01.</strong>
                     Суммы 68, 69 и 70 показаны отдельно. Счёт 76 не включён без утверждённого сопоставления аналитик.</div>
                 <div class="collection-summary ap-summary">
-                    ${this.cashMetricCard('КЗ поставщикам', rub(current), 'сальдо 60.01', supplierTip, current === null || current === undefined, '__main__')}
-                    ${this.cashMetricCard('Изменение КЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
-                    ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'по счетам 62.01 и 60.01', ratioTip, arApRatio === null)}
-                    ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                        tabindex="0" role="button" data-ap-chart-mode="ap-current" aria-pressed="true"
+                        onclick="window.KI_App.toggleApChartMode('ap-current')"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleApChartMode('ap-current')}">
+                        <div class="cash-summary-label">КЗ поставщикам</div>
+                        <div class="cash-summary-value ${current == null ? 'cash-value-missing' : 'cash-value-ok'}">${current == null ? 'Нужны данные' : `${esc(currentAmount.val)} <span class="metric-inline-unit">${esc(currentAmount.u)}</span>`}</div>
+                        <div class="cash-summary-sub ${change === null ? 'cash-value-missing' : change > 0 ? 'cash-value-negative' : 'cash-value-ok'}">Изменение за период: ${esc(signedRub(change))}</div>
+                        ${this.cashTooltip(supplierTip)}
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                        tabindex="0" role="button" data-ap-chart-mode="ap-apg" aria-pressed="true"
+                        onclick="window.KI_App.toggleApChartMode('ap-apg')"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleApChartMode('ap-apg')}">
+                        <div class="cash-summary-label">КЗ поставщикам АПГ</div>
+                        <div class="cash-summary-value ${previousYear == null ? 'cash-value-missing' : 'cash-value-ok'}">${previousYear == null ? 'Нужны данные' : `${esc(previousAmount.val)} <span class="metric-inline-unit">${esc(previousAmount.u)}</span>`}</div>
+                        <div class="cash-summary-sub">на сопоставимую дату прошлого года</div>
+                        ${this.cashTooltip(apgTip)}
+                    </div>
+                </div>
+                <div id="ki-ap-chart-title" class="modal-section-title">КЗ поставщикам и КЗ поставщикам АПГ</div>
+                <div id="ki-ap-line-chart" class="cash-line-chart"></div>
+                <div class="cash-chart-legend" aria-label="Легенда графика">
+                    <span><i class="cash-chart-dot" style="background:#111827"></i>КЗ поставщикам</span>
+                    <span><i class="cash-chart-dot" style="background:#DB2777"></i>КЗ поставщикам АПГ</span>
+                </div>
+                <div class="modal-section-title">Дополнительные коэффициенты</div>
+                <div class="cash-summary-grid ap-secondary-metrics">
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0">
+                        <div class="cash-summary-label">ДЗ 62.01 / КЗ 60.01</div>
+                        <div class="cash-summary-value ${arApRatio === null ? 'cash-value-missing' : 'cash-value-ok'}">${arApRatio === null ? 'Нужны данные' : esc(arApRatio.toFixed(2))}</div>
+                        <div class="cash-summary-sub">по счетам 62.01 и 60.01</div>${this.cashTooltip(ratioTip)}
+                    </div>
+                    <div class="cash-summary-card cash-tooltip-host" tabindex="0">
+                        <div class="cash-summary-label">Оценочный DPO</div>
+                        <div class="cash-summary-value ${dpo === null ? 'cash-value-missing' : 'cash-value-ok'}">${dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`}</div>
+                        <div class="cash-summary-sub">по обороту Кт 60.01</div>${this.cashTooltip(dpoTip)}
+                    </div>
                 </div>
                 <div class="modal-section-title">КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ</div>
                 <div class="collection-table-wrap">
@@ -4566,6 +4607,60 @@
                     <thead><tr><th>Вид обязательства</th><th>Сумма</th><th>Срочность</th><th>Риск неоплаты</th><th>Приоритет</th></tr></thead>
                     <tbody>${priorityRows}</tbody>
                 </table></div>`;
+            if (!state.modalChart.apModes) {
+                state.modalChart.apModes = new Set(['ap-current', 'ap-apg']);
+            }
+            this.renderApChartModes(card);
+        },
+
+        toggleApChartMode(mode) {
+            if (!['ap-current', 'ap-apg'].includes(mode)) return;
+            const selected = state.modalChart.apModes ||
+                new Set(['ap-current', 'ap-apg']);
+            state.modalChart.apModes = selected.size === 1 && selected.has(mode)
+                ? new Set(['ap-current', 'ap-apg']) : new Set([mode]);
+            const card = state.data && state.data.cards
+                ? state.data.cards.find(item => item.id === 'ap') : null;
+            if (card) this.renderApChartModes(card);
+        },
+
+        renderApChartModes(card) {
+            const selected = state.modalChart.apModes ||
+                new Set(['ap-current', 'ap-apg']);
+            const title = document.getElementById('ki-ap-chart-title');
+            if (title) title.textContent = [
+                selected.has('ap-current') && 'КЗ поставщикам',
+                selected.has('ap-apg') && 'КЗ поставщикам АПГ'
+            ].filter(Boolean).join(' и ');
+            document.querySelectorAll('[data-ap-chart-mode]').forEach(tile => {
+                const active = selected.has(tile.dataset.apChartMode);
+                tile.classList.toggle('cash-chart-mode-selected', active);
+                tile.setAttribute('aria-pressed', String(active));
+            });
+            this.renderCashLineChart([], [], [], [], 'ki-ap-line-chart', [
+                {
+                    id: 'ap-current',
+                    series: selected.has('ap-current') ? card.series || [] : [],
+                    label: 'КЗ поставщикам',
+                    color: '#111827',
+                    className: 'cash-chart-balance',
+                    connectWithoutAccounts: true,
+                    formula: 'КЗ поставщикам = max(СКк(60.01) − СКд(60.01), 0)',
+                    source: 'сальдо ОСВ 60.01',
+                },
+                {
+                    id: 'ap-apg',
+                    series: selected.has('ap-apg')
+                        ? card.previous_year_series || [] : [],
+                    label: 'КЗ поставщикам АПГ',
+                    color: '#DB2777',
+                    dash: ' stroke-dasharray="6 4"',
+                    className: 'cash-chart-balance-apg',
+                    connectWithoutAccounts: true,
+                    formula: 'КЗ поставщикам АПГ = max(СКк(60.01) − СКд(60.01), 0)',
+                    source: 'ОСВ 60.01 аналогичного периода прошлого года',
+                },
+            ]);
         },
 
         toggleCogsMetric(mode) {
@@ -8236,7 +8331,10 @@ renderCashModal(card) {
                 }
                 return path;
             };
-            let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика денежных средств">`;
+            const chartLabel = containerId === 'ki-ap-line-chart'
+                ? 'Динамика КЗ поставщикам и АПГ'
+                : 'Динамика денежных средств';
+            let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${chartLabel}">`;
             if (validPointCount === 1) svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
             [min, (min + max) / 2, max].forEach(value => {
                 const py = y(value);
@@ -8286,9 +8384,7 @@ renderCashModal(card) {
                 group.points.forEach((item, index) => {
                     if (!Number.isFinite(item.balance)) return;
                     const balanceLabel = group.label || `Денежные средства${group.suffix}`;
-                    const pointDate = group.id === 'capex-apg'
-                        ? item.source_date || item.date || item.label
-                        : item.date || item.label;
+                    const pointDate = item.source_date || item.date || item.label;
                     svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${pointDate}`)}"/>`;
                 });
             });
@@ -8304,9 +8400,7 @@ renderCashModal(card) {
                 const group = allGroups.find(item =>
                     item.id === (point.dataset.period || 'current')) || allGroups[0];
                 const item = group.points[index];
-                const pointDate = group.id === 'capex-apg'
-                    ? item.source_date || item.date || item.label
-                    : item.date || item.label;
+                const pointDate = item.source_date || item.date || item.label;
                 const suffix = group.suffix;
                 if (isBalance) return {
                     title: `${group.label || `Денежные средства${suffix}`} — ${pointDate}`,

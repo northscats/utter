@@ -639,9 +639,24 @@ async function checkBootstrap(configuration) {
     app.state.data.cards.push({
       id: 'cash_dz', value: 200000000,
     });
-    app.renderApModal({
+    const originalPeriod = app.state.data.period;
+    app.state.data.period = {
+      start: '2026-01-01', end: '2026-01-31',
+      label: '01.01.2026 — 31.01.2026',
+    };
+    const apCard = {
       id: 'ap', value: 100000000, opening_value: 90000000,
       known_total: 100000000, credit_turnover: 50000000,
+      series: [
+        {date: '2026-01-01', label: '01.01', value: 90000000},
+        {date: '2026-01-31', label: '31.01', value: 100000000},
+      ],
+      previous_year_series: [
+        {date: '2026-01-01', source_date: '2025-01-01',
+          label: '01.01', value: 70000000},
+        {date: '2026-01-31', source_date: '2025-01-31',
+          label: '31.01', value: 80000000},
+      ],
       monthly_comparison: [
         {date: '2026-01-31', previous_year_date: '2025-01-31',
           label: 'янв 26', value: 100000000, change: 10000000,
@@ -653,9 +668,16 @@ async function checkBootstrap(configuration) {
           previous_year_delta_percent: null},
       ],
       analytics: [], components: [], details: [],
-    });
+    };
+    app.state.data.cards.push(apCard);
+    app.renderApModal(apCard);
     const apHtml = nodes.get('ki-ap-modal-content').innerHTML;
     assert.match(apHtml, />2\.00</);
+    assert.match(apHtml, /data-ap-chart-mode="ap-current"/);
+    assert.match(apHtml, /data-ap-chart-mode="ap-apg"/);
+    assert.match(apHtml, /Изменение за период: \+10,\d+ млн ₽/);
+    assert.doesNotMatch(apHtml, /cash-summary-label">Изменение КЗ/);
+    assert.match(apHtml, /КЗ поставщикам АПГ/);
     assert.match(apHtml, /КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ/);
     assert.match(apHtml, /на 31\.01\.2026/);
     assert.match(apHtml, /на 31\.01\.2025/);
@@ -664,6 +686,19 @@ async function checkBootstrap(configuration) {
     assert.match(apHtml, /Н\/Д означает отсутствие подтверждённого сальдо/);
     assert.match(apHtml, /на 28\.02\.2025/);
     assert.doesNotMatch(apHtml, /на 28\.02\.2025.*>0\.00 млн ₽/);
+    let apChart = nodes.get('ki-ap-line-chart').innerHTML;
+    assert.match(apChart, /class="cash-chart-balance"/);
+    assert.match(apChart, /class="cash-chart-balance-apg"/);
+    assert.match(apChart, /КЗ поставщикам АПГ на 2025-01-31/);
+    app.toggleApChartMode('ap-apg');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-apg']);
+    apChart = nodes.get('ki-ap-line-chart').innerHTML;
+    assert.doesNotMatch(apChart, /class="cash-chart-balance"/);
+    assert.match(apChart, /class="cash-chart-balance-apg"/);
+    app.toggleApChartMode('ap-apg');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes),
+      ['ap-current', 'ap-apg']);
+    app.state.data.period = originalPeriod;
     let reopenedCardId = null;
     const originalCloseModal = app.closeModal;
     const originalFetchData = app.fetchData;

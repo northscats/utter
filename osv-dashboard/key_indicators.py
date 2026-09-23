@@ -4159,6 +4159,15 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             source, '62', '62.01', month_end)[0]
         month_values['ap'] = _sub_balance(
             source, '60', '60.01', month_end, credit=True)[0]
+        card_map['ap'].setdefault('previous_year_series', []).append({
+            'date': point_date,
+            'source_date': previous_month_end.isoformat(),
+            'label': option['label'],
+            'value': _sub_balance(
+                source, '60', '60.01', previous_month_end, credit=True)[0],
+            'granularity': series_kind,
+            'synthetic': False,
+        })
         debt_month = []
         for account in ('66', '67'):
             value, _ = _top_balance(source, account, month_end, credit=True)

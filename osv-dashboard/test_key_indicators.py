@@ -911,6 +911,11 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertIsNone(rows[1]['previous_year_value'])
         self.assertIsNone(rows[1]['previous_year_delta'])
         self.assertIsNone(rows[1]['previous_year_delta_percent'])
+        self.assertEqual(
+            [(point['date'], point['source_date'], point['value'])
+             for point in ap['previous_year_series']],
+            [('2026-01-31', '2025-01-31', 70),
+             ('2026-02-28', '2025-02-28', None)])
 
     def test_ap_detail_uses_mixed_proven_boundaries_for_august_2026(self):
         def report(period, top, rows=(), complete=False, updated=''):
