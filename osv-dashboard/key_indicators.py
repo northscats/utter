@@ -1116,6 +1116,24 @@ def _account90_category(row):
     return next(iter(matched)) if len(matched) == 1 else 'other'
 
 
+def _account90_analytic_rows(source, start, end, period_rows, sub, field,
+                             expected_total):
+    """Prefer reconciled detailed rows without sacrificing control totals."""
+    period_leaves = _leaf_rows(
+        period_rows, lambda row: _has_prefix(row, sub))
+    detailed_leaves = _leaf_rows(
+        _daily(source, '90', start, end),
+        lambda row: _has_prefix(row, sub))
+    if not detailed_leaves or expected_total is None:
+        return period_leaves
+    detailed_total = _known_sum(detailed_leaves, field)
+    tolerance = max(0.01, abs(float(expected_total)) * 1e-8)
+    if (detailed_total is not None
+            and abs(detailed_total - float(expected_total)) <= tolerance):
+        return detailed_leaves
+    return period_leaves
+
+
 def _account90_categories(revenue_rows, cost_rows, ohr, warnings):
     """Build the universal account 90 table, with all values in million RUB."""
     amounts = {
@@ -2751,9 +2769,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     revenue, cogs, gross_profit = pl['revenue'], pl['cost'], pl['profit']
     account90_ohr = _sub_turnover(
         source, '90', '90.08', start, end, 'obd')
+    account90_revenue_rows = _account90_analytic_rows(
+        source, start, end, d90, '90.01', 'obk', gross_rev)
+    account90_cost_rows = _account90_analytic_rows(
+        source, start, end, d90, '90.02', 'obd', cogs)
     account90_categories = _account90_categories(
-        _leaf_rows(d90, lambda r: _has_prefix(r, '90.01')),
-        _leaf_rows(d90, lambda r: _has_prefix(r, '90.02')),
+        account90_revenue_rows,
+        account90_cost_rows,
         account90_ohr,
         warnings)
     cogs_analytics = []

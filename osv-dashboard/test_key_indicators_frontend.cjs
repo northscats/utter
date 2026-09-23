@@ -555,7 +555,7 @@ async function checkBootstrap(configuration) {
   assert.match(profitHtml, /50,0%/, 'must format profitability');
   assert.match(profitHtml, /obj-bar-fill-pos/, 'must render share bar');
   assert.match(profitHtml, /badge-green/, 'must render status pill');
-  assert.match(profitHtml, /Обратите внимание/, 'must render account90 warnings');
+  assert.doesNotMatch(profitHtml, /Обратите внимание/, 'must not render account90 warnings');
   }
   app.renderRevenueLineChart({series: [
     {date: '2026-01-31', label: 'Январь', value: 1_000_000, granularity: 'month'},

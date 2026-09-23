@@ -1814,21 +1814,12 @@
                     Number(totals.revenue) !== 0 && hasNumericValue(totals.gross_profit)
                 ? Number(totals.gross_profit) / Number(totals.revenue) * 100
                 : null;
-            const warnings = Array.isArray(data.warnings) && data.warnings.length
-                ? `<details class="warnings-details ki-account90-warnings">
-                    <summary>Обратите внимание</summary>
-                    <div class="warnings-content"><ul>${data.warnings.map(
-                        warning => `<li>${esc(warning)}</li>`).join('')}</ul></div>
-                   </details>`
-                : '';
-
             return `<div class="ki-account90-heading">
                     <div>
                         <h2 id="ki-account90-title">Выручка, себестоимость и валовая прибыль по объектам учёта (сч. 90)</h2>
                         <p>ОХР распределены пропорционально доле направления в выручке</p>
                     </div>
                 </div>
-                ${warnings}
                 <div class="cash-table-scroll">
                     <table class="objects-table ki-account90-table">
                         <thead><tr>
