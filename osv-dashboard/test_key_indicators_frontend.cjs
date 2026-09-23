@@ -422,6 +422,48 @@ async function checkBootstrap(configuration) {
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.doesNotMatch(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line collection-level"/,
     'missing percentage must break the line');
+  assert.equal((collectionSvg.match(/class="collection-isolated-point collection-level"/g) || []).length, 2,
+    'standalone daily values must remain visible when the line is broken');
+  app.renderCollectionDynamics([
+    {date: '2026-01-01', label: '01.01', value: 92},
+    {date: '2026-01-03', label: '03.01', value: 96},
+  ], [
+    {date: '2026-01-01', source_date: '2025-01-01', value: 90},
+    {date: '2026-01-03', source_date: '2025-01-03', value: 95},
+  ]);
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.doesNotMatch(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line collection-apg"/,
+    'APG must not connect two days when the day between them is absent');
+  assert.equal((collectionSvg.match(/class="collection-isolated-point collection-apg"/g) || []).length, 2);
+  assert.match(collectionSvg, /class="collection-isolated-point collection-level"[^>]+fill="#DC2626"/);
+  assert.match(collectionSvg, /class="collection-isolated-point collection-level"[^>]+fill="#16A34A"/);
+  app.renderCollectionDynamics([
+    {date: '2026-01-01', label: '01.01', value: 92},
+    {date: '2026-01-02', label: '02.01', value: null},
+    {date: '2026-01-03', label: '03.01', value: 96},
+    {date: '2026-01-04', label: '04.01', value: 94},
+  ], [
+    {date: '2026-01-01', source_date: '2025-01-01', value: 90},
+    {date: '2026-01-03', source_date: '2025-01-03', value: 95},
+  ]);
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  const currentLastX = collectionSvg.match(/class="collection-dynamics-point cash-chart-hit-target"[^>]+data-detail="03\.01[^"]*"[^>]+cx="([^"]+)"/)?.[1];
+  const apgLastX = collectionSvg.match(/class="collection-dynamics-apg-point cash-chart-hit-target"[^>]+data-detail="2025-01-03[^"]*"[^>]+cx="([^"]+)"/)?.[1];
+  assert.ok(currentLastX && apgLastX);
+  assert.equal(currentLastX, apgLastX,
+    'current and shorter APG series must share an x coordinate for the same day');
+  app.renderCollectionDynamics([daySeries[0]], []);
+  assert.match(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /class="collection-isolated-point collection-level"/,
+    'a single daily value must not disappear as an invisible SVG move');
+  app.state.modalChart.collectionModes = new Set(['collection-apg']);
+  app.renderCollectionDynamics([daySeries[0]], [
+    {date: '2026-01-01', source_date: '2025-01-01', value: 95},
+  ]);
+  assert.match(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /class="collection-isolated-point collection-apg"/,
+    'APG-only daily mode must show its single confirmed point');
+  app.state.modalChart.collectionModes = new Set(['collection-level', 'collection-apg']);
   app.toggleCollectionMetric('collection-accrual');
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.equal(app.state.modalChart.collectionGroup, 'money');

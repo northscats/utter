@@ -3476,6 +3476,23 @@
             const x = (index, length) => pad.left + (
                 length <= 1 ? plotWidth / 2 :
                     index / (length - 1) * plotWidth);
+            const dayTime = point => {
+                const date = String(point.date || '');
+                return /^\d{4}-\d{2}-\d{2}$/.test(date)
+                    ? Date.parse(`${date}T00:00:00Z`) : NaN;
+            };
+            const dayTimes = mode === 'day'
+                ? [...points, ...apgPoints].map(dayTime).filter(Number.isFinite)
+                : [];
+            const firstDay = dayTimes.length ? Math.min(...dayTimes) : NaN;
+            const lastDay = dayTimes.length ? Math.max(...dayTimes) : NaN;
+            const xPoint = (point, index, length) => {
+                const time = dayTime(point);
+                return mode === 'day' && Number.isFinite(time) &&
+                    firstDay !== lastDay
+                    ? pad.left + (time - firstDay) / (lastDay - firstDay) * plotWidth
+                    : x(index, length);
+            };
             const y = value => pad.top + (yMax - value) /
                 Math.max(1, yMax - yMin) * plotHeight;
             const toPlotValue = value => Number.isFinite(value)
@@ -3495,8 +3512,9 @@
             const labelStep = Math.max(1, Math.ceil(points.length / 8));
             const xLabels = points.map((point, index) => (
                 index % labelStep === 0 || index === points.length - 1
-                    ? `<text class="collection-dynamics-axis" x="${x(index, points.length)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
+                    ? `<text class="collection-dynamics-axis" x="${xPoint(point, index, points.length)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
                     : '')).join('');
+            const isolated = new Set();
             const paths = visible.map(item => {
                 const entries = item.points.map((point, index) => ({
                     index, point, value: toPlotValue(item.value(point))
@@ -3505,17 +3523,26 @@
                 entries.forEach(entry => {
                     if (!inScale(entry.value)) return;
                     const last = segments[segments.length - 1];
-                    if (!last || last[last.length - 1].index !== entry.index - 1)
+                    const previous = last && last[last.length - 1];
+                    const consecutive = previous &&
+                        previous.index === entry.index - 1 &&
+                        (mode !== 'day' ||
+                            dayTime(entry.point) - dayTime(previous.point) === 86400000);
+                    if (!consecutive)
                         segments.push([entry]);
                     else last.push(entry);
                 });
+                if (mode === 'day' && !money) {
+                    segments.filter(segment => segment.length === 1).forEach(segment =>
+                        isolated.add(`${item.id}:${segment[0].index}`));
+                }
                 const d = segments.map(segment => {
                     const first = segment[0];
-                    let path = `M ${x(first.index, entries.length).toFixed(1)} ${y(first.value).toFixed(1)}`;
+                    let path = `M ${xPoint(first.point, first.index, entries.length).toFixed(1)} ${y(first.value).toFixed(1)}`;
                     for (let i = 1; i < segment.length; i += 1) {
                         const previous = segment[i - 1], current = segment[i];
-                        const x0 = x(previous.index, entries.length);
-                        const x1 = x(current.index, entries.length);
+                        const x0 = xPoint(previous.point, previous.index, entries.length);
+                        const x1 = xPoint(current.point, current.index, entries.length);
                         const y0 = y(previous.value), y1 = y(current.value);
                         const control = (x1 - x0) / 3;
                         path += ` C ${(x0 + control).toFixed(1)} ${y0.toFixed(1)}, ${(x1 - control).toFixed(1)} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;
@@ -3542,7 +3569,12 @@
                 ].filter(Boolean).join(' · ');
                 const pointClass = item.id === 'collection-apg'
                     ? 'collection-dynamics-apg-point' : 'collection-dynamics-point';
-                return `<circle class="${pointClass} cash-chart-hit-target" fill="transparent" stroke="none" data-detail="${esc(detail)}" data-series-label="${esc(item.label)}" cx="${x(index, item.points.length)}" cy="${y(value)}" r="7" tabindex="0" aria-label="${esc(detail)}"><title>${esc(detail)}</title></circle>`;
+                const cx = xPoint(point, index, item.points.length);
+                const dotColor = value >= 93 ? '#16A34A' : '#DC2626';
+                const dot = isolated.has(`${item.id}:${index}`)
+                    ? `<circle class="collection-isolated-point ${item.id}" cx="${cx}" cy="${y(value)}" r="3.5" fill="${item.dash ? '#fff' : dotColor}" stroke="${dotColor}" stroke-width="1.5" pointer-events="none"/>`
+                    : '';
+                return `${dot}<circle class="${pointClass} cash-chart-hit-target" fill="transparent" stroke="none" data-detail="${esc(detail)}" data-series-label="${esc(item.label)}" cx="${cx}" cy="${y(value)}" r="7" tabindex="0" aria-label="${esc(detail)}"><title>${esc(detail)}</title></circle>`;
             })).join('');
             const legend = `<div class="cash-chart-legend">${visible.map(item =>
                 `<span><i class="cash-chart-dot" style="background:${money ? item.color : '#16A34A'}"></i>${esc(item.label)}${item.dash ? ' (пунктир)' : ''}</span>`).join('')}</div>`;
