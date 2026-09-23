@@ -748,7 +748,7 @@
                 const statusClass = 'grey';
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_AnnualApp.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_AnnualApp.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}" style="opacity:0.3"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   <div style="font-size:12px;color:#6B7280;margin-bottom:8px">${esc(this.cardPeriodLabel(card))}</div>

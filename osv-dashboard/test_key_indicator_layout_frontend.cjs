@@ -31,6 +31,11 @@ class Element {
     }
     get children() { return this.childNodes.filter(node => node.nodeType === 1); }
     get parentElement() { return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null; }
+    get previousElementSibling() {
+        if (!this.parentElement) return null;
+        const siblings = this.parentElement.children;
+        return siblings[siblings.indexOf(this) - 1] || null;
+    }
     appendChild(node) {
         if (node.parentNode) node.parentNode.removeChild(node);
         this.childNodes.push(node);
@@ -133,6 +138,43 @@ function summaryFixture() {
     assert.equal(fixture.container.children[0], fixture.primary);
     assert.deepEqual(fixture.primary.children, [fixture.first, fixture.second]);
     assert.equal(fixture.missing.children[0], fixture.auxiliary);
+}
+
+// Missing cards disappear, but their slots must not shift saved preferences
+// onto a different metric; empty sections must not enter the constructor.
+{
+    const container = new Element();
+    const summary = new Element('div', 'cash-summary-grid');
+    const first = new Element('div', 'cash-summary-card');
+    const unavailable = new Element('div', 'cash-summary-card');
+    unavailable.appendChild(new Element('span', 'cash-value-missing'));
+    const last = new Element('div', 'cash-summary-card');
+    summary.appendChild(first);
+    summary.appendChild(unavailable);
+    summary.appendChild(last);
+    container.appendChild(summary);
+    const emptyTitle = new Element('div', 'modal-section-title');
+    emptyTitle.textContent = 'Недоступные показатели макета';
+    const emptyContent = new Element('div', 'ar-missing-grid');
+    const emptyCard = new Element('div', 'cash-analysis-card needs-data');
+    emptyContent.appendChild(emptyCard);
+    container.appendChild(emptyTitle);
+    container.appendChild(emptyContent);
+    layout.hideUnavailableItems(container);
+    assert.equal(unavailable.style.display, 'none');
+    assert.equal(emptyTitle.style.display, 'none');
+    assert.equal(emptyContent.style.display, 'none');
+    layout.state.activeContainer = container;
+    layout.captureOriginalDom(container, 21);
+    layout.state.items = layout.extractItems(container, 'cash');
+    assert.deepEqual(Array.from(layout.state.items, item => item.id),
+        ['cash-card-0', 'cash-card-2']);
+    assert.equal(layout.mergeLayout({version: 1, items: {
+        'cash-card-1': 'main', 'cash-card-2': 'detail'
+    }}).items['cash-card-1'], undefined,
+        'old saved placements cannot resurrect a metric without data');
+    layout.restoreOriginalDom();
+    assert.deepEqual(summary.children, [first, unavailable, last]);
 }
 
 // Annual generic content has no summary cards: the fact/formula section is a

@@ -376,7 +376,7 @@
             });
             ordered.forEach(card => {
                 const visible = layout.items[card.dataset.metric] !== 'hidden';
-                card.hidden = !visible;
+                card.hidden = !visible || card.dataset.noData === 'true';
                 grid.appendChild(card);
             });
         },
@@ -571,7 +571,15 @@
             save.disabled = state.saving;
             reset.disabled = state.saving;
             const labels = this.labels(mode);
-            state.draft.order.forEach((id, index) => {
+            const data = mode === 'annual'
+                ? window.KI_AnnualApp && window.KI_AnnualApp.state &&
+                    window.KI_AnnualApp.state.data
+                : window.KI_App && window.KI_App.state && window.KI_App.state.data;
+            const missing = new Set((data && data.cards || [])
+                .filter(card => card && Object.prototype.hasOwnProperty.call(
+                    card, 'value') && card.value == null)
+                .map(card => card.id));
+            state.draft.order.filter(id => !missing.has(id)).forEach((id, index, shown) => {
                 const row = document.createElement('div');
                 const visible = state.draft.items[id] !== 'hidden';
                 row.className = 'ki-dashboard-layout-row' + (visible ? '' : ' is-hidden');
@@ -586,7 +594,7 @@
                               aria-label="Переместить выше" ${index === 0 ? 'disabled' : ''}>↑</button>
                       <button type="button" data-move="${escapeHtml(id)}" data-direction="down"
                               aria-label="Переместить ниже"
-                              ${index === state.draft.order.length - 1 ? 'disabled' : ''}>↓</button>
+                              ${index === shown.length - 1 ? 'disabled' : ''}>↓</button>
                     </div>`;
                 const label = row.querySelector('span');
                 label.textContent = labels[id] || id;

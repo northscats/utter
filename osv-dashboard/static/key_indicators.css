@@ -232,6 +232,10 @@ body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 .kpi-row {
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px;
 }
+.kpi-card[hidden] {
+    display: none !important;
+}
+
 .kpi-card {
   background: #fff; border: 1px solid #E5E7EB; border-top: 4px solid #9CA3AF;
   border-radius: 8px; padding: 12px 14px; position: relative; cursor: pointer;

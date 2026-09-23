@@ -94,6 +94,7 @@
             this.state.selected = new Set();
             this.state.drag = null;
 
+            this.hideUnavailableItems(container);
             this.captureOriginalDom(container, token);
             this.state.items = this.extractItems(container, cardId);
             this.state.layoutConfig = this.generateDefaultLayout();
@@ -278,6 +279,37 @@
                 classes.includes('unavailable') || classes.includes('revenue-missing');
         },
 
+        hideUnavailableItems: function(container) {
+            // Unavailable metric tiles are retained in the renderer's DOM so
+            // their structural slots remain stable for older saved layouts.
+            // They are neither visible nor offered as constructor items.
+            Array.from(container.querySelectorAll(CARD_SELECTOR)).forEach(card => {
+                if (card.querySelector('.cash-value-missing') ||
+                    card.classList.contains('needs-data')) {
+                    card.style.display = 'none';
+                    card.dataset.layoutUnavailable = 'true';
+                }
+            });
+            // Entire placeholder-only groups have no useful content.  Do not
+            // show their heading or register an empty section in the editor.
+            Array.from(container.querySelectorAll(
+                '.revenue-missing-grid, .collection-missing-grid, ' +
+                '.ar-missing-grid, .cash-missing-grid, .profit-missing-grid, ' +
+                '.credits-missing-grid, .salary-missing-grid, .capex-missing-grid, ' +
+                '.cogs-missing-grid'
+            )).forEach(grid => {
+                if (Array.from(grid.querySelectorAll(CARD_SELECTOR)).some(card =>
+                    card.dataset.layoutUnavailable !== 'true')) return;
+                grid.style.display = 'none';
+                const heading = grid.previousElementSibling;
+                if (heading && heading.classList.contains('modal-section-title') &&
+                    /Недоступн|требующ|требуются|дополнительных данных/i.test(
+                        heading.textContent || '')) {
+                    heading.style.display = 'none';
+                }
+            });
+        },
+
         directSummaryCards: function(parent) {
             if (!parent || !this.isElement(parent)) return [];
             const direct = Array.from(parent.children || []).filter(node => this.isCard(node));
@@ -345,6 +377,10 @@
                 cards.forEach(card => {
                     if (extracted.has(card)) return;
                     extracted.add(card);
+                    if (card.dataset && card.dataset.layoutUnavailable === 'true') {
+                        cardSlot++;
+                        return;
+                    }
                     const auxiliary = this.isAuxiliaryParent(parent);
                     items.push({
                         id: this.stableKey(cardId, card, 'card', cardSlot),
@@ -381,6 +417,7 @@
                 if (layoutKey === 'dynamics') {
                     if (consumed.has(root)) return;
                     consumed.add(root);
+                    if (root.style.display === 'none') return;
                     items.push({
                         id: this.stableKey(cardId, root, 'chart', 'dynamics'),
                         type: 'chart',
@@ -403,6 +440,10 @@
                     if (elements.some(node => consumed.has(node))) return;
                     elements.forEach(node => consumed.add(node));
                     const visible = elements.some(node => node.style.display !== 'none');
+                    if (!visible) {
+                        sectionSlot++;
+                        return;
+                    }
                     items.push({
                         id: this.stableKey(cardId, root, 'section', sectionSlot),
                         type: 'section',
@@ -524,21 +565,6 @@
                 saved && Array.isArray(saved.order) ? saved.order : null,
                 defaults.order
             );
-            if (saved && Array.isArray(saved.order)) {
-                const savedOrder = new Set(saved.order);
-                const registry = this.state.items.map(item => item.id);
-                registry.forEach((itemId, registryIndex) => {
-                    if (savedOrder.has(itemId)) return;
-                    const currentIndex = result.order.indexOf(itemId);
-                    if (currentIndex >= 0) result.order.splice(currentIndex, 1);
-                    const nextKnown = registry.slice(registryIndex + 1)
-                        .find(candidate => savedOrder.has(candidate) &&
-                            result.order.includes(candidate));
-                    const insertAt = nextKnown
-                        ? result.order.indexOf(nextKnown) : result.order.length;
-                    result.order.splice(insertAt, 0, itemId);
-                });
-            }
             return result;
         },
 

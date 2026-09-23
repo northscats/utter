@@ -1990,7 +1990,7 @@
                 const metricTooltip = this.cashTooltip(this.metricTooltipData(card));
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${isCashMetric(id) ? `<div class="kpi-delta neutral">${esc(this.cashCoverageText(card))}${card.date ? ` · на ${esc(card.date)}` : ''}</div>` : ''}
@@ -7497,10 +7497,6 @@ renderCashModal(card) {
             });
 
             const fullNcfTip = 'Для полного NCF нужна выгрузка движений по счетам 50, 51, 52 и 55 с датой, суммой, корреспондирующим счётом, статьёй движения денежных средств и признаком внутреннего перевода.';
-            const currentLiquidityTip = 'Нужен бухгалтерский баланс либо ОСВ по всем счетам оборотных активов и краткосрочных обязательств, включая 41, 43, 45, 60, 62, 66, 68, 69, 70, 76, а также сроки погашения по счетам 67 и 76.';
-            const absoluteLiquidityTip = 'Нужна аналитика сроков погашения по счетам 60, 66, 67, 68, 69, 70 и 76, чтобы отделить обязательства, подлежащие погашению в ближайшие 12 месяцев.';
-            const runwayTip = 'Нужна банковская выписка и кассовые операции минимум за 90 дней: дата, сумма, назначение платежа, контрагент, статья ДДС и корреспондирующий счёт. Внутренние переводы между счетами должны быть отмечены.';
-            const fuelTip = 'Нужен складской отчёт 1С по топливу в натуральных единицах, вид топлива, доступный остаток, среднесуточный фактический расход и производственный план либо норматив потребления.';
             const changeTip = delta === null
                 ? comparisonText + '. Нужны точные конечные сальдо на две даты с одинаковым составом доступных счетов.'
                 : 'Показано изменение бухгалтерского остатка между двумя сопоставимыми датами. Это не классифицированный отчёт о движении денежных средств. ' + fullNcfTip;
@@ -7617,50 +7613,6 @@ renderCashModal(card) {
                 deviation: delta === null ? 'Расчёт невозможен' : 'Фактическое изменение остатка',
                 source: 'сопоставимые ОСВ; для полного NCF требуется аналитика движения денежных средств'
             };
-            const currentLiquidityData = {
-                title: 'Коэффициент текущей ликвидности',
-                description: 'Показывает способность предприятия погасить краткосрочные обязательства за счёт оборотных активов.',
-                formula: 'КТЛ = Оборотные активы / Краткосрочные обязательства',
-                detail: 'Текущие 20 счетов не содержат полного состава оборотных активов и не разделяют все обязательства по срокам погашения.',
-                required: currentLiquidityTip,
-                norm: 'Задаётся утверждённой методикой предприятия',
-                fact: 'Н/Д',
-                deviation: 'Расчёт невозможен',
-                source: 'требуется бухгалтерский баланс или расширенная ОСВ'
-            };
-            const absoluteLiquidityData = {
-                title: 'Коэффициент абсолютной ликвидности',
-                description: 'Доля краткосрочных обязательств, которую можно погасить денежными средствами немедленно.',
-                formula: 'КАЛ = Денежные средства / Краткосрочные обязательства',
-                detail: 'Сумма денежных средств доступна, но краткосрочная часть обязательств без сроков погашения не определена.',
-                required: absoluteLiquidityTip,
-                norm: 'Задаётся утверждённой методикой предприятия',
-                fact: 'Н/Д',
-                deviation: 'Расчёт невозможен',
-                source: 'требуется аналитика сроков погашения обязательств из 1С'
-            };
-            const runwayData = {
-                title: 'Cash Runway',
-                description: 'Расчётное число дней, на которое хватит текущего денежного остатка при сохранении среднего темпа внешних платежей.',
-                formula: 'Cash Runway = Остаток денежных средств / Среднедневные внешние платежи',
-                detail: 'Обороты ОСВ включают внутренние переводы и не позволяют надёжно выделить внешний расход.',
-                required: runwayTip,
-                norm: 'Устанавливается финансовой политикой предприятия',
-                fact: 'Н/Д',
-                deviation: 'Расчёт невозможен',
-                source: 'требуются банковские и кассовые операции из 1С'
-            };
-            const fuelData = {
-                title: 'Обеспеченность топливом',
-                description: 'Количество дней работы, обеспеченное фактическим доступным запасом топлива.',
-                formula: 'Дни запаса = Натуральный остаток топлива / Среднесуточный расход',
-                detail: 'Денежное сальдо счёта 10 не заменяет натуральное количество топлива и производственный расход.',
-                required: fuelTip,
-                norm: 'Зависит от вида топлива, сезона и утверждённого норматива',
-                fact: 'Н/Д',
-                deviation: 'Расчёт невозможен',
-                source: 'требуется складская и производственная аналитика 1С'
-            };
 
             document.getElementById('ki-modal-title').textContent = isCashDz
                 ? 'Дебиторская задолженность'
@@ -7709,13 +7661,7 @@ renderCashModal(card) {
                     </div>
                     ${isCashDz ? '' : `<div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
                         <div class="cash-summary-value ${delta === null ? 'cash-value-missing' : delta < 0 ? 'cash-value-negative' : 'cash-value-ok'}">${esc(deltaText)}</div>
-                        <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Текущая ликвидность</div>
-                        <div class="cash-summary-value cash-value-missing">Нужны данные</div>
-                        <div class="cash-summary-sub">нет полного состава оборотных активов</div>${this.cashTooltip(currentLiquidityData)}</div>
-                    <div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Cash Runway</div>
-                        <div class="cash-summary-value cash-value-missing">Нужны данные</div>
-                        <div class="cash-summary-sub">нет очищенного платёжного потока</div>${this.cashTooltip(runwayData)}</div>`}
+                        <div class="cash-summary-sub">${esc(comparisonText)}</div>${this.cashTooltip(changeTipData)}</div>`}
                 </div>
                 <button type="button" class="modal-section-title cash-details-toggle"
                         aria-expanded="false" aria-controls="ki-cash-details-table"
@@ -7739,14 +7685,10 @@ renderCashModal(card) {
                     <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Поступления АПГ</span>
                     <span><i class="cash-chart-dot" style="background:#D97706"></i>Выплаты АПГ</span>
                 </div>
-                ${isCashDz ? '' : `<div class="modal-section-title">Показатели ликвидности — наведите для методики и требований к данным</div>
+                ${isCashDz ? '' : `<div class="modal-section-title">Денежные средства и изменение остатка</div>
                 <div class="cash-metrics-grid">
                     ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
                     ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null, '', delta < 0 ? 'cash-value-negative' : '')}
-                    ${this.cashMetricCard('Коэффициент текущей ликвидности', 'Нужны данные', 'оборотные активы / краткосрочные обязательства', currentLiquidityData, true)}
-                    ${this.cashMetricCard('Коэффициент абсолютной ликвидности', 'Нужны данные', 'деньги / краткосрочные обязательства', absoluteLiquidityData, true)}
-                    ${this.cashMetricCard('Cash Runway', 'Нужны данные', 'остаток / среднедневные внешние платежи', runwayData, true)}
-                    ${this.cashMetricCard('Обеспеченность топливом', 'Нужны данные', 'натуральный запас / среднедневной расход', fuelData, true)}
                 </div>`}
                 `;
         },

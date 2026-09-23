@@ -74,6 +74,12 @@ manager.state.layouts.operational = {
 manager.apply('operational');
 assert.deepEqual(grid.children.map(card => card.dataset.metric), ['revenue', 'cash']);
 assert.equal(grid.children.every(card => card.hidden), true);
+manager.state.layouts.operational.items = {cash: 'main', revenue: 'main'};
+cards[0].dataset.noData = 'true';
+manager.apply('operational');
+assert.equal(cards[0].hidden, true, 'a saved layout cannot reveal missing data');
+assert.equal(cards[1].hidden, false);
+delete cards[0].dataset.noData;
 
 // Dirty source changes are guarded before KI_App changes the mode.
 manager.state.dialog = {hidden: false};
