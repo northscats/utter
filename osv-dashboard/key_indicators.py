@@ -2085,7 +2085,7 @@ def _top_balance(source, account, end, credit=False):
         return 0.0, None
     report = _exact_balance_report(source, account, end)
     if report is None and str(account) in {
-            '60', '62', '66', '67', '68', '69', '70'}:
+            '08', '60', '62', '66', '67', '68', '69', '70'}:
         signed_debit = _rolled_report_balance(source, account, end)
         if signed_debit is not None:
             value = -signed_debit if credit else signed_debit
@@ -2552,6 +2552,41 @@ def _capex_monthly_rows(source, start, end):
             cursor = Date(cursor.year + 1, 1, 1)
         else:
             cursor = Date(cursor.year, cursor.month + 1, 1)
+    # A period ОСВ may provide only the opening and closing balance, while
+    # monthly movements cover the dates between them. Infer intermediate
+    # balances only when every movement is known and the endpoints reconcile.
+    if rows and all(row['invested'] is not None and
+                    row['developed'] is not None for row in rows):
+        opening = _top_opening_balance(source, '08', start)
+        closing = _top_balance(source, '08', end)[0]
+        if opening is not None:
+            running = opening
+            calculated = []
+            for row in rows:
+                running = round(running + row['invested'] - row['developed'], 2)
+                calculated.append(running)
+            if all(value >= -0.05 and
+                   (row['not_developed_total'] is None or
+                    abs(row['not_developed_total'] - value) <= 0.05)
+                   for row, value in zip(rows, calculated)) and (
+                   closing is None or abs(running - closing) <= 0.05):
+                for row, balance in zip(rows, calculated):
+                    if row['not_developed_total'] is None:
+                        row['not_developed_total'] = round(max(0.0, balance), 2)
+        elif closing is not None:
+            running = closing
+            calculated = []
+            for row in reversed(rows):
+                calculated.append(running)
+                running = round(running - row['invested'] + row['developed'], 2)
+            calculated.reverse()
+            if all(value >= -0.05 and
+                   (row['not_developed_total'] is None or
+                    abs(row['not_developed_total'] - value) <= 0.05)
+                   for row, value in zip(rows, calculated)):
+                for row, balance in zip(rows, calculated):
+                    if row['not_developed_total'] is None:
+                        row['not_developed_total'] = round(max(0.0, balance), 2)
     return rows
 
 
@@ -2569,7 +2604,7 @@ def _capex_sum_rows(source, rows, kind, label, start, end):
         'end': end.isoformat(),
         'label': label,
         **values,
-        'not_developed_total': _top_balance(source, '08', end)[0],
+        'not_developed_total': rows[-1]['not_developed_total'],
         'details': [],
     }
 

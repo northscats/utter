@@ -2172,6 +2172,40 @@ class CashSalaryKeyIndicatorTests(unittest.TestCase):
         self.assertEqual(rows[0]['details'][0]['development_dates'],
                          ['2026-01-15'])
 
+    def test_capex_monthly_balance_reconciles_distinct_debit_and_credit(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2026-01-15', obd=100, obk=80),
+                day('2026-02-12', obd=20, obk=15),
+            ], top=dict(snd=10, snk=0, obd=120, obk=95,
+                        skd=35, skk=0),
+               period='01.01.2026 - 28.02.2026'),
+        })
+        card = {item['id']: item for item in build_key_indicators(
+            src, period='year', date='2026-02-28')['cards']}['capex']
+        self.assertEqual(card['debit_turnover'], 120)
+        self.assertEqual(card['credit_turnover'], 95)
+        rows = card['monthly_comparison']
+        self.assertEqual([row['invested'] for row in rows], [100, 20])
+        self.assertEqual([row['developed'] for row in rows], [80, 15])
+        self.assertEqual([row['not_developed_total'] for row in rows],
+                         [30, 35])
+
+    def test_capex_does_not_infer_balance_from_conflicting_report(self):
+        src = build_indicator_source({
+            '08': account('08', [
+                day('2026-01-15', obd=100, obk=80),
+                day('2026-02-12', obd=20, obk=15),
+            ], top=dict(snd=10, snk=0, obd=120, obk=95,
+                        skd=50, skk=0),
+               period='01.01.2026 - 28.02.2026'),
+        })
+        rows = {item['id']: item for item in build_key_indicators(
+            src, period='year', date='2026-02-28')['cards']}[
+                'capex']['monthly_comparison']
+        self.assertIsNone(rows[0]['not_developed_total'])
+        self.assertEqual(rows[1]['not_developed_total'], 50)
+
     def test_false_day_balance_and_cross_period_leakage(self):
         top = dict(snd=0, snk=0, obd=0, obk=0, skd=100, skk=0)
         src = build_indicator_source({

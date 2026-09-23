@@ -5983,11 +5983,6 @@
             const container = document.getElementById('ki-capex-modal-content');
             if (!container) return;
             const req = this.capexRequirements();
-            const capexMainId = metricSeriesIdForItem(card, card);
-            const capexApgId = metricSeriesIdForLabel(
-                card, 'details', 'Дебетовый оборот 08 АПГ');
-            const capexWipId = metricSeriesIdForLabel(card, 'details', 'Дебетовое сальдо 08');
-            const capexCreditId = metricSeriesIdForLabel(card, 'details', 'Кредитовый оборот 08');
             const rub = value => value === null || value === undefined
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
@@ -6127,6 +6122,8 @@
             const capexDates = values => (Array.isArray(values) && values.length
                 ? values.map(capexDate).join(', ') : '—');
             const capexMoney = value => value == null ? 'Н/Д' : rub(value);
+            const capexBalance = value => value == null
+                ? '—' : rub(value);
             const capexPeriodBody = capexPeriodRows.length
                 ? capexPeriodRows.map((row, index) => {
                     const isMonth = row.kind === 'month';
@@ -6176,7 +6173,8 @@
                         <td>${esc(capexMoney(row.invested))}</td>
                         <td>${esc(capexMoney(row.developed))}</td>
                         <td>${esc(capexMoney(row.not_developed))}</td>
-                        <td>${esc(capexMoney(row.not_developed_total))}</td>
+                        <td${row.not_developed_total == null
+                            ? ' title="Остаток на эту дату не подтверждён и не сверяется с оборотами счёта 08"' : ''}>${esc(capexBalance(row.not_developed_total))}</td>
                     </tr>${detailPanel}`;
                 }).join('')
                 : '<tr><td colspan="5" class="chart-empty">Нет месячных данных счёта 08.</td></tr>';
@@ -6185,6 +6183,7 @@
                   <div class="modal-section-title">Помесячная таблица капитальных вложений</div>
                   <div class="revenue-classification-note">
                     В свернутом виде показаны только суммы. Нажмите на месяц, чтобы увидеть субсчета, объекты и даты движений.
+                     «Не освоено всего» — остаток счёта 08 на конец периода; если его нельзя подтвердить или сверить с движениями, стоит прочерк, а не вымышленный ноль.
                   </div>
                   <div class="cash-table-scroll">
                     <table class="cash-table capex-period-table">
@@ -6227,7 +6226,7 @@
                 <div class="capex-metrics-strip capex-summary">
                     ${this.cashMetricCard('Формирование вложений', rub(card.debit_turnover), 'ОбД 08 за выбранный период', debitTip, card.debit_turnover == null, '', '', 'current')}
                     ${this.cashMetricCard('Формирование вложений АПГ', rub(card.previous_year_value), previousYearPeriodText, apgTip, card.previous_year_value == null, '', '', 'apg')}
-                    ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'не подтверждённый ввод', creditTip, card.credit_turnover == null, capexCreditId)}
+                     ${this.cashMetricCard('Кредитовый оборот', rub(card.credit_turnover), 'ОбК 08 · не подтверждённый ввод', creditTip, card.credit_turnover == null, '', '', 'credit')}
                 </div>
                 <section class="capex-overview ki-modal-dynamics-block" data-layout-key="dynamics"
                          data-layout-title="Динамика капитальных вложений">
@@ -6279,6 +6278,16 @@
                 state.modalChart.capexModes = new Set(['current', 'apg']);
             }
             const selected = state.modalChart.capexModes;
+            const available = new Set([
+                ['current', card.series],
+                ['apg', card.previous_year_series],
+                ['credit', card.credit_series]
+            ].filter(([, points]) => (points || []).some(point =>
+                Number.isFinite(point.value))).map(([mode]) => mode));
+            [...selected].forEach(mode => {
+                if (!available.has(mode)) selected.delete(mode);
+            });
+            if (!selected.size && available.size) selected.add(available.values().next().value);
             const root = document.getElementById('ki-capex-modal-content');
             if (root && root.querySelectorAll) {
                 root.querySelectorAll('[data-capex-chart-mode]').forEach(tile => {
@@ -6291,7 +6300,8 @@
             const labels = [];
             if (selected.has('current')) labels.push('Формирование вложений');
             if (selected.has('apg')) labels.push('Формирование вложений АПГ');
-            if (title) title.textContent = labels.join(' и ');
+            if (selected.has('credit')) labels.push('Кредитовый оборот 08');
+            if (title) title.textContent = labels.join(' и ') || 'Нет данных для графика';
             const legend = document.getElementById('ki-capex-chart-legend');
             if (legend) {
                 legend.innerHTML = [
@@ -6300,28 +6310,52 @@
                         : '',
                     selected.has('apg')
                         ? '<span><i class="cash-chart-dot" style="background:#DB2777"></i>Формирование вложений АПГ</span>'
+                        : '',
+                    selected.has('credit')
+                        ? '<span><i class="cash-chart-dot" style="background:#2563EB"></i>Кредитовый оборот 08</span>'
                         : ''
                 ].join('');
             }
-            const current = (card.series || []).map(point => ({
-                ...point, accounts: ['08'], missing_accounts: [],
-                coverage: 'complete'
-            }));
-            const previous = (card.previous_year_series || []).map(point => ({
-                ...point, accounts: ['08'], missing_accounts: [],
-                coverage: 'complete'
+            const capexPoints = series => (series || []).map(point => ({
+                ...point, accounts: Number.isFinite(point.value) ? ['08'] : [],
+                missing_accounts: Number.isFinite(point.value) ? [] : ['08'],
+                coverage: Number.isFinite(point.value) ? 'complete' : 'missing'
             }));
             this.renderCashLineChart(
-                [], [],
-                selected.has('current') ? current : [],
-                selected.has('apg') ? previous : [],
-                'ki-capex-line-chart');
+                [], [], [], [], 'ki-capex-line-chart', [
+                    {
+                        id: 'capex-current', label: 'Формирование вложений',
+                        color: '#111827',
+                        formula: 'ОбД(08) за период точки',
+                        description: 'Дебетовый оборот счёта 08 за указанный период.',
+                        source: 'ОСВ счёта 08',
+                        series: selected.has('current') ? capexPoints(card.series) : []
+                    },
+                    {
+                        id: 'capex-apg', label: 'Формирование вложений АПГ',
+                        color: '#DB2777', dash: ' stroke-dasharray="6 4"',
+                        formula: 'ОбД(08) за сопоставимый период прошлого года',
+                        description: 'Дебетовый оборот счёта 08 за период АПГ.',
+                        source: 'ОСВ счёта 08 за прошлый год',
+                        series: selected.has('apg')
+                            ? capexPoints(card.previous_year_series) : []
+                    },
+                    {
+                        id: 'capex-credit', label: 'Кредитовый оборот 08',
+                        color: '#2563EB',
+                        formula: 'ОбК(08) за период точки',
+                        description: 'Кредитовый оборот счёта 08; без корреспонденции не подтверждает ввод.',
+                        source: 'ОСВ счёта 08',
+                        series: selected.has('credit')
+                            ? capexPoints(card.credit_series) : []
+                    }
+                ]);
         },
 
         toggleCapexChartMode(mode) {
             const card = state.data && Array.isArray(state.data.cards)
                 ? state.data.cards.find(item => item.id === 'capex') : null;
-            if (!card || !['current', 'apg'].includes(mode)) return;
+            if (!card || !['current', 'apg', 'credit'].includes(mode)) return;
             if (!state.modalChart.capexModes || !state.modalChart.capexModes.size) {
                 state.modalChart.capexModes = new Set(['current', 'apg']);
             }
@@ -8028,7 +8062,10 @@ renderCashModal(card) {
                 group.points.forEach((item, index) => {
                     if (!Number.isFinite(item.balance)) return;
                     const balanceLabel = group.label || `Денежные средства${group.suffix}`;
-                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                    const pointDate = group.id === 'capex-apg'
+                        ? item.source_date || item.date || item.label
+                        : item.date || item.label;
+                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${pointDate}. ${this.cashCoverageText(item)}`)}"/>`;
                 });
             });
             labelGroup.points.forEach((item, index) => {
@@ -8043,12 +8080,15 @@ renderCashModal(card) {
                 const group = allGroups.find(item =>
                     item.id === (point.dataset.period || 'current')) || allGroups[0];
                 const item = group.points[index];
+                const pointDate = group.id === 'capex-apg'
+                    ? item.source_date || item.date || item.label
+                    : item.date || item.label;
                 const suffix = group.suffix;
                 const coverageText = this.cashCoverageText(item);
                 const missingText = item.reasons && item.reasons.length
                     ? ` ${item.reasons.join('; ')}.` : '';
                 if (isBalance) return {
-                    title: `${group.label || `Денежные средства${suffix}`} — ${item.date || item.label}`,
+                    title: `${group.label || `Денежные средства${suffix}`} — ${pointDate}`,
                     description: group.description || (group.label
                         ? `Фактическое значение «${group.label}» на точную дату.`
                         : `Фактический остаток денежных средств${suffix} на точную дату.`),

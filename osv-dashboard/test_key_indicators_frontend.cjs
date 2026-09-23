@@ -107,6 +107,81 @@ async function checkBootstrap(configuration) {
   assert.equal(million.u, 'млн ₽');
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
+  const capexCard = {
+    id: 'capex', value: 100_000_000, debit_turnover: 100_000_000,
+    credit_turnover: 20_000_000, opening_balance: 10_000_000,
+    closing_balance: 90_000_000, previous_year_value: 50_000_000,
+    series: [{date: '2026-01-31', label: 'Январь', value: 100_000_000}],
+    credit_series: [{date: '2026-01-31', label: 'Январь', value: 20_000_000}],
+    previous_year_series: [{
+      date: '2026-01-31', source_date: '2025-01-31',
+      label: 'Январь', value: 50_000_000,
+    }],
+    monthly_comparison: [{
+      kind: 'month', label: 'Январь', invested: 100_000_000,
+      developed: 20_000_000, not_developed: 80_000_000,
+      not_developed_total: null, details: [{
+        subaccount: '08.04', object: 'Объект А',
+        invested: 100_000_000, developed: 20_000_000,
+        not_developed: 80_000_000,
+        investment_dates: ['2026-01-15'],
+        development_dates: ['2026-01-15'],
+      }],
+    }],
+  };
+  const monthToggleAttrs = new Map([
+    ['aria-controls', 'ki-capex-month-details-0'], ['aria-expanded', 'false']
+  ]);
+  const monthToggle = {
+    getAttribute: key => monthToggleAttrs.get(key),
+    setAttribute: (key, value) => monthToggleAttrs.set(key, value),
+    addEventListener: (event, callback) => {
+      if (event === 'click') monthToggle.click = callback;
+    },
+  };
+  const capexContainer = context.document.getElementById('ki-capex-modal-content');
+  const originalCapexQuery = capexContainer.querySelectorAll;
+  capexContainer.querySelectorAll = selector => selector === '[data-capex-month-toggle]'
+    ? [monthToggle] : originalCapexQuery.call(capexContainer, selector);
+  const monthPanel = context.document.getElementById('ki-capex-month-details-0');
+  monthPanel.hidden = true;
+  app.renderCapexModal(capexCard);
+  monthToggle.click();
+  assert.equal(monthPanel.hidden, false, 'month details must expand on click');
+  assert.equal(monthToggle.getAttribute('aria-expanded'), 'true');
+  monthToggle.click();
+  assert.equal(monthPanel.hidden, true, 'month details must collapse on a second click');
+  const capexHtml = nodes.get('ki-capex-modal-content').innerHTML;
+  assert.match(capexHtml, /data-capex-chart-mode="credit"/);
+  assert.ok(/Кредитовый оборот[\s\S]*?20,0 млн ₽/.test(capexHtml),
+    'credit turnover must show its own value, not the debit turnover');
+  assert.ok(/Не освоено всего[\s\S]*?<td[^>]*>—<\/td>/.test(capexHtml),
+    'an unverified balance must not appear as N/D or an invented zero');
+  const capexPreviousData = app.state.data;
+  const capexPreviousModalChart = app.state.modalChart;
+  app.state.data = {cards: [capexCard]};
+  app.state.modalChart = {capexModes: new Set(['current', 'apg'])};
+  const chartCalls = [];
+  const renderCapexSvg = app.renderCashLineChart;
+  app.renderCashLineChart = (...args) => {
+    chartCalls.push(args);
+    renderCapexSvg.apply(app, args);
+  };
+  app.renderCapexChartModes(capexCard);
+  assert.deepEqual(Array.from(chartCalls.at(-1)[5].map(group => group.label)),
+    ['Формирование вложений', 'Формирование вложений АПГ', 'Кредитовый оборот 08']);
+  assert.equal(chartCalls.at(-1)[5][0].series[0].value, 100_000_000);
+  assert.equal(chartCalls.at(-1)[5][2].series.length, 0);
+  app.toggleCapexChartMode('credit');
+  assert.equal(chartCalls.at(-1)[5][2].series[0].value, 20_000_000);
+  assert.match(nodes.get('ki-capex-chart-title').textContent, /Кредитовый оборот 08/);
+  const svg = nodes.get('ki-capex-line-chart').innerHTML;
+  assert.ok(svg.includes('aria-label="Кредитовый оборот 08 на 2026-01-31'),
+    'credit turnover should have its own chart point');
+  assert.ok(svg.includes('aria-label="Формирование вложений АПГ на 2025-01-31'),
+    'previous-year point should name its actual source date');
+  app.state.data = capexPreviousData;
+  app.state.modalChart = capexPreviousModalChart;
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
     {type: 'number', value: 1234.5});
