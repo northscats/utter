@@ -679,7 +679,8 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             db.session.commit()
         response = self.client('kpi_admin').delete(
             f'/company/{self.company}/coverage-data',
-            json={'year': 2026, 'accounts': ['51']},
+            json={'mode': 'period', 'date_from': '2026-01-01',
+                  'date_to': '2026-12-31', 'accounts': ['51']},
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['deleted_rows'], 2)
@@ -692,6 +693,44 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertNotIn((date(2026, 2, 3), '51'), rows)
         self.assertIn((date(2025, 12, 31), '51'), rows)
         self.assertIn((date(2026, 1, 3), '62'), rows)
+
+    def test_coverage_delete_file_list_shows_additional_accounts(self):
+        manifest = [
+            {
+                'source_id': 'source-51',
+                'relative_path': 'batch/osv-51.xlsx',
+                'account': '51',
+                'period': 'Январь 2026',
+            },
+            {
+                'source_id': 'source-62',
+                'relative_path': 'batch/osv-62.xlsx',
+                'account': '62',
+                'period': 'Январь 2026',
+            },
+        ]
+        with self.app.app_context():
+            db.session.add(Upload(
+                company_id=self.company,
+                uploaded_by=self.ids['kpi_admin'],
+                period_label='Январь 2026',
+                accounts_loaded='["51", "62"]',
+                source_manifest_json=json.dumps(manifest),
+            ))
+            db.session.commit()
+        response = self.client('kpi_admin').get(
+            f'/company/{self.company}/coverage-data/files',
+            query_string=[('account', '51')],
+        )
+        self.assertEqual(response.status_code, 200)
+        files = response.get_json()['batches'][0]['files']
+        self.assertEqual({item['account'] for item in files}, {'51', '62'})
+        self.assertTrue(next(
+            item for item in files if item['account'] == '51'
+        )['selected_account'])
+        self.assertFalse(next(
+            item for item in files if item['account'] == '62'
+        )['selected_account'])
 
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
         source = {

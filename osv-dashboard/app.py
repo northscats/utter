@@ -5125,38 +5125,170 @@ def coverage_report_excel(company_id):
 @app.route('/company/<int:company_id>/coverage-data', methods=['DELETE'])
 @login_required
 def coverage_data_delete(company_id):
-    """Удалить выбранные суточные данные счетов за весь выбранный год."""
+    """Удалить данные счетов по периоду, полностью или по исходным файлам."""
     company = _require_company_access(company_id)
     payload = request.get_json(silent=True) or {}
-    try:
-        year = int(payload.get('year'))
-    except (TypeError, ValueError):
-        return jsonify(error='Некорректный год'), 400
+    mode = str(payload.get('mode') or '')
     accounts = sorted({
         str(value) for value in payload.get('accounts', [])
         if str(value) in ANALYTICAL_ACCOUNT_NAMES
     })
-    if year < 2000 or year > 2100 or not accounts:
+    if not accounts:
         return jsonify(error='Выберите хотя бы один счёт'), 400
 
     from datetime import date
-    deleted_rows = DailyRow.query.filter(
-        DailyRow.company_id == company.id,
-        DailyRow.acc.in_(accounts),
-        DailyRow.date >= date(year, 1, 1),
-        DailyRow.date <= date(year, 12, 31),
-    ).delete(synchronize_session=False)
+    deleted_rows = 0
+    deleted_sources = []
+    start = end = None
+    if mode == 'period':
+        try:
+            start = date.fromisoformat(str(payload.get('date_from') or ''))
+            end = date.fromisoformat(str(payload.get('date_to') or ''))
+        except ValueError:
+            return jsonify(error='Укажите корректный период удаления'), 400
+        if start > end:
+            return jsonify(error='Дата начала позже даты окончания'), 400
+    elif mode == 'all':
+        start, end = date(2000, 1, 1), date(2100, 12, 31)
+    elif mode != 'files':
+        return jsonify(error='Не выбран способ удаления'), 400
+
+    if mode in ('period', 'all'):
+        deleted_rows = DailyRow.query.filter(
+            DailyRow.company_id == company.id,
+            DailyRow.acc.in_(accounts),
+            DailyRow.date >= start,
+            DailyRow.date <= end,
+        ).delete(synchronize_session=False)
+        for upload in Upload.query.filter_by(company_id=company.id).all():
+            manifest = upload.source_manifest
+            if not isinstance(manifest, list):
+                continue
+            kept = []
+            for item in manifest:
+                item_start = item.get('report_start') or item.get('observed_start')
+                item_end = item.get('report_end') or item.get('observed_end')
+                try:
+                    source_start = date.fromisoformat(item_start)
+                    source_end = date.fromisoformat(item_end)
+                except (TypeError, ValueError):
+                    source_start = source_end = None
+                if (str(item.get('account')) in accounts
+                        and (mode == 'all' or (
+                            source_start and source_end
+                            and start <= source_start and source_end <= end))):
+                    deleted_sources.append(item)
+                else:
+                    kept.append(item)
+            if len(kept) != len(manifest):
+                upload.source_manifest_json = dump_manifest(kept)
+                upload.accounts_loaded = json.dumps(sorted({
+                    str(item.get('account')) for item in kept
+                    if item.get('account')
+                }), ensure_ascii=False)
+    else:
+        selected_ids = {
+            str(value) for value in payload.get('source_ids', []) if value
+        }
+        if not selected_ids:
+            return jsonify(error='Выберите хотя бы один файл'), 400
+        for upload in Upload.query.filter_by(company_id=company.id).all():
+            manifest = upload.source_manifest
+            if not isinstance(manifest, list):
+                continue
+            removed = [
+                item for item in manifest
+                if str(item.get('source_id')) in selected_ids
+            ]
+            if not removed:
+                continue
+            deleted_sources.extend(removed)
+            kept = [item for item in manifest if item not in removed]
+            upload.source_manifest_json = dump_manifest(kept)
+            upload.accounts_loaded = json.dumps(sorted({
+                str(item.get('account')) for item in kept if item.get('account')
+            }), ensure_ascii=False)
+            for item in removed:
+                try:
+                    source_start = date.fromisoformat(
+                        item.get('report_start') or item.get('observed_start'))
+                    source_end = date.fromisoformat(
+                        item.get('report_end') or item.get('observed_end'))
+                except (TypeError, ValueError):
+                    continue
+                deleted_rows += DailyRow.query.filter(
+                    DailyRow.company_id == company.id,
+                    DailyRow.acc == str(item.get('account')),
+                    DailyRow.date >= source_start,
+                    DailyRow.date <= source_end,
+                ).delete(synchronize_session=False)
 
     company.osv_source_revision = (
-        f'delete:{year}:{int(time.time())}')
+        f'delete:{mode}:{int(time.time())}')
     db.session.commit()
+    referenced_paths = {
+        str(item.get('relative_path'))
+        for upload in Upload.query.filter_by(company_id=company.id).all()
+        for item in (upload.source_manifest or [])
+        if isinstance(item, dict) and item.get('relative_path')
+    }
+    company_root = os.path.realpath(os.path.join(UPLOADS, str(company.id)))
+    deleted_files = 0
+    for item in deleted_sources:
+        relative = str(item.get('relative_path') or '')
+        path = os.path.realpath(os.path.join(company_root, relative))
+        if (relative and relative not in referenced_paths
+                and path.startswith(company_root + os.sep)):
+            try:
+                os.remove(path)
+                deleted_files += 1
+            except FileNotFoundError:
+                pass
+            except OSError:
+                app.logger.exception('Не удалось удалить исходный файл %s', path)
     log_event('coverage_data_deleted', {
         'company_id': company.id,
-        'year': year,
+        'mode': mode,
         'accounts': accounts,
         'daily_rows': deleted_rows,
+        'source_files': deleted_files,
     })
-    return jsonify(ok=True, deleted_rows=deleted_rows)
+    return jsonify(ok=True, deleted_rows=deleted_rows,
+                   deleted_files=deleted_files)
+
+
+@app.route('/company/<int:company_id>/coverage-data/files')
+@login_required
+def coverage_data_files(company_id):
+    """Перечислить принятые файлы, содержащие выбранные счета."""
+    _require_company_access(company_id)
+    accounts = {
+        value for value in request.args.getlist('account')
+        if value in ANALYTICAL_ACCOUNT_NAMES
+    }
+    batches = []
+    for upload in Upload.query.filter_by(company_id=company_id).order_by(
+            Upload.uploaded_at.desc(), Upload.id.desc()).all():
+        manifest = upload.source_manifest
+        if not isinstance(manifest, list):
+            continue
+        matched = [item for item in manifest
+                   if str(item.get('account')) in accounts]
+        if not matched:
+            continue
+        batches.append({
+            'upload_id': upload.id,
+            'uploaded_at': upload.uploaded_at.isoformat(),
+            'files': [{
+                'source_id': str(item.get('source_id') or ''),
+                'filename': os.path.basename(
+                    str(item.get('relative_path') or '')),
+                'account': str(item.get('account') or ''),
+                'period': str(item.get('period') or ''),
+                'selected_account': str(item.get('account')) in accounts,
+            } for item in manifest],
+        })
+    return jsonify(batches=batches)
 
 
 # ---------------------------------------------------------------------------

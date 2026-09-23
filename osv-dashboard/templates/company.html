@@ -1083,7 +1083,7 @@ tr:last-child td{border-bottom:0}
 
   <div class="ac-report-overlay" id="ac-delete-modal" role="dialog" aria-modal="true"
        aria-labelledby="ac-delete-title">
-    <div class="ac-report-modal" style="width:min(520px,100%)">
+    <div class="ac-report-modal" style="width:min(760px,100%)">
       <div class="ac-report-head">
         <div>
           <h2 id="ac-delete-title">Удалить выбранные данные?</h2>
@@ -1091,7 +1091,17 @@ tr:last-child td{border-bottom:0}
         </div>
       </div>
       <div class="ac-report-body">
-        <p style="margin:0;line-height:1.55">Все данные выбранных счетов за указанный год будут удалены. Это действие нельзя отменить.</p>
+        <div style="display:grid;gap:10px">
+          <label><input type="radio" name="ac-delete-mode" value="period" checked> Удалить данные за произвольный период</label>
+          <div id="ac-delete-period" style="display:flex;gap:10px;align-items:center;padding-left:22px">
+            <label>с <input type="date" id="ac-delete-from"></label>
+            <label>по <input type="date" id="ac-delete-to"></label>
+          </div>
+          <label><input type="radio" name="ac-delete-mode" value="all"> Удалить все данные по выбранным счетам</label>
+          <label><input type="radio" name="ac-delete-mode" value="files"> Удалить данные загруженных файлов</label>
+          <div id="ac-delete-files" style="display:none;padding-left:22px"></div>
+        </div>
+        <p style="margin:14px 0 0;line-height:1.55;color:#b42318">Удаление нельзя отменить.</p>
         <div class="ac-report-meta" id="ac-delete-summary" style="margin-top:10px"></div>
       </div>
       <div class="ac-report-foot">
@@ -1535,6 +1545,7 @@ function setCoverageYear(year){
   var companyName = {{ company.name|tojson }};
   var excelReportUrl = {{ url_for('coverage_report_excel', company_id=company.id)|tojson }};
   var deleteDataUrl = {{ url_for('coverage_data_delete', company_id=company.id)|tojson }};
+  var deleteFilesUrl = {{ url_for('coverage_data_files', company_id=company.id)|tojson }};
   var csrfToken = {{ csrf_token()|tojson }};
   var fullMonthNames = [
     '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -1721,6 +1732,8 @@ function setCoverageYear(year){
     }
     document.getElementById('ac-delete-summary').textContent =
       'Год: ' + year + ' · счетов: ' + selected.accounts.length;
+    document.getElementById('ac-delete-from').value = year + '-01-01';
+    document.getElementById('ac-delete-to').value = year + '-12-31';
     deleteModal.classList.add('open');
     deleteConfirm.focus();
   }
@@ -1732,6 +1745,9 @@ function setCoverageYear(year){
 
   async function deleteSelectedData(){
     var selected = selectedData();
+    var mode = document.querySelector('input[name="ac-delete-mode"]:checked').value;
+    var sourceIds = Array.from(document.querySelectorAll('[data-delete-source]:checked'))
+      .map(function(input){ return input.value; });
     deleteConfirm.disabled = true;
     deleteConfirm.textContent = 'Удаляем…';
     try{
@@ -1739,7 +1755,10 @@ function setCoverageYear(year){
         method: 'DELETE',
         headers: {'Content-Type':'application/json', 'X-CSRFToken':csrfToken},
         body: JSON.stringify({
-          year: year,
+          mode: mode,
+          date_from: document.getElementById('ac-delete-from').value,
+          date_to: document.getElementById('ac-delete-to').value,
+          source_ids: sourceIds,
           accounts: selected.accounts.map(function(account){
             return account.getAttribute('data-report-account');
           })
@@ -1753,6 +1772,43 @@ function setCoverageYear(year){
       hint.textContent = error.message;
       deleteConfirm.disabled = false;
       deleteConfirm.textContent = 'Удалить';
+    }
+  }
+
+  async function updateDeleteMode(){
+    var mode = document.querySelector('input[name="ac-delete-mode"]:checked').value;
+    document.getElementById('ac-delete-period').style.display =
+      mode === 'period' ? 'flex' : 'none';
+    var files = document.getElementById('ac-delete-files');
+    files.style.display = mode === 'files' ? 'block' : 'none';
+    if(mode !== 'files') return;
+    files.textContent = 'Загружаем список файлов…';
+    var params = new URLSearchParams();
+    selectedData().accounts.forEach(function(account){
+      params.append('account', account.getAttribute('data-report-account'));
+    });
+    try{
+      var response = await fetch(deleteFilesUrl + '?' + params.toString());
+      var result = await response.json();
+      if(!response.ok) throw new Error(result.error || 'Не удалось получить файлы');
+      if(!result.batches.length){
+        files.textContent = 'Связанные загруженные файлы не найдены.';
+        return;
+      }
+      files.innerHTML = result.batches.map(function(batch){
+        var accounts = Array.from(new Set(batch.files.map(function(file){ return file.account; })));
+        return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:8px">' +
+          '<div style="font-weight:700;margin-bottom:6px">Загрузка №' + batch.upload_id + '</div>' +
+          batch.files.map(function(file){
+            return '<label style="display:block;margin:5px 0"><input type="checkbox" data-delete-source value="' +
+              escapeHtml(file.source_id) + '"> ' + escapeHtml(file.filename) +
+              ' · счёт ' + escapeHtml(file.account) + ' · ' + escapeHtml(file.period || 'период не указан') +
+              (file.selected_account ? ' <b>(выбранный счёт)</b>' : '') + '</label>';
+          }).join('') +
+          '<div class="ac-report-meta">Все счета загрузки: ' + escapeHtml(accounts.join(', ')) + '</div></div>';
+      }).join('');
+    }catch(error){
+      files.textContent = error.message;
     }
   }
 
@@ -1809,6 +1865,9 @@ function setCoverageYear(year){
   deleteButton.addEventListener('click', openDeleteModal);
   document.getElementById('ac-delete-cancel').addEventListener('click', closeDeleteModal);
   deleteConfirm.addEventListener('click', deleteSelectedData);
+  document.querySelectorAll('input[name="ac-delete-mode"]').forEach(function(input){
+    input.addEventListener('change', updateDeleteMode);
+  });
   deleteModal.addEventListener('click', function(event){
     if(event.target === deleteModal) closeDeleteModal();
   });
