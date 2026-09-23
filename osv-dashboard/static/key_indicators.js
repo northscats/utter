@@ -1798,6 +1798,84 @@
                     </div>
                 </div>`;
             };
+            const chartHtml = (() => {
+                const series = [
+                    { key: 'revenue', label: 'Выручка', color: '#4F7BEF' },
+                    { key: 'cogs', label: 'Себестоимость', color: '#F59A32' },
+                    { key: 'gross_profit', label: 'Валовая прибыль', color: '#10B981' }
+                ];
+                const values = categories.flatMap(row => series.map(item =>
+                    hasNumericValue(row[item.key]) ? Number(row[item.key]) : 0));
+                const rawMin = Math.min(0, ...values);
+                const rawMax = Math.max(0, ...values);
+                const rawSpan = Math.max(1, rawMax - rawMin);
+                const minValue = rawMin < 0 ? rawMin - rawSpan * 0.08 : 0;
+                const maxValue = rawMax > 0 ? rawMax + rawSpan * 0.08 : 1;
+                const span = maxValue - minValue;
+                const width = Math.max(760, categories.length * 190);
+                const height = 330;
+                const margin = { top: 28, right: 24, bottom: 72, left: 62 };
+                const plotWidth = width - margin.left - margin.right;
+                const plotHeight = height - margin.top - margin.bottom;
+                const y = value => margin.top +
+                    (maxValue - value) / span * plotHeight;
+                const zeroY = y(0);
+                const groupWidth = plotWidth / categories.length;
+                const barWidth = Math.min(28, groupWidth / 5);
+                const gap = 5;
+                const clusterWidth = series.length * barWidth +
+                    (series.length - 1) * gap;
+                const ticks = Array.from({ length: 6 }, (_, index) =>
+                    maxValue - span * index / 5);
+                const grid = ticks.map(value => {
+                    const tickY = y(value);
+                    return `<g>
+                        <line x1="${margin.left}" y1="${tickY}" x2="${width - margin.right}" y2="${tickY}" class="ki-account90-chart-grid"/>
+                        <text x="${margin.left - 10}" y="${tickY + 4}" text-anchor="end" class="ki-account90-chart-axis">${formatMln(value)}</text>
+                    </g>`;
+                }).join('');
+                const bars = categories.map((row, rowIndex) => {
+                    const center = margin.left + groupWidth * (rowIndex + 0.5);
+                    const startX = center - clusterWidth / 2;
+                    const columns = series.map((item, seriesIndex) => {
+                        const value = hasNumericValue(row[item.key])
+                            ? Number(row[item.key]) : 0;
+                        const valueY = y(value);
+                        const barY = Math.min(zeroY, valueY);
+                        const barHeight = Math.max(1, Math.abs(zeroY - valueY));
+                        const fill = item.key === 'gross_profit' && value < 0
+                            ? '#EF476F' : item.color;
+                        const x = startX + seriesIndex * (barWidth + gap);
+                        const description = `${row.label}, ${item.label}: ${formatMln(value)} млн ₽`;
+                        return `<rect x="${x}" y="${barY}" width="${barWidth}" height="${barHeight}" rx="1.5" fill="${fill}" tabindex="0" aria-label="${esc(description)}">
+                            <title>${esc(description)}</title>
+                        </rect>`;
+                    }).join('');
+                    const fullLabel = String(row.label || '');
+                    const label = fullLabel.length > 24
+                        ? `${fullLabel.slice(0, 22)}…` : fullLabel;
+                    return `${columns}
+                        <text x="${center}" y="${height - 38}" text-anchor="middle" class="ki-account90-chart-label">
+                            <title>${esc(fullLabel)}</title>${esc(label)}
+                        </text>`;
+                }).join('');
+                const legend = series.map(item => `
+                    <span><i style="background:${item.color}"></i>${item.label}</span>`
+                ).join('');
+                return `<div class="ki-account90-chart">
+                    <div class="ki-account90-chart-head">
+                        <h3>Выручка, себестоимость и валовая прибыль по объектам, млн ₽</h3>
+                        <div class="ki-account90-chart-legend">${legend}</div>
+                    </div>
+                    <div class="ki-account90-chart-scroll">
+                        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Сравнение выручки, себестоимости и валовой прибыли по объектам">
+                            ${grid}
+                            <line x1="${margin.left}" y1="${zeroY}" x2="${width - margin.right}" y2="${zeroY}" class="ki-account90-chart-zero"/>
+                            ${bars}
+                        </svg>
+                    </div>
+                </div>`;
+            })();
 
             const rows = categories.map(row => `<tr>
                 <td>${esc(row.label || 'Прочие виды деятельности')}</td>
@@ -1844,7 +1922,8 @@
                             <td>${statusBadge(totals.gross_profit)}</td>
                         </tr></tfoot>
                     </table>
-                </div>`;
+                </div>
+                ${chartHtml}`;
         },
 
         renderAccount90Table() {
