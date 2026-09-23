@@ -1679,6 +1679,40 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             'end': '2025-01-02',
         })
 
+    def test_cash_monthly_table_uses_month_turnovers_and_end_balances(self):
+        src = build_indicator_source({
+            '51': account('51', [
+                day('2025-01-31', snd=70, snk=0, obd=4, obk=1,
+                    skd=73, skk=0),
+                day('2025-02-01', snd=73, snk=0, obd=6, obk=2,
+                    skd=77, skk=0),
+                day('2026-01-31', snd=90, snk=0, obd=10, obk=2,
+                    skd=98, skk=0),
+                day('2026-02-01', snd=98, snk=0, obd=7, obk=1,
+                    skd=104, skk=0),
+            ]),
+        })
+        cash = next(card for card in build_key_indicators(
+            src, 'day', '2026-02-01',
+            date_from='2026-01-31')['cards'] if card['id'] == 'cash')
+        january, february = cash['monthly_comparison']
+        self.assertEqual(
+            (january['date'], january['value'],
+             january['previous_year_date'],
+             january['previous_year_value'], january['delta']),
+            ('2026-01-31', 98, '2025-01-31', 73, 25))
+        self.assertEqual(
+            (january['debit_turnover'], january['credit_turnover'],
+             january['previous_year_debit_turnover'],
+             january['previous_year_credit_turnover']),
+            (10, 2, 4, 1))
+        self.assertEqual(
+            (february['value'], february['previous_year_value'],
+             february['debit_turnover'], february['credit_turnover'],
+             february['previous_year_debit_turnover'],
+             february['previous_year_credit_turnover']),
+            (104, 77, 7, 1, 6, 2))
+
     def test_cash_cumulative_prefers_exact_db_turnovers_over_monthly_row(self):
         raw = account('51', [
             day('2026-01-01', snd=10, snk=1, obd=0, obk=0,
@@ -1723,6 +1757,10 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             [point['credit_value'] for point in cash['series']],
             [0, None, None])
         self.assertEqual(cash['series'][1]['cumulative_coverage'], 'missing')
+        self.assertIsNone(
+            cash['monthly_comparison'][0]['debit_turnover'])
+        self.assertIsNone(
+            cash['monthly_comparison'][0]['credit_turnover'])
 
     def test_cash_cumulative_series_restarts_at_selected_period(self):
         src = build_indicator_source({

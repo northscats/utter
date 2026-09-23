@@ -711,6 +711,39 @@ async function checkBootstrap(configuration) {
     app.toggleApChartMode('ap-apg');
     assert.deepEqual(Array.from(app.state.modalChart.apModes),
       ['ap-current', 'ap-apg']);
+    app.renderCashModal({
+      id: 'cash', unit: 'RUB', value: 100000000,
+      date: '2026-01-31', breakdown: [],
+      series: [{date: '2026-01-31', label: '31.01',
+        value: 100000000, debit_value: 120000000,
+        credit_value: 20000000}],
+      previous_year_series: [{date: '2025-01-31', label: '31.01',
+        value: 80000000, debit_value: 90000000,
+        credit_value: 10000000}],
+      monthly_comparison: [
+        {month: '2026-01', date: '2026-01-31',
+          previous_year_date: '2025-01-31', value: 100000000,
+          previous_year_value: 80000000, delta: 20000000,
+          debit_turnover: 12000000, credit_turnover: 2000000,
+          previous_year_debit_turnover: 8000000,
+          previous_year_credit_turnover: 1000000},
+        {month: '2026-02', date: '2026-02-01',
+          previous_year_date: '2025-02-01', value: null,
+          previous_year_value: null, delta: null,
+          debit_turnover: null, credit_turnover: null,
+          previous_year_debit_turnover: null,
+          previous_year_credit_turnover: null},
+      ],
+    });
+    const cashHtml = nodes.get('ki-cash-modal-content').innerHTML;
+    assert.match(cashHtml, /ДЕНЕЖНЫЕ СРЕДСТВА ЗА ПЕРИОД млн ₽/);
+    assert.match(cashHtml,
+      /class="collection-detail-table collection-period-table collection-audit-table cash-monthly-table"/);
+    assert.match(cashHtml, /январь 2026/);
+    assert.match(cashHtml, /февраль 2026/);
+    assert.match(cashHtml, /<td>100(?:,0)?<\/td>\s*<td>80(?:,0)?<\/td>\s*<td>\+20(?:,0)?<\/td>/);
+    assert.match(cashHtml, /<td>12(?:,0)?<\/td>\s*<td>2(?:,0)?<\/td>/);
+    assert.match(cashHtml, /<td>Н\/Д<\/td>\s*<td>Н\/Д<\/td>/);
     app.state.data.period = originalPeriod;
     let reopenedCardId = null;
     const originalCloseModal = app.closeModal;

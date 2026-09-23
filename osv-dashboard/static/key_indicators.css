@@ -1365,6 +1365,9 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
     border:0;
     table-layout:fixed;
 }
+.collection-detail-table.collection-period-table.cash-monthly-table {
+    min-width:1050px;
+}
 .collection-period-table th {
     min-width:0;
     padding:8px 4px;

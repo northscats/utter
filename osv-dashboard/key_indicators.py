@@ -2224,6 +2224,7 @@ def _cash_cumulative_series(source, start, end):
     while cursor <= end:
         date_text = cursor.isoformat()
         sources, reasons = {}, []
+        day_debit, day_credit = 0.0, 0.0
         for account, account_state in state.items():
             if not account_state['active']:
                 continue
@@ -2235,6 +2236,8 @@ def _cash_cumulative_series(source, start, end):
                 continue
             account_state['debit'] += row.get('obd', 0)
             account_state['credit'] += row.get('obk', 0)
+            day_debit += row.get('obd', 0)
+            day_credit += row.get('obk', 0)
             sources[account] = row.get('source_type') or 'unknown'
 
         accounts = [
@@ -2246,6 +2249,8 @@ def _cash_cumulative_series(source, start, end):
         ]
         result.append({
             'date': date_text,
+            'day_debit_turnover': round(day_debit, 2) if accounts else None,
+            'day_credit_turnover': round(day_credit, 2) if accounts else None,
             'debit_value': round(sum(state[account]['debit']
                                      for account in accounts), 2)
             if accounts else None,
@@ -4531,6 +4536,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'value': cash_point['value'],
             'debit_value': cumulative_point['debit_value'],
             'credit_value': cumulative_point['credit_value'],
+            'day_debit_turnover': cumulative_point['day_debit_turnover'],
+            'day_credit_turnover': cumulative_point['day_credit_turnover'],
             'cumulative_accounts': list(cumulative_point['accounts']),
             'cumulative_missing_accounts': list(
                 cumulative_point['missing_accounts']),
@@ -4574,6 +4581,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'value': cash_point['value'],
             'debit_value': cumulative_point['debit_value'],
             'credit_value': cumulative_point['credit_value'],
+            'day_debit_turnover': cumulative_point['day_debit_turnover'],
+            'day_credit_turnover': cumulative_point['day_credit_turnover'],
             'cumulative_accounts': list(cumulative_point['accounts']),
             'cumulative_missing_accounts': list(
                 cumulative_point['missing_accounts']),
@@ -4589,6 +4598,62 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         })
         cash_cursor += timedelta(days=1)
     card_map['cash']['previous_year_series'] = cash_previous_year_series
+    cash_months = defaultdict(list)
+    previous_cash_months = defaultdict(list)
+    for point in cash_daily_series:
+        cash_months[point['date'][:7]].append(point)
+    for point in cash_previous_year_series:
+        previous_cash_months[point['date'][:7]].append(point)
+
+    def monthly_cash_turnovers(points):
+        if not points:
+            return None, None
+        accounts = points[0]['cumulative_accounts']
+        if (not accounts or any(
+                point['cumulative_accounts'] != accounts
+                or point['day_debit_turnover'] is None
+                or point['day_credit_turnover'] is None
+                for point in points)):
+            return None, None
+        return (
+            round(sum(point['day_debit_turnover'] for point in points), 2),
+            round(sum(point['day_credit_turnover'] for point in points), 2),
+        )
+
+    cash_monthly_comparison = []
+    for month_key in sorted(cash_months):
+        current_points = cash_months[month_key]
+        previous_points = previous_cash_months.get(
+            f'{int(month_key[:4]) - 1}{month_key[4:]}', [])
+        current_point = current_points[-1]
+        previous_point = previous_points[-1] if previous_points else None
+        current_debit, current_credit = monthly_cash_turnovers(current_points)
+        previous_debit, previous_credit = monthly_cash_turnovers(
+            previous_points)
+        previous_value = (
+            previous_point['value'] if previous_point else None)
+        comparable = (
+            previous_point is not None
+            and current_point['value'] is not None
+            and previous_value is not None
+            and current_point['accounts'] == previous_point['accounts']
+            and bool(current_point['accounts']))
+        delta = (round(current_point['value'] - previous_value, 2)
+                 if comparable else None)
+        cash_monthly_comparison.append({
+            'month': month_key,
+            'date': current_point['date'],
+            'previous_year_date': (
+                previous_point['date'] if previous_point else None),
+            'value': current_point['value'],
+            'previous_year_value': previous_value,
+            'delta': delta,
+            'debit_turnover': current_debit,
+            'credit_turnover': current_credit,
+            'previous_year_debit_turnover': previous_debit,
+            'previous_year_credit_turnover': previous_credit,
+        })
+    card_map['cash']['monthly_comparison'] = cash_monthly_comparison
     card_map['cash']['previous_year_period'] = {
         'start': previous_year_start.isoformat(),
         'end': previous_year_end.isoformat(),

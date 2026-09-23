@@ -7975,6 +7975,28 @@ renderCashModal(card) {
                 deviation: delta === null ? 'Расчёт невозможен' : 'Фактическое изменение остатка',
                 source: 'сопоставимые ОСВ; для полного NCF требуется аналитика движения денежных средств'
             };
+            const monthlyCashRows = (card.monthly_comparison || []).map(row => {
+                const monthDate = /^\d{4}-\d{2}$/.test(row.month || '')
+                    ? new Date(`${row.month}-01T00:00:00`) : null;
+                const monthLabel = monthDate && !Number.isNaN(monthDate.getTime())
+                    ? new Intl.DateTimeFormat('ru-RU', {
+                        month: 'long', year: 'numeric'
+                    }).format(monthDate) : row.month || 'Н/Д';
+                const money = value => value === null || value === undefined
+                    ? 'Н/Д' : this.formatValue(value, 'RUB').val;
+                const signedMoney = value => value === null || value === undefined
+                    ? 'Н/Д' : `${value > 0 ? '+' : ''}${money(value)}`;
+                return `<tr>
+                    <td>${esc(monthLabel)}<br><span class="ki-muted">на ${esc(row.date || 'Н/Д')}</span></td>
+                    <td>${esc(money(row.value))}</td>
+                    <td>${esc(money(row.previous_year_value))}</td>
+                    <td>${esc(signedMoney(row.delta))}</td>
+                    <td>${esc(money(row.debit_turnover))}</td>
+                    <td>${esc(money(row.credit_turnover))}</td>
+                    <td>${esc(money(row.previous_year_debit_turnover))}</td>
+                    <td>${esc(money(row.previous_year_credit_turnover))}</td>
+                </tr>`;
+            }).join('');
 
             document.getElementById('ki-modal-title').textContent = isCashDz
                 ? 'Дебиторская задолженность'
@@ -8047,6 +8069,23 @@ renderCashModal(card) {
                     <span><i class="cash-chart-dot" style="background:#7C3AED"></i>Поступления АПГ</span>
                     <span><i class="cash-chart-dot" style="background:#D97706"></i>Выплаты АПГ</span>
                 </div>
+                <div class="modal-section-title" style="display:flex;align-items:center;gap:8px;border-bottom:none;padding-bottom:0;">
+                    <div style="width:20px;height:20px;background:#3B82F6;color:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
+                    </div>
+                    ДЕНЕЖНЫЕ СРЕДСТВА ЗА ПЕРИОД млн ₽
+                </div>
+                <div class="collection-table-wrap collection-period-wrap">
+                    <table class="collection-detail-table collection-period-table collection-audit-table cash-monthly-table">
+                        <thead style="background:#1E3A8A;"><tr>
+                            <th>Месяц</th><th>Остаток</th><th>Остаток АПГ</th><th>Δ АПГ</th>
+                            <th>Поступления (ОбД)</th><th>Выплаты (ОбК)</th>
+                            <th>Поступления АПГ</th><th>Выплаты АПГ</th>
+                        </tr></thead>
+                        <tbody>${monthlyCashRows || '<tr><td colspan="8" class="collection-period-empty">Нет данных за выбранный период</td></tr>'}</tbody>
+                    </table>
+                </div>
+                <div class="collection-period-note">Остатки — на последнюю дату месяца в выбранном периоде, их не суммируют. Поступления и выплаты — обороты за месяц или выбранную часть месяца по доступным денежным счетам, не классифицированный отчёт о ДДС. Н/Д — нет подтверждённого значения.</div>
                 ${isCashDz ? '' : `<div class="modal-section-title">Денежные средства и изменение остатка</div>
                 <div class="cash-metrics-grid">
                     ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, dateText, cashTipData, card.value == null, '__main__')}
