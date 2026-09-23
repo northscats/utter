@@ -872,6 +872,46 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
             {item['account']: item['value'] for item in ap['components']},
             {'60.01': 100, '68': 12, '69': 3, '70': 5})
 
+    def test_ap_monthly_balances_compare_same_dates_without_inventing_apg(self):
+        def report(start, end, opening, closing):
+            balance = dict(snd=0, snk=opening, obd=0,
+                           obk=closing-opening, skd=0, skk=closing)
+            return {
+                'period': f'за {start} - {end}',
+                'top': balance,
+                'rows': [dict(lvl=1, label='60.01', p0='60', p1='60.01',
+                              p2='', p3='', **balance)],
+            }
+
+        raw = account('60', [
+            day('2025-01-31', p1='60.01', obk=20),
+            day('2026-01-31', p1='60.01', obk=20),
+            day('2026-02-28', p1='60.01', obk=30),
+        ], [], period='за 01.01.2026 - 28.02.2026')
+        raw['balance_reports'] = [
+            report('01.01.2025', '31.01.2025', 50, 70),
+            report('01.01.2026', '31.01.2026', 80, 100),
+            report('01.02.2026', '28.02.2026', 100, 130),
+        ]
+        source = build_indicator_source({'60': raw})
+        result = build_key_indicators(
+            source, period='month', date_from='2026-01-31',
+            date='2026-02-28')
+        ap = next(card for card in result['cards'] if card['id'] == 'ap')
+        rows = ap['monthly_comparison']
+        self.assertEqual([row['date'] for row in rows],
+                         ['2026-01-31', '2026-02-28'])
+        self.assertEqual(rows[0]['previous_year_date'], '2025-01-31')
+        self.assertEqual(rows[0]['value'], 100)
+        self.assertEqual(rows[0]['change'], 20)
+        self.assertEqual(rows[0]['previous_year_value'], 70)
+        self.assertEqual(rows[0]['previous_year_delta'], 30)
+        self.assertEqual(rows[1]['value'], ap['value'])
+        self.assertEqual(rows[1]['change'], 30)
+        self.assertIsNone(rows[1]['previous_year_value'])
+        self.assertIsNone(rows[1]['previous_year_delta'])
+        self.assertIsNone(rows[1]['previous_year_delta_percent'])
+
     def test_ap_detail_uses_mixed_proven_boundaries_for_august_2026(self):
         def report(period, top, rows=(), complete=False, updated=''):
             return {

@@ -1068,6 +1068,10 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .ar-detail-table th:first-child { min-width:280px; }
 .ar-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .ap-summary { margin-bottom:18px; }
+.ap-monthly-table { min-width:850px; }
+.ap-monthly-table th:first-child { min-width:135px; }
+.ap-monthly-table .ap-monthly-latest { background:#EFF6FF; }
+.ap-monthly-note { margin:-8px 0 18px; line-height:1.5; }
 .ap-line-chart { margin-top:0; height:270px; }
 .ap-detail-table, .ap-analytics-table { min-width:980px; }
 .ap-priority-table { min-width:850px; }

@@ -642,9 +642,28 @@ async function checkBootstrap(configuration) {
     app.renderApModal({
       id: 'ap', value: 100000000, opening_value: 90000000,
       known_total: 100000000, credit_turnover: 50000000,
+      monthly_comparison: [
+        {date: '2026-01-31', previous_year_date: '2025-01-31',
+          label: 'янв 26', value: 100000000, change: 10000000,
+          previous_year_value: 80000000, previous_year_delta: 20000000,
+          previous_year_delta_percent: 25},
+        {date: '2026-02-28', previous_year_date: '2025-02-28',
+          label: 'фев 26', value: null, change: null,
+          previous_year_value: null, previous_year_delta: null,
+          previous_year_delta_percent: null},
+      ],
       analytics: [], components: [], details: [],
     });
-    assert.match(nodes.get('ki-ap-modal-content').innerHTML, />2\.00</);
+    const apHtml = nodes.get('ki-ap-modal-content').innerHTML;
+    assert.match(apHtml, />2\.00</);
+    assert.match(apHtml, /КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ/);
+    assert.match(apHtml, /на 31\.01\.2026/);
+    assert.match(apHtml, /на 31\.01\.2025/);
+    assert.match(apHtml, /\+20,\d+ млн ₽/);
+    assert.match(apHtml, /\+25\.0%/);
+    assert.match(apHtml, /Н\/Д означает отсутствие подтверждённого сальдо/);
+    assert.match(apHtml, /на 28\.02\.2025/);
+    assert.doesNotMatch(apHtml, /на 28\.02\.2025.*>0\.00 млн ₽/);
     let reopenedCardId = null;
     const originalCloseModal = app.closeModal;
     const originalFetchData = app.fetchData;

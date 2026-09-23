@@ -3456,6 +3456,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         _card('ap', ap, 'RUB', 'max(СКк − СКд, 0) по 60.01',
               'Сальдо субсчёта 60.01', ap_reason,
               opening_value=ap_opening,
+              monthly_comparison=[],
               analytics=ap_analytics,
               credit_turnover=ap_credit_turnover,
               known_total=known_ap_total,
@@ -4374,6 +4375,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # The chart follows the selected display granularity, while the comparison
     # table is always calendar-month based.
     comparison_month = start.replace(day=1)
+    prior_month_ap = ap_opening
     while comparison_month <= end:
         comparison_end = Date(
             comparison_month.year, comparison_month.month,
@@ -4383,6 +4385,32 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         comparison_end = min(comparison_end, end)
         previous_comparison_start = previous_year_date(comparison_start)
         previous_comparison_end = previous_year_date(comparison_end)
+        month_ap = _sub_balance(
+            source, '60', '60.01', comparison_end, credit=True)[0]
+        previous_year_ap = _sub_balance(
+            source, '60', '60.01', previous_comparison_end,
+            credit=True)[0]
+        ap_change = (
+            round(month_ap - prior_month_ap, 2)
+            if month_ap is not None and prior_month_ap is not None
+            else None)
+        ap_delta = (
+            round(month_ap - previous_year_ap, 2)
+            if month_ap is not None and previous_year_ap is not None
+            else None)
+        card_map['ap']['monthly_comparison'].append({
+            'date': comparison_end.isoformat(),
+            'previous_year_date': previous_comparison_end.isoformat(),
+            'label': _options([comparison_end], 'month')[0]['label'],
+            'value': month_ap,
+            'change': ap_change,
+            'previous_year_value': previous_year_ap,
+            'previous_year_delta': ap_delta,
+            'previous_year_delta_percent': (
+                round(ap_delta / abs(previous_year_ap) * 100, 2)
+                if ap_delta is not None and previous_year_ap else None),
+        })
+        prior_month_ap = month_ap
         current_accrual = _account_turnovers(
             source, '70', comparison_start, comparison_end)['credit']
         previous_accrual = _account_turnovers(

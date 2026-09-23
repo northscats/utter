@@ -4261,6 +4261,10 @@
                 ? 'Н/Д' : `${this.formatValue(value, 'RUB').val} млн ₽`;
             const pct = value => value === null || value === undefined
                 ? 'Н/Д' : `${Number(value).toFixed(1)}%`;
+            const signedRub = value => value === null || value === undefined
+                ? 'Н/Д' : `${value > 0 ? '+' : ''}${rub(value)}`;
+            const signedPct = value => value === null || value === undefined
+                ? 'Н/Д' : `${value > 0 ? '+' : ''}${pct(value)}`;
 
             const supplierTip = this.apTooltip({
                 fact: rub(current),
@@ -4369,6 +4373,24 @@
                 </tr>`;
             }).join('');
 
+            const monthlyComparison = card.monthly_comparison || [];
+            const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '')
+                ? value.split('-').reverse().join('.') : 'Н/Д';
+            const monthlyRows = monthlyComparison.map((row, index) => {
+                const missing = value => value === null || value === undefined
+                    ? 'cash-value-missing' : '';
+                return `<tr class="${index === monthlyComparison.length - 1 ? 'ap-monthly-latest' : ''}">
+                    <td><strong>${esc(row.label || row.date || '')}</strong><br>
+                        <span class="ki-muted">на ${esc(dateLabel(row.date))}</span></td>
+                    <td class="${missing(row.value)}">${esc(rub(row.value))}</td>
+                    <td class="${missing(row.change)}">${esc(signedRub(row.change))}</td>
+                    <td class="${missing(row.previous_year_value)}">${esc(rub(row.previous_year_value))}<br>
+                        <span class="ki-muted">на ${esc(dateLabel(row.previous_year_date))}</span></td>
+                    <td class="${missing(row.previous_year_delta)}">${esc(signedRub(row.previous_year_delta))}</td>
+                    <td class="${missing(row.previous_year_delta_percent)}">${esc(signedPct(row.previous_year_delta_percent))}</td>
+                </tr>`;
+            }).join('');
+
             const analytics = card.analytics || [];
             const analyticRows = analytics.length ? analytics.map(row => {
                 const share = current ? row.value / current * 100 : null;
@@ -4446,6 +4468,21 @@
                     ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'по счетам 62.01 и 60.01', ratioTip, arApRatio === null)}
                     ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
                 </div>
+                <div class="modal-section-title">КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ</div>
+                <div class="collection-table-wrap">
+                    <table class="collection-detail-table ap-monthly-table">
+                        <thead><tr>
+                            <th scope="col">Месяц</th>
+                            <th scope="col">КЗ на конец</th>
+                            <th scope="col">Изменение за месяц</th>
+                            <th scope="col">АПГ</th>
+                            <th scope="col">Δ АПГ</th>
+                            <th scope="col">Δ АПГ, %</th>
+                        </tr></thead>
+                        <tbody>${monthlyRows || '<tr><td colspan="6" class="chart-empty">Нет подтверждённых месячных срезов за выбранный период</td></tr>'}</tbody>
+                    </table>
+                </div>
+                <div class="ki-muted ap-monthly-note">КЗ — сальдо 60.01 на конец месяца (последний месяц — на дату окончания периода). АПГ — на ту же дату прошлого года. Остатки по месяцам не суммируются; Н/Д означает отсутствие подтверждённого сальдо.</div>
                 <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
                     <div style="width: 20px; height: 20px; background: #3B82F6; color: #fff; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg>
