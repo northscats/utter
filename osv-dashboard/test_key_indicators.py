@@ -77,6 +77,28 @@ class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
         self.assertTrue(any('выручка равна нулю' in warning
                             for warning in table['warnings']))
 
+    def test_account90_categories_use_account26_before_period_closing(self):
+        rows90 = [
+            day('2026-01-31', '90.01', p1='Тепловая энергия',
+                obk=3_000_000),
+            day('2026-01-31', '90.02', p1='Тепловая энергия',
+                obd=1_000_000),
+        ]
+        rows26 = [
+            day('2026-01-31', '26', p1='Общехозяйственные расходы',
+                obd=600_000),
+        ]
+        table = build_key_indicators(build_indicator_source({
+            '90': account('90', rows90),
+            '26': account('26', rows26),
+        }))['account90_categories']
+        thermal = next(row for row in table['categories']
+                       if row['id'] == 'thermal_energy')
+        self.assertEqual(table['ohr_basis'], '26')
+        self.assertEqual(table['totals']['ohr'], 0.6)
+        self.assertEqual(thermal['ohr'], 0.6)
+        self.assertEqual(thermal['gross_profit'], 1.4)
+
     def test_salary_balance_rolls_forward_daily_movements_from_report_opening(self):
         raw = account(
             '70',

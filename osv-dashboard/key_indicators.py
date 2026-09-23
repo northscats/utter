@@ -1587,6 +1587,17 @@ def _sub_turnover(source, account, sub, start, end, side):
     return 0.0 if _complete_snapshot_covers(source, start, end) else None
 
 
+def _account90_ohr_turnover(source, start, end):
+    """Use recognized 90.08 or forming account 26 before period closing."""
+    recognized = _sub_turnover(
+        source, '90', '90.08', start, end, 'obd')
+    if recognized is not None:
+        return recognized, '90.08'
+    forming = _sub_turnover(
+        source, '26', '26', start, end, 'obd')
+    return forming, '26' if forming is not None else None
+
+
 def _explicit_subaccount_rows(rows, sub):
     """Return terminal rows belonging to an explicit subaccount.
 
@@ -2767,8 +2778,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         for row in report.get('rows') or []
     )
     revenue, cogs, gross_profit = pl['revenue'], pl['cost'], pl['profit']
-    account90_ohr = _sub_turnover(
-        source, '90', '90.08', start, end, 'obd')
+    account90_ohr, account90_ohr_basis = _account90_ohr_turnover(
+        source, start, end)
     account90_revenue_rows = _account90_analytic_rows(
         source, start, end, d90, '90.01', 'obk', gross_rev)
     account90_cost_rows = _account90_analytic_rows(
@@ -2778,6 +2789,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         account90_cost_rows,
         account90_ohr,
         warnings)
+    account90_categories['ohr_basis'] = account90_ohr_basis
     cogs_analytics = []
     cogs_groups = defaultdict(list)
     cogs_labels = {}

@@ -552,6 +552,7 @@ async function checkBootstrap(configuration) {
   assert.match(profitHtml, /ki-account90-table/, 'must render account90 table');
   assert.match(profitHtml, /Услуга 1/, 'must render account90 rows');
   assert.match(profitHtml, /100,00/, 'must render account90 values already expressed in millions');
+  assert.match(profitHtml, /10,00/, 'must render account90 OHR values');
   assert.match(profitHtml, /50,0%/, 'must format profitability');
   assert.match(profitHtml, /obj-bar-fill-pos/, 'must render share bar');
   assert.match(profitHtml, /badge-green/, 'must render status pill');
