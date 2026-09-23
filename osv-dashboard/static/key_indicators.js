@@ -3481,7 +3481,7 @@
             const toPlotValue = value => Number.isFinite(value)
                 ? (money ? value / 1000000 : value) : null;
             const thresholdY = y(93);
-            const clip = money ? '' : `<defs>
+            const clip = money || mode === 'day' ? '' : `<defs>
                 <clipPath id="collection-above-93"><rect x="${pad.left}" y="${pad.top}" width="${plotWidth}" height="${thresholdY - pad.top}"/></clipPath>
                 <clipPath id="collection-below-93"><rect x="${pad.left}" y="${thresholdY}" width="${plotWidth}" height="${height - pad.bottom - thresholdY}"/></clipPath>
             </defs>`;
@@ -3497,7 +3497,7 @@
                 index % labelStep === 0 || index === points.length - 1
                     ? `<text class="collection-dynamics-axis" x="${x(index, points.length)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
                     : '')).join('');
-            const paths = visible.map(item => {
+            const paths = mode === 'day' ? '' : visible.map(item => {
                 const entries = item.points.map((point, index) => ({
                     index, point, value: toPlotValue(item.value(point))
                 }));
@@ -3542,12 +3542,23 @@
                 ].filter(Boolean).join(' · ');
                 const pointClass = item.id === 'collection-apg'
                     ? 'collection-dynamics-apg-point' : 'collection-dynamics-point';
-                return `<circle class="${pointClass} cash-chart-hit-target" fill="transparent" stroke="none" data-detail="${esc(detail)}" data-series-label="${esc(item.label)}" cx="${x(index, item.points.length)}" cy="${y(value)}" r="7" tabindex="0" aria-label="${esc(detail)}"><title>${esc(detail)}</title></circle>`;
+                const fill = mode === 'day'
+                    ? (money ? item.color : value >= 93 ? '#16A34A' : '#DC2626')
+                    : 'transparent';
+                const stroke = mode === 'day'
+                    ? (item.dash ? '#111827' : '#fff') : 'none';
+                const cx = x(index, item.points.length), cy = y(value);
+                const radius = Math.max(1, Math.min(5,
+                    plotWidth / Math.max(1, item.points.length - 1) * 0.4));
+                const marker = mode === 'day'
+                    ? `<circle class="collection-dynamics-marker" cx="${cx}" cy="${cy}" r="${radius.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="${Math.min(1.5, radius / 2).toFixed(1)}" pointer-events="none"/>`
+                    : '';
+                return `${marker}<circle class="${pointClass} cash-chart-hit-target" fill="transparent" stroke="none" data-detail="${esc(detail)}" data-series-label="${esc(item.label)}" cx="${cx}" cy="${cy}" r="7" tabindex="0" aria-label="${esc(detail)}"><title>${esc(detail)}</title></circle>`;
             })).join('');
             const legend = `<div class="cash-chart-legend">${visible.map(item =>
-                `<span><i class="cash-chart-dot" style="background:${money ? item.color : '#16A34A'}"></i>${esc(item.label)}${item.dash ? ' (пунктир)' : ''}</span>`).join('')}</div>`;
+                `<span><i class="cash-chart-dot" style="background:${money ? item.color : '#16A34A'}"></i>${esc(item.label)}${item.dash ? (mode === 'day' ? ' (контур)' : ' (пунктир)') : ''}</span>`).join('')}</div>`;
             const scaleNotice = outlierCount
-                ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
+                ? `<div class="collection-scale-notice">Не отображено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
                 : '';
             container.innerHTML = `<svg class="collection-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика собираемости за выбранный период">
                 ${clip}${tickSvg}${xLabels}${paths}${circles}

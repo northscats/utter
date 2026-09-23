@@ -411,17 +411,38 @@ async function checkBootstrap(configuration) {
   let collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.match(collectionSvg, /class="collection-threshold"[^>]*stroke|class="collection-threshold"/);
   assert.match(collectionSvg, />93%<\/text>/);
+  assert.doesNotMatch(collectionSvg, /<path[^>]*class="collection-dynamics-line/,
+    'day percentages must show separate points, not connecting lines');
+  assert.match(collectionSvg, /class="collection-dynamics-marker"[^>]*fill="#DC2626" stroke="#fff"/);
+  assert.match(collectionSvg, /class="collection-dynamics-marker"[^>]*fill="#16A34A" stroke="#fff"/);
+  assert.match(collectionSvg, /class="collection-dynamics-marker"[^>]*fill="#DC2626" stroke="#111827"/);
+  assert.match(collectionSvg, /class="collection-dynamics-point cash-chart-hit-target" fill="transparent"[^>]*r="7"/);
+  assert.match(collectionSvg, /Собираемость: 92\.0%/);
+  assert.doesNotMatch(collectionSvg, /collection-zone-(?:red|yellow|green)/);
+  app.renderCollectionDynamics([daySeries[0], {date: '2026-01-02', value: null},
+    {...daySeries[1], date: '2026-01-03'}], []);
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.equal((collectionSvg.match(/class="collection-dynamics-point cash-chart-hit-target"/g) || []).length, 2,
+    'a missing day must not become a zero-valued point');
+  assert.doesNotMatch(collectionSvg, /<path[^>]*class="collection-dynamics-line/);
+  app.state.collectionTimelineMode = 'month';
+  const monthSeries = [daySeries[0],
+    {...daySeries[1], date: '2026-02-02', label: '02.02'}];
+  const monthApgSeries = [apgSeries[0],
+    {...apgSeries[1], date: '2026-02-02', label: '02.02'}];
+  app.renderCollectionDynamics(monthSeries, monthApgSeries);
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.match(collectionSvg, /clip-path="url\(#collection-above-93\)"/);
   assert.match(collectionSvg, /clip-path="url\(#collection-below-93\)"/);
   assert.match(collectionSvg, /collection-level"[^>]*stroke="#16A34A"[^>]*stroke-width="2"/);
   assert.match(collectionSvg, /collection-apg"[^>]*stroke="#DC2626"[^>]*stroke-dasharray="6 4"/);
   assert.match(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line/);
-  assert.doesNotMatch(collectionSvg, /collection-zone-(?:red|yellow|green)/);
-  app.renderCollectionDynamics([daySeries[0], {date: '2026-01-02', value: null},
-    daySeries[1]], []);
+  app.renderCollectionDynamics([daySeries[0], {date: '2026-02-02', value: null},
+    {...daySeries[1], date: '2026-03-03'}], []);
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.doesNotMatch(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line collection-level"/,
     'missing percentage must break the line');
+  app.state.collectionTimelineMode = 'day';
   app.toggleCollectionMetric('collection-accrual');
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.equal(app.state.modalChart.collectionGroup, 'money');
@@ -431,11 +452,12 @@ async function checkBootstrap(configuration) {
   assert.equal(chartTiles[3].classList.contains('cash-chart-mode-selected'), true);
   assert.equal(chartTiles[0].getAttribute('aria-pressed'), 'false');
   assert.doesNotMatch(collectionSvg, /collection-threshold|collection-above-93|93%/);
-  assert.match(collectionSvg, /collection-accrual"[^>]*stroke="#111827"/);
-  assert.match(collectionSvg, /collection-paid"[^>]*stroke="#DB2777"/);
+  assert.doesNotMatch(collectionSvg, /<path[^>]*class="collection-dynamics-line/,
+    'day monetary values must also remain unconnected');
+  assert.match(collectionSvg, /class="collection-dynamics-marker"[^>]*fill="#111827"/);
+  assert.match(collectionSvg, /class="collection-dynamics-marker"[^>]*fill="#DB2777"/);
   app.toggleCollectionMetric('collection-paid');
-  assert.doesNotMatch(nodes.get('ki-collection-dynamics-chart').innerHTML,
-    /class="collection-dynamics-line collection-paid"/);
+  assert.doesNotMatch(nodes.get('ki-collection-dynamics-chart').innerHTML, /Оплачено: /);
   assert.equal(chartTiles[3].getAttribute('aria-pressed'), 'false');
   assert.equal(chartTiles[2].classList.contains('cash-chart-mode-selected'), true);
   app.toggleCollectionMetric('collection-level');
