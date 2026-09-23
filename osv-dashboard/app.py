@@ -52,7 +52,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         DebtorAnalyticMapping, ConsumerCollectionAccrual,
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
-                       Setting, Upload, User,
+                       OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
                        AnalogSource, AnalogOrganizationRole, AnalogTep,
@@ -121,7 +121,8 @@ ANALYTICAL_ACCOUNT_NAMES = {
 }
 
 _DURABLE_MODELS = (
-    User, Company, Upload, DailyRow, HistoricalImport, HistoricalYearVersion,
+    User, Company, Upload, OsvSourceCleanup, DailyRow,
+    HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
     RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
     ConsumerCollectionAccrual, ConsumerPaymentAllocation,
@@ -5223,29 +5224,73 @@ def coverage_data_delete(company_id):
                     DailyRow.date <= source_end,
                 ).delete(synchronize_session=False)
 
-    company.osv_source_revision = (
-        f'delete:{mode}:{int(time.time())}')
-    db.session.commit()
     referenced_paths = {
         str(item.get('relative_path'))
         for upload in Upload.query.filter_by(company_id=company.id).all()
         for item in (upload.source_manifest or [])
         if isinstance(item, dict) and item.get('relative_path')
     }
-    company_root = os.path.realpath(os.path.join(UPLOADS, str(company.id)))
-    deleted_files = 0
-    for item in deleted_sources:
-        relative = str(item.get('relative_path') or '')
-        path = os.path.realpath(os.path.join(company_root, relative))
-        if (relative and relative not in referenced_paths
-                and path.startswith(company_root + os.sep)):
-            try:
-                os.remove(path)
-                deleted_files += 1
-            except FileNotFoundError:
-                pass
-            except OSError:
-                app.logger.exception('Не удалось удалить исходный файл %s', path)
+    cleanup_paths = {
+        str(item.get('relative_path') or '')
+        for item in deleted_sources
+        if item.get('relative_path')
+    } - referenced_paths
+    existing_cleanup_paths = {
+        row.relative_path for row in OsvSourceCleanup.query.filter_by(
+            company_id=company.id).filter(
+                OsvSourceCleanup.relative_path.in_(cleanup_paths or {'\0'})).all()
+    }
+    for relative_path in cleanup_paths - existing_cleanup_paths:
+        db.session.add(OsvSourceCleanup(
+            company_id=company.id,
+            relative_path=relative_path,
+            status='pending',
+        ))
+    company.osv_source_revision = (
+        f'delete:{mode}:{int(time.time())}')
+    db.session.commit()
+    try:
+        backup_result = _durable_backup(
+            'удаление исходных ОСВ: ожидание файловой очистки',
+            allow_removals=True, required=True)
+        if (backup_result is not None
+                and not (backup_result.get('promoted')
+                         or backup_result.get('superseded'))):
+            raise RuntimeError('durable snapshot was not promoted')
+    except Exception:
+        app.logger.exception(
+            'Не удалось долговечно зафиксировать удаление исходных ОСВ')
+        return jsonify(
+            ok=False,
+            error=('Удаление исключено из аналитики, но долговечная фиксация '
+                   'очистки не завершена. Повторите операцию позже.'),
+            deleted_rows=deleted_rows,
+            deleted_files=0,
+            cleanup_pending=OsvSourceCleanup.query.filter_by(
+                company_id=company.id, status='pending').count(),
+        ), 503
+    cleanup_result = _retry_pending_osv_source_cleanup(
+        company_id=company.id, limit=max(len(cleanup_paths), 1))
+    deleted_files = cleanup_result['completed']
+    if deleted_files:
+        try:
+            _durable_backup(
+                'удаление исходных ОСВ: очистка завершена',
+                allow_removals=True, required=True)
+        except Exception:
+            app.logger.exception(
+                'Не удалось долговечно зафиксировать завершение очистки ОСВ')
+            return jsonify(
+                ok=False,
+                error=('Файл удалён, но долговечная фиксация завершения '
+                       'очистки не удалась. Повтор безопасен.'),
+                deleted_rows=deleted_rows,
+                deleted_files=deleted_files,
+                cleanup_pending=OsvSourceCleanup.query.filter_by(
+                    company_id=company.id, status='pending').count(),
+            ), 503
+    cleanup_pending = OsvSourceCleanup.query.filter_by(
+        company_id=company.id, status='pending').count()
     log_event('coverage_data_deleted', {
         'company_id': company.id,
         'mode': mode,
@@ -5254,7 +5299,8 @@ def coverage_data_delete(company_id):
         'source_files': deleted_files,
     })
     return jsonify(ok=True, deleted_rows=deleted_rows,
-                   deleted_files=deleted_files)
+                   deleted_files=deleted_files,
+                   cleanup_pending=cleanup_pending)
 
 
 @app.route('/company/<int:company_id>/coverage-data/files')
@@ -5425,6 +5471,11 @@ def _snapshot_changes(company, normalized):
 def directory_companies():
     if current_user.is_admin:
         _retry_pending_company_storage_cleanup()
+        cleanup_result = _retry_pending_osv_source_cleanup()
+        if cleanup_result['completed']:
+            _durable_backup(
+                'повтор очистки исходных ОСВ администратором',
+                allow_removals=True)
     q = request.args.get('q', '').strip()[:200]
     status_filter = request.args.get('status', 'active').strip()
     fill_filter = request.args.get('fill', '').strip()
@@ -5540,6 +5591,9 @@ def directory_companies():
         page_numbers=page_numbers,
         deleted=request.args.get('deleted') == '1',
         cleanup_pending=request.args.get('cleanup') == 'pending',
+        osv_cleanup_pending=(
+            OsvSourceCleanup.query.filter_by(status='pending').count()
+            if current_user.is_admin else 0),
     )
 
 
@@ -5897,6 +5951,43 @@ def _retry_pending_company_storage_cleanup(limit=10):
             db.session.commit()
     except Exception:
         db.session.rollback()
+
+
+def _retry_pending_osv_source_cleanup(company_id=None, limit=100):
+    """Идемпотентно удаляет исходники ОСВ из долговечной очереди."""
+    completed = failed = 0
+    query = OsvSourceCleanup.query.filter_by(status='pending')
+    if company_id is not None:
+        query = query.filter_by(company_id=company_id)
+    rows = query.order_by(OsvSourceCleanup.id.asc()).limit(limit).all()
+    for row in rows:
+        company_root = os.path.realpath(os.path.join(UPLOADS, str(row.company_id)))
+        target = os.path.realpath(os.path.join(company_root, row.relative_path))
+        row.attempts = int(row.attempts or 0) + 1
+        row.last_attempt_at = utcnow()
+        try:
+            if (not row.relative_path
+                    or os.path.commonpath((company_root, target)) != company_root
+                    or target == company_root):
+                raise ValueError('unsafe_path')
+            os.remove(target)
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError) as exc:
+            failed += 1
+            row.last_error = f'{type(exc).__name__}: {exc}'[:255]
+            app.logger.warning(
+                'Не удалось удалить исходный файл ОСВ %s: %s', target, exc)
+            continue
+        db.session.delete(row)
+        completed += 1
+    if rows:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+    return {'completed': completed, 'failed': failed}
 
 
 @app.route('/directories/companies/<int:company_id>/delete', methods=['POST'])
@@ -7579,6 +7670,11 @@ def init_db(perform_durable=True):
                 _limits_history_ready.set()
                 Setting.set('limits_history_ready', 'ready')
                 db.session.commit()
+                cleanup_result = _retry_pending_osv_source_cleanup()
+                if cleanup_result['completed']:
+                    _durable_backup(
+                        'повтор очистки исходных ОСВ после запуска',
+                        allow_removals=True)
                 app.config['DURABLE_STARTUP_READY'] = True
             else:
                 app.config['DURABLE_STARTUP_READY'] = False
@@ -7667,6 +7763,11 @@ def _finish_durable_startup(restore=False):
             app.logger.info('durable startup stage started: reconcile')
             _import_bundled_mup_kgh_account55()
             _reconcile_limits_after_restore()
+            cleanup_result = _retry_pending_osv_source_cleanup()
+            if cleanup_result['completed']:
+                _durable_backup(
+                    'повтор очистки исходных ОСВ после восстановления',
+                    allow_removals=True)
             app.logger.info('durable startup stage completed: reconcile')
             # Reconciliation, not the optional safety snapshot below, owns
             # application readiness.  Open HTTP routes before the backup so

@@ -1,6 +1,7 @@
 """Regression checks for restore-before-bootstrap startup ordering."""
 import os
 import importlib.util
+import signal
 import sys
 import tempfile
 import unittest
@@ -204,8 +205,9 @@ class DurableBootstrapTest(unittest.TestCase):
                 patch('app.init_db',
                       side_effect=lambda **_kw: calls.append('schema')), \
                 patch('app._finish_durable_startup',
-                      side_effect=lambda **kw: calls.append(
-                          ('durable', kw.get('restore')))), \
+                      side_effect=lambda **kw: (
+                          calls.append(('durable', kw.get('restore'))) or True
+                      )), \
                 patch('app._ensure_imap_thread',
                       side_effect=lambda: calls.append('imap')), \
                 patch.object(config.threading, 'Thread', ImmediateThread):
@@ -221,6 +223,94 @@ class DurableBootstrapTest(unittest.TestCase):
         self.assertEqual(
             ['schema', ('durable', True), 'imap'],
             self._gunicorn_startup_calls('true'))
+
+    def test_post_fork_returns_while_schema_initializes_in_background(self):
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'gunicorn.conf.py')
+        spec = importlib.util.spec_from_file_location(
+            'test_gunicorn_async_config', config_path)
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
+        started = []
+
+        class DeferredThread:
+            def __init__(self, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                started.append(self.target)
+
+        server = SimpleNamespace(log=MagicMock())
+        worker = SimpleNamespace(pid=456)
+        with patch('app.init_db') as init_db_mock, \
+                patch.object(config.threading, 'Thread', DeferredThread):
+            config.post_fork(server, worker)
+
+        init_db_mock.assert_not_called()
+        self.assertEqual(1, len(started))
+
+    def test_transient_schema_failure_recovers_before_durable_startup(self):
+        calls = []
+
+        def initialize(**_kwargs):
+            calls.append('schema')
+            if len(calls) == 1:
+                raise RuntimeError('temporary database outage')
+
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'gunicorn.conf.py')
+        spec = importlib.util.spec_from_file_location(
+            'test_gunicorn_transient_config', config_path)
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
+
+        class ImmediateThread:
+            def __init__(self, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        server = SimpleNamespace(log=MagicMock())
+        worker = SimpleNamespace(pid=457)
+        with patch('app.init_db', side_effect=initialize), \
+                patch('app._finish_durable_startup', return_value=True), \
+                patch('app._ensure_imap_thread'), \
+                patch.object(config.time, 'sleep'), \
+                patch.object(config.os, 'kill') as kill, \
+                patch.object(config.threading, 'Thread', ImmediateThread):
+            config.post_fork(server, worker)
+
+        self.assertEqual(['schema', 'schema'], calls)
+        kill.assert_not_called()
+
+    def test_terminal_schema_failure_replaces_false_healthy_worker(self):
+        config_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'gunicorn.conf.py')
+        spec = importlib.util.spec_from_file_location(
+            'test_gunicorn_failed_config', config_path)
+        config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config)
+
+        class ImmediateThread:
+            def __init__(self, target, **_kwargs):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        server = SimpleNamespace(log=MagicMock())
+        worker = SimpleNamespace(pid=458)
+        with patch('app.init_db', side_effect=RuntimeError('database down')), \
+                patch('app._finish_durable_startup') as durable, \
+                patch.object(config.time, 'sleep'), \
+                patch.object(config.os, 'kill') as kill, \
+                patch.object(config.threading, 'Thread', ImmediateThread):
+            config.post_fork(server, worker)
+
+        self.assertTrue(app.config['DURABLE_STARTUP_FAILED'])
+        durable.assert_not_called()
+        kill.assert_called_once_with(worker.pid, signal.SIGABRT)
 
 
 if __name__ == '__main__':

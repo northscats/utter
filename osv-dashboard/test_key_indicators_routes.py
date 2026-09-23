@@ -694,6 +694,111 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertIn((date(2025, 12, 31), '51'), rows)
         self.assertIn((date(2026, 1, 3), '62'), rows)
 
+    def test_failed_source_cleanup_is_persisted_and_retry_is_idempotent(self):
+        from database import OsvSourceCleanup
+        relative_path = 'cleanup-retry/osv-51.xlsx'
+        manifest = [{
+            'source_id': 'cleanup-source-51',
+            'relative_path': relative_path,
+            'account': '51',
+            'period': 'Январь 2026',
+            'report_start': '2026-01-01',
+            'report_end': '2026-01-31',
+        }]
+        with self.app.app_context():
+            upload = Upload(
+                company_id=self.company,
+                uploaded_by=self.ids['kpi_admin'],
+                period_label='Январь 2026',
+                accounts_loaded='["51"]',
+                source_manifest_json=json.dumps(manifest),
+            )
+            db.session.add(upload)
+            db.session.commit()
+            upload_id = upload.id
+        with patch.object(app_module.os, 'remove', side_effect=OSError('storage offline')):
+            response = self.client('kpi_admin').delete(
+                f'/company/{self.company}/coverage-data',
+                json={'mode': 'files', 'accounts': ['51'],
+                      'source_ids': ['cleanup-source-51']},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['cleanup_pending'], 1)
+        with self.app.app_context():
+            pending = OsvSourceCleanup.query.filter_by(
+                company_id=self.company, relative_path=relative_path).one()
+            self.assertEqual(pending.status, 'pending')
+            self.assertEqual(pending.attempts, 1)
+            with patch.object(app_module.os, 'remove', side_effect=FileNotFoundError):
+                result = app_module._retry_pending_osv_source_cleanup(
+                    company_id=self.company)
+            self.assertEqual(result['completed'], 1)
+            self.assertIsNone(db.session.get(OsvSourceCleanup, pending.id))
+            self.assertEqual(
+                app_module._retry_pending_osv_source_cleanup(
+                    company_id=self.company)['completed'], 0)
+            db.session.delete(db.session.get(Upload, upload_id))
+            db.session.commit()
+
+    def test_admin_sees_pending_source_cleanup(self):
+        from database import OsvSourceCleanup
+        with self.app.app_context():
+            db.session.add(OsvSourceCleanup(
+                company_id=self.company,
+                relative_path='pending/report.xlsx',
+                status='pending',
+            ))
+            db.session.commit()
+        with patch.object(app_module, '_retry_pending_osv_source_cleanup',
+                          return_value={'completed': 0, 'failed': 1}):
+            response = self.client('kpi_admin').get('/directories/companies')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Не завершена очистка исходных файлов ОСВ: 1',
+                      response.get_data(as_text=True))
+        with self.app.app_context():
+            OsvSourceCleanup.query.filter_by(
+                company_id=self.company,
+                relative_path='pending/report.xlsx').delete()
+            db.session.commit()
+
+    def test_cleanup_does_not_report_success_when_durable_snapshot_fails(self):
+        from database import OsvSourceCleanup
+        relative_path = 'cleanup-backup-failure/osv-51.xlsx'
+        with self.app.app_context():
+            upload = Upload(
+                company_id=self.company,
+                uploaded_by=self.ids['kpi_admin'],
+                period_label='Январь 2026',
+                accounts_loaded='["51"]',
+                source_manifest_json=json.dumps([{
+                    'source_id': 'cleanup-backup-failure',
+                    'relative_path': relative_path,
+                    'account': '51',
+                    'report_start': '2026-01-01',
+                    'report_end': '2026-01-31',
+                }]),
+            )
+            db.session.add(upload)
+            db.session.commit()
+            upload_id = upload.id
+        with patch.object(
+                app_module, '_durable_backup',
+                side_effect=RuntimeError('storage unavailable')), \
+                patch.object(app_module.os, 'remove') as remove:
+            response = self.client('kpi_admin').delete(
+                f'/company/{self.company}/coverage-data',
+                json={'mode': 'files', 'accounts': ['51'],
+                      'source_ids': ['cleanup-backup-failure']},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()['cleanup_pending'], 1)
+        remove.assert_not_called()
+        with self.app.app_context():
+            OsvSourceCleanup.query.filter_by(
+                company_id=self.company, relative_path=relative_path).delete()
+            db.session.delete(db.session.get(Upload, upload_id))
+            db.session.commit()
+
     def test_coverage_delete_file_list_shows_additional_accounts(self):
         manifest = [
             {

@@ -26,6 +26,7 @@ SNAPSHOTS_PREFIX = f"{ROOT}/snapshots"
 BLOBS_PREFIX = f"{ROOT}/blobs"
 COUNT_TABLES = (
     "companies", "uploads", "daily_rows", "historical_imports",
+    "osv_source_cleanups",
     "historical_year_versions", "historical_metric_values",
     "historical_raw_values", "historical_mappings",
     "debtor_analytic_mappings",

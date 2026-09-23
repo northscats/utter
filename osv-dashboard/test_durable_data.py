@@ -16,12 +16,12 @@ os.environ["ENCRYPTION_KEY"] = (
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import (OUTPUT, UPLOADS, _DURABLE_MODELS, _bg_company_new, app,
-                 init_db)
+from app import (OUTPUT, UPLOADS, _DURABLE_MODELS, _bg_company_new,
+                 _retry_pending_osv_source_cleanup, app, init_db)
 from database import (Company, DailyRow, HistoricalImport, HistoricalMapping,
                       HistoricalMetricValue, HistoricalRawValue,
                        HistoricalYearVersion, RevenueAnalyticMapping, Setting,
-                       Upload, User, db)
+                        OsvSourceCleanup, Upload, User, db)
 from durable_data import (ConcurrentPromotionError, LATEST_KEY, _GcsStore,
                           _LocalStore, backup, restore)
 
@@ -134,6 +134,18 @@ with app.app_context():
            and unchanged_pointer == protected_pointer
            and len(manifests) == 4)
 
+    db.session.add(OsvSourceCleanup(
+        company_id=company.id,
+        relative_path="batch/osv.xls",
+        status="pending",
+    ))
+    db.session.commit()
+    pending_cleanup = backup(
+        db, UPLOADS, OUTPUT, _DURABLE_MODELS,
+        "pending source cleanup", allow_removals=True)
+    check("pending source cleanup is promoted with its source file",
+          pending_cleanup["promoted"])
+
     # Completely erase every table owned by the local JSON backend, including
     # User and Company, and both numeric file trees.
     for model in reversed(_DURABLE_MODELS):
@@ -144,15 +156,27 @@ with app.app_context():
 
     outcome = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
     check("latest restores all protected tables and both file areas",
-          outcome["rows"] == 9
+           outcome["rows"] == 10
           and User.query.count() == 1
           and Company.query.count() == 1
           and Upload.query.count() == 1
           and DailyRow.query.count() == 1
           and HistoricalRawValue.query.count() == 1
            and RevenueAnalyticMapping.query.count() == 0
+           and OsvSourceCleanup.query.count() == 1
           and source.read_bytes() == b"durable source"
           and dashboard.read_text(encoding="utf-8") == "durable dashboard")
+    cleanup_outcome = _retry_pending_osv_source_cleanup()
+    check("restored pending cleanup removes the restored source idempotently",
+          cleanup_outcome["completed"] == 1
+          and OsvSourceCleanup.query.count() == 0
+          and not source.exists()
+          and _retry_pending_osv_source_cleanup()["completed"] == 0)
+    completed_cleanup = backup(
+        db, UPLOADS, OUTPUT, _DURABLE_MODELS,
+        "completed source cleanup", allow_removals=True)
+    check("completed source cleanup advances the durable snapshot",
+          completed_cleanup["promoted"])
 
     admin = User.query.filter_by(role="admin").first()
     admin.password_hash = "newer-password-state"

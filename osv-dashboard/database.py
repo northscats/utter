@@ -495,6 +495,25 @@ class Upload(db.Model):
             return None
 
 
+class OsvSourceCleanup(db.Model):
+    """Долговечное намерение физически удалить исключённый исходник ОСВ."""
+    __tablename__ = 'osv_source_cleanups'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'relative_path',
+            name='uq_osv_source_cleanup_company_path'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(db.Integer, nullable=False, index=True)
+    relative_path = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='pending', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_error = db.Column(db.String(255), nullable=False, default='')
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    last_attempt_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+
 @event.listens_for(Upload, 'after_insert')
 def _advance_company_osv_source_revision(_mapper, connection, target):
     """Coordinate aggregate publication with every committed Upload insert."""
