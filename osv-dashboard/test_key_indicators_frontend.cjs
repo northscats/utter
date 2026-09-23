@@ -557,8 +557,9 @@ async function checkBootstrap(configuration) {
   assert.match(profitHtml, /obj-bar-fill-pos/, 'must render share bar');
   assert.match(profitHtml, /badge-green/, 'must render status pill');
   assert.match(profitHtml, /ki-account90-chart/, 'must render account90 bar chart');
-  assert.match(profitHtml, /Выручка, себестоимость и валовая прибыль по объектам/, 'must render chart title');
+  assert.match(profitHtml, /Выручка, себестоимость с ОХР и валовая прибыль по объектам/, 'must render chart title');
   assert.match(profitHtml, /aria-label="Услуга 1, Выручка: 100,00 млн ₽"/, 'must use table values in chart bars');
+  assert.match(profitHtml, /aria-label="Услуга 1, Себестоимость \+ ОХР: 50,00 млн ₽"/, 'must add COGS and OHR in chart');
   assert.doesNotMatch(profitHtml, /Обратите внимание/, 'must not render account90 warnings');
   }
   app.renderRevenueLineChart({series: [

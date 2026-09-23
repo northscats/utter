@@ -1801,11 +1801,17 @@
             const chartHtml = (() => {
                 const series = [
                     { key: 'revenue', label: 'Выручка', color: '#4F7BEF' },
-                    { key: 'cogs', label: 'Себестоимость', color: '#F59A32' },
+                    {
+                        key: 'costs_with_ohr',
+                        label: 'Себестоимость + ОХР',
+                        color: '#F59A32',
+                        value: row => Number(row.cogs || 0) + Number(row.ohr || 0)
+                    },
                     { key: 'gross_profit', label: 'Валовая прибыль', color: '#10B981' }
                 ];
                 const values = categories.flatMap(row => series.map(item =>
-                    hasNumericValue(row[item.key]) ? Number(row[item.key]) : 0));
+                    item.value ? item.value(row) :
+                        (hasNumericValue(row[item.key]) ? Number(row[item.key]) : 0)));
                 const rawMin = Math.min(0, ...values);
                 const rawMax = Math.max(0, ...values);
                 const rawSpan = Math.max(1, rawMax - rawMin);
@@ -1838,8 +1844,9 @@
                     const center = margin.left + groupWidth * (rowIndex + 0.5);
                     const startX = center - clusterWidth / 2;
                     const columns = series.map((item, seriesIndex) => {
-                        const value = hasNumericValue(row[item.key])
-                            ? Number(row[item.key]) : 0;
+                        const value = item.value ? item.value(row) :
+                            (hasNumericValue(row[item.key])
+                                ? Number(row[item.key]) : 0);
                         const valueY = y(value);
                         const barY = Math.min(zeroY, valueY);
                         const barHeight = Math.max(1, Math.abs(zeroY - valueY));
@@ -1864,7 +1871,7 @@
                 ).join('');
                 return `<div class="ki-account90-chart">
                     <div class="ki-account90-chart-head">
-                        <h3>Выручка, себестоимость и валовая прибыль по объектам, млн ₽</h3>
+                        <h3>Выручка, себестоимость с ОХР и валовая прибыль по объектам, млн ₽</h3>
                         <div class="ki-account90-chart-legend">${legend}</div>
                     </div>
                     <div class="ki-account90-chart-scroll">
