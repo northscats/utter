@@ -7,6 +7,7 @@ const nodes = new Map();
 function element(id) {
     if (!nodes.has(id)) nodes.set(id, {
         innerHTML: '', textContent: '', style: {},
+        dataset: {},
         attributes: {},
         classList: {
             values: new Set(),
@@ -102,7 +103,8 @@ assert.ok(!svg.includes('cash-chart-point'));
 assert.match(svg, /class="cash-chart-debit"[^>]+stroke-width="1.5"/);
 assert.match(svg, /class="cash-chart-credit"[^>]+stroke-width="1.5"/);
 assert.match(svg, /class="cash-chart-hit-target"[^>]+fill="transparent" stroke="none"/);
-assert.ok(tips.every(tip => tip.detail.includes('Частичный охват')));
+assert.ok(tips.every(tip => !/охват|нет данных:/.test(tip.detail)),
+    'chart tooltips must not display account coverage commentary');
 assert.ok(tips.some(tip => tip.title.startsWith('Поступления')));
 assert.ok(tips.some(tip => tip.title.startsWith('Выплаты')));
 
@@ -164,7 +166,8 @@ const card = {
 };
 app.renderCashModal(card);
 let html = element('ki-cash-modal-content').innerHTML;
-assert.match(html, /cash-summary-sub[^>]*>[^<]*на 2026-01-02<br>Частичный охват/);
+assert.match(html, /cash-summary-sub[^>]*>на 2026-01-02<\/div>/);
+assert.ok(!/охват|Охват счетов не подтверждён/.test(html));
 assert.match(html, /Поступления: СНд \+ ОД/);
 assert.match(html, /Выплаты: СНк \+ ОК/);
 assert.match(html, /data-cash-chart-mode="cash-current"/);
@@ -180,7 +183,7 @@ assert.match(html, /class="cash-account-name">Расчётные счета/);
 assert.match(html, /class="cash-data-state ok">Загружен/);
 assert.match(html, /class="cash-data-state missing">Нет данных/);
 assert.match(html, /class="cash-share-fill" style="width:100\.0%"/);
-assert.match(html, /class="cash-coverage-note">Частичный охват/);
+assert.ok(!html.includes('cash-coverage-note'));
 assert.match(cashCss,
     /\.cash-table th\s*\{[^}]*background:#312E91;[^}]*color:#fff;/s);
 assert.match(cashCss, /\.cash-table\s*\{[^}]*min-width:760px;/s);
@@ -204,7 +207,8 @@ assert.match(html, /2026-01-01 → 2026-01-02/);
 app.state.data.cards = [card];
 app.renderCards();
 html = element('ki-cards-grid').innerHTML;
-assert.match(html, /Частичный охват: сч. 51/);
+assert.ok(!/охват|нет данных:/.test(html));
+assert.match(html, /на 2026-01-02/);
 assert.ok(!html.includes('data-metric="cash_cumulative"'));
 assert.ok(!html.includes('Накопленный ДК'));
 
@@ -220,6 +224,7 @@ app.mountSharedDynamics = () => assert.fail('cash modal must not mount generic d
 app.clearChartJobs = () => {};
 app.hideModalSwitchStatus = () => {};
 app.updateModalSubtitle = () => {};
+app.activateModalHeaderControls = () => {};
 app.enhanceTables = () => {};
 app.bindMetricTiles = () => {};
 app.state.mode = 'operational';
@@ -383,8 +388,8 @@ assert.ok(!element('ki-cards-grid').innerHTML.includes('kpi-delta up'), 'headlin
 app.renderCashModal({...card, ...snapshot('2026-01-01', 0, ['50', '51', '52', '55']), delta: null, series: []});
 html = element('ki-cash-modal-content').innerHTML;
 assert.ok(!html.includes('100% известного итога'), 'zero denominator has no percentage');
-assert.match(html, /Полный охват/);
+assert.ok(!/охват|Охват счетов не подтверждён/.test(html));
 assert.match(html, /cash-total-row[\s\S]*?<span class="cash-share-value">—<\/span>/);
 assert.ok(!/cash-total-row[\s\S]*?cash-share-fill/.test(html),
     'zero total must not render a misleading total share bar');
-console.log('PASS: cash coverage, safe paths/deltas, exact-date tooltips, gaps, zero, day, months, quarter range, visible partial totals');
+console.log('PASS: cash source gaps, safe paths/deltas, exact-date tooltips, zero, day, months, quarter range, no coverage commentary');

@@ -3097,14 +3097,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         None if cash_parts else
         ('; '.join(cash_snapshot['reasons']) or
          'Счета 50/51/52/55 не загружены'))
-    cash_missing = cash_snapshot['missing_accounts']
-    cash_notes = []
-    if cash_parts:
-        cash_notes.append('Поддерживаемый охват: счета ' +
-                          ', '.join(a for a, _ in cash_parts) + '.')
-        if cash_missing:
-            cash_notes.append('Частичный охват: нет поддерживаемого сальдо по счетам ' +
-                              ', '.join(cash_missing) + '; они не приняты за ноль.')
 
     d62 = _movement_rows(source, '62', start, end)
     collection_data = _collection_components(source, start, end)
@@ -3393,8 +3385,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
               accounts=list(cash_snapshot['accounts']),
               missing_accounts=list(cash_snapshot['missing_accounts']),
               coverage=cash_snapshot['coverage'],
-              comparison=None,
-              notes=cash_notes),
+              comparison=None),
         _card('revenue', revenue, 'RUB',
               'ОбК(90.01*) − ОбД(90.03*)' if vat is not None else 'ОбК(90.01*), брутто',
               'Суточные листовые обороты счёта 90',
@@ -3526,13 +3517,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                               if item['value'] is None],
                   'complete': all(item['value'] is not None
                                   for item in credit_accounts),
-              },
-              notes=(['Поддерживаемый охват: счета ' +
-                      ', '.join(a for a, _ in credit_parts) + '.'] +
-                     (['Частичный охват: отсутствует поддерживаемое сальдо по ' +
-                       ', '.join(a for a in ('66', '67')
-                                 if a not in {x[0] for x in credit_parts}) + '.']
-                      if credit_parts and len(credit_parts) < 2 else []))),
+              }),
         _card('salary', salary, 'RUB', 'max(СКк − СКд, 0) по счёту 70',
               'Конечное сальдо счёта 70', salary_reason,
               debit_balance=salary_debit,

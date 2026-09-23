@@ -750,10 +750,6 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
   border-bottom:0; color:#111827;
 }
 .cash-total-row .cash-share-fill { background:#2563EB; }
-.cash-coverage-note {
-  display:block; margin-top:5px; color:#B45309; font-family:system-ui,-apple-system,sans-serif;
-  font-size:9px; font-weight:700; white-space:nowrap;
-}
 .cash-line-chart {
   min-height:250px; height:auto; border:1px solid #E5E7EB; border-radius:8px;
   background:#FAFBFC; padding:10px; box-sizing:border-box; overflow:hidden;
@@ -1422,14 +1418,6 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
     background:#EFF6FF;
     border-top:2px solid #93C5FD;
     font-weight:700;
-}
-.collection-coverage-warning {
-    display:block;
-    margin-top:3px;
-    color:#B45309;
-    font-size:10px;
-    font-weight:500;
-    text-transform:none;
 }
 .collection-period-empty { color:#6B7280; padding:16px; text-align:center !important; }
 .collection-period-note { color:#64748B; font-size:11px; margin:0 0 20px; }

@@ -1993,7 +1993,7 @@
                 <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
-                  ${isCashMetric(id) ? `<div class="kpi-delta neutral">${esc(this.cashCoverageText(card))}${card.date ? ` · на ${esc(card.date)}` : ''}</div>` : ''}
+                  ${isCashMetric(id) && card.date ? `<div class="kpi-delta neutral">на ${esc(card.date)}</div>` : ''}
                   ${deltaHtml}
                     ${metricTooltip}
                 </div>
@@ -3056,11 +3056,9 @@
                 ? 'Н/Д'
                 : `${value > 0 ? '+' : ''}${pct(value)}`;
             const periodRowHtml = (row, total = false) => {
-                    const incomplete = row.coverage === 'incomplete' ||
-                        row.previous_coverage === 'incomplete';
                     const label = total ? 'Итого' : monthLabel(row.month);
                     return `<tr>
-                        <td class="collection-period-label">${esc(label)}${incomplete ? '<span class="collection-coverage-warning">Неполное покрытие</span>' : ''}</td>
+                        <td class="collection-period-label">${esc(label)}</td>
                         <td>${esc(periodMoney(row.amount))}</td>
                         <td>${esc(periodMoney(row.accrual))}</td>
                         <td>${esc(pct(row.level))}</td>
@@ -4116,7 +4114,7 @@
                 title: 'Узкое соотношение ДЗ / КЗ',
                 description: 'Соотношение подтверждённой задолженности покупателей и задолженности поставщикам.',
                 formula: 'ДЗ / КЗ = ДЗ 62.01 / КЗ 60.01',
-                detail: 'Показатель имеет узкий охват: не включает несопоставленный счёт 76, налоги, взносы и расчёты с персоналом.',
+                detail: 'Не включает несопоставленный счёт 76, налоги, взносы и расчёты с персоналом.',
                 required: arApRatio === null ? 'ОСВ 62.01 и 60.01 с конечными сальдо на одну отчётную дату. Для расширенного коэффициента — утверждённый состав обязательств и сопоставленные аналитики 76.' : null,
                 fact: arApRatio === null ? 'Н/Д' : arApRatio.toFixed(2),
                 deviation: arApRatio === null ? 'Недостаточно данных' : 'Фактическое узкое соотношение',
@@ -4275,7 +4273,7 @@
                 <div class="collection-summary ap-summary">
                     ${this.cashMetricCard('КЗ поставщикам', rub(current), 'сальдо 60.01', supplierTip, current === null || current === undefined, '__main__')}
                     ${this.cashMetricCard('Изменение КЗ', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'за выбранный период', changeTip, change === null)}
-                    ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'узкий бухгалтерский охват', ratioTip, arApRatio === null)}
+                    ${this.cashMetricCard('ДЗ 62.01 / КЗ 60.01', arApRatio === null ? 'Нужны данные' : arApRatio.toFixed(2), 'по счетам 62.01 и 60.01', ratioTip, arApRatio === null)}
                     ${this.cashMetricCard('Оценочный DPO', dpo === null ? 'Нужны данные' : `${dpo.toFixed(0)} дней`, 'по обороту Кт 60.01', dpoTip, dpo === null)}
                 </div>
                 <div class="modal-section-title" style="display: flex; align-items: center; gap: 8px; border-bottom: none; padding-bottom: 0;">
@@ -5398,8 +5396,7 @@
             const totalTip = debtTip(
                 'Подтверждённый общий долг', card.value,
                 'max(СКк−СКд, 0) сч. 66 + max(СКк−СКд, 0) сч. 67',
-                card.coverage && card.coverage.complete
-                    ? 'Оба счёта представлены.' : 'Показана сумма доступных счетов; отсутствующий счёт не принят за ноль.');
+                'Бухгалтерское сальдо не заменяет договорный график платежей.');
             const shortTip = debtTip(
                 'Краткосрочные кредиты и займы', (byAccount['66'] || {}).value,
                 'max(СКк−СКд, 0) счёта 66',
@@ -5504,7 +5501,7 @@
                 <div class="cash-info-banner"><strong>Показан бухгалтерский долг.</strong>
                     Остаток 66/67 не считается автоматически телом долга и не подтверждает ставку, срок или просрочку.</div>
                 <div class="collection-summary credits-summary">
-                    ${this.cashMetricCard('Подтверждённый долг', rub(card.value), card.coverage && card.coverage.complete ? 'полный охват 66/67' : 'частичный охват', totalTip, card.value === null || card.value === undefined, '__main__')}
+                    ${this.cashMetricCard('Подтверждённый долг', rub(card.value), 'счета 66 и 67', totalTip, card.value === null || card.value === undefined, '__main__')}
                     ${this.cashMetricCard('Краткосрочный сч. 66', rub((byAccount['66'] || {}).value), `доля ${pct((byAccount['66'] || {}).share)}`, shortTip, (byAccount['66'] || {}).value === null || (byAccount['66'] || {}).value === undefined)}
                     ${this.cashMetricCard('Долгосрочный сч. 67', rub((byAccount['67'] || {}).value), `доля ${pct((byAccount['67'] || {}).share)}`, longTip, (byAccount['67'] || {}).value === null || (byAccount['67'] || {}).value === undefined)}
                     ${this.cashMetricCard('Изменение долга', change === null ? 'Нужны данные' : `${change >= 0 ? '+' : ''}${rub(change)}`, 'к сопоставимой дате', changeTip, change === null)}
@@ -6399,14 +6396,6 @@
                 state.modalChart.capexModes.add(mode);
             }
             this.renderCapexChartModes(card);
-        },
-
-        cashCoverageText(item) {
-            const accounts = item.accounts || [];
-            if (item.coverage === 'missing') return 'Нет точных остатков';
-            if (!accounts.length) return 'Охват счетов не подтверждён';
-            return `${item.coverage === 'complete' ? 'Полный' : 'Частичный'} охват: сч. ${accounts.join(', ')}` +
-                (item.missing_accounts && item.missing_accounts.length ? `; нет данных: ${item.missing_accounts.join(', ')}` : '');
         },
 
         cashComparisonText(comparison) {
@@ -7401,7 +7390,6 @@
             const change = formatAmount(changeValue);
             const changeText = changeValue === null ? 'Нужны данные' :
                 `${changeValue > 0 ? '+' : ''}${change.val} ${change.u}`;
-            const coverage = this.cashCoverageText(card);
             const latestNumericPoint = series => [...(series || [])]
                 .reverse().find(point => point && hasNumericValue(point.value));
             const advancesLatest = latestNumericPoint(advances);
@@ -7448,7 +7436,6 @@
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-current')}">
                         <div class="cash-summary-label">Авансы потребителей</div>
                         <div class="cash-summary-value ${advancesLatest ? 'cash-value-ok' : 'cash-value-missing'}">${advancesLatest ? esc(formatAmount(advancesLatest.value).val) : 'Нужны данные'}${advancesLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(advancesLatest.value).u)}</span>` : ''}</div>
-                        <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
                          tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="debtor-apg"
@@ -7456,7 +7443,6 @@
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('debtor-apg')}">
                         <div class="cash-summary-label">ДЗ потребителей АПГ</div>
                         <div class="cash-summary-value ${apgDzLatest ? 'cash-value-ok' : 'cash-value-missing'}">${apgDzLatest ? esc(formatAmount(apgDzLatest.value).val) : 'Нужны данные'}${apgDzLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(apgDzLatest.value).u)}</span>` : ''}</div>
-                        <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
                          tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="advances-apg"
@@ -7464,7 +7450,6 @@
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('advances-apg')}">
                         <div class="cash-summary-label">Авансы потребителей АПГ</div>
                         <div class="cash-summary-value ${apgAdvancesLatest ? 'cash-value-ok' : 'cash-value-missing'}">${apgAdvancesLatest ? esc(formatAmount(apgAdvancesLatest.value).val) : 'Нужны данные'}${apgAdvancesLatest ? ` <span class="metric-inline-unit">${esc(formatAmount(apgAdvancesLatest.value).u)}</span>` : ''}</div>
-                        <div class="cash-summary-sub">${esc(coverage)}</div>
                     </div>
                 </div>
                 <div id="ki-cash-chart-title" class="modal-section-title">ДЗ потребителей и Авансы потребителей</div>
@@ -7524,7 +7509,6 @@ renderCashModal(card) {
             const deltaText = delta === null ? 'Нужны данные' :
                 `${delta > 0 ? '+' : ''}${deltaFormatted.val} ${deltaFormatted.u}`;
             const total = Number.isFinite(card.value) ? card.value : null;
-            const coverageText = this.cashCoverageText(card);
             const comparisonText = this.cashComparisonText(card.comparison);
             const dateText = card.date ? `на ${card.date}` : 'дата не подтверждена';
             let rows = '';
@@ -7570,7 +7554,7 @@ renderCashModal(card) {
                 title: 'Денежные средства предприятия',
                 description: 'Денежные средства на расчётных и иных счетах по данным бухгалтерского учёта. Средства на счёте 55 могут иметь ограничения по использованию.',
                 formula: 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                detail: `${coverageText}. Отсутствующие счета не приняты за ноль. Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.`,
+                detail: 'Счёт 50 — касса; 51 — расчётные счета; 52 — валютные счета в рублёвой оценке; 55 — специальные счета.',
                 norm: 'Индивидуальный норматив предприятия не задан',
                 fact: `${cashFormatted.val} ${cashFormatted.u} · ${dateText}`,
                 deviation: delta === null ? comparisonText : `${deltaText} · ${comparisonText}`,
@@ -7580,15 +7564,13 @@ renderCashModal(card) {
                 .reverse().find(point => Number.isFinite(point.value));
             const cashApgFormatted = this.formatValue(
                 cashApgLatest ? cashApgLatest.value : null, card.unit);
-            const cashApgCoverageText = this.cashCoverageText(
-                cashApgLatest || {coverage: 'missing', accounts: []});
             const cashApgDate = cashApgLatest &&
                 (cashApgLatest.date || cashApgLatest.label);
             const cashApgTipData = {
                 title: 'Денежные средства АПГ',
                 description: 'Остаток денежных средств на конечную дату аналогичного периода прошлого года.',
                 formula: 'Денежные средства АПГ = Σ(СКд − СКк) по счетам 50, 51, 52, 55',
-                detail: `${cashApgCoverageText}. Отсутствующие счета не приняты за ноль.`,
+                detail: 'Сопоставимая дата прошлого года.',
                 required: cashApgLatest ? null : 'Нужны точные конечные сальдо за аналогичный период прошлого года.',
                 norm: 'Индивидуальный норматив предприятия не задан',
                 fact: cashApgLatest
@@ -7611,21 +7593,13 @@ renderCashModal(card) {
                 cumulativeLatest && cumulativeLatest.debit_value);
             const cumulativeCredit = compactMillions(
                 cumulativeLatest && cumulativeLatest.credit_value);
-            const cumulativeCoverage = {
-                accounts: cumulativeLatest ? cumulativeLatest.cumulative_accounts || [] : [],
-                missing_accounts: cumulativeLatest
-                    ? cumulativeLatest.cumulative_missing_accounts || [] : accounts,
-                coverage: cumulativeLatest
-                    ? cumulativeLatest.cumulative_coverage || 'missing' : 'missing'
-            };
-            const cumulativeCoverageText = this.cashCoverageText(cumulativeCoverage);
             const cumulativeDate = cumulativeLatest &&
                 (cumulativeLatest.date || cumulativeLatest.label);
             const cumulativeTipData = {
                 title: 'Поступления / выплаты',
                 description: 'Поступления и выплаты денежных средств.',
                 formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
-                detail: `${cumulativeCoverageText}. Отсутствующие счета не приняты за ноль.${cumulativeDate ? ` Значения приведены на ${cumulativeDate}.` : ''}`,
+                detail: cumulativeDate ? `Значения приведены на ${cumulativeDate}.` : 'Для расчёта нужны начальные сальдо и обороты.',
                 required: cumulativeLatest ? null : 'Нужны точные начальные сальдо и дневные обороты по денежным счетам.',
                 norm: 'Норматив не установлен',
                 fact: cumulativeLatest
@@ -7642,23 +7616,13 @@ renderCashModal(card) {
                 cumulativeApgLatest && cumulativeApgLatest.debit_value);
             const cumulativeApgCredit = compactMillions(
                 cumulativeApgLatest && cumulativeApgLatest.credit_value);
-            const cumulativeApgCoverage = {
-                accounts: cumulativeApgLatest
-                    ? cumulativeApgLatest.cumulative_accounts || [] : [],
-                missing_accounts: cumulativeApgLatest
-                    ? cumulativeApgLatest.cumulative_missing_accounts || [] : accounts,
-                coverage: cumulativeApgLatest
-                    ? cumulativeApgLatest.cumulative_coverage || 'missing' : 'missing'
-            };
-            const cumulativeApgCoverageText = this.cashCoverageText(
-                cumulativeApgCoverage);
             const cumulativeApgDate = cumulativeApgLatest &&
                 (cumulativeApgLatest.date || cumulativeApgLatest.label);
             const cumulativeApgTipData = {
                 title: 'Поступления / выплаты АПГ',
                 description: 'Поступления и выплаты за аналогичный период прошлого года.',
                 formula: 'Д = Σ(СНд + накопленный ОД); К = Σ(СНк + накопленный ОК)',
-                detail: `${cumulativeApgCoverageText}. Период сдвинут на один год без изменения его продолжительности. Отсутствующие счета не приняты за ноль.`,
+                detail: 'Период сдвинут на один год без изменения его продолжительности.',
                 required: cumulativeApgLatest ? null : 'Нужны точные начальные сальдо и дневные обороты за аналогичный период прошлого года.',
                 norm: 'Норматив не установлен',
                 fact: cumulativeApgLatest
@@ -7672,7 +7636,7 @@ renderCashModal(card) {
                 title: 'Изменение бухгалтерского остатка',
                 description: 'Изменение бухгалтерского остатка денежных средств между двумя сопоставимыми датами. Без статей ДДС это не полный отчёт о денежных потоках.',
                 formula: 'Изменение = Остаток на текущую дату − Остаток на предыдущую дату',
-                detail: `${comparisonText}. ${coverageText}. Разница остатков не является NCF. ${fullNcfTip}`,
+                detail: `${comparisonText}. Разница остатков не является NCF. ${fullNcfTip}`,
                 required: delta === null ? changeTip : null,
                 norm: 'Положительное значение не является универсальной нормой',
                 fact: `${deltaText} · ${comparisonText}`,
@@ -7694,7 +7658,7 @@ renderCashModal(card) {
                          onclick="window.KI_App.toggleCashChartMode('cash-current')"
                          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCashChartMode('cash-current')}"><div class="cash-summary-label">Денежные средства</div>
                         <div class="cash-summary-value cash-value-ok">${esc(cashFormatted.val)} <span class="metric-inline-unit">${esc(cashFormatted.u)}</span></div>
-                        <div class="cash-summary-sub">${isCashDz ? '' : `${esc(dateText)}<br>`}${esc(coverageText)}</div>${this.cashTooltip(cashTipData)}</div>
+                        ${isCashDz ? '' : `<div class="cash-summary-sub">${esc(dateText)}</div>`}${this.cashTooltip(cashTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card cash-chart-mode-selected"
                          tabindex="0" role="button" aria-pressed="true" data-cash-chart-mode="cash-apg"
                          onclick="window.KI_App.toggleCashChartMode('cash-apg')"
@@ -7702,7 +7666,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cashApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cashApgLatest
                             ? `${esc(cashApgFormatted.val)} <span class="metric-inline-unit">${esc(cashApgFormatted.u)}</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cashApgCoverageText)}${!isCashDz && cashApgDate ? `<br>на ${esc(cashApgDate)}` : ''}</div>${this.cashTooltip(cashApgTipData)}</div>
+                        ${!isCashDz && cashApgDate ? `<div class="cash-summary-sub">на ${esc(cashApgDate)}</div>` : ''}${this.cashTooltip(cashApgTipData)}</div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
                          tabindex="0" role="button" aria-pressed="false" data-cash-chart-mode="cumulative-current"
                          onclick="window.KI_App.toggleCashChartMode('cumulative-current')"
@@ -7711,7 +7675,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cumulativeLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeLatest
                             ? `${esc(cumulativeDebit)} / ${esc(cumulativeCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cumulativeCoverageText)}${!isCashDz && cumulativeDate ? `<br>на ${esc(cumulativeDate)}` : ''}</div>
+                        ${!isCashDz && cumulativeDate ? `<div class="cash-summary-sub">на ${esc(cumulativeDate)}</div>` : ''}
                         ${this.cashTooltip(cumulativeTipData)}
                     </div>
                     <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
@@ -7722,7 +7686,7 @@ renderCashModal(card) {
                         <div class="cash-summary-value ${cumulativeApgLatest ? 'cash-value-ok' : 'cash-value-missing'}">${cumulativeApgLatest
                             ? `${esc(cumulativeApgDebit)} / ${esc(cumulativeApgCredit)} <span class="metric-inline-unit">млн ₽</span>`
                             : 'Нужны данные'}</div>
-                        <div class="cash-summary-sub">${esc(cumulativeApgCoverageText)}${!isCashDz && cumulativeApgDate ? `<br>на ${esc(cumulativeApgDate)}` : ''}</div>
+                        ${!isCashDz && cumulativeApgDate ? `<div class="cash-summary-sub">на ${esc(cumulativeApgDate)}</div>` : ''}
                         ${this.cashTooltip(cumulativeApgTipData)}
                     </div>
                     ${isCashDz ? '' : `<div class="cash-summary-card cash-tooltip-host" tabindex="0"><div class="cash-summary-label">Изменение остатка</div>
@@ -7738,7 +7702,7 @@ renderCashModal(card) {
                 <div id="ki-cash-details-table" class="cash-table-scroll" tabindex="0" role="region"
                      aria-label="Детализация по счетам денежных средств" hidden><table class="cash-table">
                     <thead><tr><th>Счёт / назначение</th><th>Сумма</th><th>Доля</th><th>Комментарий</th><th>Данные</th></tr></thead>
-                    <tbody>${rows}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(cashFormatted.val)}</span> <span class="cash-number-unit">${esc(cashFormatted.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span>${total ? '<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:100%"></span></span>' : ''}${card.coverage === 'partial' ? '<span class="cash-coverage-note">Частичный охват</span>' : ''}</td><td></td><td></td></tr></tbody>
+                    <tbody>${rows}<tr class="cash-total-row cash-tooltip-host" tabindex="0"><td><div>ИТОГО${this.cashTooltip(cashTipData)}</div></td><td class="cash-number-cell"><span class="cash-number-value">${esc(cashFormatted.val)}</span> <span class="cash-number-unit">${esc(cashFormatted.u)}</span></td><td class="cash-share-cell"><span class="cash-share-value">${total ? '100%' : '—'}</span>${total ? '<span class="cash-share-track" aria-hidden="true"><span class="cash-share-fill" style="width:100%"></span></span>' : ''}</td><td></td><td></td></tr></tbody>
                 </table></div>
                 <div id="ki-cash-chart-title" class="modal-section-title">Поступления / выплаты</div>
                 <div id="ki-cash-line-chart" class="cash-line-chart"></div>
@@ -7753,7 +7717,7 @@ renderCashModal(card) {
                 </div>
                 ${isCashDz ? '' : `<div class="modal-section-title">Денежные средства и изменение остатка</div>
                 <div class="cash-metrics-grid">
-                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, `${dateText} · ${coverageText}`, cashTipData, card.value == null, '__main__')}
+                    ${this.cashMetricCard('Денежные средства', `${cashFormatted.val} ${cashFormatted.u}`, dateText, cashTipData, card.value == null, '__main__')}
                     ${this.cashMetricCard('Изменение остатка', deltaText, comparisonText, changeTipData, delta === null, '', delta < 0 ? 'cash-value-negative' : '')}
                 </div>`}
                 `;
@@ -8075,10 +8039,10 @@ renderCashModal(card) {
                 svg += `<path d="${creditPath}" class="cash-chart-credit${group.id === 'apg' ? '-apg' : ''}" fill="none" stroke="${group.creditColor}" stroke-width="1.5"${group.dash} stroke-linecap="round" stroke-linejoin="round"/>`;
                 group.points.forEach((item, index) => {
                     if (Number.isFinite(item.debit)) {
-                        svg += `<circle class="cash-chart-hit-target" data-kind="debit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.debit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Поступления${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                        svg += `<circle class="cash-chart-hit-target" data-kind="debit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.debit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Поступления${group.suffix} на ${item.date || item.label}`)}"/>`;
                     }
                     if (Number.isFinite(item.credit)) {
-                        svg += `<circle class="cash-chart-hit-target" data-kind="credit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.credit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Выплаты${group.suffix} на ${item.date || item.label}. ${this.cashCoverageText(item)}`)}"/>`;
+                        svg += `<circle class="cash-chart-hit-target" data-kind="credit" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.credit)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`Выплаты${group.suffix} на ${item.date || item.label}`)}"/>`;
                     }
                 });
             });
@@ -8097,7 +8061,7 @@ renderCashModal(card) {
                     const pointDate = group.id === 'capex-apg'
                         ? item.source_date || item.date || item.label
                         : item.date || item.label;
-                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${pointDate}. ${this.cashCoverageText(item)}`)}"/>`;
+                    svg += `<circle class="cash-chart-hit-target" data-kind="balance" data-index="${index}" data-period="${group.id}" cx="${x(index)}" cy="${y(item.balance)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${balanceLabel} на ${pointDate}`)}"/>`;
                 });
             });
             labelGroup.points.forEach((item, index) => {
@@ -8116,9 +8080,6 @@ renderCashModal(card) {
                     ? item.source_date || item.date || item.label
                     : item.date || item.label;
                 const suffix = group.suffix;
-                const coverageText = this.cashCoverageText(item);
-                const missingText = item.reasons && item.reasons.length
-                    ? ` ${item.reasons.join('; ')}.` : '';
                 if (isBalance) return {
                     title: `${group.label || `Денежные средства${suffix}`} — ${pointDate}`,
                     description: group.description || (group.label
@@ -8129,7 +8090,7 @@ renderCashModal(card) {
                             ? 'Авансы потребителей = max(СКк(62.02) − СКд(62.02), 0)'
                             : 'ДЗ потребителей = max(СКд(62.01) − СКк(62.01), 0)')
                         : 'Денежные средства = Σ(СКд − СКк) по счетам 50, 51, 52, 55'),
-                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
+                    detail: group.description || 'Значение по данным ОСВ на указанную дату.',
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.balance.toFixed(2)} млн ₽`,
                     deviation: group.label
@@ -8145,7 +8106,7 @@ renderCashModal(card) {
                     title: `Выплаты${suffix} — ${item.date}`,
                     description: 'Кредитовое сальдо на начало выбранного периода и кредитовые обороты нарастающим итогом.',
                     formula: 'Кредит = Σ(СНк + накопленный ОК) по счетам 50, 51, 52, 55',
-                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
+                    detail: 'Накопленный кредитовый оборот на указанную дату.',
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.credit.toFixed(2)} млн ₽`,
                     deviation: 'Фактическое накопленное кредитовое значение',
@@ -8154,7 +8115,7 @@ renderCashModal(card) {
                     title: `Поступления${suffix} — ${item.date || item.label}`,
                     description: 'Дебетовое сальдо на начало выбранного периода и дебетовые обороты нарастающим итогом.',
                     formula: 'Дебет = Σ(СНд + накопленный ОД) по счетам 50, 51, 52, 55',
-                    detail: `${coverageText}. Отсутствующие счета не принимаются за ноль.${missingText}`,
+                    detail: 'Накопленный дебетовый оборот на указанную дату.',
                     norm: 'Индивидуальный норматив не задан',
                     fact: `${item.debit.toFixed(2)} млн ₽`,
                     deviation: 'Фактическое накопленное дебетовое значение',
