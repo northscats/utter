@@ -887,7 +887,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 }
 .collection-chart-grid .modal-chart-wrap { height:250px; margin:0; }
 .collection-chart-title { margin:0 0 8px; color:#374151; font-size:11px; font-weight:700; }
-.collection-dynamics-svg { display:block; width:100%; height:calc(100% - 18px); min-width:620px; }
+.collection-dynamics-svg { display:block; width:100%; height:252px; min-width:620px; }
 .collection-dynamics-grid { stroke:#E5E7EB; stroke-width:1; stroke-dasharray:3 3; }
 .collection-threshold { stroke:#64748B; stroke-width:1; stroke-dasharray:3 4; }
 .collection-dynamics-axis { fill:#64748B; font-size:11px; }
@@ -898,7 +898,12 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .collection-dynamics-point.selected,
 .collection-dynamics-apg-point.selected { outline:none; stroke:#111827; stroke-width:2; }
 #ki-collection-modal-content .modal-chart-wrap { overflow-x:auto; }
-#ki-collection-dynamics-chart { min-width:620px; overflow:visible; }
+#ki-collection-modal-content .ki-modal-dynamics-block .modal-chart-wrap {
+  height:auto !important; min-height:320px; overflow-y:visible;
+}
+#ki-collection-dynamics-chart {
+  min-width:620px; height:auto !important; min-height:270px; overflow:visible;
+}
 .collection-point-annotation {
   position:absolute;
   z-index:4;

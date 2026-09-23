@@ -3097,6 +3097,10 @@
                 ? card.linked_yearly_series || [] : [];
             const linkedApgYearly = linked.available
                 ? card.previous_year_linked_yearly_series || [] : [];
+            const linkedDaily = linked.available
+                ? card.linked_daily_cumulative_series || [] : [];
+            const linkedApgDaily = linked.available
+                ? card.previous_year_linked_daily_cumulative_series || [] : [];
             const periodTable = card.period_table || {rows: [], total: null};
             const periodMoney = value => value === null || value === undefined
                 ? 'Н/Д'
@@ -3240,12 +3244,12 @@
                     state.collectionTimelineMode = button.dataset.collectionPeriod;
                     this.renderCollectionDynamics(rawSeries, previousYearSeries,
                         linkedMonthly, linkedApgMonthly, linkedYearly,
-                        linkedApgYearly);
+                        linkedApgYearly, linkedDaily, linkedApgDaily);
                 });
             });
             this.renderCollectionDynamics(
                 rawSeries, previousYearSeries, linkedMonthly, linkedApgMonthly,
-                linkedYearly, linkedApgYearly);
+                linkedYearly, linkedApgYearly, linkedDaily, linkedApgDaily);
         },
 
         toggleCollectionMetric(mode) {
@@ -3263,9 +3267,8 @@
                 state.modalChart.collectionModes = new Set(defaults);
             } else {
                 const selected = state.modalChart.collectionModes || new Set(defaults);
-                if (selected.has(mode) && selected.size > 1) selected.delete(mode);
-                else selected.add(mode);
-                state.modalChart.collectionModes = selected;
+                state.modalChart.collectionModes = selected.size === 1 &&
+                    selected.has(mode) ? new Set(defaults) : new Set([mode]);
             }
             document.querySelectorAll('[data-collection-chart-mode]').forEach(tile => {
                 const active = state.modalChart.collectionModes.has(
@@ -3284,12 +3287,15 @@
                 linked.available ? card.linked_monthly_series || [] : [],
                 linked.available ? card.previous_year_linked_monthly_series || [] : [],
                 linked.available ? card.linked_yearly_series || [] : [],
-                linked.available ? card.previous_year_linked_yearly_series || [] : []);
+                linked.available ? card.previous_year_linked_yearly_series || [] : [],
+                linked.available ? card.linked_daily_cumulative_series || [] : [],
+                linked.available ? card.previous_year_linked_daily_cumulative_series || [] : []);
         },
 
         renderCollectionDynamics(series, previousYearSeries = [],
                 linkedMonthly = [], linkedApgMonthly = [],
-                linkedYearly = [], linkedApgYearly = []) {
+                linkedYearly = [], linkedApgYearly = [],
+                linkedDaily = [], linkedApgDaily = []) {
             const container = document.getElementById(
                 'ki-collection-dynamics-chart');
             if (!container) return;
@@ -3393,19 +3399,57 @@
                     };
                 });
             };
+            const cumulativeProxy = inputSeries => {
+                const keys = ['debit_6201', 'credit_6201',
+                    'debit_6202', 'credit_6202'];
+                const sums = Object.fromEntries(keys.map(key => [key, 0]));
+                let complete = true;
+                return (inputSeries || []).map(point => {
+                    for (const key of keys) {
+                        if (point[key] === null || point[key] === undefined ||
+                                !Number.isFinite(Number(point[key]))) {
+                            complete = false;
+                        } else {
+                            sums[key] += Number(point[key]);
+                        }
+                    }
+                    const accrual = complete ? sums.debit_6201 : null;
+                    const payment = complete ? sums.credit_6201 +
+                        sums.credit_6202 - sums.debit_6202 : null;
+                    return {
+                        ...point,
+                        value: accrual !== null && accrual !== 0
+                            ? Math.round(payment / accrual * 10000) / 100 : null,
+                        accrual, payment,
+                    };
+                });
+            };
+            const selected = state.modalChart.collectionModes ||
+                new Set(['collection-level', 'collection-apg']);
+            const money = state.modalChart.collectionGroup === 'money';
+            const hasProxyComponents = input => (input || []).some(point =>
+                point.debit_6201 !== undefined ||
+                point.credit_6201 !== undefined);
+            const cumulativeDay = mode === 'day' && !money &&
+                (linkedDaily.length > 0 || hasProxyComponents(series));
+            const cumulativeApgDay = mode === 'day' && !money &&
+                (linkedApgDaily.length > 0 ||
+                    hasProxyComponents(previousYearSeries));
             const sourcePoints = mode === 'day'
-                ? (series || [])
+                ? cumulativeDay
+                    ? linkedDaily.length ? linkedDaily : cumulativeProxy(series)
+                    : (series || [])
                 : mode === 'year' && linkedYearly.length
                     ? linkedYearly
                 : mode === 'month' && linkedMonthly.length
                     ? linkedMonthly
                     : groupedPoints(linkedMonthly.length ? linkedMonthly : series, mode);
-            const selected = state.modalChart.collectionModes ||
-                new Set(['collection-level', 'collection-apg']);
-            const money = state.modalChart.collectionGroup === 'money';
             const apgSourcePoints = selected.has('collection-apg')
                 ? (mode === 'day'
-                    ? (previousYearSeries || [])
+                    ? cumulativeApgDay
+                        ? linkedApgDaily.length ? linkedApgDaily :
+                            cumulativeProxy(previousYearSeries)
+                        : (previousYearSeries || [])
                     : mode === 'year' && linkedApgYearly.length
                         ? linkedApgYearly
                     : mode === 'month' && linkedApgMonthly.length
@@ -3452,7 +3496,10 @@
             const plotValues = visible.flatMap(item => item.points
                 .map(item.value).filter(Number.isFinite));
             if (!plotValues.length) {
-                container.innerHTML = '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
+                container.innerHTML = mode === 'day' && !money &&
+                    selected.has('collection-apg')
+                    ? '<div class="chart-empty">Нет подтверждённых дневных значений для выбранных процентных линий. Итог АПГ за период не заменяет дневной ряд.</div>'
+                    : '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
                 return;
             }
             const width = 1000;
@@ -3504,7 +3551,8 @@
             </defs>`;
             const ticks = money ? [yMin, (yMin + yMax) / 2, yMax] :
                 [...new Set([yMin, 93, 100, yMax])]
-                    .filter(value => value >= yMin && value <= yMax)
+                    .filter(value => value >= yMin && value <= yMax &&
+                        (value !== 100 || Math.abs(y(100) - y(93)) >= 18))
                     .sort((a, b) => a - b);
             const tickSvg = ticks.map(value => `
                 <line class="${!money && value === 93 ? 'collection-threshold' : 'collection-dynamics-grid'}" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/>
@@ -3581,9 +3629,17 @@
             const scaleNotice = outlierCount
                 ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
                 : '';
+            const dayNotice = cumulativeDay || cumulativeApgDay
+                ? '<div class="collection-scale-notice">Дневной процент — накопительно с начала выбранного периода; АПГ — за те же даты прошлого года. Пропуски исходных данных не заполняются.</div>'
+                : '';
+            const apgNotice = mode === 'day' && !money &&
+                selected.has('collection-apg') &&
+                !apgPoints.some(point => Number.isFinite(point.value))
+                ? '<div class="collection-scale-notice">Для АПГ нет подтверждённых дневных значений; итог за период не подставляется вместо них.</div>'
+                : '';
             container.innerHTML = `<svg class="collection-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика собираемости за выбранный период">
                 ${clip}${tickSvg}${xLabels}${paths}${circles}
-            </svg>${legend}${scaleNotice}`;
+            </svg>${legend}${dayNotice}${apgNotice}${scaleNotice}`;
             const showPointAnnotation = point => {
                 container.querySelectorAll('.collection-point-annotation')
                     .forEach(item => item.remove());

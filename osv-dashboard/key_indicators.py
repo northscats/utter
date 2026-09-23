@@ -3915,6 +3915,20 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             series_dates.append(cursor)
             cursor += timedelta(days=1)
         month_options = _options(series_dates, series_kind)
+    linked_change_dates = set()
+    if series_kind == 'day' and linked_collection['available']:
+        for records in (
+                collection_accruals if collection_accruals is not None
+                else source.get('collection_accruals'),
+                collection_allocations if collection_allocations is not None
+                else source.get('collection_allocations')):
+            for record in records or []:
+                if isinstance(record, dict):
+                    changed_on = _iso(record.get('date'))
+                    if changed_on is not None:
+                        linked_change_dates.add(changed_on)
+    current_cumulative_linked = None
+    previous_cumulative_linked = None
     for option in month_options:
         month_end = _iso(option['value'])
         month_start = _iso(option.get('_start')) if option.get('_start') \
@@ -4067,6 +4081,25 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'proxy_value': month_collection['value'],
             'categories': month_linked['categories'],
         })
+        if linked_collection['available'] and series_kind == 'day':
+            if (current_cumulative_linked is None
+                    or month_end in linked_change_dates):
+                current_cumulative_linked = _consumer_collection(
+                    collection_accruals if collection_accruals is not None
+                    else source.get('collection_accruals'),
+                    collection_allocations if collection_allocations is not None
+                    else source.get('collection_allocations'),
+                    debtor_mappings,
+                    collection_norms if collection_norms is not None
+                    else source.get('collection_norms'),
+                    start, month_end, None)
+            card_map['collection'].setdefault(
+                'linked_daily_cumulative_series', []).append({
+                    'date': point_date, 'label': option['label'],
+                    'value': current_cumulative_linked['value'],
+                    'accrual': current_cumulative_linked['accrual'],
+                    'payment': current_cumulative_linked['payment'],
+            })
         if linked_collection['available']:
             previous_month_collection = _collection_components(
                 source, previous_month_start, previous_month_end)
@@ -4088,6 +4121,28 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                     'value': previous_month_linked['value'],
                     'accrual': previous_month_linked['accrual'],
                     'payment': previous_month_linked['payment'],
+                })
+            if series_kind == 'day':
+                if (previous_cumulative_linked is None
+                        or previous_month_end in linked_change_dates):
+                    previous_cumulative_linked = _consumer_collection(
+                        collection_accruals if collection_accruals is not None
+                        else source.get('collection_accruals'),
+                        collection_allocations if collection_allocations is not None
+                        else source.get('collection_allocations'),
+                        debtor_mappings,
+                        collection_norms if collection_norms is not None
+                        else source.get('collection_norms'),
+                        previous_year_start, previous_month_end, None)
+                card_map['collection'].setdefault(
+                    'previous_year_linked_daily_cumulative_series',
+                    []).append({
+                        'date': point_date,
+                        'source_date': previous_month_end.isoformat(),
+                        'label': option['label'],
+                        'value': previous_cumulative_linked['value'],
+                        'accrual': previous_cumulative_linked['accrual'],
+                        'payment': previous_cumulative_linked['payment'],
                 })
         cash_month = _cash_snapshot(source, month_end)
         month_values['cash'] = cash_month['value']

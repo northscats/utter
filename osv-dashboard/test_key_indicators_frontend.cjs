@@ -417,8 +417,11 @@ async function checkBootstrap(configuration) {
   assert.match(collectionSvg, /collection-apg"[^>]*stroke="#DC2626"[^>]*stroke-dasharray="6 4"/);
   assert.match(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line/);
   assert.doesNotMatch(collectionSvg, /collection-zone-(?:red|yellow|green)/);
-  app.renderCollectionDynamics([daySeries[0], {date: '2026-01-02', value: null},
-    daySeries[1]], []);
+  app.renderCollectionDynamics([
+    {date: '2026-01-01', value: 92},
+    {date: '2026-01-02', value: null},
+    {date: '2026-01-03', value: 96},
+  ], []);
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.doesNotMatch(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line collection-level"/,
     'missing percentage must break the line');
@@ -464,6 +467,45 @@ async function checkBootstrap(configuration) {
     /class="collection-isolated-point collection-apg"/,
     'APG-only daily mode must show its single confirmed point');
   app.state.modalChart.collectionModes = new Set(['collection-level', 'collection-apg']);
+  const cumulativeProxy = [
+    {date: '2026-01-01', label: '01.01', value: 100,
+      debit_6201: 100, credit_6201: 100, debit_6202: 0, credit_6202: 0},
+    {date: '2026-01-02', label: '02.01', value: null,
+      debit_6201: 0, credit_6201: 20, debit_6202: 0, credit_6202: 0},
+    {date: '2026-01-03', label: '03.01', value: 50,
+      debit_6201: 100, credit_6201: 50, debit_6202: 0, credit_6202: 0},
+  ];
+  app.renderCollectionDynamics(cumulativeProxy, cumulativeProxy.map(point => ({
+    ...point, source_date: point.date.replace('2026', '2025'),
+  })));
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.match(collectionSvg, /Собираемость: 120\.0%/,
+    'zero-accrual day must display the accumulated, not undefined, percentage');
+  assert.match(collectionSvg, /Собираемость: 85\.0%/,
+    'later daily level must use total payments divided by total accruals');
+  assert.match(collectionSvg, /АПГ: 120\.0%/);
+  assert.match(collectionSvg, /d="M [^"]* C [^"]* C [^"]*" class="collection-dynamics-line collection-level"/,
+    'accumulated daily percentages must form a readable curve');
+  assert.match(collectionSvg, /накопительно с начала выбранного периода/);
+  app.renderCollectionDynamics([
+    cumulativeProxy[0],
+    {date: '2026-01-02', value: null},
+    cumulativeProxy[2],
+  ], []);
+  assert.doesNotMatch(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /Собираемость: 85\.0%/,
+    'missing component must not be treated as zero in accumulated level');
+  app.toggleCollectionMetric('collection-apg');
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.deepEqual(Array.from(app.state.modalChart.collectionModes), ['collection-apg']);
+  assert.equal(chartTiles[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(chartTiles[0].getAttribute('aria-pressed'), 'false');
+  assert.match(collectionSvg, /class="collection-dynamics-line collection-apg"/);
+  assert.doesNotMatch(collectionSvg, /class="collection-dynamics-line collection-level"/,
+    'clicking APG must show it, not turn it off');
+  app.toggleCollectionMetric('collection-apg');
+  assert.deepEqual(Array.from(app.state.modalChart.collectionModes),
+    ['collection-level', 'collection-apg']);
   app.toggleCollectionMetric('collection-accrual');
   collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
   assert.equal(app.state.modalChart.collectionGroup, 'money');
@@ -477,9 +519,11 @@ async function checkBootstrap(configuration) {
   assert.match(collectionSvg, /collection-paid"[^>]*stroke="#DB2777"/);
   app.toggleCollectionMetric('collection-paid');
   assert.doesNotMatch(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /class="collection-dynamics-line collection-accrual"/);
+  assert.match(nodes.get('ki-collection-dynamics-chart').innerHTML,
     /class="collection-dynamics-line collection-paid"/);
-  assert.equal(chartTiles[3].getAttribute('aria-pressed'), 'false');
-  assert.equal(chartTiles[2].classList.contains('cash-chart-mode-selected'), true);
+  assert.equal(chartTiles[3].getAttribute('aria-pressed'), 'true');
+  assert.equal(chartTiles[2].classList.contains('cash-chart-mode-selected'), false);
   app.toggleCollectionMetric('collection-level');
   assert.equal(app.state.modalChart.collectionGroup, 'ratio');
   assert.deepEqual(Array.from(app.state.modalChart.collectionModes),

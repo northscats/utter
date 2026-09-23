@@ -4060,6 +4060,46 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertEqual(
             card['previous_year_linked_yearly_series'][0]['value'], 80)
 
+    def test_linked_collection_daily_curve_includes_later_payments_for_both_years(self):
+        mappings = [{
+            'account': '62.01', 'analytic_key': 'buyer',
+            'category': 'population',
+            'effective_from': '2025-01-01', 'effective_to': '2026-12-31',
+        }]
+        accruals = [
+            {'date': f'{year}-01-01', 'account': '62.01',
+             'analytic_key': 'buyer', 'type': 'accrual',
+             'accrued': amount, 'accrual_document': str(year)}
+            for year, amount in ((2025, 50), (2026, 100))
+        ]
+        allocations = [
+            {'date': f'{year}-01-02', 'payment_document': f'PAY-{year}',
+             'accrual_document': str(year), 'type': 'payment',
+             'allocated_amount': amount}
+            for year, amount in ((2025, 40), (2026, 95))
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', [
+                day('2025-01-01', '62.01', obd=50),
+                day('2026-01-01', '62.01', obd=100),
+            ])}), period='day', date='2026-01-02',
+            date_from='2026-01-01',
+            debtor_mappings=mappings,
+            collection_accruals=accruals,
+            collection_allocations=allocations)['cards']}['collection']
+        self.assertIsNone(card['consumer_collection']['series'][1]['value'])
+        self.assertEqual(
+            card['linked_daily_cumulative_series'][1]['value'], 95)
+        self.assertEqual(
+            card['linked_daily_cumulative_series'][1]['payment'], 95)
+        self.assertIsNone(card['previous_year_linked_series'][1]['value'])
+        self.assertEqual(
+            card['previous_year_linked_daily_cumulative_series'][1]['value'],
+            80)
+        self.assertEqual(
+            card['previous_year_linked_daily_cumulative_series'][1]['source_date'],
+            '2025-01-02')
+
     def test_linked_yearly_chart_includes_later_cohort_payments(self):
         source = build_indicator_source({'62': account('62', [
             day('2026-01-31', '62.01', obd=100),
