@@ -248,6 +248,8 @@ tr:last-child td{border-bottom:0}
 .ac-report-btn{border:1px solid var(--water);border-radius:7px;background:#fff;color:var(--water);
   padding:7px 13px;font:700 12px 'Segoe UI',sans-serif;cursor:pointer}
 .ac-report-btn.primary{background:var(--water);color:#fff}
+.ac-report-btn.danger{border-color:#b42318;color:#b42318}
+.ac-report-btn.danger:disabled{opacity:.45;cursor:not-allowed}
 .ac-report-btn.active{background:#e8f4fb;box-shadow:0 0 0 2px rgba(31,122,156,.15)}
 .ac-report-hint{font-size:11px;color:var(--mut);margin-left:4px}
 .ac-report-overlay{display:none;position:fixed;inset:0;background:rgba(20,35,45,.55);
@@ -1072,10 +1074,31 @@ tr:last-child td{border-bottom:0}
     <div class="ac-report-actions">
       <button type="button" class="ac-report-btn" id="ac-report-select">Выбор данных</button>
       <button type="button" class="ac-report-btn primary" id="ac-report-build">Сформировать отчёт</button>
+      <button type="button" class="ac-report-btn danger" id="ac-data-delete">Удалить данные</button>
       <span class="ac-report-hint" id="ac-report-hint">Без выбора — все недостающие данные за {{ ac.year }} год</span>
     </div>
 
     </div><!-- /ac-body -->
+  </div>
+
+  <div class="ac-report-overlay" id="ac-delete-modal" role="dialog" aria-modal="true"
+       aria-labelledby="ac-delete-title">
+    <div class="ac-report-modal" style="width:min(520px,100%)">
+      <div class="ac-report-head">
+        <div>
+          <h2 id="ac-delete-title">Удалить выбранные данные?</h2>
+          <div class="ac-report-company">{{ company.name }}</div>
+        </div>
+      </div>
+      <div class="ac-report-body">
+        <p style="margin:0;line-height:1.55">Выбранные данные по счетам и месяцам будут удалены. Это действие нельзя отменить.</p>
+        <div class="ac-report-meta" id="ac-delete-summary" style="margin-top:10px"></div>
+      </div>
+      <div class="ac-report-foot">
+        <button type="button" class="ac-report-btn" id="ac-delete-cancel">Отменить</button>
+        <button type="button" class="ac-report-btn danger" id="ac-delete-confirm">Удалить</button>
+      </div>
+    </div>
   </div>
 
   <div class="ac-report-overlay" id="ac-report-modal" role="dialog" aria-modal="true"
@@ -1496,6 +1519,9 @@ function setCoverageYear(year){
   var card = document.getElementById('ac-card');
   var selectButton = document.getElementById('ac-report-select');
   var buildButton = document.getElementById('ac-report-build');
+  var deleteButton = document.getElementById('ac-data-delete');
+  var deleteModal = document.getElementById('ac-delete-modal');
+  var deleteConfirm = document.getElementById('ac-delete-confirm');
   var hint = document.getElementById('ac-report-hint');
   var modal = document.getElementById('ac-report-modal');
   var modalBody = document.getElementById('ac-report-body');
@@ -1508,6 +1534,7 @@ function setCoverageYear(year){
   var year = {{ ac.year|tojson }};
   var companyName = {{ company.name|tojson }};
   var excelReportUrl = {{ url_for('coverage_report_excel', company_id=company.id)|tojson }};
+  var deleteDataUrl = {{ url_for('coverage_data_delete', company_id=company.id)|tojson }};
   var csrfToken = {{ csrf_token()|tojson }};
   var fullMonthNames = [
     '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -1675,6 +1702,63 @@ function setCoverageYear(year){
     buildButton.focus();
   }
 
+  function selectedData(){
+    return {
+      months: monthCards.filter(function(month){
+        return month.classList.contains('report-selected');
+      }),
+      accounts: accountButtons.filter(function(account){
+        return account.classList.contains('report-selected');
+      })
+    };
+  }
+
+  function openDeleteModal(){
+    var selected = selectedData();
+    if(!selectionMode || !selected.months.length || !selected.accounts.length){
+      hint.textContent = 'Нажмите «Выбор данных» и выберите хотя бы один месяц и один счёт';
+      return;
+    }
+    document.getElementById('ac-delete-summary').textContent =
+      'Месяцев: ' + selected.months.length + ' · счетов: ' + selected.accounts.length;
+    deleteModal.classList.add('open');
+    deleteConfirm.focus();
+  }
+
+  function closeDeleteModal(){
+    deleteModal.classList.remove('open');
+    deleteButton.focus();
+  }
+
+  async function deleteSelectedData(){
+    var selected = selectedData();
+    deleteConfirm.disabled = true;
+    deleteConfirm.textContent = 'Удаляем…';
+    try{
+      var response = await fetch(deleteDataUrl, {
+        method: 'DELETE',
+        headers: {'Content-Type':'application/json', 'X-CSRFToken':csrfToken},
+        body: JSON.stringify({
+          year: year,
+          months: selected.months.map(function(month){
+            return Number(month.getAttribute('data-report-month'));
+          }),
+          accounts: selected.accounts.map(function(account){
+            return account.getAttribute('data-report-account');
+          })
+        })
+      });
+      var result = await response.json();
+      if(!response.ok) throw new Error(result.error || 'Не удалось удалить данные');
+      window.location.reload();
+    }catch(error){
+      closeDeleteModal();
+      hint.textContent = error.message;
+      deleteConfirm.disabled = false;
+      deleteConfirm.textContent = 'Удалить';
+    }
+  }
+
   async function downloadReport(){
     if(!reportRows.length) return;
     var button = document.getElementById('ac-report-download');
@@ -1725,6 +1809,12 @@ function setCoverageYear(year){
     });
   });
   buildButton.addEventListener('click', buildReport);
+  deleteButton.addEventListener('click', openDeleteModal);
+  document.getElementById('ac-delete-cancel').addEventListener('click', closeDeleteModal);
+  deleteConfirm.addEventListener('click', deleteSelectedData);
+  deleteModal.addEventListener('click', function(event){
+    if(event.target === deleteModal) closeDeleteModal();
+  });
   document.getElementById('ac-report-close').addEventListener('click', closeModal);
   document.getElementById('ac-report-done').addEventListener('click', closeModal);
   document.getElementById('ac-report-download').addEventListener('click', downloadReport);

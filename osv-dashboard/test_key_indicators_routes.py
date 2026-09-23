@@ -668,6 +668,29 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertEqual(sheet['D5'].value, '1 - 5, 8, 10 - 11')
         workbook.close()
 
+    def test_coverage_data_delete_removes_only_selected_rows(self):
+        with self.app.app_context():
+            db.session.add_all([
+                DailyRow(company_id=self.company, date=date(2026, 1, 3), acc='51'),
+                DailyRow(company_id=self.company, date=date(2026, 2, 3), acc='51'),
+                DailyRow(company_id=self.company, date=date(2026, 1, 3), acc='62'),
+            ])
+            db.session.commit()
+        response = self.client('kpi_admin').delete(
+            f'/company/{self.company}/coverage-data',
+            json={'year': 2026, 'months': [1], 'accounts': ['51']},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['deleted_rows'], 1)
+        with self.app.app_context():
+            rows = {
+                (row.date, row.acc)
+                for row in DailyRow.query.filter_by(company_id=self.company).all()
+            }
+        self.assertNotIn((date(2026, 1, 3), '51'), rows)
+        self.assertIn((date(2026, 2, 3), '51'), rows)
+        self.assertIn((date(2026, 1, 3), '62'), rows)
+
     def test_coverage_recovers_accounts_from_accepted_osv_source(self):
         source = {
             'accounts': {
