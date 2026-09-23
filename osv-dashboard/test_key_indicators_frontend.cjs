@@ -219,6 +219,37 @@ async function checkBootstrap(configuration) {
     'missing prior-year month must not be plotted as zero');
   app.state.data = capexPreviousData;
   app.state.modalChart = capexPreviousModalChart;
+  const cogsCard = {monthly_comparison: [
+    {date: '2026-01-31', current_cost: 10_000_000, previous_year_cost: 8_000_000,
+      current_revenue: 20_000_000, previous_year_revenue: 16_000_000},
+    {date: '2026-02-28', current_cost: 20_000_000, previous_year_cost: 12_000_000,
+      current_revenue: 30_000_000, previous_year_revenue: 24_000_000},
+    {date: '2026-03-31', current_cost: 30_000_000, previous_year_cost: 15_000_000,
+      current_revenue: 40_000_000, previous_year_revenue: 30_000_000},
+  ]};
+  app.state.modalChart = {cogsGroup: 'cost',
+    cogsModes: new Set(['cogs-current', 'cogs-apg'])};
+  app.renderCogsDynamics(cogsCard);
+  let cogsSvg = nodes.get('ki-cogs-dynamics-chart').innerHTML;
+  assert.match(cogsSvg, /d="M [^"]* C [^"]*" class="cash-chart-balance"/);
+  assert.match(cogsSvg, /class="cash-chart-balance-apg"[^>]*stroke-dasharray="6 4"/);
+  assert.match(cogsSvg, /stroke-width="2"/);
+  assert.doesNotMatch(cogsSvg, /<circle[^>]*fill="#(?:111827|DB2777)"/);
+  assert.equal((cogsSvg.match(/class="cash-chart-hit-target"/g) || []).length, 6);
+  cogsCard.monthly_comparison[1].current_cost = null;
+  app.renderCogsDynamics(cogsCard);
+  cogsSvg = nodes.get('ki-cogs-dynamics-chart').innerHTML;
+  const currentCogsPath = cogsSvg.match(/<path d="([^"]*)" class="cash-chart-balance"/)[1];
+  assert.equal((currentCogsPath.match(/M /g) || []).length, 2,
+    'missing month must break the cost line rather than become zero');
+  assert.ok(!currentCogsPath.includes(' C '));
+  app.state.modalChart = {cogsGroup: 'ratio',
+    cogsModes: new Set(['cogs-ratio-current', 'cogs-ratio-apg'])};
+  app.renderCogsDynamics(cogsCard);
+  assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML,
+    /class="cash-chart-balance-apg"[^>]*stroke-dasharray="6 4"/);
+  assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML, /50\.0%/);
+  app.state.modalChart = capexPreviousModalChart;
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
     {type: 'number', value: 1234.5});

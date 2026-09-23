@@ -4500,55 +4500,76 @@
                     ? ['cogs-ratio-current', 'cogs-ratio-apg']
                     : ['cogs-current', 'cogs-apg']);
             const definitions = group === 'ratio' ? [
-                ['cogs-ratio-current', 'С/с / выручка', 'current_ratio', '#2563EB'],
+                ['cogs-ratio-current', 'С/с / выручка', 'current_ratio', '#111827'],
                 ['cogs-ratio-apg', 'С/с / выручка АПГ', 'previous_year_ratio', '#DB2777']
             ] : [
-                ['cogs-current', 'Себестоимость', 'current_cost', '#2563EB'],
+                ['cogs-current', 'Себестоимость', 'current_cost', '#111827'],
                 ['cogs-apg', 'Себестоимость АПГ', 'previous_year_cost', '#DB2777']
             ];
             const visible = definitions.filter(item => selected.has(item[0]));
             const values = visible.flatMap(item => rows.map(row => row[item[2]]))
-                .filter(value => Number.isFinite(Number(value))).map(Number);
+                .filter(Number.isFinite);
             if (!rows.length || !values.length) {
                 container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
                 return;
             }
-            const width = 1000, height = 300, left = 70, right = 24, top = 24, bottom = 42;
+            const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;
             const minValue = Math.min(0, ...values);
             const maxValue = Math.max(...values);
             const span = maxValue - minValue || 1;
-            const x = index => rows.length === 1 ? width / 2 :
-                left + index * (width - left - right) / (rows.length - 1);
+            const x = index => left + (
+                rows.length > 1 ? index / (rows.length - 1) : 0.5) *
+                (width - left - right);
             const y = value => top + (maxValue - value) / span * (height - top - bottom);
             let svg = `<svg class="cogs-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика себестоимости продаж">`;
-            [0, .25, .5, .75, 1].forEach(step => {
-                const value = maxValue - span * step;
-                const cy = top + (height - top - bottom) * step;
+            if (values.length === 1) {
+                svg += '<text x="70" y="14" font-size="10" fill="#6B7280">Одна точка данных: для линии нужны данные внутри периода</text>';
+            }
+            [minValue, minValue + span / 2, minValue + span].forEach(value => {
+                const cy = y(value);
                 const label = group === 'ratio'
                     ? `${value.toFixed(1)}%`
-                    : `${(value / 1000000).toFixed(0)} млн`;
-                svg += `<line x1="${left}" y1="${cy}" x2="${width-right}" y2="${cy}" stroke="#E5E7EB"/>`;
-                svg += `<text x="${left-8}" y="${cy+4}" text-anchor="end" font-size="10" fill="#64748B">${esc(label)}</text>`;
+                    : `${(value / 1000000).toFixed(1)}`;
+                svg += `<line x1="${left}" y1="${cy}" x2="${width-right}" y2="${cy}" stroke="#E5E7EB" stroke-dasharray="3 3"/>`;
+                svg += `<text x="${left-6}" y="${cy+4}" text-anchor="end" font-size="10" fill="#6B7280">${esc(label)}</text>`;
             });
+            const labelStep = Math.max(1, Math.ceil(rows.length / 8));
             rows.forEach((row, index) => {
-                svg += `<text x="${x(index)}" y="${height-12}" text-anchor="middle" font-size="10" fill="#475569">${esc(row.label || row.date || '')}</text>`;
+                if (index % labelStep !== 0 && index !== rows.length - 1) return;
+                svg += `<line class="cash-chart-grid-vertical" x1="${x(index)}" y1="${top}" x2="${x(index)}" y2="${height-bottom}" stroke="#E5E7EB"/>`;
+                svg += `<text x="${x(index)}" y="${height-10}" text-anchor="middle" font-size="9" fill="#6B7280">${esc(row.label || row.date || '')}</text>`;
             });
-            visible.forEach((definition) => {
-                const [, label, key, color] = definition;
-                let path = '';
+            visible.forEach(([id, label, key, color]) => {
+                const segments = [];
                 rows.forEach((row, index) => {
                     const value = row[key];
-                    if (!Number.isFinite(Number(value))) return;
-                    path += `${path ? ' L' : 'M'} ${x(index).toFixed(1)} ${y(Number(value)).toFixed(1)}`;
+                    if (!Number.isFinite(value)) return;
+                    const segment = segments[segments.length - 1];
+                    if (!segment || segment[segment.length - 1].index !== index - 1) {
+                        segments.push([{index, value}]);
+                    } else {
+                        segment.push({index, value});
+                    }
                 });
-                if (path) svg += `<path d="${path}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+                const path = segments.map(segment => {
+                    let line = `M ${x(segment[0].index).toFixed(1)} ${y(segment[0].value).toFixed(1)}`;
+                    for (let index = 1; index < segment.length; index += 1) {
+                        const previous = segment[index - 1], current = segment[index];
+                        const x0 = x(previous.index), x1 = x(current.index);
+                        const y0 = y(previous.value), y1 = y(current.value);
+                        const control = (x1 - x0) / 3;
+                        line += ` C ${(x0 + control).toFixed(1)} ${y0.toFixed(1)}, ${(x1 - control).toFixed(1)} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+                    }
+                    return line;
+                }).join(' ');
+                svg += `<path d="${path}" class="cash-chart-balance${id.endsWith('-apg') ? '-apg' : ''}" fill="none" stroke="${color}" stroke-width="2"${id.endsWith('-apg') ? ' stroke-dasharray="6 4"' : ''} stroke-linecap="round" stroke-linejoin="round"/>`;
                 rows.forEach((row, index) => {
                     const value = row[key];
-                    if (!Number.isFinite(Number(value))) return;
+                    if (!Number.isFinite(value)) return;
                     const title = group === 'ratio'
-                        ? `${label}: ${Number(value).toFixed(1)}%`
-                        : `${label}: ${(Number(value) / 1000000).toFixed(2)} млн ₽`;
-                    svg += `<circle cx="${x(index)}" cy="${y(Number(value))}" r="5" fill="${color}" stroke="#fff" stroke-width="2"><title>${esc(row.label)} — ${esc(title)}</title></circle>`;
+                        ? `${label}: ${value.toFixed(1)}%`
+                        : `${label}: ${(value / 1000000).toFixed(2)} млн ₽`;
+                    svg += `<circle class="cash-chart-hit-target" cx="${x(index)}" cy="${y(value)}" r="7" fill="transparent" stroke="none" tabindex="0" aria-label="${esc(`${row.label} — ${title}`)}"><title>${esc(row.label)} — ${esc(title)}</title></circle>`;
                 });
             });
             svg += '</svg>';
