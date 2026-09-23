@@ -679,9 +679,12 @@ async function checkBootstrap(configuration) {
     assert.doesNotMatch(apHtml, /cash-summary-label">Изменение КЗ/);
     assert.match(apHtml, /КЗ поставщикам АПГ/);
     assert.match(apHtml, /КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ/);
+    assert.match(apHtml, /class="cash-table-scroll"/);
+    assert.match(apHtml, /class="cash-table ap-monthly-table"/);
+    assert.doesNotMatch(apHtml, /class="collection-detail-table ap-monthly-table"/);
     assert.match(apHtml, /на 31\.01\.2026/);
     assert.match(apHtml, /на 31\.01\.2025/);
-    assert.match(apHtml, /\+20,\d+ млн ₽/);
+    assert.match(apHtml, /\+20,\d+ <span class="cash-number-unit">млн ₽<\/span>/);
     assert.match(apHtml, /\+25\.0%/);
     assert.match(apHtml, /Н\/Д означает отсутствие подтверждённого сальдо/);
     assert.match(apHtml, /на 28\.02\.2025/);
@@ -690,11 +693,21 @@ async function checkBootstrap(configuration) {
     assert.match(apChart, /class="cash-chart-balance"/);
     assert.match(apChart, /class="cash-chart-balance-apg"/);
     assert.match(apChart, /КЗ поставщикам АПГ на 2025-01-31/);
-    app.toggleApChartMode('ap-apg');
+    app.toggleApChartMode('ap-current');
     assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-apg']);
     apChart = nodes.get('ki-ap-line-chart').innerHTML;
     assert.doesNotMatch(apChart, /class="cash-chart-balance"/);
     assert.match(apChart, /class="cash-chart-balance-apg"/);
+    app.toggleApChartMode('ap-apg');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-apg']);
+    app.toggleApChartMode('ap-current');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes),
+      ['ap-apg', 'ap-current']);
+    apChart = nodes.get('ki-ap-line-chart').innerHTML;
+    assert.match(apChart, /class="cash-chart-balance"/);
+    assert.match(apChart, /class="cash-chart-balance-apg"/);
+    app.toggleApChartMode('ap-apg');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-current']);
     app.toggleApChartMode('ap-apg');
     assert.deepEqual(Array.from(app.state.modalChart.apModes),
       ['ap-current', 'ap-apg']);

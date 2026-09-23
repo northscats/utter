@@ -4384,18 +4384,23 @@
             const monthlyComparison = card.monthly_comparison || [];
             const dateLabel = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '')
                 ? value.split('-').reverse().join('.') : 'Н/Д';
-            const monthlyRows = monthlyComparison.map((row, index) => {
+            const monthlyAmount = (value, signed = false) => {
+                if (value === null || value === undefined) return 'Н/Д';
+                const formatted = this.formatValue(value, 'RUB');
+                return `${signed && value > 0 ? '+' : ''}${esc(formatted.val)} <span class="cash-number-unit">${esc(formatted.u)}</span>`;
+            };
+            const monthlyRows = monthlyComparison.map(row => {
                 const missing = value => value === null || value === undefined
                     ? 'cash-value-missing' : '';
-                return `<tr class="${index === monthlyComparison.length - 1 ? 'ap-monthly-latest' : ''}">
+                return `<tr>
                     <td><strong>${esc(row.label || row.date || '')}</strong><br>
                         <span class="ki-muted">на ${esc(dateLabel(row.date))}</span></td>
-                    <td class="${missing(row.value)}">${esc(rub(row.value))}</td>
-                    <td class="${missing(row.change)}">${esc(signedRub(row.change))}</td>
-                    <td class="${missing(row.previous_year_value)}">${esc(rub(row.previous_year_value))}<br>
+                    <td class="cash-number-cell ${missing(row.value)}">${monthlyAmount(row.value)}</td>
+                    <td class="cash-number-cell ${missing(row.change)}">${monthlyAmount(row.change, true)}</td>
+                    <td class="cash-number-cell ${missing(row.previous_year_value)}">${monthlyAmount(row.previous_year_value)}<br>
                         <span class="ki-muted">на ${esc(dateLabel(row.previous_year_date))}</span></td>
-                    <td class="${missing(row.previous_year_delta)}">${esc(signedRub(row.previous_year_delta))}</td>
-                    <td class="${missing(row.previous_year_delta_percent)}">${esc(signedPct(row.previous_year_delta_percent))}</td>
+                    <td class="cash-number-cell ${missing(row.previous_year_delta)}">${monthlyAmount(row.previous_year_delta, true)}</td>
+                    <td class="cash-number-cell ${missing(row.previous_year_delta_percent)}">${esc(signedPct(row.previous_year_delta_percent))}</td>
                 </tr>`;
             }).join('');
 
@@ -4510,8 +4515,8 @@
                     </div>
                 </div>
                 <div class="modal-section-title">КЗ ПОСТАВЩИКАМ ПО МЕСЯЦАМ И АПГ</div>
-                <div class="collection-table-wrap">
-                    <table class="collection-detail-table ap-monthly-table">
+                <div class="cash-table-scroll">
+                    <table class="cash-table ap-monthly-table">
                         <thead><tr>
                             <th scope="col">Месяц</th>
                             <th scope="col">КЗ на конец</th>
@@ -4617,8 +4622,12 @@
             if (!['ap-current', 'ap-apg'].includes(mode)) return;
             const selected = state.modalChart.apModes ||
                 new Set(['ap-current', 'ap-apg']);
-            state.modalChart.apModes = selected.size === 1 && selected.has(mode)
-                ? new Set(['ap-current', 'ap-apg']) : new Set([mode]);
+            if (selected.has(mode)) {
+                if (selected.size > 1) selected.delete(mode);
+            } else {
+                selected.add(mode);
+            }
+            state.modalChart.apModes = selected;
             const card = state.data && state.data.cards
                 ? state.data.cards.find(item => item.id === 'ap') : null;
             if (card) this.renderApChartModes(card);

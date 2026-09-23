@@ -1072,9 +1072,10 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 @media (max-width:600px) {
   .ap-summary, .ap-secondary-metrics { grid-template-columns:1fr; }
 }
-.ap-monthly-table { min-width:850px; }
-.ap-monthly-table th:first-child { min-width:135px; }
-.ap-monthly-table .ap-monthly-latest { background:#EFF6FF; }
+.cash-table.ap-monthly-table { min-width:1000px; table-layout:auto; }
+.cash-table.ap-monthly-table th { width:auto; }
+.cash-table.ap-monthly-table th:first-child { min-width:135px; }
+.cash-table.ap-monthly-table td.cash-value-missing { color:#B45309; }
 .ap-monthly-note { margin:-8px 0 18px; line-height:1.5; }
 .ap-line-chart { margin-top:0; height:270px; }
 .ap-detail-table, .ap-analytics-table { min-width:980px; }
