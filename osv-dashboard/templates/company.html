@@ -1091,7 +1091,7 @@ tr:last-child td{border-bottom:0}
         </div>
       </div>
       <div class="ac-report-body">
-        <p style="margin:0;line-height:1.55">Выбранные данные по счетам и месяцам будут удалены. Это действие нельзя отменить.</p>
+        <p style="margin:0;line-height:1.55">Все данные выбранных счетов за указанный год будут удалены. Это действие нельзя отменить.</p>
         <div class="ac-report-meta" id="ac-delete-summary" style="margin-top:10px"></div>
       </div>
       <div class="ac-report-foot">
@@ -1715,12 +1715,12 @@ function setCoverageYear(year){
 
   function openDeleteModal(){
     var selected = selectedData();
-    if(!selectionMode || !selected.months.length || !selected.accounts.length){
-      hint.textContent = 'Нажмите «Выбор данных» и выберите хотя бы один месяц и один счёт';
+    if(!selectionMode || !selected.accounts.length){
+      hint.textContent = 'Нажмите «Выбор данных» и выберите хотя бы один счёт';
       return;
     }
     document.getElementById('ac-delete-summary').textContent =
-      'Месяцев: ' + selected.months.length + ' · счетов: ' + selected.accounts.length;
+      'Год: ' + year + ' · счетов: ' + selected.accounts.length;
     deleteModal.classList.add('open');
     deleteConfirm.focus();
   }
@@ -1740,9 +1740,6 @@ function setCoverageYear(year){
         headers: {'Content-Type':'application/json', 'X-CSRFToken':csrfToken},
         body: JSON.stringify({
           year: year,
-          months: selected.months.map(function(month){
-            return Number(month.getAttribute('data-report-month'));
-          }),
           accounts: selected.accounts.map(function(account){
             return account.getAttribute('data-report-account');
           })

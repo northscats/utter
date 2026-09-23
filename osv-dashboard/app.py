@@ -5125,45 +5125,34 @@ def coverage_report_excel(company_id):
 @app.route('/company/<int:company_id>/coverage-data', methods=['DELETE'])
 @login_required
 def coverage_data_delete(company_id):
-    """Удалить выбранные суточные данные счетов из месяцев карты покрытия."""
+    """Удалить выбранные суточные данные счетов за весь выбранный год."""
     company = _require_company_access(company_id)
     payload = request.get_json(silent=True) or {}
     try:
         year = int(payload.get('year'))
-        months = sorted({int(value) for value in payload.get('months', [])})
     except (TypeError, ValueError):
-        return jsonify(error='Некорректный год или месяц'), 400
+        return jsonify(error='Некорректный год'), 400
     accounts = sorted({
         str(value) for value in payload.get('accounts', [])
         if str(value) in ANALYTICAL_ACCOUNT_NAMES
     })
-    if (year < 2000 or year > 2100 or not months
-            or any(month not in range(1, 13) for month in months)
-            or not accounts):
-        return jsonify(error='Выберите хотя бы один месяц и один счёт'), 400
+    if year < 2000 or year > 2100 or not accounts:
+        return jsonify(error='Выберите хотя бы один счёт'), 400
 
     from datetime import date
-    ranges = [
-        (date(year, month, 1),
-         date(year, month, calendar.monthrange(year, month)[1]))
-        for month in months
-    ]
     deleted_rows = DailyRow.query.filter(
         DailyRow.company_id == company.id,
         DailyRow.acc.in_(accounts),
-        or_(*[
-            and_(DailyRow.date >= start, DailyRow.date <= end)
-            for start, end in ranges
-        ]),
+        DailyRow.date >= date(year, 1, 1),
+        DailyRow.date <= date(year, 12, 31),
     ).delete(synchronize_session=False)
 
     company.osv_source_revision = (
-        f'delete:{year}:{"-".join(map(str, months))}:{int(time.time())}')
+        f'delete:{year}:{int(time.time())}')
     db.session.commit()
     log_event('coverage_data_deleted', {
         'company_id': company.id,
         'year': year,
-        'months': months,
         'accounts': accounts,
         'daily_rows': deleted_rows,
     })
