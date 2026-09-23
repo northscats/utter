@@ -7683,7 +7683,7 @@ renderCashModal(card) {
 
             document.getElementById('ki-modal-title').textContent = isCashDz
                 ? 'Дебиторская задолженность'
-                : 'Ликвидность и денежные средства (сч. 50, 51, 52, 55)';
+                : 'Ликвидность и денежные средства';
             this.updateModalSubtitle();
             container.innerHTML = `
                 <div class="cash-info-banner"><strong>Денежные средства по данным бухгалтерского учёта.</strong>

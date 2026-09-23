@@ -166,6 +166,7 @@ const card = {
 };
 app.renderCashModal(card);
 let html = element('ki-cash-modal-content').innerHTML;
+assert.equal(element('ki-modal-title').textContent, 'Ликвидность и денежные средства');
 assert.match(html, /cash-summary-sub[^>]*>на 2026-01-02<\/div>/);
 assert.ok(!/охват|Охват счетов не подтверждён/.test(html));
 assert.match(html, /Поступления: СНд \+ ОД/);
