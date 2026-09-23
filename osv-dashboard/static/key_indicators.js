@@ -1730,6 +1730,7 @@
             
             this.renderPeriodSelector();
             this.renderCards();
+            this.renderAccount90Table();
             this.renderRecommendations();
             if (window.KI_SourcePassport &&
                 typeof window.KI_SourcePassport.renderOperational === 'function') {
@@ -1754,6 +1755,113 @@
                 val: new Intl.NumberFormat('ru-RU', {minimumFractionDigits: 1, maximumFractionDigits: 2}).format(num), 
                 u: u 
             };
+        },
+
+        account90TableHtml() {
+            const data = state.data && state.data.account90_categories;
+            const categories = data && Array.isArray(data.categories)
+                ? data.categories.filter(row => row && row.visible) : [];
+            if (!data || !categories.length) return '';
+
+            const formatMln = value => hasNumericValue(value)
+                ? new Intl.NumberFormat('ru-RU', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(Number(value))
+                : '—';
+            const formatPct = value => hasNumericValue(value)
+                ? `${new Intl.NumberFormat('ru-RU', {
+                    minimumFractionDigits: 1,
+                    maximumFractionDigits: 1
+                }).format(Number(value))}%`
+                : '—';
+            const colorClass = value => {
+                if (!hasNumericValue(value)) return '';
+                return Number(value) > 0 ? 'val-pos'
+                    : (Number(value) < 0 ? 'val-neg' : '');
+            };
+            const statusBadge = value => {
+                if (!hasNumericValue(value)) {
+                    return '<span class="badge badge-grey">Нет данных</span>';
+                }
+                return Number(value) < 0
+                    ? '<span class="badge badge-red">Убыток</span>'
+                    : '<span class="badge badge-green">Прибыль</span>';
+            };
+            const shareCell = value => {
+                if (!hasNumericValue(value)) return '—';
+                const share = Math.max(0, Math.min(100, Number(value)));
+                return `<div class="obj-name-wrap">
+                    <span>${formatPct(value)}</span>
+                    <div class="obj-bar" aria-hidden="true">
+                        <div class="obj-bar-fill-pos" style="width:${share}%"></div>
+                    </div>
+                </div>`;
+            };
+
+            const rows = categories.map(row => `<tr>
+                <td>${esc(row.label || 'Прочие виды деятельности')}</td>
+                <td>${formatMln(row.revenue)}</td>
+                <td>${formatMln(row.cogs)}</td>
+                <td>${formatMln(row.ohr)}</td>
+                <td class="${colorClass(row.gross_profit)}">${formatMln(row.gross_profit)}</td>
+                <td class="${colorClass(row.profitability)}">${formatPct(row.profitability)}</td>
+                <td>${shareCell(row.revenue_share)}</td>
+                <td>${statusBadge(row.gross_profit)}</td>
+            </tr>`).join('');
+            const totals = data.totals || {};
+            const totalProfitability = hasNumericValue(totals.revenue) &&
+                    Number(totals.revenue) !== 0 && hasNumericValue(totals.gross_profit)
+                ? Number(totals.gross_profit) / Number(totals.revenue) * 100
+                : null;
+            const warnings = Array.isArray(data.warnings) && data.warnings.length
+                ? `<details class="warnings-details ki-account90-warnings">
+                    <summary>Обратите внимание</summary>
+                    <div class="warnings-content"><ul>${data.warnings.map(
+                        warning => `<li>${esc(warning)}</li>`).join('')}</ul></div>
+                   </details>`
+                : '';
+
+            return `<div class="ki-account90-heading">
+                    <div>
+                        <h2 id="ki-account90-title">Выручка, себестоимость и валовая прибыль по объектам учёта (сч. 90)</h2>
+                        <p>ОХР распределены пропорционально доле направления в выручке</p>
+                    </div>
+                </div>
+                ${warnings}
+                <div class="cash-table-scroll">
+                    <table class="objects-table ki-account90-table">
+                        <thead><tr>
+                            <th>Объект учёта (услуга)</th>
+                            <th>Выручка, млн ₽</th>
+                            <th>Себестоимость, млн ₽</th>
+                            <th>ОХР, млн ₽</th>
+                            <th>Валовая прибыль, млн ₽</th>
+                            <th>Рент-ть, %</th>
+                            <th>Доля в выручке, %</th>
+                            <th>Статус</th>
+                        </tr></thead>
+                        <tbody>${rows}</tbody>
+                        <tfoot><tr class="total-row">
+                            <td>Итого по счёту 90</td>
+                            <td>${formatMln(totals.revenue)}</td>
+                            <td>${formatMln(totals.cogs)}</td>
+                            <td>${formatMln(totals.ohr)}</td>
+                            <td class="${colorClass(totals.gross_profit)}">${formatMln(totals.gross_profit)}</td>
+                            <td class="${colorClass(totalProfitability)}">${formatPct(totalProfitability)}</td>
+                            <td>${shareCell(100)}</td>
+                            <td>${statusBadge(totals.gross_profit)}</td>
+                        </tr></tfoot>
+                    </table>
+                </div>`;
+        },
+
+        renderAccount90Table() {
+            const section = document.getElementById('ki-account90-section');
+            if (!section) return;
+            const html = this.account90TableHtml();
+            section.innerHTML = html;
+            section.hidden = !html;
         },
         
         renderCards() {
@@ -4971,6 +5079,8 @@
                     <td class="cash-number-cell ${Number(item.delta) < 0 ? 'cash-value-negative' : ''}">${amountCell(item.delta)}</td>
                 </tr>`;
             }).join('');
+            const acc90TableHtml = this.account90TableHtml();
+
             const profitModes = ['profit-gross', 'profit-gross-apg', 'profit-gross-delta'];
             if (!state.modalChart.profitModes ||
                     !profitModes.some(mode => state.modalChart.profitModes.has(mode))) {
@@ -5029,6 +5139,7 @@
                         <span><i class="cash-chart-dot" style="background:#059669"></i>Дельта АПГ</span>
                     </div>
                 </div>
+                ${acc90TableHtml}
                 <div class="modal-section-title">Валовая прибыль по месяцам</div>
                 <div class="cash-table-scroll"><table class="cash-table profit-comparison-table">
                     <thead><tr><th>Месяц</th><th>Валовая прибыль</th><th>Валовая прибыль АПГ</th><th>Дельта АПГ</th></tr></thead>

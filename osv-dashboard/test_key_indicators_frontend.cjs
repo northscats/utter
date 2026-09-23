@@ -535,6 +535,27 @@ async function checkBootstrap(configuration) {
   assert.match(script,
     /activeContainer !== cashContent &&\s*activeContainer !== revenueContent/,
     'the legacy shared dynamics chart must not mount inside the revenue modal');
+
+  const profitCardWithAcc90 = { id: 'profit', gross_profit: 50_000_000 };
+  app.state.data = {
+    cards: [],
+    account90_categories: {
+      warnings: ['Нераспределенная выручка'],
+      categories: [
+        { label: 'Услуга 1', visible: true, revenue: 100, cogs: 40, ohr: 10, gross_profit: 50, profitability: 50.0, revenue_share: 100 }
+      ],
+      totals: { revenue: 100, cogs: 40, ohr: 10, gross_profit: 50 }
+    }
+  };
+  assert.doesNotThrow(() => app.renderProfitModal(profitCardWithAcc90));
+  const profitHtml = nodes.get('ki-profit-modal-content').innerHTML;
+  assert.match(profitHtml, /ki-account90-table/, 'must render account90 table');
+  assert.match(profitHtml, /Услуга 1/, 'must render account90 rows');
+  assert.match(profitHtml, /100,00/, 'must render account90 values already expressed in millions');
+  assert.match(profitHtml, /50,0%/, 'must format profitability');
+  assert.match(profitHtml, /obj-bar-fill-pos/, 'must render share bar');
+  assert.match(profitHtml, /badge-green/, 'must render status pill');
+  assert.match(profitHtml, /Обратите внимание/, 'must render account90 warnings');
   }
   app.renderRevenueLineChart({series: [
     {date: '2026-01-31', label: 'Январь', value: 1_000_000, granularity: 'month'},

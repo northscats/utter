@@ -22,6 +22,61 @@ def day(dt, p3='', p1='', obd=0, obk=0, **balance):
                 obd=obd, obk=obk, **balance)
 
 class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
+    def test_account90_categories_classify_full_paths_and_reconcile_totals(self):
+        rows = [
+            day('2026-01-31', '90.01.1', p1='Тепловая ЭНЕРГИЯ',
+                obk=2_000_000),
+            day('2026-01-31', '90.01', p1='ВОДОСНАБЖЕНИЕ',
+                obk=1_000_000),
+            day('2026-01-31', '90.02.1', p1='водоотведение',
+                obd=300_000),
+            day('2026-01-31', '90.02', p1='ТЕХНОЛОГИЧЕСКОЕ ПРИСОЕДИНЕНИЕ',
+                obd=200_000),
+            day('2026-01-31', '90.01', p1='Неизвестная услуга', obk=500_000),
+            day('2026-01-31', '90.08.1', obd=300_000),
+        ]
+        result = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}))
+        table = result['account90_categories']
+        by_id = {row['id']: row for row in table['categories']}
+        self.assertEqual(
+            [row['label'] for row in table['categories']],
+            ['Тепловая энергия', 'Водоснабжение', 'Водоотведение',
+             'Технологическое присоединение', 'Прочие виды деятельности'])
+        self.assertEqual(by_id['thermal_energy']['revenue'], 2)
+        self.assertEqual(by_id['water_supply']['revenue'], 1)
+        self.assertEqual(by_id['wastewater']['cogs'], 0.3)
+        self.assertEqual(by_id['technological_connection']['cogs'], 0.2)
+        self.assertEqual(by_id['other']['revenue'], 0.5)
+        self.assertEqual(table['totals']['revenue'], 3.5)
+        self.assertEqual(table['totals']['cogs'], 0.5)
+        self.assertEqual(table['totals']['ohr'], 0.3)
+
+    def test_account90_categories_hide_empty_and_allocate_ohr_by_revenue(self):
+        rows = [
+            day('2026-01-31', '90.01', p1='Тепловая энергия', obk=3_000_000),
+            day('2026-01-31', '90.02', p1='Тепловая энергия', obd=1_000_000),
+            day('2026-01-31', '90.08', obd=600_000),
+        ]
+        table = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+        )['account90_categories']
+        by_id = {row['id']: row for row in table['categories']}
+        self.assertFalse(by_id['water_supply']['visible'])
+        self.assertEqual(by_id['thermal_energy']['ohr'], 0.6)
+        self.assertEqual(by_id['thermal_energy']['gross_profit'], 1.4)
+        self.assertEqual(by_id['thermal_energy']['profitability'],
+                         46.666667)
+
+    def test_account90_categories_zero_revenue_does_not_allocate_ohr(self):
+        rows = [day('2026-01-31', '90.08', p1='Тепло', obd=500_000)]
+        table = build_key_indicators(
+            build_indicator_source({'90': account('90', rows)}),
+        )['account90_categories']
+        self.assertEqual(table['totals']['ohr'], 0)
+        self.assertTrue(any('выручка равна нулю' in warning
+                            for warning in table['warnings']))
+
     def test_salary_balance_rolls_forward_daily_movements_from_report_opening(self):
         raw = account(
             '70',

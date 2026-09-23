@@ -345,6 +345,40 @@ body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 .obj-bar-fill-pos { height: 100%; background: linear-gradient(to right, #10B981, #34D399); }
 .obj-bar-fill-neg { height: 100%; background: linear-gradient(to right, #EF4444, #F87171); }
 
+.ki-account90-section {
+  margin-top: 22px;
+  overflow: hidden;
+  border: 1px solid #D7E0EC;
+  border-radius: 8px;
+  background: #FFFFFF;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.ki-account90-section[hidden] { display: none; }
+.ki-account90-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid #E5E7EB;
+}
+.ki-account90-heading h2 {
+  margin: 0;
+  color: #1E3A5F;
+  font-size: 14px;
+  font-weight: 750;
+}
+.ki-account90-heading p {
+  margin: 4px 0 0;
+  color: #64748B;
+  font-size: 11px;
+}
+.ki-account90-section .cash-table-scroll { margin: 0; border: 0; border-radius: 0; }
+.ki-account90-section .ki-account90-warnings { margin: 10px 16px; }
+.ki-account90-table th,
+.ki-account90-table td { white-space: nowrap; }
+.ki-account90-table th:first-child,
+.ki-account90-table td:first-child { min-width: 220px; white-space: normal; }
+
 .quality-box {
     background: #fff; border: 1px solid #E5E7EB; border-radius: 8px; margin-top: 24px; padding: 16px;
 }

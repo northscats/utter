@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import re
+import unicodedata
 from bisect import bisect_right
 from collections import defaultdict
 from datetime import date as Date, timedelta
@@ -1068,6 +1069,115 @@ def _pl_facts(source, start, end):
                 cost=cost, profit=profit,
                 vat_basis='net' if vat is not None else
                 ('gross' if gross is not None else None))
+
+
+_ACCOUNT90_CATEGORY_DEFINITIONS = (
+    ('thermal_energy', 'Тепловая энергия',
+     ('тепловая энергия', 'теплоснабжение', 'отопление')),
+    ('water_supply', 'Водоснабжение',
+     ('водоснабжение', 'горячее водоснабжение', 'холодное водоснабжение',
+      'гвс', 'хвс')),
+    ('wastewater', 'Водоотведение',
+     ('водоотведение', 'канализация', 'сточные воды')),
+    ('technological_connection', 'Технологическое присоединение',
+     ('технологическое присоединение', 'технологическое подключение',
+      'подключение')),
+    ('other', 'Прочие виды деятельности', ()),
+)
+
+
+def _normalized_analytic_text(row):
+    """Return the complete analytic path in a comparison-friendly form."""
+    values = list(row.get('hierarchy_path') or [])
+    # Daily snapshots do not carry hierarchy_path; period rows may carry both
+    # representations.  Preserve order while removing duplicate coordinates.
+    values.extend(row.get(key) or '' for key in
+                  ('p0', 'p1', 'p2', 'p3', 'path1', 'path2', 'path3'))
+    parts = []
+    for value in values:
+        text = str(value or '').strip()
+        if text and not re.match(r'^\d{2}(?:\.\d+)*$', text) and text not in parts:
+            parts.append(text)
+    text = ' / '.join(parts)
+    text = unicodedata.normalize('NFKC', text).casefold().replace('ё', 'е')
+    return re.sub(r'\s+', ' ', text)
+
+
+def _account90_category(row):
+    text = _normalized_analytic_text(row)
+    matched = {
+        key for key, _label, phrases in _ACCOUNT90_CATEGORY_DEFINITIONS[:-1]
+        if any(phrase in text for phrase in phrases)}
+    # A connection to heat, water or sewer networks is still a connection.
+    if 'technological_connection' in matched:
+        return 'technological_connection'
+    # An analytic path containing more than one activity is intentionally not
+    # guessed: its entire amount is assigned to Прочие.
+    return next(iter(matched)) if len(matched) == 1 else 'other'
+
+
+def _account90_categories(revenue_rows, cost_rows, ohr, warnings):
+    """Build the universal account 90 table, with all values in million RUB."""
+    amounts = {
+        key: {'revenue': 0.0, 'cogs': 0.0}
+        for key, _label, _phrases in _ACCOUNT90_CATEGORY_DEFINITIONS
+    }
+    for row in revenue_rows or ():
+        if row.get('obk_known') is False:
+            continue
+        amounts[_account90_category(row)]['revenue'] += float(row.get('obk') or 0)
+    for row in cost_rows or ():
+        if row.get('obd_known') is False:
+            continue
+        amounts[_account90_category(row)]['cogs'] += float(row.get('obd') or 0)
+    total_revenue = sum(item['revenue'] for item in amounts.values())
+    total_cogs = sum(item['cogs'] for item in amounts.values())
+    total_ohr = float(ohr or 0)
+    local_warnings = list(warnings or [])
+    if total_revenue:
+        for item in amounts.values():
+            item['ohr'] = total_ohr * item['revenue'] / total_revenue
+    else:
+        for item in amounts.values():
+            item['ohr'] = 0.0
+        local_warnings.append(
+            'Счёт 90: выручка равна нулю, общехозяйственные расходы не распределены')
+        total_ohr = 0.0
+
+    def million(value):
+        # Keep arithmetic in rubles until the API boundary.
+        return round(value / 1000000, 6)
+
+    rows = []
+    for key, label, _phrases in _ACCOUNT90_CATEGORY_DEFINITIONS:
+        item = amounts[key]
+        has_data = bool(item['revenue'] or item['cogs'] or item['ohr'])
+        gross_profit = item['revenue'] - item['cogs'] - item['ohr']
+        rows.append({
+            'id': key,
+            'label': label,
+            'visible': has_data,
+            'revenue': million(item['revenue']),
+            'cogs': million(item['cogs']),
+            'ohr': million(item['ohr']),
+            'gross_profit': million(gross_profit),
+            'profitability': (round(gross_profit / item['revenue'] * 100, 6)
+                              if item['revenue'] else None),
+            'revenue_share': (round(item['revenue'] / total_revenue * 100, 6)
+                              if total_revenue else 0),
+        })
+    total_profit = total_revenue - total_cogs - total_ohr
+    return {
+        'categories': rows,
+        'totals': {
+            'revenue': million(total_revenue),
+            'cogs': million(total_cogs),
+            'ohr': million(total_ohr),
+            'gross_profit': million(total_profit),
+        },
+        'warnings': list(dict.fromkeys(local_warnings)),
+        'unit': 'million_RUB',
+    }
 
 
 def _report_scope_row(report, account, sub):
@@ -2639,6 +2749,13 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         for row in report.get('rows') or []
     )
     revenue, cogs, gross_profit = pl['revenue'], pl['cost'], pl['profit']
+    account90_ohr = _sub_turnover(
+        source, '90', '90.08', start, end, 'obd')
+    account90_categories = _account90_categories(
+        _leaf_rows(d90, lambda r: _has_prefix(r, '90.01')),
+        _leaf_rows(d90, lambda r: _has_prefix(r, '90.02')),
+        account90_ohr,
+        warnings)
     cogs_analytics = []
     cogs_groups = defaultdict(list)
     cogs_labels = {}
@@ -5066,6 +5183,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                    'options': options, 'available_kinds': available,
                    'warnings': list(dict.fromkeys(warnings))},
         'cards': cards, 'objects': objects, 'revenue_segments': revenue_segments,
+        'account90_categories': account90_categories,
         'recommendations': recommendations,
         'quality': quality, 'methodology': methodology,
     }
