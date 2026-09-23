@@ -4062,9 +4062,33 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'date': point_date,
             'label': option['label'],
             'value': month_linked['value'],
+            'accrual': month_linked['accrual'],
+            'payment': month_linked['payment'],
             'proxy_value': month_collection['value'],
             'categories': month_linked['categories'],
         })
+        if linked_collection['available']:
+            previous_month_collection = _collection_components(
+                source, previous_month_start, previous_month_end)
+            previous_month_linked = _consumer_collection(
+                collection_accruals if collection_accruals is not None
+                else source.get('collection_accruals'),
+                collection_allocations if collection_allocations is not None
+                else source.get('collection_allocations'),
+                debtor_mappings,
+                collection_norms if collection_norms is not None
+                else source.get('collection_norms'),
+                previous_month_start, previous_month_end,
+                previous_month_collection['value'])
+            card_map['collection'].setdefault(
+                'previous_year_linked_series', []).append({
+                    'date': point_date,
+                    'source_date': previous_month_end.isoformat(),
+                    'label': option['label'],
+                    'value': previous_month_linked['value'],
+                    'accrual': previous_month_linked['accrual'],
+                    'payment': previous_month_linked['payment'],
+                })
         cash_month = _cash_snapshot(source, month_end)
         month_values['cash'] = cash_month['value']
         card_map['cash']['series'].append({
@@ -4630,6 +4654,65 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         previous_collection_series)
     card_map['collection']['period_table'] = _collection_period_table(
         collection_daily_series, previous_collection_series)
+    if linked_collection['available']:
+        accrual_source = (collection_accruals if collection_accruals is not None
+                          else source.get('collection_accruals'))
+        payment_source = (collection_allocations
+                          if collection_allocations is not None
+                          else source.get('collection_allocations'))
+        norm_source = (collection_norms if collection_norms is not None
+                       else source.get('collection_norms'))
+
+        def linked_chart_point(period_start, period_end, aligned_end, label):
+            facts = _consumer_collection(
+                accrual_source, payment_source, debtor_mappings,
+                norm_source, period_start, period_end, None)
+            return {
+                'date': aligned_end.isoformat(),
+                'source_date': period_end.isoformat(),
+                'label': label,
+                'value': facts['value'],
+                'accrual': facts['accrual'],
+                'payment': facts['payment'],
+            }
+
+        current_yearly = []
+        previous_yearly = []
+        cursor = start.replace(month=1, day=1)
+        while cursor <= end:
+            slot_start = max(start, cursor)
+            slot_end = min(end, cursor.replace(month=12, day=31))
+            label = str(cursor.year)
+            current_yearly.append(linked_chart_point(
+                slot_start, slot_end, slot_end, label))
+            previous_yearly.append(linked_chart_point(
+                previous_year_date(slot_start),
+                previous_year_date(slot_end), slot_end, label))
+            cursor = cursor.replace(year=cursor.year + 1)
+        card_map['collection']['linked_yearly_series'] = current_yearly
+        card_map['collection']['previous_year_linked_yearly_series'] = (
+            previous_yearly)
+    if linked_collection['available'] and series_kind == 'day':
+        current_monthly = []
+        previous_monthly = []
+        cursor = start.replace(day=1)
+        while cursor <= end:
+            slot_start = max(start, cursor)
+            slot_end = min(
+                end, cursor.replace(
+                    day=calendar.monthrange(cursor.year, cursor.month)[1]))
+            previous_start = previous_year_date(slot_start)
+            previous_end = previous_year_date(slot_end)
+            for target, period_start, period_end in (
+                    (current_monthly, slot_start, slot_end),
+                    (previous_monthly, previous_start, previous_end)):
+                target.append(linked_chart_point(
+                    period_start, period_end, slot_end,
+                    _options([slot_end], 'month')[0]['label']))
+            cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+        card_map['collection']['linked_monthly_series'] = current_monthly
+        card_map['collection']['previous_year_linked_monthly_series'] = (
+            previous_monthly)
 
     # Restore intermediate 62.01 balances from an authentic opening balance
     # and daily movements instead of reducing a period ОСВ to one endpoint.

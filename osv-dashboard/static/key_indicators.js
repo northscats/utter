@@ -2448,12 +2448,21 @@
 
         cashMetricCard(label, value, sub, tooltip, needsData, seriesId = '',
                 valueClass = '', chartMode = '') {
-            const chartAttrs = chartMode
-                ? ` role="button" aria-pressed="true" data-capex-chart-mode="${esc(chartMode)}"
-                    onclick="window.KI_App.toggleCapexChartMode('${esc(chartMode)}')"
-                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCapexChartMode('${esc(chartMode)}')}"`
-                : '';
-            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''} ${chartMode ? 'cash-chart-mode-card cash-chart-mode-selected' : ''}" tabindex="0"
+            const isCollection = chartMode.startsWith('collection-');
+            const selected = isCollection
+                ? Boolean(state.modalChart && state.modalChart.collectionModes &&
+                    state.modalChart.collectionModes.has(chartMode))
+                : Boolean(chartMode);
+            const chartAttrs = isCollection
+                ? ` role="button" aria-pressed="${selected}" data-collection-chart-mode="${esc(chartMode)}"
+                    onclick="window.KI_App.toggleCollectionMetric('${esc(chartMode)}')"
+                    onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCollectionMetric('${esc(chartMode)}')}"`
+                : chartMode
+                    ? ` role="button" aria-pressed="true" data-capex-chart-mode="${esc(chartMode)}"
+                        onclick="window.KI_App.toggleCapexChartMode('${esc(chartMode)}')"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleCapexChartMode('${esc(chartMode)}')}"`
+                    : '';
+            return `<div class="cash-analysis-card ${needsData ? 'needs-data' : ''} ${chartMode ? `cash-chart-mode-card ${selected ? 'cash-chart-mode-selected' : ''}` : ''}" tabindex="0"
                     ${seriesId ? `data-series-id="${esc(seriesId)}"` : ''}${chartAttrs}>
                 <div class="cash-analysis-label">${esc(label)}</div>
                 <div class="cash-analysis-value ${needsData ? 'cash-value-missing' : valueClass || 'cash-value-ok'}">${esc(value)}</div>
@@ -2958,6 +2967,11 @@
             const modalTitle = document.getElementById('ki-modal-title');
             if (modalTitle) modalTitle.textContent = 'Уровень собираемости';
             this.updateModalSubtitle();
+            if (!state.modalChart.collectionGroup) {
+                state.modalChart.collectionGroup = 'ratio';
+                state.modalChart.collectionModes = new Set(
+                    ['collection-level', 'collection-apg']);
+            }
 
             const components = card.components || card.collection_components || [];
             const linked = card.consumer_collection || {};
@@ -3007,10 +3021,10 @@
                         </div>
                     </div>
                     <div class="collection-summary">
-                        ${this.cashMetricCard('УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'по связанным оплатам' : 'из компонентов ОСВ', this.collectionTooltip({title: 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '__main__')}
-                        ${this.cashMetricCard('НАЧИСЛЕНО', rub(currentAccrual), linked.available ? 'когорта выбранного периода' : 'дебетовый оборот 62.01', this.collectionTooltip({title: 'Начислено', fact: rub(currentAccrual)}), currentAccrual === null)}
-                        ${this.cashMetricCard('ОПЛАЧЕНО', rub(currentPaid), linked.available ? 'распределённые оплаты' : 'ОбК 62 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено', fact: rub(currentPaid)}), currentPaid === null)}
-                        ${this.cashMetricCard('УРОВЕНЬ АПГ', pct(previousYearLevel), deltaPp, this.collectionTooltip({title: 'Уровень собираемости АПГ', fact: pct(previousYearLevel), deviation: previousYearDelta === null || previousYearDelta === undefined ? 'Сравнение недоступно' : `${deltaPp} к АПГ`}), previousYearLevel === null || previousYearLevel === undefined, '__apg__')}
+                        ${this.cashMetricCard('УРОВЕНЬ СОБИРАЕМОСТИ', pct(turnover), linked.available ? 'по связанным оплатам' : 'из компонентов ОСВ', this.collectionTooltip({title: 'Уровень собираемости', fact: pct(turnover)}), turnover === null, '', '', 'collection-level')}
+                        ${this.cashMetricCard('НАЧИСЛЕНО', rub(currentAccrual), linked.available ? 'когорта выбранного периода' : 'дебетовый оборот 62.01', this.collectionTooltip({title: 'Начислено', fact: rub(currentAccrual)}), currentAccrual === null, '', '', 'collection-accrual')}
+                        ${this.cashMetricCard('ОПЛАЧЕНО', rub(currentPaid), linked.available ? 'распределённые оплаты' : 'ОбК 62 − ОбД 62.02', this.collectionTooltip({title: 'Оплачено', fact: rub(currentPaid)}), currentPaid === null, '', '', 'collection-paid')}
+                        ${this.cashMetricCard('УРОВЕНЬ АПГ', pct(previousYearLevel), deltaPp, this.collectionTooltip({title: 'Уровень собираемости АПГ', fact: pct(previousYearLevel), deviation: previousYearDelta === null || previousYearDelta === undefined ? 'Сравнение недоступно' : `${deltaPp} к АПГ`}), previousYearLevel === null || previousYearLevel === undefined, '', '', 'collection-apg')}
                     </div>
                 </div>`;
 
@@ -3075,6 +3089,14 @@
             const previousYearSeries = linked.available
                 ? card.previous_year_linked_series || []
                 : card.previous_year_turnover_series || [];
+            const linkedMonthly = linked.available
+                ? card.linked_monthly_series || [] : [];
+            const linkedApgMonthly = linked.available
+                ? card.previous_year_linked_monthly_series || [] : [];
+            const linkedYearly = linked.available
+                ? card.linked_yearly_series || [] : [];
+            const linkedApgYearly = linked.available
+                ? card.previous_year_linked_yearly_series || [] : [];
             const periodTable = card.period_table || {rows: [], total: null};
             const periodMoney = value => value === null || value === undefined
                 ? 'Н/Д'
@@ -3213,59 +3235,61 @@
             if (!state.collectionTimelineMode) {
                 state.collectionTimelineMode = 'month';
             }
-            if (state.collectionShowMain === undefined) {
-                state.collectionShowMain = true;
-            }
-            if (state.collectionShowApg === undefined) {
-                state.collectionShowApg = false;
-            }
             container.querySelectorAll('[data-collection-period]').forEach(button => {
                 button.addEventListener('click', () => {
                     state.collectionTimelineMode = button.dataset.collectionPeriod;
-                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
+                    this.renderCollectionDynamics(rawSeries, previousYearSeries,
+                        linkedMonthly, linkedApgMonthly, linkedYearly,
+                        linkedApgYearly);
                 });
             });
-            const mainCard = container.querySelectorAll(
-                '[data-series-id="__main__"]')[0];
-            if (mainCard) {
-                mainCard.setAttribute('role', 'button');
-                mainCard.setAttribute(
-                    'aria-label', 'Показать или скрыть собираемость на графике');
-                const toggleMain = () => {
-                    state.collectionShowMain = !state.collectionShowMain;
-                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
-                };
-                mainCard.addEventListener('click', toggleMain);
-                mainCard.addEventListener('keydown', event => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        toggleMain();
-                    }
-                });
-            }
-            const apgCard = container.querySelectorAll(
-                '[data-series-id="__apg__"]')[0];
-            if (apgCard && previousYearSeries.length) {
-                apgCard.setAttribute('role', 'button');
-                apgCard.setAttribute(
-                    'aria-label', 'Показать или скрыть значения АПГ на графике');
-                const toggleApg = () => {
-                    state.collectionShowApg = !state.collectionShowApg;
-                    this.renderCollectionDynamics(rawSeries, previousYearSeries);
-                };
-                apgCard.addEventListener('click', toggleApg);
-                apgCard.addEventListener('keydown', event => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        toggleApg();
-                    }
-                });
-            }
             this.renderCollectionDynamics(
-                rawSeries, previousYearSeries);
+                rawSeries, previousYearSeries, linkedMonthly, linkedApgMonthly,
+                linkedYearly, linkedApgYearly);
         },
 
-        renderCollectionDynamics(series, previousYearSeries = []) {
+        toggleCollectionMetric(mode) {
+            if (!state.modalChart || ![
+                'collection-level', 'collection-apg',
+                'collection-accrual', 'collection-paid'
+            ].includes(mode)) return;
+            const group = mode === 'collection-level' || mode === 'collection-apg'
+                ? 'ratio' : 'money';
+            const defaults = group === 'ratio'
+                ? ['collection-level', 'collection-apg']
+                : ['collection-accrual', 'collection-paid'];
+            if (state.modalChart.collectionGroup !== group) {
+                state.modalChart.collectionGroup = group;
+                state.modalChart.collectionModes = new Set(defaults);
+            } else {
+                const selected = state.modalChart.collectionModes || new Set(defaults);
+                if (selected.has(mode) && selected.size > 1) selected.delete(mode);
+                else selected.add(mode);
+                state.modalChart.collectionModes = selected;
+            }
+            document.querySelectorAll('[data-collection-chart-mode]').forEach(tile => {
+                const active = state.modalChart.collectionModes.has(
+                    tile.dataset.collectionChartMode);
+                tile.classList.toggle('cash-chart-mode-selected', active);
+                tile.setAttribute('aria-pressed', String(active));
+            });
+            const card = state.data.cards.find(item => item.id === 'collection');
+            if (!card) return;
+            const linked = card.consumer_collection || {};
+            this.renderCollectionDynamics(
+                linked.available ? linked.series || [] :
+                    card.turnover_series || card.series || [],
+                linked.available ? card.previous_year_linked_series || [] :
+                    card.previous_year_turnover_series || [],
+                linked.available ? card.linked_monthly_series || [] : [],
+                linked.available ? card.previous_year_linked_monthly_series || [] : [],
+                linked.available ? card.linked_yearly_series || [] : [],
+                linked.available ? card.previous_year_linked_yearly_series || [] : []);
+        },
+
+        renderCollectionDynamics(series, previousYearSeries = [],
+                linkedMonthly = [], linkedApgMonthly = [],
+                linkedYearly = [], linkedApgYearly = []) {
             const container = document.getElementById(
                 'ki-collection-dynamics-chart');
             if (!container) return;
@@ -3275,22 +3299,6 @@
                 button.classList.toggle('active', active);
                 button.setAttribute('aria-pressed', String(active));
             });
-            const mainCard = document.querySelectorAll(
-                '[data-series-id="__main__"]')[0];
-            if (mainCard) {
-                mainCard.classList.toggle(
-                    'collection-main-active', Boolean(state.collectionShowMain));
-                mainCard.setAttribute(
-                    'aria-pressed', String(Boolean(state.collectionShowMain)));
-            }
-            const apgCard = document.querySelectorAll(
-                '[data-series-id="__apg__"]')[0];
-            if (apgCard) {
-                apgCard.classList.toggle(
-                    'collection-apg-active', Boolean(state.collectionShowApg));
-                apgCard.setAttribute(
-                    'aria-pressed', String(Boolean(state.collectionShowApg)));
-            }
             const groupedPoints = (inputSeries, grouping) => {
                 const componentKeys = [
                     'debit_6201', 'credit_6201',
@@ -3308,6 +3316,9 @@
                             ...point,
                             date: grouping === 'year'
                                 ? `${key}-01-01` : `${key}-01`,
+                            pointCount: 0,
+                            accrualCount: 0, paymentCount: 0,
+                            accrualSum: 0, paymentSum: 0,
                             componentCounts: Object.fromEntries(
                                 componentKeys.map(name => [name, 0])),
                             componentSums: Object.fromEntries(
@@ -3316,6 +3327,14 @@
                     }
                     const group = result[key];
                     group.lastPoint = point;
+                    group.pointCount += 1;
+                    for (const name of ['accrual', 'payment']) {
+                        if (point[name] !== null && point[name] !== undefined &&
+                                Number.isFinite(Number(point[name]))) {
+                            group[`${name}Count`] += 1;
+                            group[`${name}Sum`] += Number(point[name]);
+                        }
+                    }
                     componentKeys.forEach(name => {
                         const value = point[name];
                         if (value !== null && value !== undefined &&
@@ -3336,7 +3355,18 @@
                             month: 'short', year: '2-digit'
                         }).format(monthDate).replace('.', '');
                     if (!hasDailyComponents) {
-                        return {...group.lastPoint, label};
+                        const accrual = group.accrualCount === group.pointCount
+                            ? group.accrualSum : null;
+                        const payment = group.paymentCount === group.pointCount
+                            ? group.paymentSum : null;
+                        return {
+                            ...group.lastPoint, date: group.date, label,
+                            accrual, payment,
+                            value: accrual !== null && accrual !== 0 &&
+                                payment !== null
+                                ? Math.round(payment / accrual * 10000) / 100
+                                : null
+                        };
                     }
                     const complete = componentKeys.every(name =>
                         group.componentCounts[name] > 0);
@@ -3348,7 +3378,10 @@
                         : null;
                     return {
                         ...group.lastPoint,
-                        ...group.componentSums,
+                        ...Object.fromEntries(componentKeys.map(name => [
+                            name, group.componentCounts[name] === group.pointCount
+                                ? group.componentSums[name] : null
+                        ])),
                         date: group.date,
                         label,
                         value: value === null ? null :
@@ -3361,11 +3394,24 @@
                 });
             };
             const sourcePoints = mode === 'day'
-                ? (series || []) : groupedPoints(series, mode);
-            const apgSourcePoints = state.collectionShowApg
+                ? (series || [])
+                : mode === 'year' && linkedYearly.length
+                    ? linkedYearly
+                : mode === 'month' && linkedMonthly.length
+                    ? linkedMonthly
+                    : groupedPoints(linkedMonthly.length ? linkedMonthly : series, mode);
+            const selected = state.modalChart.collectionModes ||
+                new Set(['collection-level', 'collection-apg']);
+            const money = state.modalChart.collectionGroup === 'money';
+            const apgSourcePoints = selected.has('collection-apg')
                 ? (mode === 'day'
                     ? (previousYearSeries || [])
-                    : groupedPoints(previousYearSeries, mode))
+                    : mode === 'year' && linkedApgYearly.length
+                        ? linkedApgYearly
+                    : mode === 'month' && linkedApgMonthly.length
+                        ? linkedApgMonthly
+                        : groupedPoints(linkedApgMonthly.length
+                            ? linkedApgMonthly : previousYearSeries, mode))
                 : [];
             const points = sourcePoints.map((point, index) => ({
                 ...point,
@@ -3379,9 +3425,33 @@
                 value: point.value === null || point.value === undefined
                     ? null : Number(point.value)
             }));
-            const mainPlotPoints = state.collectionShowMain ? points : [];
-            if (![...mainPlotPoints, ...apgPoints].some(
-                    point => Number.isFinite(point.value))) {
+            const accrued = point => {
+                const value = point.accrual ?? point.debit_6201;
+                return value === null || value === undefined ? null : Number(value);
+            };
+            const paid = point => {
+                if (point.payment !== null && point.payment !== undefined)
+                    return Number(point.payment);
+                const parts = [point.credit_6201, point.credit_6202, point.debit_6202];
+                return parts.every(value => value !== null && value !== undefined &&
+                    Number.isFinite(Number(value)))
+                    ? Number(parts[0]) + Number(parts[1]) - Number(parts[2]) : null;
+            };
+            const definitions = money ? [
+                {id: 'collection-accrual', label: 'Начислено', points, value: accrued,
+                    color: '#111827'},
+                {id: 'collection-paid', label: 'Оплачено', points, value: paid,
+                    color: '#DB2777'}
+            ] : [
+                {id: 'collection-level', label: 'Собираемость', points,
+                    value: point => point.value, color: '#111827'},
+                {id: 'collection-apg', label: 'АПГ', points: apgPoints,
+                    value: point => point.value, color: '#DB2777', dash: true}
+            ];
+            const visible = definitions.filter(item => selected.has(item.id));
+            const plotValues = visible.flatMap(item => item.points
+                .map(item.value).filter(Number.isFinite));
+            if (!plotValues.length) {
                 container.innerHTML = '<div class="chart-empty">Нет данных для динамики выбранного периода</div>';
                 return;
             }
@@ -3390,122 +3460,97 @@
             const pad = {left: 58, right: 24, top: 18, bottom: 42};
             const plotWidth = width - pad.left - pad.right;
             const plotHeight = height - pad.top - pad.bottom;
-            const values = [...mainPlotPoints, ...apgPoints]
-                .filter(point => Number.isFinite(point.value))
-                .map(point => point.value);
-            // Percentages produced from a near-zero or negative denominator
-            // can reach thousands or millions of percent. They must not
-            // collapse the meaningful 93–95% threshold area to a pixel.
-            const scaleValues = values.filter(value => value >= 0 && value <= 200);
+            // Extreme proxy percentages must not flatten the 93% threshold.
+            const scaleValues = money ? plotValues :
+                plotValues.filter(value => value >= 0 && value <= 200);
             const scaleMin = scaleValues.length ? Math.min(...scaleValues) : 0;
             const scaleMax = scaleValues.length ? Math.max(...scaleValues) : 100;
-            const yMin = Math.max(0, Math.min(
-                50, Math.floor(scaleMin / 10) * 10));
-            const yMax = Math.max(100, Math.min(
-                200, Math.ceil(scaleMax / 10) * 10));
+            const yMin = money ? Math.min(0, scaleMin / 1000000) :
+                Math.max(0, Math.min(50, Math.floor(scaleMin / 10) * 10));
+            const yMax = money ? Math.max(1, scaleMax / 1000000) :
+                Math.max(100, Math.min(200, Math.ceil(scaleMax / 10) * 10));
             const inScale = value => Number.isFinite(value) &&
                 value >= yMin && value <= yMax;
-            const outlierCount = [...mainPlotPoints, ...apgPoints].filter(point =>
-                Number.isFinite(point.value) && !inScale(point.value)).length;
-            const x = index => pad.left + (
-                points.length <= 1 ? plotWidth / 2 :
-                    index / (points.length - 1) * plotWidth);
+            const outlierCount = money ? 0 : plotValues.filter(value =>
+                !inScale(value)).length;
+            const x = (index, length) => pad.left + (
+                length <= 1 ? plotWidth / 2 :
+                    index / (length - 1) * plotWidth);
             const y = value => pad.top + (yMax - value) /
                 Math.max(1, yMax - yMin) * plotHeight;
-            const band = (from, to, cssClass) => {
-                const upper = Math.min(yMax, to);
-                const lower = Math.max(yMin, from);
-                if (upper <= lower) return '';
-                const top = y(upper);
-                return `<rect class="${cssClass}" x="${pad.left}" y="${top}" width="${plotWidth}" height="${y(lower) - top}"/>`;
-            };
-            const buildSegments = source => {
-                const result = [];
-                let path = '';
-                source.forEach(point => {
-                    if (!inScale(point.value)) {
-                        if (path) result.push(path);
-                        path = '';
-                        return;
-                    }
-                    path += `${path ? ' L' : 'M'} ${x(point.index).toFixed(2)} ${y(point.value).toFixed(2)}`;
-                });
-                if (path) result.push(path);
-                return result;
-            };
-            const segments = buildSegments(mainPlotPoints);
-            const apgSegments = buildSegments(apgPoints);
-            const ticks = [...new Set([yMin, 93, 95, 100, yMax])]
-                .filter(value => value >= yMin && value <= yMax)
-                .sort((a, b) => a - b);
+            const toPlotValue = value => Number.isFinite(value)
+                ? (money ? value / 1000000 : value) : null;
+            const thresholdY = y(93);
+            const clip = money ? '' : `<defs>
+                <clipPath id="collection-above-93"><rect x="${pad.left}" y="${pad.top}" width="${plotWidth}" height="${thresholdY - pad.top}"/></clipPath>
+                <clipPath id="collection-below-93"><rect x="${pad.left}" y="${thresholdY}" width="${plotWidth}" height="${height - pad.bottom - thresholdY}"/></clipPath>
+            </defs>`;
+            const ticks = money ? [yMin, (yMin + yMax) / 2, yMax] :
+                [...new Set([yMin, 93, 100, yMax])]
+                    .filter(value => value >= yMin && value <= yMax)
+                    .sort((a, b) => a - b);
             const tickSvg = ticks.map(value => `
-                <line class="collection-dynamics-grid" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/>
-                <text class="collection-dynamics-axis" x="${pad.left - 10}" y="${y(value) + 4}" text-anchor="end">${value}%</text>`).join('');
+                <line class="${!money && value === 93 ? 'collection-threshold' : 'collection-dynamics-grid'}" x1="${pad.left}" x2="${width - pad.right}" y1="${y(value)}" y2="${y(value)}"/>
+                <text class="collection-dynamics-axis" x="${pad.left - 8}" y="${y(value) + 4}" text-anchor="end">${money ? value.toFixed(1) : `${value}%`}</text>`).join('');
             const labelStep = Math.max(1, Math.ceil(points.length / 8));
             const xLabels = points.map((point, index) => (
                 index % labelStep === 0 || index === points.length - 1
-                    ? `<text class="collection-dynamics-axis" x="${x(index)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
+                    ? `<text class="collection-dynamics-axis" x="${x(index, points.length)}" y="${height - 14}" text-anchor="middle">${esc(point.label || point.date || '')}</text>`
                     : '')).join('');
-            const lines = segments.map(segment =>
-                `<path class="collection-dynamics-line" d="${segment}"/>`).join('');
-            const apgLines = apgSegments.map(segment =>
-                `<path class="collection-dynamics-apg-line" d="${segment}"/>`).join('');
-            const zoneClass = value => value < 93
-                ? 'collection-point-red'
-                : value < 95
-                    ? 'collection-point-yellow'
-                    : 'collection-point-green';
-            const circles = mainPlotPoints.filter(point => inScale(point.value))
-                .map(point => {
-                    const accrual = point.accrual ?? point.debit_6201;
-                    const paid = point.payment ?? (
-                        [point.credit_6201, point.credit_6202, point.debit_6202]
-                            .every(value => value !== null && value !== undefined)
-                            ? point.credit_6201 + point.credit_6202 - point.debit_6202
-                            : null);
-                    const detail = [
-                        point.label || point.date,
-                        `Собираемость: ${point.value.toFixed(1)}%`,
-                        accrual === null || accrual === undefined ? null :
-                            `Начислено: ${this.formatValue(accrual, 'RUB').val} млн ₽`,
-                        paid === null || paid === undefined ? null :
-                            `Оплачено: ${this.formatValue(paid, 'RUB').val} млн ₽`
-                    ].filter(Boolean).join(' · ');
-                    return `<circle class="collection-dynamics-point ${zoneClass(point.value)}" data-detail="${esc(detail)}" data-series-label="Собираемость" cx="${x(point.index)}" cy="${y(point.value)}" r="6" tabindex="0"><title>${esc(detail)}</title></circle>`;
-                }).join('');
-            const apgCircles = apgPoints.filter(point => inScale(point.value))
-                .map(point => {
-                    const sourceDate = point.source_date
-                        ? new Date(`${point.source_date}T00:00:00`) : null;
-                    const sourcePeriod = sourceDate &&
-                            !Number.isNaN(sourceDate.getTime())
-                        ? new Intl.DateTimeFormat('ru-RU', {
-                            month: 'long', year: 'numeric'
-                        }).format(sourceDate).replace(/\s*г\.?$/, '')
-                        : point.label || point.date;
-                    const detail =
-                        `${sourcePeriod} · АПГ: ${point.value.toFixed(1)}%`;
-                    return `<circle class="collection-dynamics-apg-point ${zoneClass(point.value)}" data-detail="${esc(detail)}" data-series-label="АПГ" cx="${x(point.index)}" cy="${y(point.value)}" r="6" tabindex="0"><title>${esc(detail)}</title></circle>`;
-                }).join('');
-            const legendItems = [
-                state.collectionShowMain
-                    ? '<span><i class="collection-legend-main"></i>Собираемость</span>'
-                    : '',
-                state.collectionShowApg && apgPoints.length
-                    ? '<span><i class="collection-legend-apg"></i>АПГ</span>'
-                    : ''
-            ].filter(Boolean).join('');
-            const legend = legendItems
-                ? `<div class="collection-chart-legend">${legendItems}</div>`
-                : '';
+            const paths = visible.map(item => {
+                const entries = item.points.map((point, index) => ({
+                    index, point, value: toPlotValue(item.value(point))
+                }));
+                const segments = [];
+                entries.forEach(entry => {
+                    if (!inScale(entry.value)) return;
+                    const last = segments[segments.length - 1];
+                    if (!last || last[last.length - 1].index !== entry.index - 1)
+                        segments.push([entry]);
+                    else last.push(entry);
+                });
+                const d = segments.map(segment => {
+                    const first = segment[0];
+                    let path = `M ${x(first.index, entries.length).toFixed(1)} ${y(first.value).toFixed(1)}`;
+                    for (let i = 1; i < segment.length; i += 1) {
+                        const previous = segment[i - 1], current = segment[i];
+                        const x0 = x(previous.index, entries.length);
+                        const x1 = x(current.index, entries.length);
+                        const y0 = y(previous.value), y1 = y(current.value);
+                        const control = (x1 - x0) / 3;
+                        path += ` C ${(x0 + control).toFixed(1)} ${y0.toFixed(1)}, ${(x1 - control).toFixed(1)} ${y1.toFixed(1)}, ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+                    }
+                    return path;
+                }).join(' ');
+                const dash = item.dash ? ' stroke-dasharray="6 4"' : '';
+                const stroke = (color, clipPath = '') =>
+                    `<path d="${d}" class="collection-dynamics-line ${item.id}" fill="none" stroke="${color}" stroke-width="2"${dash} stroke-linecap="round" stroke-linejoin="round"${clipPath}/>`;
+                return money ? stroke(item.color) :
+                    stroke('#16A34A', ' clip-path="url(#collection-above-93)"') +
+                    stroke('#DC2626', ' clip-path="url(#collection-below-93)"');
+            }).join('');
+            const circles = visible.flatMap(item => item.points.map((point, index) => {
+                const value = toPlotValue(item.value(point));
+                if (!inScale(value)) return '';
+                const detail = [
+                    point.source_date || point.label || point.date,
+                    `${item.label}: ${money ? `${value.toFixed(2)} млн ₽` : `${value.toFixed(1)}%`}`,
+                    money ? null : Number.isFinite(accrued(point))
+                        ? `Начислено: ${this.formatValue(accrued(point), 'RUB').val} млн ₽` : null,
+                    money ? null : Number.isFinite(paid(point))
+                        ? `Оплачено: ${this.formatValue(paid(point), 'RUB').val} млн ₽` : null
+                ].filter(Boolean).join(' · ');
+                const pointClass = item.id === 'collection-apg'
+                    ? 'collection-dynamics-apg-point' : 'collection-dynamics-point';
+                return `<circle class="${pointClass} cash-chart-hit-target" fill="transparent" stroke="none" data-detail="${esc(detail)}" data-series-label="${esc(item.label)}" cx="${x(index, item.points.length)}" cy="${y(value)}" r="7" tabindex="0" aria-label="${esc(detail)}"><title>${esc(detail)}</title></circle>`;
+            })).join('');
+            const legend = `<div class="cash-chart-legend">${visible.map(item =>
+                `<span><i class="cash-chart-dot" style="background:${money ? item.color : '#16A34A'}"></i>${esc(item.label)}${item.dash ? ' (пунктир)' : ''}</span>`).join('')}</div>`;
             const scaleNotice = outlierCount
                 ? `<div class="collection-scale-notice">Не соединено значений вне рабочей шкалы 0–${yMax}%: ${outlierCount}. Наведите на исходные данные в таблице для разбора.</div>`
                 : '';
             container.innerHTML = `<svg class="collection-dynamics-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Динамика собираемости за выбранный период">
-                ${band(yMin, 93, 'collection-zone-red')}
-                ${band(93, 95, 'collection-zone-yellow')}
-                ${band(95, yMax, 'collection-zone-green')}
-                ${tickSvg}${xLabels}${lines}${apgLines}${circles}${apgCircles}
+                ${clip}${tickSvg}${xLabels}${paths}${circles}
             </svg>${legend}${scaleNotice}`;
             const showPointAnnotation = point => {
                 container.querySelectorAll('.collection-point-annotation')

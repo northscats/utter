@@ -310,6 +310,10 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML,
+    /data-collection-chart-mode="collection-accrual"/);
+  assert.match(nodes.get('ki-collection-modal-content').innerHTML,
+    /data-collection-chart-mode="collection-paid"/);
   const proxyComponents = Object.assign({}, collectionBase, {
     value: 70,
     previous_year_value: 65,
@@ -369,6 +373,105 @@ async function checkBootstrap(configuration) {
     nodes.get('ki-collection-modal-content').innerHTML,
     /<td>[^<]*млн ₽<\/td>/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);
+  const priorCollectionData = app.state.data;
+  const priorCollectionChart = app.state.modalChart;
+  const priorCollectionTimeline = app.state.collectionTimelineMode;
+  const priorQuerySelectorAll = context.document.querySelectorAll;
+  const tileModes = ['collection-level', 'collection-apg',
+    'collection-accrual', 'collection-paid'];
+  const chartTiles = tileModes.map(mode => {
+    const classes = new Set();
+    const attributes = new Map();
+    return {dataset: {collectionChartMode: mode},
+      classList: {toggle: (name, active) =>
+        active ? classes.add(name) : classes.delete(name),
+        contains: name => classes.has(name)},
+      setAttribute: (name, value) => attributes.set(name, value),
+      getAttribute: name => attributes.get(name)};
+  });
+  context.document.querySelectorAll = selector =>
+    selector === '[data-collection-chart-mode]' ? chartTiles :
+      priorQuerySelectorAll(selector);
+  app.state.data = {cards: [proxyComponents]};
+  app.state.modalChart = {collectionGroup: 'ratio',
+    collectionModes: new Set(['collection-level', 'collection-apg'])};
+  app.state.collectionTimelineMode = 'day';
+  const daySeries = [
+    {date: '2026-01-01', label: '01.01', value: 92,
+      debit_6201: 10_000_000, credit_6201: 8_000_000,
+      credit_6202: 1_500_000, debit_6202: 300_000},
+    {date: '2026-01-02', label: '02.01', value: 96,
+      debit_6201: 12_000_000, credit_6201: 11_000_000,
+      credit_6202: 1_000_000, debit_6202: 400_000},
+  ];
+  const apgSeries = daySeries.map((point, index) => ({
+    ...point, source_date: `2025-01-0${index + 1}`, value: index ? 95 : 90,
+  }));
+  app.renderCollectionDynamics(daySeries, apgSeries);
+  let collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.match(collectionSvg, /class="collection-threshold"[^>]*stroke|class="collection-threshold"/);
+  assert.match(collectionSvg, />93%<\/text>/);
+  assert.match(collectionSvg, /clip-path="url\(#collection-above-93\)"/);
+  assert.match(collectionSvg, /clip-path="url\(#collection-below-93\)"/);
+  assert.match(collectionSvg, /collection-level"[^>]*stroke="#16A34A"[^>]*stroke-width="2"/);
+  assert.match(collectionSvg, /collection-apg"[^>]*stroke="#DC2626"[^>]*stroke-dasharray="6 4"/);
+  assert.match(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line/);
+  assert.doesNotMatch(collectionSvg, /collection-zone-(?:red|yellow|green)/);
+  app.renderCollectionDynamics([daySeries[0], {date: '2026-01-02', value: null},
+    daySeries[1]], []);
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.doesNotMatch(collectionSvg, /d="M [^"]* C [^"]*" class="collection-dynamics-line collection-level"/,
+    'missing percentage must break the line');
+  app.toggleCollectionMetric('collection-accrual');
+  collectionSvg = nodes.get('ki-collection-dynamics-chart').innerHTML;
+  assert.equal(app.state.modalChart.collectionGroup, 'money');
+  assert.deepEqual(Array.from(app.state.modalChart.collectionModes),
+    ['collection-accrual', 'collection-paid']);
+  assert.equal(chartTiles[2].getAttribute('aria-pressed'), 'true');
+  assert.equal(chartTiles[3].classList.contains('cash-chart-mode-selected'), true);
+  assert.equal(chartTiles[0].getAttribute('aria-pressed'), 'false');
+  assert.doesNotMatch(collectionSvg, /collection-threshold|collection-above-93|93%/);
+  assert.match(collectionSvg, /collection-accrual"[^>]*stroke="#111827"/);
+  assert.match(collectionSvg, /collection-paid"[^>]*stroke="#DB2777"/);
+  app.toggleCollectionMetric('collection-paid');
+  assert.doesNotMatch(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /class="collection-dynamics-line collection-paid"/);
+  assert.equal(chartTiles[3].getAttribute('aria-pressed'), 'false');
+  assert.equal(chartTiles[2].classList.contains('cash-chart-mode-selected'), true);
+  app.toggleCollectionMetric('collection-level');
+  assert.equal(app.state.modalChart.collectionGroup, 'ratio');
+  assert.deepEqual(Array.from(app.state.modalChart.collectionModes),
+    ['collection-level', 'collection-apg']);
+  assert.equal(chartTiles[0].classList.contains('cash-chart-mode-selected'), true);
+  app.state.modalChart = {collectionGroup: 'money',
+    collectionModes: new Set(['collection-accrual', 'collection-paid'])};
+  app.state.collectionTimelineMode = 'month';
+  const cohort = [
+    {date: '2026-01-15', label: '15.01', value: 0,
+      accrual: 100_000_000, payment: 0},
+  ];
+  const monthlyCohort = [
+    {date: '2026-01-31', label: 'янв 2026', value: 95,
+      accrual: 100_000_000, payment: 95_000_000},
+  ];
+  app.renderCollectionDynamics(cohort, [], monthlyCohort);
+  assert.match(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /Оплачено: 95\.00 млн ₽/,
+    'month chart must use cohort payments through month end, not accrued-day payments');
+  app.state.collectionTimelineMode = 'year';
+  app.renderCollectionDynamics(cohort, [], [
+    {...monthlyCohort[0], payment: 0, value: 0},
+  ], [], [
+    {date: '2026-12-31', label: '2026', value: 95,
+      accrual: 100_000_000, payment: 95_000_000},
+  ]);
+  assert.match(nodes.get('ki-collection-dynamics-chart').innerHTML,
+    /Оплачено: 95\.00 млн ₽/,
+    'year must use payments through year cutoff rather than sum early monthly cutoffs');
+  context.document.querySelectorAll = priorQuerySelectorAll;
+  app.state.data = priorCollectionData;
+  app.state.modalChart = priorCollectionChart;
+  app.state.collectionTimelineMode = priorCollectionTimeline;
   const aggregatedProxy = app.collectionProxyAggregate([
     {date: '2026-01-01', debit_6201: 40, credit_6201: 20, debit_6202: 10, credit_6202: 20},
     {date: '2026-01-02', debit_6201: 60, credit_6201: 30, debit_6202: 20, credit_6202: 40},

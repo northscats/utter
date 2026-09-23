@@ -4020,6 +4020,76 @@ class PeriodAggregateTests(unittest.TestCase):
         self.assertIsNone(budget['deviation'])
         self.assertIsNone(budget['status'])
 
+    def test_linked_collection_chart_preserves_current_and_apg_money(self):
+        mappings = [{
+            'account': '62.01', 'analytic_key': 'buyer',
+            'category': 'population',
+            'effective_from': '2025-01-01', 'effective_to': '2026-12-31',
+        }]
+        accruals = [
+            {'date': '2025-01-15', 'account': '62.01',
+             'analytic_key': 'buyer', 'type': 'accrual', 'accrued': 50,
+             'accrual_document': 'OLD'},
+            {'date': '2026-01-15', 'account': '62.01',
+             'analytic_key': 'buyer', 'type': 'accrual', 'accrued': 100,
+             'accrual_document': 'NEW'},
+        ]
+        allocations = [
+            {'date': '2025-01-20', 'payment_document': 'OLD-PAY',
+             'accrual_document': 'OLD', 'type': 'payment', 'allocated_amount': 40},
+            {'date': '2026-01-20', 'payment_document': 'NEW-PAY',
+             'accrual_document': 'NEW', 'type': 'payment', 'allocated_amount': 95},
+        ]
+        card = {item['id']: item for item in build_key_indicators(
+            build_indicator_source({'62': account('62', [
+                day('2025-01-31', '62.01', obd=50, obk=40),
+                day('2026-01-31', '62.01', obd=100, obk=95),
+            ])}), period='month', date='2026-01-31',
+            debtor_mappings=mappings,
+            collection_accruals=accruals,
+            collection_allocations=allocations)['cards']}['collection']
+        self.assertEqual(card['consumer_collection']['value'], 95)
+        self.assertTrue(any(
+            point['accrual'] == 100 and point['payment'] == 95
+            for point in card['linked_monthly_series']))
+        self.assertTrue(any(
+            point['value'] == 80 and point['accrual'] == 50
+            and point['payment'] == 40 and point['source_date'].startswith('2025-')
+            for point in card['previous_year_linked_monthly_series']))
+        self.assertEqual(card['linked_yearly_series'][0]['payment'], 95)
+        self.assertEqual(
+            card['previous_year_linked_yearly_series'][0]['value'], 80)
+
+    def test_linked_yearly_chart_includes_later_cohort_payments(self):
+        source = build_indicator_source({'62': account('62', [
+            day('2026-01-31', '62.01', obd=100),
+            day('2026-02-28', '62.01', obk=95),
+        ])})
+        accruals = [{
+            'date': '2026-01-15', 'account': '62.01',
+            'analytic_key': 'buyer', 'type': 'accrual', 'accrued': 100,
+            'accrual_document': 'JAN',
+        }]
+        allocations = [{
+            'date': '2026-02-10', 'payment_document': 'FEB-PAY',
+            'accrual_document': 'JAN', 'type': 'payment',
+            'allocated_amount': 95,
+        }]
+        mappings = [{
+            'account': '62.01', 'analytic_key': 'buyer',
+            'category': 'population',
+            'effective_from': '2026-01-01', 'effective_to': '2026-12-31',
+        }]
+        card = {item['id']: item for item in build_key_indicators(
+            source, period='month', date_from='2026-01-31',
+            date='2026-02-28', debtor_mappings=mappings,
+            collection_accruals=accruals,
+            collection_allocations=allocations)['cards']}['collection']
+        self.assertEqual(card['linked_monthly_series'][0]['payment'], 0)
+        self.assertIsNone(card['linked_monthly_series'][1]['value'])
+        self.assertEqual(card['linked_yearly_series'][0]['value'], 95)
+        self.assertEqual(card['linked_yearly_series'][0]['payment'], 95)
+
     def test_linked_collection_rejects_unmapped_and_unknown_amounts(self):
         accruals = [
             {'date': '2026-01-15', 'account': '62.01', 'analytic_key': 'unknown',
