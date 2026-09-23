@@ -669,14 +669,16 @@ function hbars(id, rows, color, opts={}){
 function table(id, cols, rows, opts={}){
   const t=document.getElementById(id); if(!t){return} t.dataset.sort=opts.sortCol??'';
   function render(sortCol, asc){
-    let rr=[...rows];
+    let rr=rows.map((row,index)=>({row,index}));
     if(sortCol!=null && sortCol!==''){
-      rr.sort((a,b)=> (typeof a[sortCol]==='string')
-        ? (asc? a[sortCol].localeCompare(b[sortCol],'ru'): b[sortCol].localeCompare(a[sortCol],'ru'))
-        : (asc? a[sortCol]-b[sortCol] : b[sortCol]-a[sortCol]));
+      rr.sort((a,b)=> cols[sortCol].sort==='period'
+        ? (asc? a.index-b.index : b.index-a.index)
+        : (typeof a.row[sortCol]==='string'
+          ? (asc? a.row[sortCol].localeCompare(b.row[sortCol],'ru'): b.row[sortCol].localeCompare(a.row[sortCol],'ru'))
+          : (asc? a.row[sortCol]-b.row[sortCol] : b.row[sortCol]-a.row[sortCol])));
     }
     let html='<thead><tr>'+cols.map((c,i)=>`<th data-i="${i}" class="${i===sortCol?('sorted'+(asc?' asc':'')):''}">${c.h}</th>`).join('')+'</tr></thead><tbody>';
-    rr.forEach(r=>{
+    rr.forEach(({row:r})=>{
       html+='<tr>'+cols.map((c,i)=>{
         let v=r[i];
         if(c.f==='n'){const cls=(c.sign&&v<0)?' class="pos"':(c.sign&&v>0?' class="neg"':'');return `<td${cls}>${fr(v)}</td>`}
@@ -1142,7 +1144,7 @@ function renderAll(){
       document.getElementById('lg-pl').innerHTML='';
     }
     const colNDS=SEC.has_subaccs?[{h:'НДС',f:'n'}]:[];
-    const selCols=[{h:'Месяц'},{h:'Выручка с НДС',f:'n'},...colNDS,{h:'Выручка'+(SEC.has_subaccs?' без НДС':''),f:'n'},{h:'Себестоимость',f:'n'},{h:'Управленческие',f:'n'},{h:'Прибыль от продаж',f:'pl'},{h:'Прочие доходы',f:'n'},{h:'Прочие расходы',f:'n'},{h:'Чистый результат',f:'pl'},{h:'Статус'}];
+    const selCols=[{h:'Месяц',sort:'period'},{h:'Выручка с НДС',f:'n'},...colNDS,{h:'Выручка'+(SEC.has_subaccs?' без НДС':''),f:'n'},{h:'Себестоимость',f:'n'},{h:'Управленческие',f:'n'},{h:'Прибыль от продаж',f:'pl'},{h:'Прочие доходы',f:'n'},{h:'Прочие расходы',f:'n'},{h:'Чистый результат',f:'pl'},{h:'Статус'}];
     const selRowsFn=SEC.has_subaccs
       ? p=>[MN[p.i],p.revg,p.nds,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,D.closing_label[p.i]]
       : p=>[MN[p.i],p.revg,p.revn,p.cost,p.adm,p.sales,p.oinc,p.oexp,p.net,D.closing_label[p.i]];
@@ -1198,7 +1200,7 @@ function renderAll(){
       document.getElementById('lg-cf2').innerHTML='';
     }
     table('tbl-cf',
-      [{h:'Месяц'},{h:'Поступления',f:'n'},{h:'Платежи',f:'n'},{h:'Чистый поток',f:'pl'}],
+      [{h:'Месяц',sort:'period'},{h:'Поступления',f:'n'},{h:'Платежи',f:'n'},{h:'Чистый поток',f:'pl'}],
       P.filter(p=>sel[p.i]).map(p=>[MN[p.i],D.cf.inn[p.i],D.cf.out[p.i],flow[p.i]]),{total:true});
     table('tbl-kassa',
       [{h:'Статья движения денежных средств'},{h:'Приход',f:'n'},{h:'Расход',f:'n'}],

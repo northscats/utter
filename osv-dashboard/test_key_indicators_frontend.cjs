@@ -222,6 +222,35 @@ async function checkBootstrap(configuration) {
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
     {type: 'number', value: 1234.5});
+  const monthRows = ['Мар 2026', 'Янв 2026', 'Дек 2025', 'Фев 2026', 'Итого']
+    .map((text, index) => ({
+      index,
+      classList: {contains: () => false},
+      cells: [{dataset: {}, textContent: text}]
+    }));
+  const monthBody = {rows: monthRows, appendChild(row) {
+    this.rows.splice(this.rows.indexOf(row), 1);
+    this.rows.push(row);
+  }};
+  const monthTable = {tBodies: [monthBody]};
+  app.sortTable(monthTable, 0, 'asc');
+  assert.deepEqual(monthBody.rows.map(row => row.index), [2, 1, 3, 0, 4]);
+  app.sortTable(monthTable, 0, 'desc');
+  assert.deepEqual(monthBody.rows.map(row => row.index), [0, 3, 1, 2, 4]);
+  assert.ok(app.tableSortValue({dataset: {}, textContent: 'декабрь 2025'}).value <
+    app.tableSortValue({dataset: {}, textContent: 'январь 2026'}).value);
+  assert.ok(app.tableSortValue({dataset: {sortValue: '2026-03-31'}}).value >
+    app.tableSortValue({dataset: {sortValue: '2026-02-28'}}).value);
+  const capexMonth = {classList: {contains: name => name === 'capex-month-row'},
+    cells: [{dataset: {sortValue: '2026-02-28'}, textContent: 'Фев 2026'}]};
+  const capexDetails = {classList: {contains: name => name === 'capex-month-details-row'},
+    cells: [{dataset: {}, textContent: 'Детали'}]};
+  const capexJanuary = {classList: {contains: name => name === 'capex-month-row'},
+    cells: [{dataset: {sortValue: '2026-01-31'}, textContent: 'Янв 2026'}]};
+  const capexBody = {rows: [capexMonth, capexDetails, capexJanuary],
+    appendChild: monthBody.appendChild};
+  app.sortTable({tBodies: [capexBody]}, 0, 'asc');
+  assert.deepEqual(capexBody.rows, [capexJanuary, capexMonth, capexDetails]);
   const sortableRows = ['12,5%', '2,0%', '8,3%', 'ИТОГО'].map((text, index) => ({
     index,
     classList: {contains: () => false},

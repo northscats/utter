@@ -285,3 +285,32 @@ assert.deepEqual(
 
 console.log('PASS: daily 70 overview and modal preserve ОбД70/ОбК70 directions, gaps, and inference note');
 console.log('PASS: main legacy render preserves distinct zp.n accrual and zp.v payment series');
+
+// Legacy monthly tables receive chronologically ordered source rows. Sort by
+// that order rather than by Russian month names (which repeat across years).
+const legacyTableNode = {
+    dataset: {}, _html: '', _headers: null,
+    get innerHTML() { return this._html; },
+    set innerHTML(value) { this._html = value; this._headers = null; },
+    querySelectorAll() {
+        if (!this._headers) this._headers =
+            [...this.innerHTML.matchAll(/<th data-i="(\d+)"/g)]
+                .map(([, i]) => ({dataset: {i}, onclick: null}));
+        return this._headers;
+    }
+};
+const legacySortContext = vm.createContext({
+    document: {getElementById: () => legacyTableNode},
+    esc: value => String(value),
+    fr: value => String(value),
+});
+vm.runInContext(extractFunction('table'), legacySortContext);
+legacySortContext.table('months', [{h: 'Месяц', sort: 'period'}, {h: 'Сумма', f: 'n'}],
+    [['Декабрь', 12], ['Январь', 1], ['Февраль', 2]], {total: true});
+const tableMonths = () => [...legacyTableNode.innerHTML.matchAll(/<tr><td>([^<]+)<\/td>/g)]
+    .map(([, month]) => month);
+legacyTableNode.querySelectorAll('th')[0].onclick();
+assert.deepEqual(tableMonths(), ['Февраль', 'Январь', 'Декабрь']);
+legacyTableNode.querySelectorAll('th')[0].onclick();
+assert.deepEqual(tableMonths(), ['Декабрь', 'Январь', 'Февраль']);
+console.log('PASS: legacy month sorting follows source chronology in both directions');

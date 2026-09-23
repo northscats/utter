@@ -880,6 +880,12 @@
             const raw = String(
                 (cell && cell.dataset && cell.dataset.sortValue) ||
                 (cell && cell.textContent) || '').replace(/\u00a0/g, ' ').trim();
+            const isoMonth = /^(\d{4})-(0[1-9]|1[0-2])(?:-(\d{2}))?$/.exec(raw);
+            if (isoMonth) {
+                return {type: 'number', value: Date.UTC(
+                    Number(isoMonth[1]), Number(isoMonth[2]) - 1,
+                    Number(isoMonth[3] || 1))};
+            }
             const dateMatch = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(raw);
             if (dateMatch) {
                 return {
@@ -889,6 +895,26 @@
                         Number(dateMatch[2]) - 1,
                         Number(dateMatch[1]))
                 };
+            }
+            const monthMatch = /^([а-яё]+)\.?\s*(\d{4})?(?:\s*г\.?)?$/i.exec(raw);
+            const months = {
+                янв: 1, январь: 1, января: 1,
+                фев: 2, февраль: 2, февраля: 2,
+                мар: 3, март: 3, марта: 3,
+                апр: 4, апрель: 4, апреля: 4,
+                май: 5, мая: 5,
+                июн: 6, июнь: 6, июня: 6,
+                июл: 7, июль: 7, июля: 7,
+                авг: 8, август: 8, августа: 8,
+                сен: 9, сент: 9, сентябрь: 9, сентября: 9,
+                окт: 10, октябрь: 10, октября: 10,
+                ноя: 11, ноябрь: 11, ноября: 11,
+                дек: 12, декабрь: 12, декабря: 12
+            };
+            const month = monthMatch && months[monthMatch[1].toLocaleLowerCase('ru-RU')];
+            if (month) {
+                return {type: 'number', value: monthMatch[2]
+                    ? Date.UTC(Number(monthMatch[2]), month - 1, 1) : month};
             }
             const numeric = raw
                 .replace(/\s+/g, '')
@@ -922,10 +948,18 @@
             const body = table && table.tBodies && table.tBodies[0];
             if (!body) return;
             const allRows = Array.from(body.rows);
+            // Expanded capex detail rows belong to the preceding month.
+            const details = new Map();
+            allRows.forEach((row, index) => {
+                if (row.classList && row.classList.contains('capex-month-details-row')
+                        && index) details.set(allRows[index - 1], row);
+            });
             const summaryRows = allRows.filter(
                 row => this.isTableSummaryRow(row));
             const rows = allRows.filter(
-                row => !this.isTableSummaryRow(row)).map((row, index) => ({
+                row => !this.isTableSummaryRow(row) &&
+                    !(row.classList && row.classList.contains('capex-month-details-row')))
+                .map((row, index) => ({
                 row,
                 index,
                 sort: this.tableSortValue(row.cells[columnIndex])
@@ -945,7 +979,10 @@
                 }
                 return comparison ? comparison * sign : left.index - right.index;
             });
-            rows.forEach(item => body.appendChild(item.row));
+            rows.forEach(item => {
+                body.appendChild(item.row);
+                if (details.has(item.row)) body.appendChild(details.get(item.row));
+            });
             summaryRows.forEach(row => body.appendChild(row));
         },
 
@@ -6166,7 +6203,7 @@
                              </td>
                            </tr>` : '';
                     return `<tr class="${isMonth ? 'capex-month-row' : 'capex-total-row'}">
-                        <td>${toggle}</td>
+                        <td${row.date || row.end ? ` data-sort-value="${esc(row.date || row.end)}"` : ''}>${toggle}</td>
                         <td>${esc(capexMoney(row.invested))}</td>
                         <td>${esc(capexMoney(row.developed))}</td>
                         <td>${esc(capexMoney(row.not_developed))}</td>
