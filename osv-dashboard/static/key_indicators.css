@@ -255,6 +255,12 @@ body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 .kpi-card.status-yellow { border-top-color: #F59E0B; }
 .kpi-card.status-red { border-top-color: #EF4444; }
 .kpi-card.status-grey { border-top-color: #9CA3AF; }
+.kpi-card.no-data {
+  background: #F8FAFC;
+  border-color: #D1D5DB;
+}
+.kpi-card.no-data .kpi-value { color: #6B7280; }
+.kpi-card.no-data .kpi-delta { color: #6B7280; }
 
 .kpi-card::after {
   content: '⤢'; position: absolute; top: 8px; right: 10px;

@@ -717,6 +717,9 @@ class MetricSnapshotValue(db.Model):
     granularity = db.Column(db.String(16), nullable=False, default='month',
                             index=True)
     value_json = db.Column(db.Text, nullable=False, default='null')
+    # Compact card presentation metadata; unlike chart/details payloads this
+    # remains bounded and allows the cards endpoint to avoid recalculation.
+    card_json = db.Column(db.Text, nullable=True)
     __table_args__ = (
         db.UniqueConstraint('snapshot_id', 'metric_id', 'period_start',
                             'period_end', 'granularity',

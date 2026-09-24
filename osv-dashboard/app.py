@@ -3816,7 +3816,7 @@ def key_indicators_data(company_id):
             from metric_snapshots import get_precomputed_key_indicators
             payload = get_precomputed_key_indicators(
                 company.id, period=period, endpoint_date=endpoint,
-                date_from=date_from)
+                 date_from=date_from, section=section)
             if payload is None:
                 _schedule_indicator_source_cache(company.id)
                 response = jsonify(error='Подготавливаем данные ОСВ. Повторите запрос через несколько секунд.')
@@ -7324,6 +7324,9 @@ def init_db(perform_durable=True):
         _add_missing('metric_snapshot_jobs', [
             ('methodology_version',
              "VARCHAR(80) NOT NULL DEFAULT 'metric-snapshots-v1'"),
+        ])
+        _add_missing('metric_snapshot_values', [
+            ('card_json', "TEXT"),
         ])
 
         # Task 117 is additive for deployed installations which already have

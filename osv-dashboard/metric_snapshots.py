@@ -10,6 +10,7 @@ a reproducible-build hash.
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 import zlib
@@ -38,7 +39,68 @@ def _row_dict(row, fields):
     return {field: getattr(row, field) for field in fields}
 
 
-def _revision(company_id):
+def _accepted_file_signatures(company_id, uploads_root):
+    """Return identities for accepted files.
+
+    This is only called with an explicit worker/source root.  HTTP revision
+    checks omit the root and therefore do no file I/O; background checks hash
+    accepted files so even same-size, same-mtime replacements are detected.
+    """
+    if not uploads_root:
+        return []
+    root = os.path.join(os.path.abspath(uploads_root), str(int(company_id)))
+    signatures = []
+    for upload in Upload.query.filter_by(company_id=company_id).order_by(Upload.id):
+        manifest = upload.source_manifest
+        if not isinstance(manifest, list):
+            continue
+        for record in manifest:
+            if not isinstance(record, dict):
+                continue
+            relative = str(record.get('relative_path') or '')
+            parts = [part for part in relative.split('/') if part not in ('', '.')]
+            if (not parts or any(part == '..' for part in parts)
+                    or '\\' in relative or relative.startswith('/')):
+                continue
+            path = os.path.realpath(os.path.join(root, *parts))
+            if path != root and not path.startswith(root + os.sep):
+                continue
+            try:
+                stat = os.stat(path)
+                from source_manifest import sha256_file
+                digest = sha256_file(path)
+                signature = (relative, stat.st_mtime_ns, stat.st_size, digest)
+            except OSError:
+                signature = (relative, None, None, None)
+            except Exception:
+                signature = (relative, None, None, 'unreadable')
+            signatures.append(signature)
+    return signatures
+
+
+def _validate_accepted_files(company_id, uploads_root):
+    """Reject a rebuild if an accepted file no longer matches its passport."""
+    if not uploads_root:
+        return
+    uploads = Upload.query.filter_by(company_id=company_id).order_by(Upload.id)
+    signatures = {
+        relative: digest for relative, _mtime, _size, digest
+        in _accepted_file_signatures(company_id, uploads_root)
+    }
+    for upload in uploads:
+        for record in upload.source_manifest or ():
+            if not isinstance(record, dict):
+                continue
+            relative = str(record.get('relative_path') or '')
+            expected = str(record.get('sha256') or '').lower()
+            actual = signatures.get(relative)
+            if expected and actual != expected:
+                raise SourceChanged(
+                    'Accepted source file changed or is unavailable: '
+                    + relative)
+
+
+def _revision(company_id, uploads_root=None):
     """Return the revision fingerprint and its JSON-safe evidence."""
     uploads = Upload.query.filter_by(company_id=company_id).order_by(Upload.id).all()
     upload_data = [_row_dict(row, (
@@ -84,7 +146,9 @@ def _revision(company_id):
                 })
     except ImportError:
         pass
+    job = MetricSnapshotJob.query.filter_by(company_id=company_id).first()
     evidence = {'uploads': upload_data, 'daily_rows': daily_data,
+                'source_generation': job.generation if job else 0,
                 'mappings': mappings, 'collection_settings': collection,
                 'methodology_version': METHODOLOGY_VERSION}
     return hashlib.sha256(_json(evidence).encode('utf-8')).hexdigest(), evidence
@@ -248,7 +312,8 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
     company = db.session.get(Company, company_id)
     if company is None:
         raise ValueError('Unknown company')
-    fingerprint, _ = _revision(company_id)
+    fingerprint, _ = _revision(company_id, uploads_root)
+    _validate_accepted_files(company_id, uploads_root)
     source, _updated = load_company_source(company_id, uploads_root)
     source = {**source, '_source_updated_at': _updated}
     endpoint = endpoint_date or _latest_date(source)
@@ -286,7 +351,8 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
             or job.status != 'building'):
         db.session.rollback()
         raise SourceChanged('New rebuild request arrived during calculation')
-    current_fingerprint, _ = _revision(company_id)
+    current_fingerprint, _ = _revision(company_id, uploads_root)
+    _validate_accepted_files(company_id, uploads_root)
     if current_fingerprint != fingerprint:
         db.session.rollback()
         raise SourceChanged('Metric snapshot source or settings changed')
@@ -317,9 +383,22 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
             value = card.get('value')
             if isinstance(value, (dict, list)):
                 continue
+            # Keep only the compact presentation contract.  Series and
+            # analytics deliberately remain calculation-only chart data.
+            # These are the complete shallow presentation fields consumed by
+            # the cards section.  In particular, retain the unit and formula
+            # so clients do not format persisted RUB values as raw numbers.
+            compact = {
+                key: card.get(key) for key in (
+                    'id', 'title', 'unit', 'status', 'status_label',
+                    'reason', 'delta', 'date', 'formula', 'source',
+                    'notes', 'comparison',
+                )
+            }
             candidate.values.append(MetricSnapshotValue(
                 metric_id=metric_id, value_date=endpoint_value, period_start=start,
-                period_end=end, granularity=granularity, value_json=_json(value)))
+                period_end=end, granularity=granularity, value_json=_json(value),
+                card_json=_json(compact) if compact else None))
     try:
         db.session.add(candidate)
         db.session.flush()
@@ -403,7 +482,7 @@ publish_source_cache = publish_indicator_source_cache
 publish_source_snapshot = publish_indicator_source_cache
 
 
-def recover_metric_snapshot_jobs():
+def recover_metric_snapshot_jobs(uploads_root=None):
     """Requeue interrupted work and publications from older methodology."""
     MetricSnapshotJob.query.filter_by(status='building').update(
         {'status': 'stale'}, synchronize_session=False)
@@ -413,17 +492,40 @@ def recover_metric_snapshot_jobs():
         if job is not None and job.status == 'failed':
             continue
         if job is None or job.status == 'ready':
-            fingerprint, _ = _revision(pointer.company_id)
+            fingerprint, _ = _revision(pointer.company_id, uploads_root)
             if pointer.revision_fingerprint != fingerprint:
-                enqueue_metric_snapshot(pointer.company_id)
+                if job is None:
+                    enqueue_metric_snapshot(pointer.company_id)
+                else:
+                    # A startup reconciliation is not a source write. Bumping
+                    # generation here invalidates the already-warmed source
+                    # cache on every restart while a publication is behind.
+                    job.status = 'stale'
+                    job.error = None
+                    job.methodology_version = METHODOLOGY_VERSION
+                    job.updated_at = utcnow()
     for job in MetricSnapshotJob.query.filter_by(status='failed').all():
         if job.methodology_version != METHODOLOGY_VERSION:
             # Also handles first builds which have no active pointer yet.
             enqueue_metric_snapshot(job.company_id)
     # Existing installations may have accepted uploads but no queue or
     # publication yet. Backfill them asynchronously, never in HTTP startup.
-    source_ids = (set(row[0] for row in db.session.query(Upload.company_id).distinct())
-                  | set(row[0] for row in db.session.query(DailyRow.company_id).distinct()))
+    source_ids = (
+        set(row[0] for row in db.session.query(Upload.company_id).distinct())
+        | set(row[0] for row in db.session.query(DailyRow.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            RevenueAnalyticMapping.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            CostAnalyticMapping.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            DebtorAnalyticMapping.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            ConsumerCollectionAccrual.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            ConsumerPaymentAllocation.company_id).distinct())
+        | set(row[0] for row in db.session.query(
+            ConsumerCollectionNorm.company_id).distinct())
+    )
     for company_id in source_ids:
         if db.session.get(MetricSnapshotJob, company_id) is None:
             enqueue_metric_snapshot(company_id)
@@ -484,7 +586,7 @@ def start_metric_snapshot_worker(app, uploads_root):
         def run():
             with app.app_context():
                 try:
-                    recover_metric_snapshot_jobs()
+                    recover_metric_snapshot_jobs(uploads_root)
                 except Exception:
                     db.session.rollback()
                     logging.exception('Metric snapshot recovery failed')
@@ -579,6 +681,18 @@ def get_precomputed_key_indicators(company_id, period='month',
     """
     from key_indicators import build_key_indicators
 
+    # Standard card requests are served directly from the published scalar
+    # rows.  This is intentionally before source-cache lookup: cards must not
+    # parse ОСВ/XLS merely because the parsed-source cache is cold.
+    if section == 'cards' and period in ('month', 'quarter', 'year') and \
+            date_from is None:
+        published = _read_published_cards(company_id, period, endpoint_date)
+        if published is not None:
+            return published
+        # A fresh source cache can still serve cards while the first compact
+        # publication is building, or after a methodology/version upgrade.
+        # Never return scalars from a stale publication.
+
     fingerprint, _ = _revision(company_id)
     cache = db.session.get(IndicatorSourceCache, company_id)
     if cache is None or cache.revision_fingerprint != fingerprint:
@@ -640,6 +754,69 @@ def get_precomputed_key_indicators(company_id, period='month',
         return payload
     from key_indicators import select_indicator_section
     return select_indicator_section(payload, section)
+
+
+def _read_published_cards(company_id, period, endpoint_date=None):
+    """Read compact cards from the current publication, never a stale one."""
+    fingerprint, _ = _revision(company_id)
+    pointer = ActiveMetricSnapshot.query.filter_by(company_id=company_id).first()
+    snapshot = pointer.snapshot if pointer else None
+    if (pointer is None or snapshot is None or
+            pointer.revision_fingerprint != fingerprint or
+            snapshot.revision_fingerprint != fingerprint):
+        return None
+    query = MetricSnapshotValue.query.filter_by(
+        snapshot_id=snapshot.id, granularity=period)
+    if endpoint_date:
+        endpoint = (date.fromisoformat(endpoint_date)
+                    if isinstance(endpoint_date, str) else endpoint_date)
+        query = query.filter_by(value_date=endpoint)
+    else:
+        # A missing endpoint has the same meaning as the operational route:
+        # use the latest available option for this granularity.
+        query = query.order_by(MetricSnapshotValue.value_date.desc())
+    rows = query.order_by(MetricSnapshotValue.metric_id).all()
+    if not rows:
+        return None
+    selected_date = rows[0].value_date
+    if not endpoint_date:
+        rows = [row for row in rows if row.value_date == selected_date]
+    # Publications created before compact metadata was introduced contain
+    # scalar values only.  Let the normal source-cache path rebuild their
+    # exact cards rather than returning a misleading partial card shape.
+    if any(not row.card_json for row in rows):
+        return None
+    cards = []
+    for row in rows:
+        try:
+            value = json.loads(row.value_json)
+        except (TypeError, ValueError):
+            value = None
+        try:
+            card = json.loads(row.card_json) if row.card_json else {}
+        except (TypeError, ValueError):
+            card = {}
+        if not isinstance(card, dict):
+            card = {}
+        card['id'] = card.get('id') or row.metric_id
+        card['value'] = value
+        cards.append(card)
+    first = rows[0]
+    return {
+        'period': {
+            'kind': period,
+            'start': first.period_start.isoformat()
+            if first.period_start else None,
+            'end': first.period_end.isoformat() if first.period_end else None,
+            'date': selected_date.isoformat() if selected_date else None,
+            'date_from': selected_date.isoformat() if selected_date else None,
+            'granularity': period,
+        },
+        'cards': cards,
+        'quality': None,
+        'updated_at': snapshot.created_at.isoformat()
+        if snapshot.created_at else None,
+    }
 
 
 read_precomputed_key_indicators = get_precomputed_key_indicators

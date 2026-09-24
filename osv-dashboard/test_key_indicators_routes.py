@@ -241,6 +241,14 @@ class SourceAssemblyTests(unittest.TestCase):
 
 
 class KeyIndicatorRouteTests(unittest.TestCase):
+    def setUp(self):
+        # Route cases share one SQLite fixture; daily rows from an earlier
+        # case must not turn a later "empty company" into a populated one.
+        with self.app.app_context():
+            DailyRow.query.filter_by(company_id=self.company).delete()
+            Upload.query.filter_by(company_id=self.company).delete()
+            db.session.commit()
+
     @classmethod
     def setUpClass(cls):
         cls.app = app_module.app
@@ -909,7 +917,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             response = self.client('kpi_admin').get(self.url(data=True))
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(len(payload['cards']), 11)
+        self.assertEqual(len(payload['cards']), 10)
         self.assertTrue(all(card['value'] is None for card in payload['cards']))
         self.assertIsNone(payload['updated_at'])
         passport = payload['source_passport']

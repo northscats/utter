@@ -1767,7 +1767,10 @@
                         this.savePeriodSelection();
                     }
                 };
-                for (const section of ['meta', 'cards', 'tables', 'charts']) {
+                // Published standard-period cards can be read without
+                // recalculating the full analytical payload. Show them before
+                // the slower metadata, tables and chart sections arrive.
+                for (const section of ['cards', 'meta', 'tables', 'charts']) {
                     const data = await requestSection(section);
                     if (!isCurrent()) return;
                     mergeSection(data, section);
@@ -2065,9 +2068,13 @@
             if (!state.data.cards) return;
             
             let html = '';
-            const orderedIds = ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            // Keep the canonical ten tiles stable.  `ar` was a legacy
+            // receivables tile and is no longer part of the main indicators.
+            const orderedIds = ['cash', 'cash_dz', 'revenue', 'collection', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
             (state.data.cards || []).forEach(card => {
-                if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
+                if (card && card.id && card.id !== 'ar' && !orderedIds.includes(card.id)) {
+                    orderedIds.push(card.id);
+                }
             });
             
             orderedIds.forEach(id => {
@@ -2101,15 +2108,17 @@
                     deltaHtml = `<div class="kpi-delta ${dClass}">
                         ${esc(displayVal)} ${esc(u)} · ${esc(card.delta.label)}
                     </div>`;
-                } else if (isNull && card.reason) {
-                     deltaHtml = `<div class="kpi-delta neutral">${esc(card.reason)}</div>`;
+                } else if (isNull) {
+                     deltaHtml = `<div class="kpi-delta neutral">${esc(
+                         card.reason || 'Нет данных за выбранный период'
+                     )}</div>`;
                 }
                 
                 const ariaLabel = `${card.title}. Значение: ${formatted.val} ${formatted.u}. Статус: ${card.status_label || card.status}.`;
                 const metricTooltip = this.cashTooltip(this.metricTooltipData(card));
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host${isNull ? ' no-data' : ''}" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true"' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${isCashMetric(id) && card.date ? `<div class="kpi-delta neutral">на ${esc(card.date)}</div>` : ''}
@@ -9052,5 +9061,14 @@ renderCashModal(card) {
             App.switchCompany(event.data.company);
         });
     }
-    document.addEventListener('DOMContentLoaded', () => App.init());
+    // A cached script can execute after DOMContentLoaded (for example when
+    // the host restores a page). In that case a listener alone leaves the
+    // loading overlay up forever and no section request is ever sent.
+    if (document.readyState === 'interactive' ||
+            document.readyState === 'complete') {
+        App.init();
+    } else {
+        document.addEventListener('DOMContentLoaded', () => App.init(),
+                                  {once: true});
+    }
 })();

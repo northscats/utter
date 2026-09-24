@@ -65,6 +65,29 @@ assert.match(element('test-one-point').innerHTML, /Одна точка данн�
 app.renderBarChart([{date: '2026-01-01', label: '01.01.2026', value: null}],
     '%', 'test-all-missing', {title: 'test'});
 assert.match(element('test-all-missing').innerHTML, /Нет данных для графика/);
+// A missing value is still a real indicator: retain its tile and explain why
+// the value is unavailable instead of silently removing it from the grid.
+const indicatorIds = [
+    'cash', 'cash_dz', 'revenue', 'collection', 'ap', 'cogs', 'profit',
+    'credits', 'salary', 'capex'
+];
+app.state.data = {
+    cards: indicatorIds.map((id, index) => ({
+        id, title: id, value: index === 3 ? null : index, unit: 'RUB',
+        status: 'neutral', reason: index === 3 ? 'Недостаточно данных' : null
+    }))
+};
+app.renderCards();
+const cardGrid = element('ki-cards-grid').innerHTML;
+assert.equal((cardGrid.match(/class="kpi-card/g) || []).length, 10);
+assert.deepEqual(
+    Array.from(cardGrid.matchAll(/data-metric="([^"]+)"/g), match => match[1]),
+    indicatorIds
+);
+assert.match(cardGrid, /data-no-data="true"/);
+assert.doesNotMatch(cardGrid, /\shidden(?:[=>\s])/);
+assert.match(cardGrid, /Недостаточно данных/);
+assert.doesNotMatch(cardGrid, /data-metric="ar"/);
 app.onPeriodChange('month');
 assert.equal(app.state.quarterAnchor, null);
 assert.equal(app.state.dateFrom, null);
@@ -81,10 +104,8 @@ context.fetch = async url => {
 app.render = () => {};
 fetchData.call(app).then(() => {
     assert.equal(requested.length, 4);
-    assert.ok(requested.some(url => /section=meta/.test(url)));
-    assert.ok(requested.some(url => /section=cards/.test(url)));
-    assert.ok(requested.some(url => /section=tables/.test(url)));
-    assert.ok(requested.some(url => /section=charts/.test(url)));
+    assert.deepEqual(requested.map(url => new URL(url, 'http://test.local')
+        .searchParams.get('section')), ['cards', 'meta', 'tables', 'charts']);
     assert.ok(requested.every(url => /from=2026-03-31/.test(url) &&
         /to=2026-09-30/.test(url)));
     console.log('Quarter range, request parameters and chart gaps: OK');

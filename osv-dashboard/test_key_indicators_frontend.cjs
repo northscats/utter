@@ -89,8 +89,8 @@ async function checkBootstrap(configuration) {
   assert.equal(loading, false, 'loading must clear even on configuration errors');
   if (configuration) {
     assert.equal(requests.length, 4);
-    assert.match(requests[0], /[?&]section=meta/);
-    assert.match(requests[1], /[?&]section=cards/);
+    assert.match(requests[0], /[?&]section=cards/);
+    assert.match(requests[1], /[?&]section=meta/);
     assert.match(requests[2], /[?&]section=tables/);
     assert.match(requests[3], /[?&]section=charts/);
     assert.equal(renders, 4, 'each completed section must render progressively');

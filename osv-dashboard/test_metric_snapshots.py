@@ -1,5 +1,6 @@
 """SQLite-only regression tests for the durable metric snapshot boundary."""
 import os
+import json
 import tempfile
 import unittest
 from datetime import date, datetime, timezone
@@ -10,13 +11,15 @@ os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_tmp.name, 'test.db')
 
 import app as app_module
 from database import (ActiveMetricSnapshot, Company, CompanyMembership, DailyRow,
+                      RevenueAnalyticMapping, ConsumerCollectionAccrual,
                       IndicatorSourceCache, MetricSnapshot, MetricSnapshotJob,
                       Upload, User, UserModuleAccess, db)
 from metric_snapshots import (_periods, build_metric_snapshot,
                               get_precomputed_key_indicators,
                               process_metric_snapshot_job,
                               publish_source_snapshot, read_metric_values,
-                              recover_metric_snapshot_jobs)
+                              recover_metric_snapshot_jobs, _revision,
+                              _validate_accepted_files, SourceChanged)
 import metric_snapshots
 
 
@@ -64,6 +67,46 @@ class MetricSnapshotTests(unittest.TestCase):
              read_metric_values(self.company.id)},
             {('missing', None), ('new-card', 12.5)})
         self.assertFalse(hasattr(snapshot, 'payload_json'))
+        self.assertEqual(snapshot.revision_fingerprint,
+                         _revision(self.company.id)[0])
+
+    def test_standard_cards_read_compact_publication_without_rebuild(self):
+        source = {'dates': ['2026-01-31'], 'accounts': {}}
+        cards = [{
+            'id': f'card-{index}', 'title': f'Card {index}',
+            'unit': 'million_rubles', 'status': 'ready',
+            'status_label': 'Готово', 'reason': None, 'delta': index,
+            'date': '2026-01-31', 'formula': 'fact',
+            'source': 'ОСВ', 'notes': 'compact',
+            'comparison': {'previous': index - 1},
+            'value': None if index == 9 else index * 100,
+        } for index in range(10)]
+        with patch('key_indicators_service.load_company_source',
+                   return_value=(source, None)), \
+                patch('key_indicators.build_key_indicators',
+                      return_value={'cards': cards}):
+            build_metric_snapshot(self.company.id, '/unused',
+                                  endpoint_date=date(2026, 1, 31))
+
+        with patch('key_indicators_service.load_company_source',
+                   side_effect=AssertionError('compact cards must not read source')), \
+                patch('key_indicators.build_key_indicators',
+                      side_effect=AssertionError('compact cards must not build')):
+            payload = get_precomputed_key_indicators(
+                self.company.id, period='month',
+                endpoint_date='2026-01-31', section='cards')
+        self.assertEqual(len(payload['cards']), 10)
+        self.assertIsNone(payload['cards'][-1]['value'])
+        self.assertEqual(payload['cards'][0]['unit'], 'million_rubles')
+        self.assertEqual(payload['cards'][0]['comparison'], {'previous': -1})
+        compact_keys = (
+            'id', 'title', 'unit', 'status', 'status_label', 'reason',
+            'delta', 'date', 'formula', 'source', 'notes', 'comparison',
+        )
+        for expected, actual in zip(cards, payload['cards']):
+            self.assertEqual(
+                {key: actual.get(key) for key in compact_keys},
+                {key: expected.get(key) for key in compact_keys})
 
     def test_sparse_source_uses_only_real_period_endpoints(self):
         source = {'dates': ['2025-01-31', '2025-03-31', '2026-02-28']}
@@ -92,6 +135,14 @@ class MetricSnapshotTests(unittest.TestCase):
         self.assertIsInstance(snapshot, IndicatorSourceCache)
         self.assertIsNone(ActiveMetricSnapshot.query.first())
         self.assertEqual(MetricSnapshot.query.count(), 0)
+        # A compact publication can be absent while the background worker
+        # builds it. Standard-period cards must still use the warm source
+        # rather than returning 503 indefinitely.
+        with patch('key_indicators_service.load_company_source',
+                   side_effect=AssertionError('unexpected XLS read')):
+            cards = get_precomputed_key_indicators(
+                self.company.id, period='month', section='cards')
+        self.assertEqual(len(cards['cards']), 10)
         with patch('key_indicators_service.load_company_source',
                    side_effect=AssertionError('Unexpected file read')):
             payload = get_precomputed_key_indicators(
@@ -452,11 +503,16 @@ class MetricSnapshotTests(unittest.TestCase):
              patch('key_indicators.build_key_indicators',
                    return_value={'cards': [{'id': 'revenue', 'value': 5}]}):
             process_metric_snapshot_job('/unused')
+        generation = db.session.get(
+            MetricSnapshotJob, self.company_id).generation
         with patch('metric_snapshots.METHODOLOGY_VERSION',
                    'metric-snapshots-next-methodology'):
             recover_metric_snapshot_jobs()
         self.assertEqual(db.session.get(MetricSnapshotJob, self.company_id).status,
                          'stale')
+        self.assertEqual(
+            db.session.get(MetricSnapshotJob, self.company_id).generation,
+            generation)
 
     def test_methodology_change_requeues_failed_first_build(self):
         self._source_upload()
@@ -517,6 +573,57 @@ class MetricSnapshotTests(unittest.TestCase):
         finally:
             app_module.app.config['WTF_CSRF_ENABLED'] = True
             self.ctx.push()
+
+    def test_revision_changes_for_in_place_daily_edit(self):
+        row = DailyRow(company_id=self.company_id, date=date(2026, 1, 1),
+                       acc='51', obd=1)
+        db.session.add(row)
+        db.session.commit()
+        before = _revision(self.company_id)[0]
+        row.obd = 9
+        db.session.commit()
+        self.assertNotEqual(before, _revision(self.company_id)[0])
+
+    def test_revision_uses_cheap_stat_for_accepted_file_mutation(self):
+        root = tempfile.mkdtemp(prefix='accepted-source-')
+        company_root = os.path.join(root, str(self.company_id))
+        os.makedirs(company_root)
+        path = os.path.join(company_root, 'accepted.xlsx')
+        with open(path, 'wb') as stream:
+            stream.write(b'old')
+        upload = Upload(
+            company_id=self.company_id, uploaded_by=self.user_id,
+            source_manifest_json=json.dumps([{
+                'relative_path': 'accepted.xlsx',
+                'sha256': '0' * 64,
+                'source_id': 'unused',
+            }]))
+        db.session.add(upload)
+        db.session.commit()
+        with open(path, 'wb') as stream:
+            stream.write(b'new-content')
+        with self.assertRaises(SourceChanged):
+            _validate_accepted_files(self.company_id, root)
+
+    def test_recovery_backfills_mapping_and_collection_only_companies(self):
+        mapping_company = Company(name='Mapping only', created_by=self.user_id)
+        collection_company = Company(name='Collection only', created_by=self.user_id)
+        db.session.add_all([mapping_company, collection_company])
+        db.session.flush()
+        db.session.add(RevenueAnalyticMapping(
+            company_id=mapping_company.id, account='90',
+            analytic_key='sales', analytic_label='Sales', category='revenue'))
+        db.session.add(ConsumerCollectionAccrual(
+            company_id=collection_company.id, accrual_date=date(2026, 1, 1),
+            accrual_document='A-1', account='62', analytic_key='residents',
+            entry_type='accrual', accrued=10, source_name='test',
+            source_version='1'))
+        db.session.commit()
+        recover_metric_snapshot_jobs()
+        self.assertEqual(db.session.get(
+            MetricSnapshotJob, mapping_company.id).status, 'stale')
+        self.assertEqual(db.session.get(
+            MetricSnapshotJob, collection_company.id).status, 'stale')
 
 
 if __name__ == '__main__':
