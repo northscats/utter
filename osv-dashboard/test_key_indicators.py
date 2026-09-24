@@ -22,6 +22,14 @@ def day(dt, p3='', p1='', obd=0, obk=0, **balance):
                 obd=obd, obk=obk, **balance)
 
 class CashSalaryOriginalKeyIndicatorTests(unittest.TestCase):
+    def test_card_titles_use_short_display_names(self):
+        cards = {card['id']: card for card in build_key_indicators(
+            build_indicator_source({
+                '90': account('90', [day('2026-01-31', '90.02', obd=10)])
+            }))['cards']}
+        self.assertEqual(cards['profit']['title'], 'Прибыль от продаж')
+        self.assertEqual(cards['collection']['title'], 'Уровень собираемости')
+
     def test_account90_categories_classify_full_paths_and_reconcile_totals(self):
         rows = [
             day('2026-01-31', '90.01.1', p1='Тепловая ЭНЕРГИЯ',

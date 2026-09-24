@@ -31,7 +31,7 @@ app.collectionCell = content => `<td>${content}</td>`;
 
 const card = {
   id: 'profit',
-  title: 'Прибыль от продаж (до отдельных расходов)',
+  title: 'Прибыль от продаж',
   unit: 'RUB',
   gross_profit: 120000000,
   previous_year_gross_profit: 90000000,

@@ -373,11 +373,15 @@ async function checkBootstrap(configuration) {
     'a resized column must retain its minimum width');
   app.mountSharedDynamics = () => {};
   const collectionBase = {
-    id: 'collection', title: 'Собираемость', value: 60, unit: '%',
+    id: 'collection', title: 'Уровень собираемости', value: 60, unit: '%',
     accounting_proxy: {value: 60}, components: [],
     consumer_collection: {available: false, categories: [], series: []},
   };
   assert.doesNotThrow(() => app.renderCollectionModal(collectionBase));
+  const proxyTitleContainer = {innerHTML: '', querySelectorAll: () => []};
+  app.renderCollectionProxyModal(collectionBase, proxyTitleContainer);
+  assert.match(proxyTitleContainer.innerHTML,
+    /id="collection-proxy-title">Уровень собираемости<\/h3>/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /ДИНАМИКА СОБИРАЕМОСТИ/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /СОБИРАЕМОСТЬ ЗА ПЕРИОД млн ₽/);
   assert.match(nodes.get('ki-collection-modal-content').innerHTML, /КОМПОНЕНТЫ РАСЧЁТА \(ОСВ\)/);

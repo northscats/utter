@@ -3754,7 +3754,7 @@
             container.innerHTML = `
                 <section class="collection-proxy-view" aria-labelledby="collection-proxy-title">
                     <div class="collection-proxy-banner">
-                        <h3 id="collection-proxy-title">Собираемость (прокси по ОСВ)</h3>
+                        <h3 id="collection-proxy-title">Уровень собираемости</h3>
                         <p>Бухгалтерское отношение оборотов, а не фактические погашения начислений.</p>
                         <code>(ОбК 62.01 + ОбК 62.02 − ОбД 62.02) / ОбД 62.01 × 100%</code>
                     </div>
