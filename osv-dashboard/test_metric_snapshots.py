@@ -2,15 +2,16 @@
 import os
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 _tmp = tempfile.TemporaryDirectory(prefix='metric-snapshots-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_tmp.name, 'test.db')
 
 import app as app_module
-from database import (ActiveMetricSnapshot, Company, DailyRow, IndicatorSourceCache, MetricSnapshot,
-                      MetricSnapshotJob, Upload, User, db)
+from database import (ActiveMetricSnapshot, Company, CompanyMembership, DailyRow,
+                      IndicatorSourceCache, MetricSnapshot, MetricSnapshotJob,
+                      Upload, User, UserModuleAccess, db)
 from metric_snapshots import (_periods, build_metric_snapshot,
                               get_precomputed_key_indicators,
                               process_metric_snapshot_job,
@@ -144,6 +145,61 @@ class MetricSnapshotTests(unittest.TestCase):
                 self.assertEqual(response.json['values'], [])
                 self.assertEqual(response.headers['Cache-Control'], 'private, no-store')
                 self.assertEqual(client.get('/analytics/summary?company_ids=bogus').status_code, 400)
+        finally:
+            self.ctx.push()
+
+    def test_admin_home_alerts_current_failures_on_both_overviews(self):
+        failed_at = datetime(2026, 9, 24, 12, 35, tzinfo=timezone.utc)
+        second = Company(name='Вторая <РСО>', created_by=self.user_id)
+        archived = Company(name='Архивная РСО', created_by=self.user_id,
+                           status='archived')
+        member = User(username='snapshot-member', password_hash='x', role='user')
+        db.session.add_all([second, archived, member])
+        db.session.flush()
+        db.session.add(CompanyMembership(company_id=self.company_id,
+                                         user_id=member.id))
+        db.session.add(UserModuleAccess(user_id=member.id, module_key='analytics'))
+        db.session.add_all([
+            MetricSnapshotJob(company_id=self.company_id, status='failed',
+                              error='broken', updated_at=failed_at),
+            MetricSnapshotJob(company_id=second.id, status='failed',
+                              error='broken', updated_at=failed_at),
+            MetricSnapshotJob(company_id=archived.id, status='failed',
+                              error='broken', updated_at=failed_at),
+        ])
+        db.session.commit()
+        second_id, member_id = second.id, member.id
+        app_module.app.config.update(TESTING=True)
+        db.session.remove()
+        self.ctx.pop()
+        try:
+            with app_module.app.test_client() as client:
+                with client.session_transaction() as session:
+                    session['_user_id'] = str(self.user_id)
+                    session['_fresh'] = True
+                    session['password_version'] = 1
+                for path in ('/home', '/home?legacy=1'):
+                    html = client.get(path).get_data(as_text=True)
+                    self.assertIn('Ошибка пересборки основных показателей: 2', html)
+                    self.assertIn('24.09.2026 12:35', html)
+                    self.assertIn(f'/company/{second_id}/key-indicators#ki-snapshot-state', html)
+                    self.assertIn('Вторая &lt;РСО&gt;', html)
+                    self.assertNotIn('Архивная РСО', html)
+                with app_module.app.app_context():
+                    db.session.get(MetricSnapshotJob, second_id).status = 'stale'
+                    db.session.commit()
+                self.assertIn('Ошибка пересборки основных показателей: 1',
+                              client.get('/home').get_data(as_text=True))
+            with app_module.app.test_client() as client:
+                with client.session_transaction() as session:
+                    session['_user_id'] = str(member_id)
+                    session['_fresh'] = True
+                    session['password_version'] = 1
+                for path in ('/home', '/home?legacy=1'):
+                    response = client.get(path)
+                    self.assertEqual(response.status_code, 200)
+                    self.assertNotIn('Ошибка пересборки основных показателей',
+                                     response.get_data(as_text=True))
         finally:
             self.ctx.push()
 

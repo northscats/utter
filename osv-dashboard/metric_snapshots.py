@@ -150,6 +150,18 @@ def retry_failed_metric_snapshot(company_id):
     return True
 
 
+def failed_metric_snapshot_jobs():
+    """Current failures for the administrator's overview, without reading ОСВ."""
+    return (db.session.query(MetricSnapshotJob.company_id, Company.name,
+                             MetricSnapshotJob.updated_at)
+            .join(Company, Company.id == MetricSnapshotJob.company_id)
+            .filter(MetricSnapshotJob.status == 'failed',
+                    Company.status != 'archived')
+            .order_by(MetricSnapshotJob.updated_at.desc(),
+                      MetricSnapshotJob.company_id)
+            .all())
+
+
 _SOURCE_MODELS = (Upload, DailyRow, RevenueAnalyticMapping,
                   CostAnalyticMapping, DebtorAnalyticMapping,
                   ConsumerCollectionAccrual, ConsumerPaymentAllocation,
@@ -449,7 +461,8 @@ def process_metric_snapshot_job(uploads_root, company_id=None):
         MetricSnapshotJob.query.filter_by(
             company_id=company_id, generation=generation,
             status='building').update(
-                {'status': 'failed', 'error': str(exc)[:2000]},
+                {'status': 'failed', 'error': str(exc)[:2000],
+                 'updated_at': utcnow()},
                 synchronize_session=False)
         db.session.commit()
     finally:

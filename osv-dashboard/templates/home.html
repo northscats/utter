@@ -40,6 +40,10 @@ body{height:100%;overflow:hidden;display:flex;flex-direction:column;
   text-decoration:none;white-space:nowrap}
 .hd-drop a:hover{background:#253545;color:#fff}
 .hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}
+.snapshot-alert{flex-shrink:0;background:#fff4e5;border-bottom:2px solid #c65b23;
+  color:#713916;padding:8px 16px;max-height:160px;overflow:auto}
+.snapshot-alert strong{margin-right:8px}.snapshot-alert ul{display:flex;flex-wrap:wrap;gap:4px 18px;
+  list-style:none;margin:4px 0 0;padding:0}.snapshot-alert a{color:#87400f;font-weight:700}
 
 .btn-add{background:var(--water);color:#fff;border:0;border-radius:6px;
   padding:5px 13px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;
@@ -326,6 +330,9 @@ body.splitter-dragging iframe{pointer-events:none}
   </div>
 </div>
 
+{% if current_user.is_admin %}
+{% include '_metric_snapshot_alert.html' %}
+{% endif %}
 
 {% if companies %}
 <!-- ══ WORKSPACE: SPLIT VIEW ══ -->

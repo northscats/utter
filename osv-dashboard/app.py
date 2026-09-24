@@ -2266,13 +2266,18 @@ def home():
         query = query.join(CompanyMembership).filter(
             CompanyMembership.user_id == current_user.id)
     companies = query.order_by(Company.created_at.desc()).all()
+    failed_snapshot_jobs = []
+    if current_user.is_admin:
+        from metric_snapshots import failed_metric_snapshot_jobs
+        failed_snapshot_jobs = failed_metric_snapshot_jobs()
     if (app.config['PORTFOLIO_HOME_ENABLED']
             and request.args.get('legacy') != '1'):
         from portfolio import build_portfolio
         portfolio = build_portfolio(
             companies, selected_year=request.args.get('year', type=int))
         response = Response(render_template(
-            'portfolio.html', portfolio=portfolio), mimetype='text/html')
+            'portfolio.html', portfolio=portfolio,
+            failed_snapshot_jobs=failed_snapshot_jobs), mimetype='text/html')
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return response
     # Автоматически восстанавливаем kpi_cache.json для компаний, у которых
@@ -2291,6 +2296,7 @@ def home():
     cards = [_company_summary(c) for c in companies]
     response = Response(
         render_template('home.html', companies=cards,
+                        failed_snapshot_jobs=failed_snapshot_jobs,
                         rating_profiles=_rating_profiles_for_user(),
                         historical_expert_enabled=(
                             app.config['HISTORICAL_IMPORT_ENABLED']

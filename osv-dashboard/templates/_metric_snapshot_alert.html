@@ -1,0 +1,12 @@
+{% if failed_snapshot_jobs %}
+<section class="snapshot-alert" role="alert" aria-label="Ошибки пересборки показателей">
+  <strong>Ошибка пересборки основных показателей: {{ failed_snapshot_jobs|length }}</strong>
+  <span>Данные могут быть неактуальны. Откройте предприятие, чтобы увидеть статус и повторить пересборку.</span>
+  <ul>
+    {% for company_id, name, failed_at in failed_snapshot_jobs %}
+    <li><a href="{{ url_for('key_indicators_page', company_id=company_id, _anchor='ki-snapshot-state') }}">{{ name }}</a>
+      — {{ failed_at.strftime('%d.%m.%Y %H:%M') if failed_at else 'дата не указана' }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
