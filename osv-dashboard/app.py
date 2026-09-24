@@ -52,7 +52,8 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         DebtorAnalyticMapping, ConsumerCollectionAccrual,
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
-                       MetricSnapshot, MetricSnapshotSource, MetricSnapshotValue,
+                        MetricSnapshot, MetricSnapshotSource, IndicatorSourceCache,
+                        MetricSnapshotValue,
                        ActiveMetricSnapshot, MetricSnapshotJob,
                        OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
@@ -3840,7 +3841,19 @@ def key_indicators_data(company_id):
         response.headers['Vary'] = 'Accept-Encoding'
     return response
 
-
+@app.route('/analytics/summary/<int:company_id>/retry', methods=['POST'])
+@admin_required
+def retry_metric_snapshot_summary(company_id):
+    """Retry a failed publication without changing its sources or active pointer."""
+    company = db.session.get(Company, company_id) or abort(404)
+    if company.is_archived:
+        return jsonify(error='Архивное предприятие доступно только для чтения'), 409
+    from metric_snapshots import retry_failed_metric_snapshot
+    if not retry_failed_metric_snapshot(company_id):
+        return jsonify(error='Повтор доступен только для задания с ошибкой.'), 409
+    response = jsonify(company_id=company_id, status='stale')
+    response.headers['Cache-Control'] = 'private, no-store'
+    return response
 @app.route('/analytics/summary')
 @login_required
 def metric_snapshot_summary():
@@ -6022,6 +6035,9 @@ def _delete_company_records(company):
         company_id=company_id)
     deleted_counts[MetricSnapshotJob.__tablename__] = (
         MetricSnapshotJob.query.filter_by(company_id=company_id)
+        .delete(synchronize_session=False))
+    deleted_counts[IndicatorSourceCache.__tablename__] = (
+        IndicatorSourceCache.query.filter_by(company_id=company_id)
         .delete(synchronize_session=False))
     deleted_counts[ActiveMetricSnapshot.__tablename__] = (
         ActiveMetricSnapshot.query.filter_by(company_id=company_id)
@@ -9026,6 +9042,10 @@ def limit_delivery_journal(dataset_id):
                            selected_status=status, search=search, selected_version=version_id,
                            total=total, page=page, pages=pages,
                            versions=LimitVersion.query.filter_by(dataset_id=dataset_id, status='accepted').all())
+
+_indicator_source_builds_lock = threading.Lock()
+_indicator_source_builds = set()
+
 
 def _schedule_indicator_source_cache(company_id):
     """Warm an unavailable revision outside the request, coalescing local readers."""

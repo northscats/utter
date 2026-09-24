@@ -9,7 +9,7 @@ _tmp = tempfile.TemporaryDirectory(prefix='metric-snapshots-')
 os.environ['DATABASE_URL'] = 'sqlite:///' + os.path.join(_tmp.name, 'test.db')
 
 import app as app_module
-from database import (ActiveMetricSnapshot, Company, DailyRow, MetricSnapshot,
+from database import (ActiveMetricSnapshot, Company, DailyRow, IndicatorSourceCache, MetricSnapshot,
                       MetricSnapshotJob, Upload, User, db)
 from metric_snapshots import (_periods, build_metric_snapshot,
                               get_precomputed_key_indicators,
@@ -88,7 +88,9 @@ class MetricSnapshotTests(unittest.TestCase):
                    return_value=(source, None)) as loader:
             snapshot = publish_source_snapshot(self.company.id, '/unused')
         self.assertEqual(loader.call_count, 1)
-        self.assertEqual(snapshot.period, 'source')
+        self.assertIsInstance(snapshot, IndicatorSourceCache)
+        self.assertIsNone(ActiveMetricSnapshot.query.first())
+        self.assertEqual(MetricSnapshot.query.count(), 0)
         with patch('key_indicators_service.load_company_source',
                    side_effect=AssertionError('Unexpected file read')):
             payload = get_precomputed_key_indicators(
@@ -214,6 +216,115 @@ class MetricSnapshotTests(unittest.TestCase):
         db.session.commit()
         recover_metric_snapshot_jobs()
         self.assertEqual(db.session.get(MetricSnapshotJob, company_id).status, 'stale')
+
+    def test_admin_retry_failed_job_preserves_publication_and_sources(self):
+        self._source_upload()
+        company_id = self.company_id
+        source = {'dates': ['2026-01-31'], 'accounts': {}}
+        with patch('key_indicators_service.load_company_source',
+                   return_value=(source, None)), \
+             patch('key_indicators.build_key_indicators',
+                   return_value={'cards': [{'id': 'revenue', 'value': 5}]}):
+            process_metric_snapshot_job('/unused')
+        original_id = ActiveMetricSnapshot.query.first().snapshot_id
+        Upload.query.first().period_label = '2027'
+        db.session.commit()
+        # The upload schedules a parsed-source warmup before the full rebuild.
+        # It must not take the place of the last complete scalar publication.
+        with patch('key_indicators_service.load_company_source',
+                   return_value=(source, None)):
+            cache = metric_snapshots.publish_indicator_source_cache(
+                company_id, '/unused')
+        self.assertIsInstance(cache, IndicatorSourceCache)
+        self.assertEqual(ActiveMetricSnapshot.query.first().snapshot_id, original_id)
+        self.assertEqual(read_metric_values(company_id)[0]['value'], 5)
+        with patch('key_indicators_service.load_company_source',
+                   side_effect=ValueError('bad source')):
+            process_metric_snapshot_job('/unused')
+        generation = db.session.get(MetricSnapshotJob, company_id).generation
+        uploads = Upload.query.count()
+        app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
+        db.session.remove()
+        self.ctx.pop()
+        try:
+            with app_module.app.test_client() as client:
+                path = f'/analytics/summary/{company_id}/retry'
+                self.assertNotEqual(client.post(path).status_code, 200)
+                with client.session_transaction() as session:
+                    session['_user_id'] = str(self.user_id)
+                    session['_fresh'] = True
+                    session['password_version'] = 1
+                self.assertEqual(client.post(path, headers={'Accept': 'application/json'}).status_code, 403)
+                token = client.get('/rating-api/csrf').json['csrf_token']
+                headers = {'X-CSRFToken': token, 'Accept': 'application/json'}
+                response = client.post(path, headers=headers)
+                self.assertEqual(response.status_code, 200, response.json)
+                self.assertEqual(response.json['status'], 'stale')
+                self.assertEqual(client.post(path, headers=headers).status_code, 409)
+                with app_module.app.app_context():
+                    job = db.session.get(MetricSnapshotJob, company_id)
+                    self.assertEqual((job.status, job.generation, job.error),
+                                     ('stale', generation + 1, None))
+                    self.assertEqual(ActiveMetricSnapshot.query.first().snapshot_id,
+                                     original_id)
+                    self.assertEqual(Upload.query.count(), uploads)
+                with patch('key_indicators_service.load_company_source',
+                           side_effect=ValueError('still bad')):
+                    with app_module.app.app_context():
+                        process_metric_snapshot_job('/unused')
+                url = (f'/analytics/summary?company_ids={company_id}'
+                       '&metric_ids=revenue&granularity=month'
+                       '&from=2026-01-31&to=2026-01-31')
+                item = client.get(url).json['companies'][0]
+                self.assertEqual((item['status'], item['error'], item['snapshot_id']),
+                                 ('failed', 'still bad', original_id))
+                with app_module.app.app_context():
+                    self.assertEqual(Upload.query.count(), uploads)
+                    self.assertEqual(read_metric_values(company_id)[0]['value'], 5)
+                self.assertEqual(client.post(path, headers=headers).status_code, 200)
+                with patch('key_indicators_service.load_company_source',
+                           return_value=(source, None)), \
+                     patch('key_indicators.build_key_indicators',
+                           return_value={'cards': [{'id': 'revenue', 'value': 8}]}):
+                    with app_module.app.app_context():
+                        process_metric_snapshot_job('/unused')
+                        self.assertEqual(db.session.get(
+                            MetricSnapshotJob, company_id).status, 'ready')
+                        self.assertEqual(Upload.query.count(), uploads)
+                        self.assertNotEqual(ActiveMetricSnapshot.query.first().snapshot_id,
+                                            original_id)
+                        self.assertEqual(read_metric_values(company_id)[0]['value'], 8)
+        finally:
+            self.ctx.push()
+
+    def test_retry_rejects_non_admin_and_non_failed_jobs(self):
+        self._source_upload()
+        user = User(username='reader', password_hash='x', role='user')
+        db.session.add(user)
+        db.session.commit()
+        reader_id = user.id
+        company_id = self.company_id
+        app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=True)
+        db.session.remove()
+        self.ctx.pop()
+        try:
+            with app_module.app.test_client() as client:
+                with client.session_transaction() as session:
+                    session['_user_id'] = str(self.user_id)
+                    session['_fresh'] = True
+                    session['password_version'] = 1
+                token = client.get('/rating-api/csrf').json['csrf_token']
+                with client.session_transaction() as session:
+                    session['_user_id'] = str(reader_id)
+                headers = {'X-CSRFToken': token, 'Accept': 'application/json'}
+                self.assertEqual(client.post(
+                    f'/analytics/summary/{company_id}/retry',
+                    headers=headers).status_code, 403)
+            with app_module.app.app_context():
+                job = db.session.get(MetricSnapshotJob, company_id)
+                self.assertEqual((job.status, job.generation), ('stale', 1))
+        finally:
+            self.ctx.push()
 
     def test_arriving_upload_cannot_publish_obsolete_candidate(self):
         self._source_upload()

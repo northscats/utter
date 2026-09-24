@@ -17,10 +17,11 @@ from collections import OrderedDict
 from datetime import date
 from threading import Event, RLock
 
-from sqlalchemy import event
+from sqlalchemy import event, update
 from sqlalchemy.orm import Session
 from database import (
     ActiveMetricSnapshot, Company, CostAnalyticMapping, DebtorAnalyticMapping,
+    IndicatorSourceCache,
     MetricSnapshot, MetricSnapshotJob, MetricSnapshotSource, MetricSnapshotValue,
     RevenueAnalyticMapping,
     Upload, DailyRow, ConsumerCollectionAccrual, ConsumerPaymentAllocation,
@@ -131,6 +132,22 @@ def enqueue_metric_snapshot(company_id, session=None):
               'methodology_version': METHODOLOGY_VERSION,
               'error': None, 'updated_at': utcnow()})
     session.execute(stmt)
+
+
+def retry_failed_metric_snapshot(company_id):
+    """Atomically requeue only failed work; do not touch source or publication."""
+    table = MetricSnapshotJob.__table__
+    result = db.session.execute(
+        update(table).where(table.c.company_id == company_id,
+                            table.c.status == 'failed').values(
+            generation=table.c.generation + 1,
+            methodology_version=METHODOLOGY_VERSION,
+            status='stale', error=None, updated_at=utcnow()))
+    if result.rowcount != 1:
+        db.session.rollback()
+        return False
+    db.session.commit()
+    return True
 
 
 _SOURCE_MODELS = (Upload, DailyRow, RevenueAnalyticMapping,
@@ -318,10 +335,8 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
 def publish_indicator_source_cache(company_id, uploads_root):
     """Parse and durably publish a source cache without calculating periods.
 
-    This is the lightweight background hook intended after an upload.  It
-    creates a source-only metric snapshot, so the normal active pointer and
-    revision guard also protect it from concurrent publishers.  A later full
-    rebuild supersedes this snapshot and adds the scalar period values.
+    Source warming must never switch the active scalar publication. A failed
+    rebuild must leave the last complete comparison available to readers.
     """
     from key_indicators_service import load_company_source
 
@@ -329,46 +344,47 @@ def publish_indicator_source_cache(company_id, uploads_root):
     if company is None:
         raise ValueError('Unknown company')
     fingerprint, _ = _revision(company_id)
+    cached = db.session.get(IndicatorSourceCache, company_id)
+    if cached and cached.revision_fingerprint == fingerprint:
+        return cached
     active = get_active_snapshot(company_id)
     if (active and active.revision_fingerprint == fingerprint and
             active.source_cache and
             active.source_cache.revision_fingerprint == fingerprint):
-        return active
+        return active.source_cache
     source, _updated = load_company_source(company_id, uploads_root)
     source = {**source, '_source_updated_at': _updated}
+    # Source writers update the same durable job row. Lock it through the
+    # revision check and cache write so an older warmup cannot overwrite a
+    # newer accepted source under concurrent uploads.
+    MetricSnapshotJob.query.filter_by(company_id=company_id).with_for_update().first()
     current_fingerprint, _ = _revision(company_id)
     if current_fingerprint != fingerprint:
         raise RuntimeError('Indicator source cache is stale; source changed')
-    endpoint = _latest_date(source)
-    pointer = (ActiveMetricSnapshot.query.filter_by(company_id=company_id)
-               .with_for_update().first())
-    previous = db.session.get(MetricSnapshot, pointer.snapshot_id) if pointer else None
-    # Recheck after locking: another request may have published this revision.
-    if (pointer and pointer.revision_fingerprint == fingerprint and
-            previous and previous.source_cache and
-            previous.source_cache.revision_fingerprint == fingerprint):
-        return previous
-    version = (previous.version + 1) if previous else 1
-    candidate = MetricSnapshot(company_id=company_id, version=version,
-                               revision_fingerprint=fingerprint,
-                               period='source', endpoint_date=endpoint)
-    candidate.source_cache = MetricSnapshotSource(
-        revision_fingerprint=fingerprint, source_blob=_pack_source(source))
+    table = IndicatorSourceCache.__table__
+    dialect = db.session.get_bind().dialect.name
+    if dialect == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == 'sqlite':
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise RuntimeError('Indicator source cache requires PostgreSQL or SQLite')
+    blob = _pack_source(source)
+    stmt = insert(table).values(
+        company_id=company_id, revision_fingerprint=fingerprint,
+        source_blob=blob, updated_at=utcnow())
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[table.c.company_id],
+        set_={'revision_fingerprint': fingerprint, 'source_blob': blob,
+              'updated_at': utcnow()})
     try:
-        db.session.add(candidate)
-        db.session.flush()
-        if pointer is None:
-            db.session.add(ActiveMetricSnapshot(
-                company_id=company_id, snapshot_id=candidate.id,
-                revision_fingerprint=fingerprint))
-        else:
-            pointer.snapshot_id = candidate.id
-            pointer.revision_fingerprint = fingerprint
+        db.session.execute(stmt)
         db.session.commit()
+        db.session.expire_all()
     except Exception:
         db.session.rollback()
         raise
-    return candidate
+    return db.session.get(IndicatorSourceCache, company_id)
 
 
 publish_source_cache = publish_indicator_source_cache
@@ -403,7 +419,7 @@ def recover_metric_snapshot_jobs():
 
 
 def process_metric_snapshot_job(uploads_root, company_id=None):
-    """Process one item; failed jobs stay failed until another source change."""
+    """Process one item; failed jobs wait for a source change or admin retry."""
     query = MetricSnapshotJob.query.filter_by(status='stale')
     if company_id is not None:
         query = query.filter_by(company_id=company_id)
@@ -545,20 +561,19 @@ def get_precomputed_key_indicators(company_id, period='month',
 
     This callable is intended for the application route.  It returns
     ``None`` when no source cache exists (or when its revision is stale);
-    importantly, it never calls the file loader on that miss.  Publication of
-    the source cache and its snapshot pointer is atomic in
-    :func:`build_metric_snapshot`.
+    importantly, it never calls the file loader on that miss. Source warming
+    does not modify the active scalar snapshot pointer.
     """
     from key_indicators import build_key_indicators
 
-    pointer = ActiveMetricSnapshot.query.filter_by(company_id=company_id).first()
-    if pointer is None or pointer.snapshot is None:
-        return None
     fingerprint, _ = _revision(company_id)
-    snapshot = pointer.snapshot
-    if (pointer.revision_fingerprint != fingerprint or
-            snapshot.revision_fingerprint != fingerprint):
-        return None
+    cache = db.session.get(IndicatorSourceCache, company_id)
+    if cache is None or cache.revision_fingerprint != fingerprint:
+        pointer = ActiveMetricSnapshot.query.filter_by(company_id=company_id).first()
+        snapshot = pointer.snapshot if pointer else None
+        cache = (snapshot.source_cache if snapshot and
+                 pointer.revision_fingerprint == fingerprint and
+                 snapshot.revision_fingerprint == fingerprint else None)
     key = (company_id, fingerprint, period, str(endpoint_date or ''),
            str(date_from or ''))
     while True:
@@ -578,12 +593,10 @@ def get_precomputed_key_indicators(company_id, period='month',
                 raise SourceBusyError('Расчёт выбранного диапазона ещё выполняется.')
             continue
         try:
-            source_cache = snapshot.source_cache
-            if (source_cache is None or
-                    source_cache.revision_fingerprint != fingerprint):
+            if cache is None or cache.revision_fingerprint != fingerprint:
                 return None
             try:
-                source = _unpack_source(source_cache.source_blob)
+                source = _unpack_source(cache.source_blob)
             except (TypeError, ValueError, zlib.error):
                 return None
             revenue, costs, debtors, accruals, allocations, norms = \

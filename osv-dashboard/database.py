@@ -690,6 +690,19 @@ class MetricSnapshotSource(db.Model):
     source_blob = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
                            nullable=False)
+
+
+class IndicatorSourceCache(db.Model):
+    """Latest parsed ОСВ source; independent of the active scalar publication."""
+    __tablename__ = 'indicator_source_caches'
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           primary_key=True)
+    revision_fingerprint = db.Column(db.String(64), nullable=False)
+    source_blob = db.Column(db.LargeBinary, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+
+
 class MetricSnapshotValue(db.Model):
     """One scalar value from one dynamically discovered metric card."""
     __tablename__ = 'metric_snapshot_values'

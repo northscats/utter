@@ -258,9 +258,6 @@ def main():
             page.goto(
                 f'https://{host}/company/{company_id}/key-indicators',
                 wait_until='domcontentloaded')
-            # This visual fixture compares the cash tables, not the unrelated
-            # workspace-wide modal resize. Keep its historical 980px canvas.
-            page.add_style_tag(content='.modal-overlay .modal { width: 980px; max-width: calc(100vw - 40px); max-height: calc(100vh - 84px); }')
             page.wait_for_function(
                 '() => window.KI_App && window.KI_App.openModal')
             page.wait_for_function(
@@ -269,6 +266,9 @@ def main():
             def open_cash(cash_card):
                 page.evaluate("""cashCard => {
                     const app = window.KI_App;
+                    // This fixture has no OSV source: the expected source error
+                    // overlay must not block clicks on synthetic modal data.
+                    app.dismissError();
                     window.KI_Layout = null;
                     app.state.mode = 'operational';
                     app.state.data = {
@@ -384,10 +384,8 @@ def main():
             assert dimensions['tableLeft'] > 0
             narrow_path = actual_dir / SNAPSHOTS[2]
             page.locator('#ki-modal .modal').screenshot(path=str(narrow_path))
-            # The historical narrow reference includes the retired coverage
-            # label and old modal header. Validate the actual narrow cash
-            # scroll geometry above; full/partial cash tables remain strict
-            # pixel comparisons. Keep the narrow capture for inspection.
+            assert_matches(narrow_path, REFERENCES / SNAPSHOTS[2],
+                           args.update_snapshots)
             assert not errors, errors
             browser.close()
         print('PASS: cash tables match full/partial visual references; '

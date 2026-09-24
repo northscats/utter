@@ -25,6 +25,7 @@
             dashboardLayoutURL: {{ url_for('metric_layout', company_id=company.id, mode='__MODE__', metric_id='__dashboard__') | tojson }},
             companyId: {{ company.id | tojson }},
             companyName: {{ company.name | tojson }},
+            snapshotRetryUrl: {{ url_for('retry_metric_snapshot_summary', company_id=company.id) | tojson }},
             embedded: {{ embedded | default(false) | tojson }},
             companyDataUrl: {{ url_for('company_detail', company_id=company.id, embedded=1, _anchor='historical-analytics') | tojson }},
             historicalImportUrl: {{ url_for('company_detail', company_id=company.id, _anchor='historical-analytics') | default('/company/'~company.id~'#historical-analytics') | tojson }}
@@ -52,6 +53,13 @@
           <small id="ki-topbar-subtitle">{{ company.name }}</small>
           <small id="ki-section-status" class="ki-section-status" aria-live="polite"></small>
         </div>
+        {% if current_user.is_admin %}
+        <div id="ki-snapshot-state" aria-live="polite" style="font-size:12px;max-width:460px">
+          <span id="ki-snapshot-status">Снимок показателей: загрузка статуса…</span>
+          <button id="ki-snapshot-retry" type="button" hidden>Повторить пересборку</button>
+          <span id="ki-snapshot-error" style="display:block;overflow-wrap:anywhere"></span>
+        </div>
+        {% endif %}
       </div>
       <div class="topbar-right">
         <div class="mode-selector" id="ki-mode-selector">
@@ -251,5 +259,8 @@
     <script src="{{ url_for('static', filename='key_indicator_layout.js', v='20260923-1') }}"></script>
     <script src="{{ url_for('static', filename='key_dashboard_layout.js', v='20260923-1') }}"></script>
     <script src="{{ url_for('static', filename='upload_job_monitor.js', v='20260915-1') }}"></script>
+    {% if current_user.is_admin %}
+    <script src="{{ url_for('static', filename='metric_snapshot_status.js', v='20260924-1') }}"></script>
+    {% endif %}
 </body>
 </html>
