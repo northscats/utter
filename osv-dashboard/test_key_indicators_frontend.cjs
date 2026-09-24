@@ -290,6 +290,34 @@ async function checkBootstrap(configuration) {
   app.renderCogsDynamics(intervalCogs);
   assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML,
     /2026-01-01 — 2026-06-30/);
+  const oldCogsCards = app.state.data.cards;
+  const oldCogsObjects = app.state.data.objects;
+  const halfYearCogs = {id: 'cogs', value: 150_000_000,
+    monthly_comparison: ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн']
+      .map((label, index) => ({
+        date: `2026-${String(index + 1).padStart(2, '0')}-28`,
+        label: `${label} 2026`,
+        current_cost: index === 2 ? null : (index + 1) * 10_000_000,
+        previous_year_cost: (index + 1) * 8_000_000,
+      }))};
+  app.state.data.cards = [halfYearCogs, {id: 'revenue', value: 300_000_000},
+    {id: 'profit', value: null}];
+  app.state.data.objects = {rows: []};
+  const originalCostEditor = app.renderCostMappingEditor;
+  app.renderCostMappingEditor = () => '';
+  app.renderCogsModal(halfYearCogs);
+  app.renderCostMappingEditor = originalCostEditor;
+  const cogsTableHtml = nodes.get('ki-cogs-modal-content').innerHTML
+    .match(/class="collection-detail-table cogs-period-table"[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)[1];
+  assert.equal((cogsTableHtml.match(/<tr>/g) || []).length, 6);
+  assert.match(cogsTableHtml, /Янв 2026/);
+  assert.match(cogsTableHtml, /Июн 2026/);
+  assert.match(cogsTableHtml, /Мар 2026<\/td>\s*<td class="cash-number-cell">—<\/td>/,
+    'a missing month must not be displayed as zero');
+  assert.equal((nodes.get('ki-cogs-dynamics-chart').innerHTML.match(
+    /class="cash-chart-hit-target"/g) || []).length, 11);
+  app.state.data.cards = oldCogsCards;
+  app.state.data.objects = oldCogsObjects;
   app.state.data.period = originalCogsPeriod;
   app.state.data = originalCogsData;
   app.state.modalChart = capexPreviousModalChart;

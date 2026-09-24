@@ -3551,6 +3551,32 @@ class PeriodAggregateTests(unittest.TestCase):
             [point['provenance'] for point in cards['revenue']['series']],
             ['period_aggregate'])
 
+    def test_cogs_half_year_table_uses_confirmed_months_not_one_aggregate(self):
+        rows = [
+            dict(lvl=1, label='90.02', p0='90', p1='90.02',
+                 p2='', p3='', snd=0, snk=0, obd=70, obk=0, skd=0, skk=0),
+        ]
+        raw = account('90', [
+            day('2026-01-31', '90.02', obd=20),
+            day('2026-02-28', '90.02', obd=50),
+        ], period='за 6 месяцев 2026 г.')
+        raw['balance_reports'] = [
+            self._report('за 6 месяцев 2026 г.', rows)]
+        result = build_key_indicators(
+            build_indicator_source({'90': raw}), period='month',
+            date='2026-06-30', date_from='2026-01-31')
+        cogs = {card['id']: card for card in result['cards']}['cogs']
+        self.assertEqual(cogs['value'], 70)
+        self.assertEqual(len(cogs['series']), 1)
+        months = cogs['monthly_comparison']
+        self.assertEqual([row['label'] for row in months],
+                         ['Янв 2026', 'Фев 2026', 'Мар 2026',
+                          'Апр 2026', 'Май 2026', 'Июн 2026'])
+        self.assertEqual([row['current_cost'] for row in months],
+                         [20, 50, None, None, None, None])
+        self.assertTrue(all(row['previous_year_cost'] is None
+                            and row['delta'] is None for row in months))
+
     def test_complete_report_tiling_sums_only_disjoint_intervals(self):
         jan = [
             dict(lvl=1, label='90.01', p0='90', p1='90.01',

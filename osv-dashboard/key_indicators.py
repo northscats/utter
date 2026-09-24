@@ -4007,19 +4007,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'value': month_pretax})
         month_capex_turnovers = _account_turnovers(
             source, '08', month_start, month_end)
-        current_cost = month_pl['cost']
-        current_revenue = month_pl['revenue']
         previous_cost = previous_month_pl['cost']
-        previous_revenue = previous_month_pl['revenue']
-        current_ratio = (
-            round(current_cost / current_revenue * 100, 2)
-            if current_cost is not None and current_revenue else None)
-        previous_ratio = (
-            round(previous_cost / previous_revenue * 100, 2)
-            if previous_cost is not None and previous_revenue else None)
-        cost_delta = (
-            round(current_cost - previous_cost, 2)
-            if current_cost is not None and previous_cost is not None else None)
         card_map['cogs']['previous_year_series'].append({
             'date': point_date,
             'source_date': previous_month_end.isoformat(),
@@ -4028,24 +4016,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
             'unit': 'RUB',
             'granularity': series_kind,
             'synthetic': False,
-        })
-        card_map['cogs']['monthly_comparison'].append({
-            'date': point_date,
-            'label': option['label'],
-            'current_cost': current_cost,
-            'previous_year_cost': previous_cost,
-            'delta': cost_delta,
-            'percent_delta': (
-                round(cost_delta / abs(previous_cost) * 100, 2)
-                if cost_delta is not None and previous_cost else None),
-            'current_revenue': current_revenue,
-            'previous_year_revenue': previous_revenue,
-            'current_ratio': current_ratio,
-            'previous_year_ratio': previous_ratio,
-            'ratio_delta_pp': (
-                round(current_ratio - previous_ratio, 2)
-                if current_ratio is not None and previous_ratio is not None
-                else None),
         })
         previous_month_capex = _account_turnovers(
             source, '08', previous_month_start, previous_month_end)['debit']
@@ -4399,6 +4369,43 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         comparison_end = min(comparison_end, end)
         previous_comparison_start = previous_year_date(comparison_start)
         previous_comparison_end = previous_year_date(comparison_end)
+        # The chart may use a half-year aggregate, but the comparison table
+        # needs independently confirmed calendar-month turnovers. Never split
+        # the aggregate amount across months.
+        month_cost_facts = _pl_facts(source, comparison_start, comparison_end)
+        previous_cost_facts = _pl_facts(
+            source, previous_comparison_start, previous_comparison_end)
+        current_cost = month_cost_facts['cost']
+        previous_cost = previous_cost_facts['cost']
+        current_revenue = month_cost_facts['revenue']
+        previous_revenue = previous_cost_facts['revenue']
+        current_ratio = (
+            round(current_cost / current_revenue * 100, 2)
+            if current_cost is not None and current_revenue else None)
+        previous_ratio = (
+            round(previous_cost / previous_revenue * 100, 2)
+            if previous_cost is not None and previous_revenue else None)
+        cost_delta = (
+            round(current_cost - previous_cost, 2)
+            if current_cost is not None and previous_cost is not None else None)
+        card_map['cogs']['monthly_comparison'].append({
+            'date': comparison_end.isoformat(),
+            'label': _options([comparison_end], 'month')[0]['label'],
+            'current_cost': current_cost,
+            'previous_year_cost': previous_cost,
+            'delta': cost_delta,
+            'percent_delta': (
+                round(cost_delta / abs(previous_cost) * 100, 2)
+                if cost_delta is not None and previous_cost else None),
+            'current_revenue': current_revenue,
+            'previous_year_revenue': previous_revenue,
+            'current_ratio': current_ratio,
+            'previous_year_ratio': previous_ratio,
+            'ratio_delta_pp': (
+                round(current_ratio - previous_ratio, 2)
+                if current_ratio is not None and previous_ratio is not None
+                else None),
+        })
         month_ap = _sub_balance(
             source, '60', '60.01', comparison_end, credit=True)[0]
         previous_year_ap = _sub_balance(
