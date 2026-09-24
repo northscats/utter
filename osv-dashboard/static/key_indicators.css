@@ -1067,7 +1067,7 @@ details.warnings-details ul { margin-left: 16px; margin-top: 6px; }
 .ar-detail-table { min-width:920px; }
 .ar-detail-table th:first-child { min-width:280px; }
 .ar-missing-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-.ap-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:16px 0 18px; }
+.ap-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0 18px; }
 .ap-secondary-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:18px; }
 @media (max-width:600px) {
   .ap-summary, .ap-secondary-metrics { grid-template-columns:1fr; }

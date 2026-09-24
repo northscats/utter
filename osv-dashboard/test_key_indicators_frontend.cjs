@@ -718,6 +718,9 @@ async function checkBootstrap(configuration) {
     assert.match(apHtml, />2\.00</);
     assert.match(apHtml, /data-ap-chart-mode="ap-current"/);
     assert.match(apHtml, /data-ap-chart-mode="ap-apg"/);
+    assert.match(apHtml, /data-ap-chart-mode="ap-delta" aria-pressed="false"/);
+    assert.match(apHtml, /cash-summary-label">Дельта АПГ/);
+    assert.match(apHtml, /\+20,\d+ млн ₽/);
     assert.match(apHtml, /Изменение за период: \+10,\d+ млн ₽/);
     assert.doesNotMatch(apHtml, /cash-summary-label">Изменение КЗ/);
     assert.match(apHtml, /КЗ поставщикам АПГ/);
@@ -736,9 +739,26 @@ async function checkBootstrap(configuration) {
     assert.match(apChart, /class="cash-chart-balance"/);
     assert.match(apChart, /class="cash-chart-balance-apg"/);
     assert.match(apChart, /КЗ поставщикам АПГ на 2025-01-31/);
+    app.toggleApChartMode('ap-delta');
+    assert.deepEqual(Array.from(app.state.modalChart.apModes),
+      ['ap-current', 'ap-apg', 'ap-delta']);
+    apChart = nodes.get('ki-ap-line-chart').innerHTML;
+    assert.match(apChart, /class="cash-chart-balance-delta"/);
+    assert.match(apChart, /Дельта АПГ на 2026-01-31/);
+    assert.match(nodes.get('ki-ap-chart-title').textContent, /Дельта АПГ/);
+    assert.match(nodes.get('ki-ap-chart-legend').innerHTML, /Дельта АПГ/);
+    assert.deepEqual(Array.from(chartCalls.at(-1)[5][2].series.map(point => point.value)),
+      [20_000_000, 20_000_000]);
+    app.toggleApChartMode('ap-apg');
+    assert.doesNotMatch(nodes.get('ki-ap-line-chart').innerHTML,
+      /class="cash-chart-balance-apg"/);
+    assert.doesNotMatch(nodes.get('ki-ap-chart-legend').innerHTML,
+      /КЗ поставщикам АПГ/);
+    app.toggleApChartMode('ap-apg');
+    app.toggleApChartMode('ap-delta');
     const originalApPeriod = app.state.data.period;
     app.state.data.period = {series_kind: 'period'};
-    app.renderApChartModes({
+    const aggregateApCard = {
       ...apCard,
       series: [{date: '2026-06-30', value: 100_000_000}],
       previous_year_series: [{date: '2026-06-30', value: 80_000_000}],
@@ -750,13 +770,42 @@ async function checkBootstrap(configuration) {
         {date: '2026-03-31', previous_year_date: '2025-03-31',
           label: 'мар 26', value: 100_000_000, previous_year_value: 80_000_000},
       ],
-    });
+    };
+    app.state.data.cards[app.state.data.cards.indexOf(apCard)] = aggregateApCard;
+    app.renderApChartModes(aggregateApCard);
     apChart = nodes.get('ki-ap-line-chart').innerHTML;
     assert.match(apChart, /мар 26/);
     assert.match(apChart, /КЗ поставщикам АПГ на 2025-03-31/);
     assert.doesNotMatch(apChart, /КЗ поставщикам АПГ на 2025-02-28/,
       'unproven monthly balance must remain a gap');
+    app.toggleApChartMode('ap-delta');
+    assert.deepEqual(Array.from(chartCalls.at(-1)[5][2].series.map(point => point.value)),
+      [20_000_000, null, 20_000_000]);
+    assert.doesNotMatch(nodes.get('ki-ap-line-chart').innerHTML,
+      /Дельта АПГ на 2026-02-28/,
+      'missing comparison must not be plotted as zero');
+    app.toggleApChartMode('ap-delta');
     app.state.data.period = originalApPeriod;
+    app.state.data.cards[app.state.data.cards.indexOf(aggregateApCard)] = apCard;
+    app.renderApChartModes(apCard);
+    app.state.modalChart.apModes = new Set(['ap-delta']);
+    app.renderApChartModes({
+      series: [
+        {date: '2026-01-31', label: 'янв', value: 5_000_000},
+        {date: '2026-02-28', label: 'фев', value: 8_000_000},
+        {date: '2026-03-31', label: 'мар', value: null},
+      ],
+      previous_year_series: [
+        {date: '2026-01-31', value: 8_000_000},
+        {date: '2026-02-28', value: 8_000_000},
+        {date: '2026-03-31', value: 0},
+      ],
+    });
+    assert.deepEqual(Array.from(chartCalls.at(-1)[5][2].series.map(point => point.value)),
+      [-3_000_000, 0, null], 'negative, zero and unknown deltas stay distinct');
+    assert.match(nodes.get('ki-ap-line-chart').innerHTML,
+      /Дельта АПГ на 2026-02-28/);
+    app.state.modalChart.apModes = new Set(['ap-current', 'ap-apg']);
     app.renderApChartModes(apCard);
     app.toggleApChartMode('ap-current');
     assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-apg']);

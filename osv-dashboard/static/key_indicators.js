@@ -4329,6 +4329,9 @@
             const previousYear = supplierComponent
                 ? supplierComponent.previous_year_value
                 : lastComparison ? lastComparison.previous_year_value : null;
+            const apgDelta = current !== null && current !== undefined &&
+                previousYear !== null && previousYear !== undefined
+                ? Math.round((current - previousYear) * 100) / 100 : null;
             const currentAmount = this.formatValue(current, 'RUB');
             const previousAmount = this.formatValue(previousYear, 'RUB');
             const apgTip = this.apTooltip({
@@ -4340,6 +4343,17 @@
                     ? 'Нет подтверждённого сальдо АПГ на эту дату'
                     : 'Сопоставимый остаток прошлого года',
                 source: 'ОСВ 60.01 аналогичного периода прошлого года',
+            });
+            const apgDeltaTip = this.apTooltip({
+                title: 'Дельта АПГ — КЗ поставщикам',
+                description: 'Изменение задолженности поставщикам относительно той же даты прошлого года.',
+                formula: 'Дельта АПГ = КЗ 60.01 сейчас − КЗ 60.01 АПГ',
+                fact: signedRub(apgDelta),
+                deviation: apgDelta === null
+                    ? 'Нет подтверждённого сальдо на одну из сопоставимых дат'
+                    : 'Разница подтверждённых остатков',
+                deviationClass: apgDelta === null ? 'missing' : 'neutral',
+                source: 'конечное сальдо ОСВ 60.01 на две сопоставимые даты',
             });
             const componentRows = components.map(item => {
                 const tip = Object.assign({}, componentTips[item.account] || this.apTooltip(), {
@@ -4494,10 +4508,19 @@
                         <div class="cash-summary-sub">на сопоставимую дату прошлого года</div>
                         ${this.cashTooltip(apgTip)}
                     </div>
+                    <div class="cash-summary-card cash-tooltip-host cash-chart-mode-card"
+                        tabindex="0" role="button" data-ap-chart-mode="ap-delta" aria-pressed="false"
+                        onclick="window.KI_App.toggleApChartMode('ap-delta')"
+                        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.KI_App.toggleApChartMode('ap-delta')}">
+                        <div class="cash-summary-label">Дельта АПГ</div>
+                        <div class="cash-summary-value ${apgDelta === null ? 'cash-value-missing' : 'cash-value-ok'}">${apgDelta === null ? 'Нужны данные' : esc(signedRub(apgDelta))}</div>
+                        <div class="cash-summary-sub">КЗ сейчас − КЗ на ту же дату АПГ</div>
+                        ${this.cashTooltip(apgDeltaTip)}
+                    </div>
                 </div>
                 <div id="ki-ap-chart-title" class="modal-section-title">КЗ поставщикам и КЗ поставщикам АПГ</div>
                 <div id="ki-ap-line-chart" class="cash-line-chart"></div>
-                <div class="cash-chart-legend" aria-label="Легенда графика">
+                <div id="ki-ap-chart-legend" class="cash-chart-legend" aria-label="Легенда графика">
                     <span><i class="cash-chart-dot" style="background:#111827"></i>КЗ поставщикам</span>
                     <span><i class="cash-chart-dot" style="background:#DB2777"></i>КЗ поставщикам АПГ</span>
                 </div>
@@ -4619,7 +4642,7 @@
         },
 
         toggleApChartMode(mode) {
-            if (!['ap-current', 'ap-apg'].includes(mode)) return;
+            if (!['ap-current', 'ap-apg', 'ap-delta'].includes(mode)) return;
             const selected = state.modalChart.apModes ||
                 new Set(['ap-current', 'ap-apg']);
             if (selected.has(mode)) {
@@ -4649,11 +4672,32 @@
                 date: row.date, source_date: row.previous_year_date,
                 label: row.label || row.date, value: row.previous_year_value
             })) : card.previous_year_series || [];
+            const previousByDate = new Map(previousSeries.map(point =>
+                [point.date, point]));
+            const deltaSeries = currentSeries.map(point => {
+                const previous = previousByDate.get(point.date);
+                return {
+                    date: point.date, label: point.label,
+                    value: Number.isFinite(point.value) &&
+                        previous && Number.isFinite(previous.value)
+                        ? Math.round((point.value - previous.value) * 100) / 100
+                        : null
+                };
+            });
             const title = document.getElementById('ki-ap-chart-title');
             if (title) title.textContent = [
                 selected.has('ap-current') && 'КЗ поставщикам',
-                selected.has('ap-apg') && 'КЗ поставщикам АПГ'
+                selected.has('ap-apg') && 'КЗ поставщикам АПГ',
+                selected.has('ap-delta') && 'Дельта АПГ'
             ].filter(Boolean).join(' и ');
+            const legend = document.getElementById('ki-ap-chart-legend');
+            if (legend) legend.innerHTML = [
+                ['ap-current', 'КЗ поставщикам', '#111827'],
+                ['ap-apg', 'КЗ поставщикам АПГ', '#DB2777'],
+                ['ap-delta', 'Дельта АПГ', '#2563EB']
+            ].filter(([mode]) => selected.has(mode)).map(([, label, color]) =>
+                `<span><i class="cash-chart-dot" style="background:${color}"></i>${esc(label)}</span>`
+            ).join('');
             document.querySelectorAll('[data-ap-chart-mode]').forEach(tile => {
                 const active = selected.has(tile.dataset.apChartMode);
                 tile.classList.toggle('cash-chart-mode-selected', active);
@@ -4680,6 +4724,16 @@
                     connectWithoutAccounts: true,
                     formula: 'КЗ поставщикам АПГ = max(СКк(60.01) − СКд(60.01), 0)',
                     source: 'ОСВ 60.01 аналогичного периода прошлого года',
+                },
+                {
+                    id: 'ap-delta',
+                    series: selected.has('ap-delta') ? deltaSeries : [],
+                    label: 'Дельта АПГ',
+                    color: '#2563EB',
+                    className: 'cash-chart-balance-delta',
+                    connectWithoutAccounts: true,
+                    formula: 'Дельта АПГ = КЗ 60.01 сейчас − КЗ 60.01 АПГ',
+                    source: 'сальдо ОСВ 60.01 на сопоставимые даты',
                 },
             ]);
         },
