@@ -47,15 +47,6 @@ MODULES = {
         'exact_paths': ('/limit-notifications',),
         'path_prefixes': ('/limit-notifications/',),
     },
-    'investment_reconciliation': {
-        'key': 'investment_reconciliation',
-        'name': 'Сверка Инвестпрограмм',
-        'description': 'Сопоставление инвестиционных программ и выявление расхождений.',
-        'icon': 'compare',
-        'endpoint': 'investment_reconciliation',
-        'exact_paths': ('/investment-reconciliation',),
-        'path_prefixes': ('/investment-reconciliation/',),
-    },
 }
 
 
