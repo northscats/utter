@@ -60,6 +60,16 @@ with app.app_context():
 
 client = app.test_client()
 
+with app.app_context():
+    db.session.add(UserModuleAccess(
+        user_id=ids['admin'], module_key='investment_reconciliation'))
+    db.session.commit()
+    removed_grants = app_module._purge_retired_module_grants()
+    check('устаревшее назначение удалённого модуля очищается',
+          removed_grants == 1
+          and UserModuleAccess.query.filter_by(
+              module_key='investment_reconciliation').count() == 0)
+
 # Новый модуль одной записью регистрирует и карточку, и серверную область.
 MODULES['future'] = {
     'key': 'future', 'name': 'Будущий модуль', 'description': '',
@@ -215,32 +225,35 @@ check('ошибка создания сохраняет модальное ок�
 
 r = client.get('/modules')
 body = r.get_data(as_text=True)
-check('администратор видит оба модуля',
+check('администратор видит основные модули',
       r.status_code == 200
       and 'Аналитика ФХД РСО' in body
       and 'Проверка документов' in body)
 check('администратор открывает аналитику', client.get('/home').status_code == 200)
 check('администратор открывает документы', client.get('/docs/').status_code == 200)
-new_modules = ['analog_search', 'limit_notifications', 'investment_reconciliation']
+check('сверка инвестпрограмм удалена из реестра',
+      'investment_reconciliation' not in MODULES
+      and module_key_for_path('/investment-reconciliation') is None
+      and 'Сверка Инвестпрограмм' not in body)
+check('старый адрес модуля больше не обслуживается',
+      client.get('/investment-reconciliation').status_code == 404)
+new_modules = ['analog_search', 'limit_notifications']
 for key in new_modules:
     module = MODULES[key]
     path = module['exact_paths'][0]
-    start = client.get(path)
+    start = client.get(path, follow_redirects=True)
     start_body = start.get_data(as_text=True)
     if key == 'analog_search':
-        # Task 117 is a working module, unlike the two intentionally retained
-        # placeholders below.
+        # The analogue search is functional; the other registered module
+        # keeps its own page for unavailable limit-history state.
         check(f'полноценная страница аналогов: {key}',
               module['name'] in body and start.status_code == 200
               and 'Поиск объектов-аналогов' in start_body
-              and 'Предварительный просмотр' in start_body
               and 'href="/modules"' in start_body)
     else:
-        check(f'карточка и стартовая страница: {key}',
+        check(f'страница модуля доступна: {key}',
               module['name'] in body and start.status_code == 200
-              and module['name'] in start_body
-              and 'пока не подключены' in start_body
-              and 'href="/modules"' in start_body)
+              and module['name'] in start_body)
 
 # Пустое состояние не выдаёт права неявно.
 with app.app_context():

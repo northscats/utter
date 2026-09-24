@@ -2236,14 +2236,6 @@ def modules_dashboard():
     ]
     return render_template('modules.html', modules=modules)
 
-@app.route('/investment-reconciliation', endpoint='investment_reconciliation')
-@login_required
-def module_start():
-    module = next(
-        item for item in registered_modules()
-        if item['endpoint'] == request.endpoint)
-    return render_template('module_start.html', module=module)
-
 def _limit_dataset_or_404(dataset_id):
     return db.session.get(LimitDataset, dataset_id) or abort(404)
 def _rating_profile_payload(row=None):
@@ -7090,6 +7082,19 @@ def _ensure_initial_admin_after_restore():
     return True
 
 
+def _purge_retired_module_grants():
+    """Remove stale access grants for the retired investment reconciliation module."""
+    removed = UserModuleAccess.query.filter_by(
+        module_key='investment_reconciliation'
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    if removed:
+        app.logger.info(
+            'removed %s access grants for retired investment reconciliation module',
+            removed)
+    return removed
+
+
 def init_db(perform_durable=True):
     """Prepare the database, optionally including slow App Storage recovery.
 
@@ -7099,6 +7104,7 @@ def init_db(perform_durable=True):
     """
     with app.app_context():
         db.create_all()
+        _purge_retired_module_grants()
         # Limits tables are additive and may predate the current model set.
         # Complete this migration before durable restore reads restored rows.
         from limits_schema import migrate_limits_schema
