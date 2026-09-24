@@ -2027,7 +2027,7 @@
                 const metricTooltip = this.cashTooltip(this.metricTooltipData(card));
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host${isNull ? ' no-data' : ''}" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true"' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${isCashMetric(id) && card.date ? `<div class="kpi-delta neutral">на ${esc(card.date)}</div>` : ''}
@@ -4636,6 +4636,19 @@
         renderApChartModes(card) {
             const selected = state.modalChart.apModes ||
                 new Set(['ap-current', 'ap-apg']);
+            // The general series may contain only a few aggregate intervals.
+            // Month-end balances from the detail table are the confirmed
+            // observations to use for a monthly chart; never interpolate them.
+            const monthly = Array.isArray(card.monthly_comparison)
+                ? card.monthly_comparison : [];
+            const useMonthly = monthly.length > (card.series || []).length;
+            const currentSeries = useMonthly ? monthly.map(row => ({
+                date: row.date, label: row.label || row.date, value: row.value
+            })) : card.series || [];
+            const previousSeries = useMonthly ? monthly.map(row => ({
+                date: row.date, source_date: row.previous_year_date,
+                label: row.label || row.date, value: row.previous_year_value
+            })) : card.previous_year_series || [];
             const title = document.getElementById('ki-ap-chart-title');
             if (title) title.textContent = [
                 selected.has('ap-current') && 'КЗ поставщикам',
@@ -4649,7 +4662,7 @@
             this.renderCashLineChart([], [], [], [], 'ki-ap-line-chart', [
                 {
                     id: 'ap-current',
-                    series: selected.has('ap-current') ? card.series || [] : [],
+                    series: selected.has('ap-current') ? currentSeries : [],
                     label: 'КЗ поставщикам',
                     color: '#111827',
                     className: 'cash-chart-balance',
@@ -4659,8 +4672,7 @@
                 },
                 {
                     id: 'ap-apg',
-                    series: selected.has('ap-apg')
-                        ? card.previous_year_series || [] : [],
+                    series: selected.has('ap-apg') ? previousSeries : [],
                     label: 'КЗ поставщикам АПГ',
                     color: '#DB2777',
                     dash: ' stroke-dasharray="6 4"',
@@ -4703,8 +4715,20 @@
         },
 
         cogsMonthlyRows(card) {
+            const sourceRows = card.monthly_comparison || [];
+            const seriesKind = state.data && state.data.period &&
+                state.data.period.series_kind;
+            // Day-level facts must remain daily.  Aggregate slots can span
+            // several months, so retain their real interval labels instead of
+            // calling the closing month the month of the whole turnover.
+            if (seriesKind === 'day' || seriesKind === 'period') {
+                return sourceRows.filter(row => row && row.date).map(row => ({
+                    ...row,
+                    label: row.label || row.date
+                }));
+            }
             const groups = new Map();
-            (card.monthly_comparison || []).forEach(row => {
+            sourceRows.forEach(row => {
                 const key = String(row.date || '').slice(0, 7);
                 if (!key) return;
                 if (!groups.has(key)) {
@@ -4784,7 +4808,9 @@
             const values = visible.flatMap(item => rows.map(row => row[item[2]]))
                 .filter(Number.isFinite);
             if (!rows.length || !values.length) {
-                container.innerHTML = '<div class="chart-empty">Нет сопоставимых данных для графика</div>';
+                container.innerHTML = `<div class="chart-empty">${
+                    esc(card.reason || 'Нет сопоставимых данных для графика')
+                }</div>`;
                 return;
             }
             const width = 820, height = 220, left = 48, right = 15, top = 16, bottom = 36;

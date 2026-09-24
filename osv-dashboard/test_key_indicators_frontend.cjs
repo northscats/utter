@@ -107,6 +107,15 @@ async function checkBootstrap(configuration) {
   assert.equal(million.u, 'млн ₽');
   assert.equal(app.formatValue(0, 'RUB').val, '0');
   assert.equal(app.formatValue(null, 'RUB').val, 'Н/Д');
+  const originalCardsData = app.state.data;
+  app.state.data = {cards: [{id: 'cogs', title: 'Себестоимость продаж',
+    value: null, unit: 'RUB', reason: 'Нет строк 90.02'}]};
+  app.renderCards();
+  assert.match(nodes.get('ki-cards-grid').innerHTML, /data-metric="cogs"/);
+  assert.match(nodes.get('ki-cards-grid').innerHTML, /data-no-data="true"/);
+  assert.doesNotMatch(nodes.get('ki-cards-grid').innerHTML,
+    /data-no-data="true" hidden/, 'missing cost must remain accessible');
+  app.state.data = originalCardsData;
   const capexCard = {
     id: 'capex', value: 100_000_000, debit_turnover: 100_000_000,
     credit_turnover: 20_000_000, opening_balance: 10_000_000,
@@ -249,6 +258,40 @@ async function checkBootstrap(configuration) {
   assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML,
     /class="cash-chart-balance-apg"[^>]*stroke-dasharray="6 4"/);
   assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML, /50\.0%/);
+  const originalCogsData = app.state.data;
+  app.state.data = app.state.data || {period: {}};
+  const originalCogsPeriod = app.state.data.period;
+  app.state.data.period = {series_kind: 'day'};
+  const dailyCogs = {monthly_comparison: [
+    {date: '2026-09-01', label: '01.09.2026', current_cost: 10_000_000,
+      previous_year_cost: 8_000_000},
+    {date: '2026-09-02', label: '02.09.2026', current_cost: null,
+      previous_year_cost: null},
+    {date: '2026-09-03', label: '03.09.2026', current_cost: 20_000_000,
+      previous_year_cost: 12_000_000},
+  ]};
+  assert.equal(app.cogsMonthlyRows(dailyCogs).length, 3,
+    'daily observations must not collapse into one month');
+  app.state.modalChart = {cogsGroup: 'cost',
+    cogsModes: new Set(['cogs-current', 'cogs-apg'])};
+  app.renderCogsDynamics(dailyCogs);
+  assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML, /03\.09\.2026/);
+  assert.equal((nodes.get('ki-cogs-dynamics-chart').innerHTML.match(
+    /class="cash-chart-hit-target"/g) || []).length, 4);
+  app.state.data.period = {series_kind: 'period'};
+  const intervalCogs = {monthly_comparison: [
+    {date: '2026-06-30', label: '2026-01-01 — 2026-06-30',
+      current_cost: 10_000_000, previous_year_cost: 8_000_000},
+    {date: '2026-09-15', label: '2026-07-01 — 2026-09-15',
+      current_cost: 20_000_000, previous_year_cost: 12_000_000},
+  ]};
+  assert.equal(app.cogsMonthlyRows(intervalCogs)[0].label,
+    '2026-01-01 — 2026-06-30');
+  app.renderCogsDynamics(intervalCogs);
+  assert.match(nodes.get('ki-cogs-dynamics-chart').innerHTML,
+    /2026-01-01 — 2026-06-30/);
+  app.state.data.period = originalCogsPeriod;
+  app.state.data = originalCogsData;
   app.state.modalChart = capexPreviousModalChart;
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.tableSortValue({dataset: {}, textContent: '1 234,50 ₽'}))),
@@ -693,6 +736,28 @@ async function checkBootstrap(configuration) {
     assert.match(apChart, /class="cash-chart-balance"/);
     assert.match(apChart, /class="cash-chart-balance-apg"/);
     assert.match(apChart, /КЗ поставщикам АПГ на 2025-01-31/);
+    const originalApPeriod = app.state.data.period;
+    app.state.data.period = {series_kind: 'period'};
+    app.renderApChartModes({
+      ...apCard,
+      series: [{date: '2026-06-30', value: 100_000_000}],
+      previous_year_series: [{date: '2026-06-30', value: 80_000_000}],
+      monthly_comparison: [
+        {date: '2026-01-31', previous_year_date: '2025-01-31',
+          label: 'янв 26', value: 90_000_000, previous_year_value: 70_000_000},
+        {date: '2026-02-28', previous_year_date: '2025-02-28',
+          label: 'фев 26', value: null, previous_year_value: null},
+        {date: '2026-03-31', previous_year_date: '2025-03-31',
+          label: 'мар 26', value: 100_000_000, previous_year_value: 80_000_000},
+      ],
+    });
+    apChart = nodes.get('ki-ap-line-chart').innerHTML;
+    assert.match(apChart, /мар 26/);
+    assert.match(apChart, /КЗ поставщикам АПГ на 2025-03-31/);
+    assert.doesNotMatch(apChart, /КЗ поставщикам АПГ на 2025-02-28/,
+      'unproven monthly balance must remain a gap');
+    app.state.data.period = originalApPeriod;
+    app.renderApChartModes(apCard);
     app.toggleApChartMode('ap-current');
     assert.deepEqual(Array.from(app.state.modalChart.apModes), ['ap-apg']);
     apChart = nodes.get('ki-ap-line-chart').innerHTML;
