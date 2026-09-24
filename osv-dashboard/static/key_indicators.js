@@ -25,8 +25,7 @@
         chartJobs: {},
         modalChart: { activeId: null, pinnedIds: new Set(), gapMode: 1, timelineMode: 'week' },
         modalCharts: {},
-        revenueSelection: new Set(['total', 'yoy']),
-        sectionReady: {meta: false, cards: false, tables: false, charts: false}
+        revenueSelection: new Set(['total', 'yoy'])
     };
     const periodSelectionStorageKey = () => {
         const configuredId = Number(config && config.companyId);
@@ -1459,7 +1458,8 @@
                 state.dateFrom = val;
                 state.quarterAnchor = null;
             }
-            if (state.dateFrom && state.dateFrom > val) {
+            if ((state.period === 'month' || state.period === 'day')
+                    && state.dateFrom && state.dateFrom > val) {
                 state.dateFrom = val;
             }
             this.invalidateAiReport('loading');
@@ -1582,12 +1582,8 @@
             const visibleTo = state.periodPickerOpen
                 ? state.pendingDate
                 : state.date || (state.data && state.data.period && state.data.period.end);
-            // Native date controls intentionally keep the ISO value: besides
-            // allowing arbitrary days they are sent to the API unchanged.
-            from.value = /^\d{4}-\d{2}-\d{2}$/.test(String(visibleFrom || ''))
-                ? visibleFrom : '';
-            to.value = /^\d{4}-\d{2}-\d{2}$/.test(String(visibleTo || ''))
-                ? visibleTo : '';
+            from.value = this.formatPeriodField(visibleFrom);
+            to.value = this.formatPeriodField(visibleTo);
             picker.hidden = !state.periodPickerOpen;
             button.textContent = state.periodPickerOpen ? 'Загрузить период' : 'Выбрать период';
             button.setAttribute('aria-expanded', String(state.periodPickerOpen));
@@ -1653,146 +1649,70 @@
             if (abortController) abortController.abort();
             abortController = new AbortController();
             const reqId = ++state.reqId;
-            // A new range must never display cards/tables from the previous
-            // range while its section requests are in flight. Keep the
-            // selection itself intact; it is the source of the new query.
-            state.data = null;
-            state.sectionReady = {meta: false, cards: false, tables: false, charts: false};
-            this.setSectionStatus('Загружаются показатели…');
-            const cardsGrid = document.getElementById('ki-cards-grid');
-            const account90 = document.getElementById('ki-account90-section');
-            if (cardsGrid) cardsGrid.innerHTML = '';
-            if (account90) {
-                account90.innerHTML = '';
-                account90.hidden = true;
-            }
             
             try {
                 if (!config || !config.dataUrl) throw new Error('Не настроен адрес источника показателей.');
+                let url = `${config.dataUrl}?period=${encodeURIComponent(state.period)}`;
                 const requestedPeriod = state.period;
                 const requestedDate = state.date;
                 const requestedDateFrom = state.dateFrom;
-                const range = () => {
-                    const params = new URLSearchParams();
-                    // Keep period for older deployments while the range is the
-                    // canonical contract for the sectioned endpoint.
-                    if (requestedPeriod) params.set('period', requestedPeriod);
-                    const from = !skipPeriodSelection &&
-                        (requestedDateFrom || requestedDate);
-                    const to = !skipPeriodSelection &&
-                        (requestedDate || requestedDateFrom);
-                    if (from) params.set('from', from);
-                    if (to) params.set('to', to);
-                    return params;
-                };
-                const isCurrent = () => reqId === state.reqId &&
-                    (companySwitchToken === null ||
-                     companySwitchToken === state.companySwitchToken);
-                const requestSection = async section => {
-                    const params = range();
-                    params.set('section', section);
-                    const url = `${config.dataUrl}?${params.toString()}`;
-                    for (let attempt = 1; attempt <= 20; attempt += 1) {
-                        const response = await fetch(url, {
-                            signal: abortController.signal,
-                            headers: { 'Accept': 'application/json' }
-                        });
-                        if (response.status === 401) {
-                            window.location.href = '/login?next=' +
-                                encodeURIComponent(window.location.pathname);
-                            return null;
-                        }
-                        if (response.status === 403) throw new Error("Нет доступа (403)");
-                        const text = await response.text();
-                        let payload;
-                        try { payload = JSON.parse(text); } catch (error) {
-                            throw new Error("Срок сессии истек или получен некорректный формат ответа");
-                        }
-                        if (response.status !== 503) {
-                            const responseError = payload && (payload.error || payload.message);
-                            if (!response.ok) throw new Error(
-                                responseError || `Ошибка сервера: ${response.status}`);
-                            return payload;
-                        }
-                        if (attempt === 20) {
-                            throw new Error(
-                                'Источник данных ещё не готов после 20 попыток. ' +
-                                'Повторите загрузку через несколько секунд.');
-                        }
-                        const retryAfter = Number.parseFloat(
-                            response.headers && response.headers.get
-                                ? response.headers.get('Retry-After') : '');
-                        const delay = Math.min(
-                            Number.isFinite(retryAfter) && retryAfter >= 0
-                                ? retryAfter : 1, 3) * 1000;
-                        this.setSectionStatus(
-                            `Источник готовится… попытка ${attempt + 1} из 20`);
-                        await new Promise((resolve, reject) => {
-                            const timer = setTimeout(resolve, delay);
-                            const signal = abortController.signal;
-                            if (!signal || !signal.addEventListener) return;
-                            signal.addEventListener('abort', () => {
-                                clearTimeout(timer);
-                                const error = new Error('Запрос отменён');
-                                error.name = 'AbortError';
-                                reject(error);
-                            }, {once: true});
-                        });
-                    }
-                };
-                const mergeSection = (payload, section) => {
-                    if (!payload) return;
-                    const previous = state.data || {};
-                    const merged = Object.assign({}, previous, payload);
-                    if (Array.isArray(previous.cards) && Array.isArray(payload.cards)) {
-                        const byId = new Map(previous.cards.map(card => [card.id, card]));
-                        payload.cards.forEach(card => {
-                            const old = byId.get(card.id);
-                            byId.set(card.id, old ? Object.assign({}, old, card) : card);
-                        });
-                        merged.cards = Array.from(byId.values());
-                    }
-                    state.data = merged;
-                    // Only metadata establishes the server's default period.
-                    // Cards/tables/charts may repeat a partial period object,
-                    // but must not turn an arbitrary from/to selection into
-                    // one of the period options on every response.
-                    if (section === 'meta' && payload.period) {
-                        state.period = payload.period.kind || state.period;
-                        if (!requestedDate && !requestedDateFrom) {
-                            state.date = payload.period.date || payload.period.end || state.date;
-                            state.dateFrom = payload.period.date_from ||
-                                payload.period.start || state.dateFrom || state.date;
-                        }
-                        this.savePeriodSelection();
-                    }
-                };
-                // Published standard-period cards can be read without
-                // recalculating the full analytical payload. Show them before
-                // the slower metadata, tables and chart sections arrive.
-                for (const section of ['cards', 'meta', 'tables', 'charts']) {
-                    const data = await requestSection(section);
-                    if (!isCurrent()) return;
-                    mergeSection(data, section);
-                    state.sectionReady[section] = true;
-                    // Render each completed section so the dashboard becomes
-                    // useful immediately; charts are deliberately last.
-                    this.setAiReport('operational', state.data);
-                    this.render();
-                    if (section === 'cards') {
-                        // Cards are usable now; remaining sections are
-                        // intentionally non-blocking, but their modal details
-                        // stay guarded until tables and charts arrive.
-                        this.hideLoading();
-                        this.setSectionStatus('Карточки готовы · загружаются детали…');
-                    } else if (section === 'tables') {
-                        this.setSectionStatus('Детали готовы · загружаются графики…');
-                    } else if (section === 'charts') {
-                        this.setSectionStatus('');
-                    }
+                if (requestedDate && !skipPeriodSelection) {
+                    url += `&date=${encodeURIComponent(requestedDate)}`;
                 }
-                if (!isCurrent()) return;
-                const data = state.data;
+                if (['month', 'day', 'quarter'].includes(requestedPeriod)
+                        && requestedDateFrom && !skipPeriodSelection) {
+                    url += `&date_from=${encodeURIComponent(requestedDateFrom)}`;
+                }
+                const unavailablePeriodErrors = new Set([
+                    'date is not an available option for selected period',
+                    'date_from is not an available option',
+                    'date_from must not be after date'
+                ]);
+                const response = await fetch(url, { 
+                    signal: abortController.signal, 
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (response.status === 401) {
+                    window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+                    return; 
+                }
+                if (response.status === 403) throw new Error("Нет доступа (403)");
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error("Срок сессии истек или получен некорректный формат ответа");
+                }
+
+                const responseError = data && (data.error || data.message);
+                const unavailablePeriod = data &&
+                    (unavailablePeriodErrors.has(data.error) ||
+                     unavailablePeriodErrors.has(data.message));
+                if (response.status === 400 && !skipPeriodSelection &&
+                    unavailablePeriod) {
+                    if (reqId !== state.reqId ||
+                        (companySwitchToken !== null &&
+                         companySwitchToken !== state.companySwitchToken)) return;
+                    return this.fetchData(companySwitchToken, true, {
+                        period: requestedPeriod,
+                        date: requestedDate,
+                        dateFrom: requestedDateFrom
+                    });
+                }
+
+                if (!response.ok) {
+                    throw new Error(responseError || `Ошибка сервера: ${response.status}`);
+                }
+                
+                if (reqId !== state.reqId ||
+                    (companySwitchToken !== null &&
+                     companySwitchToken !== state.companySwitchToken)) return;
+                
+                state.data = data;
+                this.setAiReport('operational', data);
                 if (companySwitchToken !== null) state.quarterAnchor = null;
                 if (data.period) {
                     state.period = data.period.kind || state.period;
@@ -1812,6 +1732,7 @@
                     };
                 }
                 
+                this.render();
                 this.refreshOpenModalAfterData('operational');
                 this.finishCompanySwitch(companySwitchToken);
             } catch (e) {
@@ -1825,7 +1746,6 @@
                     return;
                 }
                 this.invalidateAiReport('error', e.message);
-                this.setSectionStatus('Не удалось загрузить дополнительные детали');
                 if (window.KI_SourcePassport &&
                     typeof window.KI_SourcePassport.clear === 'function') {
                     window.KI_SourcePassport.clear(e.message);
@@ -1837,11 +1757,6 @@
                     (companySwitchToken === null ||
                      companySwitchToken === state.companySwitchToken)) this.hideLoading();
             }
-        },
-
-        setSectionStatus(message) {
-            const node = document.getElementById('ki-section-status');
-            if (node) node.textContent = message || '';
         },
         
         render() {
@@ -2068,13 +1983,9 @@
             if (!state.data.cards) return;
             
             let html = '';
-            // Keep the canonical ten tiles stable.  `ar` was a legacy
-            // receivables tile and is no longer part of the main indicators.
-            const orderedIds = ['cash', 'cash_dz', 'revenue', 'collection', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
+            const orderedIds = ['cash', 'cash_dz', 'revenue', 'collection', 'ar', 'ap', 'cogs', 'profit', 'credits', 'salary', 'capex'];
             (state.data.cards || []).forEach(card => {
-                if (card && card.id && card.id !== 'ar' && !orderedIds.includes(card.id)) {
-                    orderedIds.push(card.id);
-                }
+                if (card && card.id && !orderedIds.includes(card.id)) orderedIds.push(card.id);
             });
             
             orderedIds.forEach(id => {
@@ -2108,17 +2019,15 @@
                     deltaHtml = `<div class="kpi-delta ${dClass}">
                         ${esc(displayVal)} ${esc(u)} · ${esc(card.delta.label)}
                     </div>`;
-                } else if (isNull) {
-                     deltaHtml = `<div class="kpi-delta neutral">${esc(
-                         card.reason || 'Нет данных за выбранный период'
-                     )}</div>`;
+                } else if (isNull && card.reason) {
+                     deltaHtml = `<div class="kpi-delta neutral">${esc(card.reason)}</div>`;
                 }
                 
                 const ariaLabel = `${card.title}. Значение: ${formatted.val} ${formatted.u}. Статус: ${card.status_label || card.status}.`;
                 const metricTooltip = this.cashTooltip(this.metricTooltipData(card));
                 
                 html += `
-                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host${isNull ? ' no-data' : ''}" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true"' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
+                <div class="kpi-card status-${statusClass} clickable cash-tooltip-host" data-metric="${esc(id)}" ${isNull ? 'data-no-data="true" hidden' : ''} tabindex="0" onclick="window.KI_App.openModal('${esc(id)}')" role="button" aria-label="${esc(ariaLabel)}">
                   <div class="kpi-label">${esc(card.title)} <span class="status-dot ${statusClass}"></span></div>
                   <div class="kpi-value">${esc(formatted.val)}<span class="kpi-unit">${esc(formatted.u)}</span></div>
                   ${isCashMetric(id) && card.date ? `<div class="kpi-delta neutral">на ${esc(card.date)}</div>` : ''}
@@ -8603,10 +8512,6 @@ renderCashModal(card) {
             let card = state.data && Array.isArray(state.data.cards) ?
                 state.data.cards.find(c => c.id === cardId) : null;
             if (!card) return;
-            if (!state.sectionReady.tables || !state.sectionReady.charts) {
-                this.setSectionStatus('Подождите: детали показателя ещё загружаются…');
-                return;
-            }
 
             // A modal can be reused without an intervening close (for example
             // keyboard navigation between cards). Never let a delayed render
@@ -9061,14 +8966,5 @@ renderCashModal(card) {
             App.switchCompany(event.data.company);
         });
     }
-    // A cached script can execute after DOMContentLoaded (for example when
-    // the host restores a page). In that case a listener alone leaves the
-    // loading overlay up forever and no section request is ever sent.
-    if (document.readyState === 'interactive' ||
-            document.readyState === 'complete') {
-        App.init();
-    } else {
-        document.addEventListener('DOMContentLoaded', () => App.init(),
-                                  {once: true});
-    }
+    document.addEventListener('DOMContentLoaded', () => App.init());
 })();

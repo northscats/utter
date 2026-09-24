@@ -34,10 +34,6 @@ body {
   display: block; font-size: 11px; font-weight: 400;
   color: #CBD5E0; margin-top: 2px;
 }
-.topbar-title .ki-section-status {
-  color: #FDE68A; min-height: 14px; font-size: 10px;
-}
-.topbar-title .ki-section-status:empty { display:none; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
 
 .legacy-link {
@@ -100,9 +96,9 @@ body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
   color:#CBD5E0; font-size:12px; background:rgba(255,255,255,.08);
 }
 .period-date-field input {
-  width:120px; border:0; outline:0; padding:0; background:transparent;
+  width:84px; border:0; outline:0; padding:0; background:transparent;
   color:#fff; font-family:inherit; font-size:12px; font-weight:600;
-  line-height:1.4; cursor:pointer; color-scheme:dark;
+  line-height:1.4; cursor:ns-resize;
 }
 .period-picker {
   position:absolute; z-index:120; top:calc(100% + 10px); right:0;
@@ -255,12 +251,6 @@ body.ki-tooltips-disabled .cash-analysis-card { cursor:default; }
 .kpi-card.status-yellow { border-top-color: #F59E0B; }
 .kpi-card.status-red { border-top-color: #EF4444; }
 .kpi-card.status-grey { border-top-color: #9CA3AF; }
-.kpi-card.no-data {
-  background: #F8FAFC;
-  border-color: #D1D5DB;
-}
-.kpi-card.no-data .kpi-value { color: #6B7280; }
-.kpi-card.no-data .kpi-delta { color: #6B7280; }
 
 .kpi-card::after {
   content: '⤢'; position: absolute; top: 8px; right: 10px;

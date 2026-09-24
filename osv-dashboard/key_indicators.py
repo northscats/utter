@@ -340,50 +340,10 @@ def build_indicator_source(parsed_data):
             all_dates.add(report['report_end'])
         for interval in coverage:
             all_dates.add(interval['end'])
-    # A compact, account/date grain fact table is useful to cache readers and
-    # range selectors.  It intentionally contains only turnover totals; raw
-    # analytic rows remain the authoritative source and are never replaced by
-    # an inferred zero.  ``*_known`` is false when any contributing row was
-    # missing, preserving the missing-versus-zero distinction.
-    daily_facts = {}
-    for account, account_data in accounts.items():
-        facts = {}
-        for row in account_data.get('daily', []):
-            day = row['date']
-            fact = facts.setdefault(day, {
-                'obd': 0.0, 'obk': 0.0,
-                'obd_known': True, 'obk_known': True, 'rows': 0})
-            fact['rows'] += 1
-            for side in ('obd', 'obk'):
-                if row.get(f'{side}_known') is True and row.get(side) is not None:
-                    fact[side] = round(fact[side] + float(row[side]), 2)
-                else:
-                    fact[f'{side}_known'] = False
-        # Balances are boundary observations, not movements: record only
-        # unambiguous account-level observations at their actual date.
-        for row in (account_data.get('balance_observations') or
-                    account_data.get('daily') or []):
-            day = row.get('date')
-            if not day or any(row.get(key) for key in
-                              ('path1', 'path2', 'path3')):
-                continue
-            debit, credit = row.get('skd'), row.get('skk')
-            if debit is None or credit is None:
-                continue
-            balance = {'debit': debit, 'credit': credit}
-            fact = facts.setdefault(day, {
-                'obd': 0.0, 'obk': 0.0,
-                'obd_known': False, 'obk_known': False, 'rows': 0})
-            if 'balance' not in fact:
-                fact['balance'] = balance
-            elif fact['balance'] != balance:
-                fact['balance'] = None
-        daily_facts[account] = facts
     result = {
         'version': 1,
         'dates': sorted(all_dates),
         'accounts': accounts,
-        'daily_facts': daily_facts,
         'warnings': list(dict.fromkeys(warnings)),
     }
     if isinstance(linked_source, dict):
@@ -508,74 +468,6 @@ def _daily(source, account, start, end):
     if cache is not None:
         cache[key] = result
     return result
-
-
-def build_daily_prefix_facts(source):
-    """Return compact daily totals and cumulative prefixes for range readers.
-
-    The returned object is derived only from accepted daily facts and carries
-    known flags.  A missing turnover field therefore never becomes a
-    confirmed zero.  This helper is intentionally independent of card
-    formulas so it can be persisted or memoized by a caller.
-    """
-    if not isinstance(source, dict) or not isinstance(source.get('accounts'), dict):
-        raise ValueError('Unsupported indicator source')
-    facts = source.get('daily_facts') or {}
-    result = {}
-    for account, rows in facts.items():
-        cumulative = {'obd': 0.0, 'obk': 0.0}
-        known = {key: True for key in cumulative}
-        prefix = {}
-        for day in sorted(rows):
-            fact = rows[day]
-            for key in cumulative:
-                cumulative[key] = round(cumulative[key] + float(fact.get(key) or 0), 2)
-                known[key] = known[key] and fact.get(f'{key}_known') is not False
-            prefix[day] = {
-                **cumulative,
-                **{f'{key}_known': known[key] for key in cumulative},
-                'rows': int(fact.get('rows') or 0),
-                'balance': fact.get('balance'),
-            }
-        result[str(account)] = prefix
-    return result
-
-
-def daily_prefix_range(prefix, date_from, date_to):
-    """Return strict turnover totals for an inclusive daily range.
-
-    Prefixes contain turnover only (never ``obd``/``obk`` saldo).  Every
-    calendar day must be present and known; otherwise ``None`` is returned.
-    Balance boundaries must be obtained from exact balance observations by the
-    canonical calculation and are deliberately not fabricated here.
-    """
-    start, end = _iso(date_from), _iso(date_to)
-    if not start or not end or start > end:
-        raise ValueError('Invalid daily prefix range')
-    if not isinstance(prefix, dict):
-        return None
-    days = []
-    cursor = start
-    while cursor <= end:
-        days.append(cursor.isoformat())
-        cursor += timedelta(days=1)
-    if any(day not in prefix for day in days):
-        return None
-    fields = ('obd', 'obk')
-    if any(prefix[day].get(f'{field}_known') is not True
-           for day in days for field in fields):
-        return None
-    first = prefix[days[0]]
-    last = prefix[days[-1]]
-    before = {field: 0.0 for field in fields}
-    # Prefix values are cumulative from the first available source date.  For
-    # a range beginning later, locate the preceding source prefix if present.
-    previous_days = [day for day in prefix if day < days[0]]
-    if previous_days:
-        previous = prefix[max(previous_days)]
-        before = {field: float(previous.get(field) or 0) for field in fields}
-    return {field: round(float(last.get(field) or 0) - before[field], 2)
-            for field in fields}
 
 
 def _report_bounds(report):
@@ -902,28 +794,20 @@ def _leaf_rows(rows, predicate):
             )
             partitions[partition].append(row)
         result = []
-        # Index hierarchy coordinates once per report.  The old implementation
-        # compared every row with every other row; a large 62 report therefore
-        # became quadratic before any KPI was calculated.
         for partition_rows in partitions.values():
-            coordinates = {
-                tuple(str(row.get(key) or '') for key in ('p0', 'p1', 'p2', 'p3'))
-                for row in partition_rows
-            }
-            parent_coordinates = set()
-            for candidate in coordinates:
-                # A coordinate is a parent when a deeper coordinate carries
-                # it as its non-empty prefix.  Four levels are bounded, so
-                # this remains linear in the number of report rows.
-                for length in range(1, len(candidate)):
-                    if candidate[length - 1] and any(candidate[length:]):
-                        parent_coordinates.add(candidate[:length] +
-                                               ('',) * (len(candidate) - length))
             for row in partition_rows:
-                coordinate = tuple(str(row.get(key) or '')
-                                   for key in ('p0', 'p1', 'p2', 'p3'))
-                depth = hierarchy_depth(row)
-                is_parent = coordinate in parent_coordinates
+                row_level = hierarchy_depth(row)
+                is_parent = False
+                for child in partition_rows:
+                    child_level = hierarchy_depth(child)
+                    if child is row or child_level <= row_level:
+                        continue
+                    if all(
+                        not row.get(key) or child.get(key) == row.get(key)
+                        for key in ('p0', 'p1', 'p2', 'p3')
+                    ):
+                        is_parent = True
+                        break
                 if not is_parent:
                     result.append(row)
         return result
@@ -2827,10 +2711,8 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
                          revenue_mappings=None, cost_mappings=None,
                          debtor_mappings=None, collection_accruals=None,
                          collection_allocations=None,
-                         collection_norms=None, section=None):
+                         collection_norms=None):
     """Calculate the strict JSON response contract from a source snapshot."""
-    if section not in (None, 'meta', 'cards', 'tables', 'charts'):
-        raise ValueError('section must be meta, cards, tables, charts or None')
     if not isinstance(source, dict) or source.get('version') != 1 \
             or not isinstance(source.get('accounts'), dict):
         raise ValueError('Unsupported indicator source')
@@ -2839,11 +2721,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
     # 365 daily slots even for a yearly selection; without the index every
     # slot rescans all rows in every account.
     source = dict(source)
-    # Prefix facts are used by range-aware consumers for account-level
-    # turnover totals.  Card formulas continue to use indexed raw rows where
-    # terminal analytic filtering is required; using a pre-summed prefix there
-    # would double-count parent and child ОСВ rows.
-    source['_daily_prefix'] = build_daily_prefix_facts(source)
     source['_daily_index'] = {
         str(account): {
             date_text: list(rows)
@@ -5633,7 +5510,7 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         {'title': 'Недоступные данные',
          'text': 'Отсутствие счёта, аналитики или периода возвращает null с причиной, а не искусственный ноль.'},
     ]
-    response = {
+    return {
         'period': {'kind': period, 'date': endpoint.isoformat(),
                    'date_from': range_start_endpoint.isoformat(),
                    'series_kind': series_kind,
@@ -5648,63 +5525,6 @@ def build_key_indicators(source, period='month', date=None, date_from=None,
         'recommendations': recommendations,
         'quality': quality, 'methodology': methodology,
     }
-    # Keep the section contract deliberately small.  The calculation above
-    # remains one canonical implementation; callers asking for cards/meta do
-    # not receive (or serialize) large analytic tables and chart series.
-    if section == 'meta':
-        return {'period': response['period'], 'quality': quality,
-                'methodology': methodology}
-    if section == 'cards':
-        compact_cards = []
-        for card in cards:
-            compact = dict(card)
-            # Series and detailed analytic rows belong to the charts/tables
-            # sections; omitting them keeps the initial cards response small.
-            compact.pop('series', None)
-            compact.pop('details', None)
-            compact_cards.append(compact)
-        return {'period': response['period'], 'cards': compact_cards,
-                'quality': quality, 'methodology': methodology}
-    if section == 'tables':
-        return {'period': response['period'], 'objects': objects,
-                'revenue_segments': revenue_segments,
-                'account90_categories': account90_categories,
-                'quality': quality, 'methodology': methodology}
-    if section == 'charts':
-        return {'period': response['period'],
-                'cards': cards, 'quality': quality,
-                'methodology': methodology}
-    return response
-
-
-def select_indicator_section(response, section):
-    """Project one section from an already calculated canonical payload."""
-    if section not in ('meta', 'cards', 'tables', 'charts'):
-        raise ValueError('section must be meta, cards, tables, charts')
-    period = response['period']
-    quality = response['quality']
-    methodology = response['methodology']
-    if section == 'meta':
-        return {'period': period, 'quality': quality,
-                'methodology': methodology}
-    if section == 'cards':
-        cards = []
-        for card in response.get('cards') or []:
-            compact = dict(card)
-            compact.pop('series', None)
-            compact.pop('details', None)
-            cards.append(compact)
-        return {'period': period, 'cards': cards, 'quality': quality,
-                'methodology': methodology}
-    if section == 'tables':
-        return {'period': period, 'objects': response.get('objects', []),
-                'revenue_segments': response.get('revenue_segments', []),
-                'account90_categories': response.get(
-                    'account90_categories', []),
-                'quality': quality, 'methodology': methodology}
-    return {'period': period, 'cards': response.get('cards', []),
-            'quality': quality, 'methodology': methodology}
-
 
 def _debtor_report_analytics(rows, sub):
     """Extract terminal debtor coordinates without cross-branch depth rules."""

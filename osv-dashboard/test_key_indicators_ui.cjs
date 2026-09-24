@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const nodes = new Map();
 const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
-        style: {}, innerHTML: '', classList: {add() {}, remove() {}, contains() { return false; }},
+        style: {}, innerHTML: '', classList: {add() {}, remove() {}},
         clientWidth: 800, clientHeight: 260, querySelectorAll: () => [],
         setAttribute() {},
     });
@@ -14,7 +14,7 @@ const element = id => {
 const context = {
     window: {KI_CONFIG: {dataUrl: '/company/1/key-indicators/data'}},
     document: {addEventListener() {}, getElementById: element, querySelectorAll: () => []},
-    AbortController, URLSearchParams, console,
+    AbortController, console,
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8'), context);
@@ -32,10 +32,7 @@ app.state.data = {period: {
     options: ['03-31', '06-30', '09-30', '12-31'].map(d => ({value: `2026-${d}`, label: d})),
 }};
 app.renderPeriodSelector();
-assert.equal(element('ki-date-from-select').value, '2026-03-31');
-assert.equal(element('ki-date-select').value, '2026-09-30');
-app.state.data.period.start = '2026-01-01';
-app.state.data.period.end = '2026-01-06';
+assert.equal((element('ki-quarter-buttons').innerHTML.match(/quarter-btn active/g) || []).length, 3);
 app.onQuarterChange('2026-09-30');
 app.onQuarterChange('2026-06-30');
 assert.equal(app.state.dateFrom, '2026-06-30');
@@ -65,48 +62,22 @@ assert.match(element('test-one-point').innerHTML, /Одна точка данн�
 app.renderBarChart([{date: '2026-01-01', label: '01.01.2026', value: null}],
     '%', 'test-all-missing', {title: 'test'});
 assert.match(element('test-all-missing').innerHTML, /Нет данных для графика/);
-// A missing value is still a real indicator: retain its tile and explain why
-// the value is unavailable instead of silently removing it from the grid.
-const indicatorIds = [
-    'cash', 'cash_dz', 'revenue', 'collection', 'ap', 'cogs', 'profit',
-    'credits', 'salary', 'capex'
-];
-app.state.data = {
-    cards: indicatorIds.map((id, index) => ({
-        id, title: id, value: index === 3 ? null : index, unit: 'RUB',
-        status: 'neutral', reason: index === 3 ? 'Недостаточно данных' : null
-    }))
-};
-app.renderCards();
-const cardGrid = element('ki-cards-grid').innerHTML;
-assert.equal((cardGrid.match(/class="kpi-card/g) || []).length, 10);
-assert.deepEqual(
-    Array.from(cardGrid.matchAll(/data-metric="([^"]+)"/g), match => match[1]),
-    indicatorIds
-);
-assert.match(cardGrid, /data-no-data="true"/);
-assert.doesNotMatch(cardGrid, /\shidden(?:[=>\s])/);
-assert.match(cardGrid, /Недостаточно данных/);
-assert.doesNotMatch(cardGrid, /data-metric="ar"/);
 app.onPeriodChange('month');
 assert.equal(app.state.quarterAnchor, null);
 assert.equal(app.state.dateFrom, null);
 app.state.period = 'quarter';
 app.state.dateFrom = '2026-03-31';
 app.state.date = '2026-09-30';
-const requested = [];
+let requested;
 context.fetch = async url => {
-    requested.push(url);
+    requested = url;
     return {ok: true, status: 200, text: async () => JSON.stringify({
         period: {kind: 'quarter', date_from: '2026-03-31', date: '2026-09-30'},
     })};
 };
 app.render = () => {};
 fetchData.call(app).then(() => {
-    assert.equal(requested.length, 4);
-    assert.deepEqual(requested.map(url => new URL(url, 'http://test.local')
-        .searchParams.get('section')), ['cards', 'meta', 'tables', 'charts']);
-    assert.ok(requested.every(url => /from=2026-03-31/.test(url) &&
-        /to=2026-09-30/.test(url)));
+    assert.match(requested, /date_from=2026-03-31/);
+    assert.match(requested, /date=2026-09-30/);
     console.log('Quarter range, request parameters and chart gaps: OK');
 }).catch(error => {console.error(error); process.exitCode = 1;});

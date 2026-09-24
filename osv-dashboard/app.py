@@ -52,9 +52,6 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         DebtorAnalyticMapping, ConsumerCollectionAccrual,
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
-                        MetricSnapshot, MetricSnapshotSource, IndicatorSourceCache,
-                        MetricSnapshotValue,
-                       ActiveMetricSnapshot, MetricSnapshotJob,
                        OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
@@ -337,7 +334,6 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 }
 
 db.init_app(app)
-import metric_snapshots  # Register transactional source-change queue hooks.
 csrf = CSRFProtect(app)
 
 
@@ -1839,7 +1835,6 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             db.session.commit()
             committed = True
             _sync_daily_reconciliation_alerts(company_id)
-            _schedule_indicator_source_cache(company_id)
             _schedule_osv_file_summaries(company_id)
             _durable_backup('ОСВ background upload')
 
@@ -2266,18 +2261,13 @@ def home():
         query = query.join(CompanyMembership).filter(
             CompanyMembership.user_id == current_user.id)
     companies = query.order_by(Company.created_at.desc()).all()
-    failed_snapshot_jobs = []
-    if current_user.is_admin:
-        from metric_snapshots import failed_metric_snapshot_jobs
-        failed_snapshot_jobs = failed_metric_snapshot_jobs()
     if (app.config['PORTFOLIO_HOME_ENABLED']
             and request.args.get('legacy') != '1'):
         from portfolio import build_portfolio
         portfolio = build_portfolio(
             companies, selected_year=request.args.get('year', type=int))
         response = Response(render_template(
-            'portfolio.html', portfolio=portfolio,
-            failed_snapshot_jobs=failed_snapshot_jobs), mimetype='text/html')
+            'portfolio.html', portfolio=portfolio), mimetype='text/html')
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return response
     # Автоматически восстанавливаем kpi_cache.json для компаний, у которых
@@ -2296,7 +2286,6 @@ def home():
     cards = [_company_summary(c) for c in companies]
     response = Response(
         render_template('home.html', companies=cards,
-                        failed_snapshot_jobs=failed_snapshot_jobs,
                         rating_profiles=_rating_profiles_for_user(),
                         historical_expert_enabled=(
                             app.config['HISTORICAL_IMPORT_ENABLED']
@@ -3655,25 +3644,15 @@ def _key_indicator_request_period():
     period = request.args.get('period', 'month')
     endpoint = request.args.get('date') or None
     date_from = request.args.get('date_from') or None
-    range_from = request.args.get('from')
-    range_to = request.args.get('to')
-    if range_from is not None or range_to is not None:
-        if not range_from or not range_to:
-            raise ValueError('Укажите обе границы диапазона: from и to')
-        period, endpoint, date_from = 'day', range_to, range_from
     if period not in ('day', 'month', 'quarter', 'year'):
         raise ValueError('Неизвестный период')
     for value in (endpoint, date_from):
         if value is None:
             continue
         try:
-            parsed = datetime.strptime(value, '%Y-%m-%d')
-            if parsed.strftime('%Y-%m-%d') != value:
-                raise ValueError('invalid date')
+            datetime.strptime(value, '%Y-%m-%d')
         except ValueError:
             raise ValueError('Дата должна иметь формат ГГГГ-ММ-ДД')
-    if date_from is not None and endpoint is not None and date_from > endpoint:
-        raise ValueError('Начало диапазона должно быть не позже конца')
     if date_from is not None and period not in ('day', 'month', 'quarter'):
         raise ValueError('Начальная дата доступна для дня, месяца и квартала')
     return period, endpoint, date_from
@@ -3769,33 +3748,7 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
             _key_indicator_payload_cache.popitem(last=False)
     return payload
 
-def _key_indicator_section(payload, section):
-    """Project one immutable calculated response without changing its values."""
-    if section is None:
-        return payload
-    shared = {key: payload.get(key) for key in
-              ('period', 'company', 'updated_at', 'quality')}
-    if section == 'meta':
-        return {**shared, 'methodology': payload.get('methodology'),
-                'source_passport': payload.get('source_passport')}
-    if section == 'cards':
-        return {**shared, 'cards': [
-            {key: value for key, value in card.items()
-             if key not in ('series', 'details', 'analytics',
-                            'classification_analytics', 'consumer_series',
-                            'advances_series', 'previous_year_consumer_series',
-                            'previous_year_advances_series')}
-            for card in payload.get('cards', [])]}
-    if section == 'tables':
-        return {**shared, 'objects': payload.get('objects'),
-                'revenue_segments': payload.get('revenue_segments'),
-                'account90_categories': payload.get('account90_categories'),
-                'recommendations': payload.get('recommendations')}
-    if section == 'charts':
-        # Charts carry complete card-specific modal data only once; the
-        # tables section above has no copy of the analytics/details.
-        return {**shared, 'cards': payload.get('cards', [])}
-    raise ValueError('Неизвестная секция показателей')
+
 @app.route('/company/<int:company_id>/key-indicators/data')
 @login_required
 def key_indicators_data(company_id):
@@ -3804,28 +3757,9 @@ def key_indicators_data(company_id):
     )
     company = _require_company_access(company_id)
     try:
-        section = request.args.get('section') or None
-        if section not in (None, 'meta', 'cards', 'tables', 'charts'):
-            raise ValueError('Неизвестная секция показателей')
         period, endpoint, date_from = _key_indicator_request_period()
-        if section is None:
-            # Retain the original contract for existing integrations.
-            payload = _operational_key_indicators_payload(
-                company, period, endpoint, date_from)
-        else:
-            from metric_snapshots import get_precomputed_key_indicators
-            payload = get_precomputed_key_indicators(
-                company.id, period=period, endpoint_date=endpoint,
-                 date_from=date_from, section=section)
-            if payload is None:
-                _schedule_indicator_source_cache(company.id)
-                response = jsonify(error='Подготавливаем данные ОСВ. Повторите запрос через несколько секунд.')
-                response.status_code = 503
-                response.headers['Retry-After'] = '3'
-                response.headers['Cache-Control'] = 'private, no-store'
-                return response
-            payload['company'] = {'id': company.id, 'name': company.name}
-            payload = _key_indicator_section(payload, section)
+        payload = _operational_key_indicators_payload(
+            company, period, endpoint, date_from)
     except SourceBusyError as exc:
         response = jsonify(error=str(exc))
         response.status_code = 503
@@ -3845,90 +3779,6 @@ def key_indicators_data(company_id):
         response.set_data(gzip.compress(response.get_data(), compresslevel=5))
         response.headers['Content-Encoding'] = 'gzip'
         response.headers['Vary'] = 'Accept-Encoding'
-    return response
-
-@app.route('/analytics/summary/<int:company_id>/retry', methods=['POST'])
-@admin_required
-def retry_metric_snapshot_summary(company_id):
-    """Retry a failed publication without changing its sources or active pointer."""
-    company = db.session.get(Company, company_id) or abort(404)
-    if company.is_archived:
-        return jsonify(error='Архивное предприятие доступно только для чтения'), 409
-    from metric_snapshots import retry_failed_metric_snapshot
-    if not retry_failed_metric_snapshot(company_id):
-        return jsonify(error='Повтор доступен только для задания с ошибкой.'), 409
-    response = jsonify(company_id=company_id, status='stale')
-    response.headers['Cache-Control'] = 'private, no-store'
-    return response
-@app.route('/analytics/summary')
-@login_required
-def metric_snapshot_summary():
-    """Compact comparison from published versions; never opens source files."""
-    from datetime import date as _date
-    raw_ids = request.args.get('company_ids', '')
-    raw_metrics = request.args.get('metric_ids', '')
-    try:
-        company_ids = [int(value) for value in raw_ids.split(',')]
-        metrics = [value.strip() for value in raw_metrics.split(',')]
-        start = _date.fromisoformat(request.args['from'])
-        end = _date.fromisoformat(request.args['to'])
-    except (ValueError, KeyError):
-        return jsonify(error='Укажите company_ids, metric_ids, from и to.'), 400
-    granularity = request.args.get('granularity', 'quarter')
-    if (not company_ids or len(company_ids) > 60 or
-            len(set(company_ids)) != len(company_ids) or
-            any(value <= 0 for value in company_ids) or
-            not metrics or len(metrics) > 30 or
-            any(not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}', value) for value in metrics) or
-            granularity not in ('month', 'quarter', 'year') or start > end):
-        return jsonify(error='Некорректные параметры сравнения.'), 400
-    for company_id in company_ids:
-        _require_company_access(company_id)
-    pointers = (ActiveMetricSnapshot.query
-                .filter(ActiveMetricSnapshot.company_id.in_(company_ids)).all())
-    snapshots = {row.company_id: row.snapshot for row in pointers}
-    from metric_snapshots import _revision
-    jobs = {row.company_id: row for row in MetricSnapshotJob.query.filter(
-        MetricSnapshotJob.company_id.in_(company_ids)).all()}
-    pointer_by_company = {row.company_id: row for row in pointers}
-    def snapshot_status(company_id):
-        job = jobs.get(company_id)
-        pointer = pointer_by_company.get(company_id)
-        if job:
-            return job.status
-        if pointer is None:
-            return 'not_built'
-        # Legacy/manual publications without a queue record are checked once
-        # per request until the startup reconciliation creates their job.
-        fingerprint, _ = _revision(company_id)
-        return 'ready' if fingerprint == pointer.revision_fingerprint else 'stale'
-    snapshot_ids = [row.snapshot_id for row in pointers]
-    values = []
-    if snapshot_ids:
-        values = (MetricSnapshotValue.query
-                  .filter(MetricSnapshotValue.snapshot_id.in_(snapshot_ids),
-                          MetricSnapshotValue.metric_id.in_(metrics),
-                          MetricSnapshotValue.granularity == granularity,
-                          MetricSnapshotValue.period_start == start,
-                          MetricSnapshotValue.period_end == end).all())
-    owner = {row.snapshot_id: row.company_id for row in pointers}
-    response = jsonify(
-        period={'from': start.isoformat(), 'to': end.isoformat(),
-                'granularity': granularity},
-        companies=[{
-            'company_id': company_id,
-            'status': snapshot_status(company_id),
-            'error': jobs[company_id].error if company_id in jobs and jobs[company_id].status == 'failed' else None,
-            'snapshot_id': snapshots[company_id].id if company_id in snapshots else None,
-            'published_at': (snapshots[company_id].created_at.isoformat()
-                             if company_id in snapshots else None),
-        } for company_id in company_ids],
-        values=[{
-            'company_id': owner[row.snapshot_id], 'snapshot_id': row.snapshot_id,
-            'metric_id': row.metric_id, 'value': json.loads(row.value_json),
-        } for row in values],
-    )
-    response.headers['Cache-Control'] = 'private, no-store'
     return response
 
 
@@ -4498,8 +4348,6 @@ def key_indicator_collection_source(company_id):
     ConsumerCollectionNorm.query.filter_by(company_id=company_id).delete()
     db.session.add_all(
         normalized_accruals + normalized_allocations + normalized_norms)
-    from metric_snapshots import enqueue_metric_snapshot
-    enqueue_metric_snapshot(company_id)
     try:
         db.session.commit()
     except IntegrityError:
@@ -5400,11 +5248,6 @@ def coverage_data_delete(company_id):
         ))
     company.osv_source_revision = (
         f'delete:{mode}:{int(time.time())}')
-    if deleted_rows or deleted_sources:
-        # Bulk Query.delete bypasses ORM flush events. Keep the rebuild request
-        # in the same transaction as the direct-daily deletion.
-        from metric_snapshots import enqueue_metric_snapshot
-        enqueue_metric_snapshot(company.id)
     db.session.commit()
     try:
         backup_result = _durable_backup(
@@ -6037,28 +5880,6 @@ def _delete_company_records(company):
     for model in (OneCAttempt, OneCIdempotency):
         deleted_counts[model.__tablename__] = model.query.filter(
             model.channel_id.in_(channel_ids)).delete(synchronize_session=False)
-    snapshot_ids = db.session.query(MetricSnapshot.id).filter_by(
-        company_id=company_id)
-    deleted_counts[MetricSnapshotJob.__tablename__] = (
-        MetricSnapshotJob.query.filter_by(company_id=company_id)
-        .delete(synchronize_session=False))
-    deleted_counts[IndicatorSourceCache.__tablename__] = (
-        IndicatorSourceCache.query.filter_by(company_id=company_id)
-        .delete(synchronize_session=False))
-    deleted_counts[ActiveMetricSnapshot.__tablename__] = (
-        ActiveMetricSnapshot.query.filter_by(company_id=company_id)
-        .delete(synchronize_session=False))
-    deleted_counts[MetricSnapshotValue.__tablename__] = (
-        MetricSnapshotValue.query.filter(
-            MetricSnapshotValue.snapshot_id.in_(snapshot_ids))
-        .delete(synchronize_session=False))
-    deleted_counts[MetricSnapshotSource.__tablename__] = (
-        MetricSnapshotSource.query.filter(
-            MetricSnapshotSource.snapshot_id.in_(snapshot_ids))
-        .delete(synchronize_session=False))
-    deleted_counts[MetricSnapshot.__tablename__] = (
-        MetricSnapshot.query.filter_by(company_id=company_id)
-        .delete(synchronize_session=False))
     dependent_models = (
         OneCChannel,
         EmailRule,
@@ -7321,13 +7142,6 @@ def init_db(perform_durable=True):
         _add_missing('daily_rows', [
             ('source_type', "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),
         ])
-        _add_missing('metric_snapshot_jobs', [
-            ('methodology_version',
-             "VARCHAR(80) NOT NULL DEFAULT 'metric-snapshots-v1'"),
-        ])
-        _add_missing('metric_snapshot_values', [
-            ('card_json', "TEXT"),
-        ])
 
         # Task 117 is additive for deployed installations which already have
         # the analogue tables.  Columns carrying historical children remain
@@ -8199,8 +8013,6 @@ if __name__ == '__main__':
                 raise
             time.sleep(2)
     _ensure_imap_thread()
-    from metric_snapshots import start_metric_snapshot_worker
-    start_metric_snapshot_worker(app, UPLOADS)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
             debug=False, threaded=True)
 
@@ -9051,31 +8863,3 @@ def limit_delivery_journal(dataset_id):
                            selected_status=status, search=search, selected_version=version_id,
                            total=total, page=page, pages=pages,
                            versions=LimitVersion.query.filter_by(dataset_id=dataset_id, status='accepted').all())
-
-_indicator_source_builds_lock = threading.Lock()
-_indicator_source_builds = set()
-
-
-def _schedule_indicator_source_cache(company_id):
-    """Warm an unavailable revision outside the request, coalescing local readers."""
-    with _indicator_source_builds_lock:
-        if company_id in _indicator_source_builds:
-            return
-        _indicator_source_builds.add(company_id)
-
-    def build():
-        with app.app_context():
-            try:
-                from metric_snapshots import publish_indicator_source_cache
-                publish_indicator_source_cache(company_id, UPLOADS)
-            except Exception:
-                db.session.rollback()
-                app.logger.exception('Indicator source warmup failed for company %s',
-                                     company_id)
-            finally:
-                db.session.remove()
-                with _indicator_source_builds_lock:
-                    _indicator_source_builds.discard(company_id)
-
-    threading.Thread(target=build, daemon=True,
-                     name=f'indicator-source-{company_id}').start()

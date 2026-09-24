@@ -266,16 +266,12 @@ def main():
             def open_cash(cash_card):
                 page.evaluate("""cashCard => {
                     const app = window.KI_App;
-                    // This fixture has no OSV source: the expected source error
-                    // overlay must not block clicks on synthetic modal data.
-                    app.dismissError();
                     window.KI_Layout = null;
                     app.state.mode = 'operational';
                     app.state.data = {
                         period: {label: 'Синтетический период'},
                         cards: [cashCard],
                     };
-                    app.state.sectionReady = {meta: true, cards: true, tables: true, charts: true};
                     app.openModal('cash');
                 }""", cash_card)
                 expect(page.locator('#ki-modal')).to_be_visible()
@@ -388,8 +384,8 @@ def main():
                            args.update_snapshots)
             assert not errors, errors
             browser.close()
-        print('PASS: cash tables match full/partial visual references; '
-              'narrow modal scroll geometry is valid')
+        print('PASS: authorised synthetic cash modal matches full, partial, '
+              'and narrow scrolling visual references')
         succeeded = True
     finally:
         if succeeded:

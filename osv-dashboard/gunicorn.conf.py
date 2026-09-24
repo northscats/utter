@@ -364,8 +364,6 @@ def post_fork(server, worker):
                 raise RuntimeError(
                     'durable startup did not acquire its startup lock')
             _write_startup_state(worker.pid, 'ready')
-            from metric_snapshots import start_metric_snapshot_worker
-            start_metric_snapshot_worker(app, __import__('app').UPLOADS)
             _ensure_imap_thread()
             server.log.info(
                 f'[worker {worker.pid}] durable startup ready '

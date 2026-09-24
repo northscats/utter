@@ -18,7 +18,6 @@ async function checkBootstrap(configuration) {
       },
     },
     AbortController,
-    URLSearchParams,
     Intl,
     console,
     document: {
@@ -67,12 +66,10 @@ async function checkBootstrap(configuration) {
     },
     fetch: async url => {
       requests.push(url);
-      const section = new URL(url, 'http://localhost').searchParams.get('section');
       return {
         ok: true, status: 200,
         text: async () => JSON.stringify({
-          ...(section === 'cards' ? {cards: []} : {}),
-          ...(section === 'meta' ? {period: {kind: 'year', date: '2026-06-30'}} : {}),
+          cards: [], period: { kind: 'year', date: '2026-06-30' },
         }),
       };
     },
@@ -88,12 +85,8 @@ async function checkBootstrap(configuration) {
   await app.fetchData();
   assert.equal(loading, false, 'loading must clear even on configuration errors');
   if (configuration) {
-    assert.equal(requests.length, 4);
-    assert.match(requests[0], /[?&]section=cards/);
-    assert.match(requests[1], /[?&]section=meta/);
-    assert.match(requests[2], /[?&]section=tables/);
-    assert.match(requests[3], /[?&]section=charts/);
-    assert.equal(renders, 4, 'each completed section must render progressively');
+    assert.equal(requests[0], '/company/11/key-indicators/data?period=year');
+    assert.equal(renders, 1, 'valid configuration must reach rendering');
     stored.set('brain4sales:key-indicators:period-selection:11', JSON.stringify({
       period: 'month', date: '2026-06-30', dateFrom: '2026-01-31',
     }));
@@ -814,8 +807,8 @@ async function checkBootstrap(configuration) {
     ],
   }};
   app.renderPeriodSelector();
-  assert.equal(nodes.get('ki-date-from-select').value, '2026-01-01');
-  assert.equal(nodes.get('ki-date-select').value, '2026-06-30');
+  assert.equal(nodes.get('ki-date-from-select').value, '01.01.2026');
+  assert.equal(nodes.get('ki-date-select').value, '30.06.2026');
   let fetched = 0;
   app.fetchData = () => { fetched++; };
   app.onPeriodPickerButton();
@@ -823,23 +816,23 @@ async function checkBootstrap(configuration) {
   assert.equal(nodes.get('ki-period-picker-button').textContent, 'Загрузить период');
   assert.match(nodes.get('ki-period-years').innerHTML, />Мар</);
   app.selectPeriodMonth('2025-03-01');
-  assert.equal(nodes.get('ki-date-from-select').value, '2025-03-01');
-  assert.equal(nodes.get('ki-date-select').value, '');
+  assert.equal(nodes.get('ki-date-from-select').value, '01.03.2025');
+  assert.equal(nodes.get('ki-date-select').value, '—');
   assert.equal(fetched, 0, 'selecting the first month must not load data');
   app.selectPeriodMonth('2026-06-01');
-  assert.equal(nodes.get('ki-date-select').value, '2026-06-30');
+  assert.equal(nodes.get('ki-date-select').value, '30.06.2026');
   assert.equal(fetched, 0, 'selecting the second month must not load data');
   app.shiftPeriodDay('from', 1);
   app.shiftPeriodDay('to', -2);
-  assert.equal(nodes.get('ki-date-from-select').value, '2025-03-02');
-  assert.equal(nodes.get('ki-date-select').value, '2026-06-28');
+  assert.equal(nodes.get('ki-date-from-select').value, '02.03.2025');
+  assert.equal(nodes.get('ki-date-select').value, '28.06.2026');
   app.shiftPeriodDay('from', -20);
-  assert.equal(nodes.get('ki-date-from-select').value, '2025-03-01',
+  assert.equal(nodes.get('ki-date-from-select').value, '01.03.2025',
     'scrolling must not leave the selected start month');
   app.cancelPeriodPicker();
   assert.equal(nodes.get('ki-period-picker-button').textContent, 'Выбрать период');
-  assert.equal(nodes.get('ki-date-from-select').value, '2026-01-01');
-  assert.equal(nodes.get('ki-date-select').value, '2026-06-30');
+  assert.equal(nodes.get('ki-date-from-select').value, '01.01.2026');
+  assert.equal(nodes.get('ki-date-select').value, '30.06.2026');
   assert.equal(fetched, 0, 'closing outside must cancel the draft without loading');
   app.onPeriodPickerButton();
   app.selectPeriodMonth('2025-03-01');
@@ -856,7 +849,7 @@ async function checkBootstrap(configuration) {
   app.onPeriodPickerButton();
   app.selectPeriodMonth('2026-09-01');
   app.selectPeriodMonth('2026-09-01');
-  assert.equal(nodes.get('ki-date-select').value, '2026-09-15',
+  assert.equal(nodes.get('ki-date-select').value, '15.09.2026',
     'the current partial month must end on the last available data date');
   app.cancelPeriodPicker();
   assert.match(script, /delta < 0 \? 'cash-value-negative'/,
