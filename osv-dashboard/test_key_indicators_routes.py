@@ -297,6 +297,47 @@ class KeyIndicatorRouteTests(unittest.TestCase):
         self.assertIn('key_indicators.js', response.get_data(as_text=True))
         self.assertIn('window.KI_CONFIG =', response.get_data(as_text=True))
 
+    def test_section_range_uses_published_source_without_file_load(self):
+        payload = {
+            'period': {'kind': 'day', 'start': '2026-01-03',
+                       'end': '2026-02-04', 'date': '2026-02-04',
+                       'date_from': '2026-01-03'},
+            'cards': [{'id': 'cash', 'value': None, 'reason': 'Нет счёта',
+                       'series': [{'date': '2026-02-04', 'value': None}],
+                       'details': [{'label': 'Подробности'}]}],
+            'objects': [], 'quality': {'missing_accounts': ['51']},
+        }
+        with patch('metric_snapshots.get_precomputed_key_indicators',
+                   return_value=payload) as cached, \
+                patch.object(app_module, '_operational_key_indicators_payload',
+                             side_effect=AssertionError('Unexpected ОСВ read')):
+            client = self.client('kpi_allowed')
+            url = self.url(data=True) + '?from=2026-01-03&to=2026-02-04'
+            cards = client.get(url + '&section=cards')
+            self.assertEqual(cards.status_code, 200)
+            self.assertIsNone(cards.json['cards'][0]['value'])
+            self.assertNotIn('series', cards.json['cards'][0])
+            self.assertEqual(cards.json['period']['start'], '2026-01-03')
+            self.assertEqual(cached.call_args.kwargs['period'], 'day')
+            self.assertEqual(cached.call_args.kwargs['date_from'], '2026-01-03')
+            charts = client.get(url + '&section=charts')
+            self.assertEqual(charts.json['cards'][0]['series'][0]['value'], None)
+            self.assertEqual(client.get(url + '&section=unknown').status_code, 400)
+            self.assertEqual(client.get(self.url(data=True) +
+                                        '?from=2026-01-03&section=cards').status_code, 400)
+
+    def test_missing_section_cache_schedules_background_build(self):
+        with patch('metric_snapshots.get_precomputed_key_indicators',
+                   return_value=None), \
+                patch.object(app_module, '_schedule_indicator_source_cache') as warm, \
+                patch.object(app_module, '_operational_key_indicators_payload',
+                             side_effect=AssertionError('Unexpected ОСВ read')):
+            response = self.client('kpi_allowed').get(
+                self.url(data=True) + '?section=meta')
+            self.assertEqual(response.status_code, 503)
+            self.assertEqual(response.headers['Retry-After'], '3')
+            warm.assert_called_once_with(self.company)
+
     def test_ai_report_uses_selected_operational_period_not_saved_dashboard(self):
         source = build_indicator_source({
             '90': {

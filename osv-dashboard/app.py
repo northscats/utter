@@ -52,8 +52,8 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         DebtorAnalyticMapping, ConsumerCollectionAccrual,
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
-                       MetricSnapshot, MetricSnapshotValue, ActiveMetricSnapshot,
-                       MetricSnapshotJob,
+                       MetricSnapshot, MetricSnapshotSource, MetricSnapshotValue,
+                       ActiveMetricSnapshot, MetricSnapshotJob,
                        OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
@@ -1838,6 +1838,7 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             db.session.commit()
             committed = True
             _sync_daily_reconciliation_alerts(company_id)
+            _schedule_indicator_source_cache(company_id)
             _schedule_osv_file_summaries(company_id)
             _durable_backup('ОСВ background upload')
 
@@ -3647,15 +3648,25 @@ def _key_indicator_request_period():
     period = request.args.get('period', 'month')
     endpoint = request.args.get('date') or None
     date_from = request.args.get('date_from') or None
+    range_from = request.args.get('from')
+    range_to = request.args.get('to')
+    if range_from is not None or range_to is not None:
+        if not range_from or not range_to:
+            raise ValueError('Укажите обе границы диапазона: from и to')
+        period, endpoint, date_from = 'day', range_to, range_from
     if period not in ('day', 'month', 'quarter', 'year'):
         raise ValueError('Неизвестный период')
     for value in (endpoint, date_from):
         if value is None:
             continue
         try:
-            datetime.strptime(value, '%Y-%m-%d')
+            parsed = datetime.strptime(value, '%Y-%m-%d')
+            if parsed.strftime('%Y-%m-%d') != value:
+                raise ValueError('invalid date')
         except ValueError:
             raise ValueError('Дата должна иметь формат ГГГГ-ММ-ДД')
+    if date_from is not None and endpoint is not None and date_from > endpoint:
+        raise ValueError('Начало диапазона должно быть не позже конца')
     if date_from is not None and period not in ('day', 'month', 'quarter'):
         raise ValueError('Начальная дата доступна для дня, месяца и квартала')
     return period, endpoint, date_from
@@ -3751,7 +3762,33 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
             _key_indicator_payload_cache.popitem(last=False)
     return payload
 
-
+def _key_indicator_section(payload, section):
+    """Project one immutable calculated response without changing its values."""
+    if section is None:
+        return payload
+    shared = {key: payload.get(key) for key in
+              ('period', 'company', 'updated_at', 'quality')}
+    if section == 'meta':
+        return {**shared, 'methodology': payload.get('methodology'),
+                'source_passport': payload.get('source_passport')}
+    if section == 'cards':
+        return {**shared, 'cards': [
+            {key: value for key, value in card.items()
+             if key not in ('series', 'details', 'analytics',
+                            'classification_analytics', 'consumer_series',
+                            'advances_series', 'previous_year_consumer_series',
+                            'previous_year_advances_series')}
+            for card in payload.get('cards', [])]}
+    if section == 'tables':
+        return {**shared, 'objects': payload.get('objects'),
+                'revenue_segments': payload.get('revenue_segments'),
+                'account90_categories': payload.get('account90_categories'),
+                'recommendations': payload.get('recommendations')}
+    if section == 'charts':
+        # Charts carry complete card-specific modal data only once; the
+        # tables section above has no copy of the analytics/details.
+        return {**shared, 'cards': payload.get('cards', [])}
+    raise ValueError('Неизвестная секция показателей')
 @app.route('/company/<int:company_id>/key-indicators/data')
 @login_required
 def key_indicators_data(company_id):
@@ -3760,9 +3797,28 @@ def key_indicators_data(company_id):
     )
     company = _require_company_access(company_id)
     try:
+        section = request.args.get('section') or None
+        if section not in (None, 'meta', 'cards', 'tables', 'charts'):
+            raise ValueError('Неизвестная секция показателей')
         period, endpoint, date_from = _key_indicator_request_period()
-        payload = _operational_key_indicators_payload(
-            company, period, endpoint, date_from)
+        if section is None:
+            # Retain the original contract for existing integrations.
+            payload = _operational_key_indicators_payload(
+                company, period, endpoint, date_from)
+        else:
+            from metric_snapshots import get_precomputed_key_indicators
+            payload = get_precomputed_key_indicators(
+                company.id, period=period, endpoint_date=endpoint,
+                date_from=date_from)
+            if payload is None:
+                _schedule_indicator_source_cache(company.id)
+                response = jsonify(error='Подготавливаем данные ОСВ. Повторите запрос через несколько секунд.')
+                response.status_code = 503
+                response.headers['Retry-After'] = '3'
+                response.headers['Cache-Control'] = 'private, no-store'
+                return response
+            payload['company'] = {'id': company.id, 'name': company.name}
+            payload = _key_indicator_section(payload, section)
     except SourceBusyError as exc:
         response = jsonify(error=str(exc))
         response.status_code = 503
@@ -5973,6 +6029,10 @@ def _delete_company_records(company):
     deleted_counts[MetricSnapshotValue.__tablename__] = (
         MetricSnapshotValue.query.filter(
             MetricSnapshotValue.snapshot_id.in_(snapshot_ids))
+        .delete(synchronize_session=False))
+    deleted_counts[MetricSnapshotSource.__tablename__] = (
+        MetricSnapshotSource.query.filter(
+            MetricSnapshotSource.snapshot_id.in_(snapshot_ids))
         .delete(synchronize_session=False))
     deleted_counts[MetricSnapshot.__tablename__] = (
         MetricSnapshot.query.filter_by(company_id=company_id)
@@ -8966,3 +9026,27 @@ def limit_delivery_journal(dataset_id):
                            selected_status=status, search=search, selected_version=version_id,
                            total=total, page=page, pages=pages,
                            versions=LimitVersion.query.filter_by(dataset_id=dataset_id, status='accepted').all())
+
+def _schedule_indicator_source_cache(company_id):
+    """Warm an unavailable revision outside the request, coalescing local readers."""
+    with _indicator_source_builds_lock:
+        if company_id in _indicator_source_builds:
+            return
+        _indicator_source_builds.add(company_id)
+
+    def build():
+        with app.app_context():
+            try:
+                from metric_snapshots import publish_indicator_source_cache
+                publish_indicator_source_cache(company_id, UPLOADS)
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('Indicator source warmup failed for company %s',
+                                     company_id)
+            finally:
+                db.session.remove()
+                with _indicator_source_builds_lock:
+                    _indicator_source_builds.discard(company_id)
+
+    threading.Thread(target=build, daemon=True,
+                     name=f'indicator-source-{company_id}').start()

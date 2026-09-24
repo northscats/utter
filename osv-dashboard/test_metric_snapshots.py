@@ -12,8 +12,10 @@ import app as app_module
 from database import (ActiveMetricSnapshot, Company, DailyRow, MetricSnapshot,
                       MetricSnapshotJob, Upload, User, db)
 from metric_snapshots import (_periods, build_metric_snapshot,
+                              get_precomputed_key_indicators,
                               process_metric_snapshot_job,
-                              read_metric_values, recover_metric_snapshot_jobs)
+                              publish_source_snapshot, read_metric_values,
+                              recover_metric_snapshot_jobs)
 import metric_snapshots
 
 
@@ -71,6 +73,34 @@ class MetricSnapshotTests(unittest.TestCase):
              ('month', '2026-02-28'), ('quarter', '2025-03-31'),
              ('quarter', '2026-02-28'), ('year', '2025-03-31'),
              ('year', '2026-02-28')})
+
+    def test_source_only_publication_serves_arbitrary_range_without_files(self):
+        from key_indicators import build_indicator_source
+        source = build_indicator_source({'51': {
+            'acc': '51', 'period': 'Январь 2026',
+            'daily': [{'date': '2026-01-01', 'obd': 3, 'obk': 0},
+                      {'date': '2026-01-02', 'obd': 2, 'obk': 0}],
+            'top': {'snd': 0, 'snk': 0, 'obd': 5, 'obk': 0,
+                    'skd': 5, 'skk': 0},
+        }})
+        self.assertIsNone(get_precomputed_key_indicators(self.company.id))
+        with patch('key_indicators_service.load_company_source',
+                   return_value=(source, None)) as loader:
+            snapshot = publish_source_snapshot(self.company.id, '/unused')
+        self.assertEqual(loader.call_count, 1)
+        self.assertEqual(snapshot.period, 'source')
+        with patch('key_indicators_service.load_company_source',
+                   side_effect=AssertionError('Unexpected file read')):
+            payload = get_precomputed_key_indicators(
+                self.company.id, period='day', endpoint_date='2026-01-02',
+                date_from='2026-01-01', section='cards')
+            self.assertEqual(payload['period']['start'], '2026-01-01')
+            self.assertIn('cards', payload)
+            with patch('metric_snapshots._revision',
+                       return_value=('changed-revision', {})):
+                self.assertIsNone(get_precomputed_key_indicators(
+                    self.company.id, period='day',
+                    endpoint_date='2026-01-02'))
 
     def test_calculation_failure_does_not_replace_active_snapshot(self):
         source = {'version': 1, 'accounts': {}}

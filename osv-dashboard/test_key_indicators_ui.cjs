@@ -5,7 +5,7 @@ const vm = require('node:vm');
 const nodes = new Map();
 const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
-        style: {}, innerHTML: '', classList: {add() {}, remove() {}},
+        style: {}, innerHTML: '', classList: {add() {}, remove() {}, contains() { return false; }},
         clientWidth: 800, clientHeight: 260, querySelectorAll: () => [],
         setAttribute() {},
     });
@@ -14,7 +14,7 @@ const element = id => {
 const context = {
     window: {KI_CONFIG: {dataUrl: '/company/1/key-indicators/data'}},
     document: {addEventListener() {}, getElementById: element, querySelectorAll: () => []},
-    AbortController, console,
+    AbortController, URLSearchParams, console,
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8'), context);
@@ -32,7 +32,10 @@ app.state.data = {period: {
     options: ['03-31', '06-30', '09-30', '12-31'].map(d => ({value: `2026-${d}`, label: d})),
 }};
 app.renderPeriodSelector();
-assert.equal((element('ki-quarter-buttons').innerHTML.match(/quarter-btn active/g) || []).length, 3);
+assert.equal(element('ki-date-from-select').value, '2026-03-31');
+assert.equal(element('ki-date-select').value, '2026-09-30');
+app.state.data.period.start = '2026-01-01';
+app.state.data.period.end = '2026-01-06';
 app.onQuarterChange('2026-09-30');
 app.onQuarterChange('2026-06-30');
 assert.equal(app.state.dateFrom, '2026-06-30');
@@ -68,16 +71,21 @@ assert.equal(app.state.dateFrom, null);
 app.state.period = 'quarter';
 app.state.dateFrom = '2026-03-31';
 app.state.date = '2026-09-30';
-let requested;
+const requested = [];
 context.fetch = async url => {
-    requested = url;
+    requested.push(url);
     return {ok: true, status: 200, text: async () => JSON.stringify({
         period: {kind: 'quarter', date_from: '2026-03-31', date: '2026-09-30'},
     })};
 };
 app.render = () => {};
 fetchData.call(app).then(() => {
-    assert.match(requested, /date_from=2026-03-31/);
-    assert.match(requested, /date=2026-09-30/);
+    assert.equal(requested.length, 4);
+    assert.ok(requested.some(url => /section=meta/.test(url)));
+    assert.ok(requested.some(url => /section=cards/.test(url)));
+    assert.ok(requested.some(url => /section=tables/.test(url)));
+    assert.ok(requested.some(url => /section=charts/.test(url)));
+    assert.ok(requested.every(url => /from=2026-03-31/.test(url) &&
+        /to=2026-09-30/.test(url)));
     console.log('Quarter range, request parameters and chart gaps: OK');
 }).catch(error => {console.error(error); process.exitCode = 1;});

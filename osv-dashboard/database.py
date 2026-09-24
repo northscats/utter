@@ -653,8 +653,9 @@ class MetricLayout(db.Model):
 class MetricSnapshot(db.Model):
     """Immutable, compact publication of calculated card values.
 
-    The calculated source and full response are deliberately not persisted;
-    only scalar card observations are kept in ``values``.
+    Scalar observations are kept in ``values``. The parsed source used for
+    arbitrary-range reads is stored separately, compressed in ``source_cache``;
+    full period response payloads are not persisted.
     """
     __tablename__ = 'metric_snapshots'
     __table_args__ = (
@@ -670,8 +671,25 @@ class MetricSnapshot(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     values = db.relationship('MetricSnapshotValue', backref='snapshot',
                              cascade='all, delete-orphan', lazy=True)
+    source_cache = db.relationship('MetricSnapshotSource', backref='snapshot',
+                                   uselist=False, cascade='all, delete-orphan',
+                                   lazy=True)
 
+class MetricSnapshotSource(db.Model):
+    """Immutable parsed indicator source used for arbitrary range reads.
 
+    Keeping this beside (and transactionally with) a metric snapshot means a
+    range cache miss never needs to reopen the original ОСВ files.
+    """
+    __tablename__ = 'metric_snapshot_sources'
+    id = db.Column(db.Integer, primary_key=True)
+    snapshot_id = db.Column(db.Integer, db.ForeignKey('metric_snapshots.id',
+                                                       ondelete='CASCADE'),
+                            nullable=False, unique=True, index=True)
+    revision_fingerprint = db.Column(db.String(64), nullable=False, index=True)
+    source_blob = db.Column(db.LargeBinary, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
 class MetricSnapshotValue(db.Model):
     """One scalar value from one dynamically discovered metric card."""
     __tablename__ = 'metric_snapshot_values'

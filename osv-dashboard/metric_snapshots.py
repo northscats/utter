@@ -12,13 +12,17 @@ import json
 import logging
 import threading
 import time
+import zlib
+from collections import OrderedDict
 from datetime import date
+from threading import Event, RLock
 
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 from database import (
     ActiveMetricSnapshot, Company, CostAnalyticMapping, DebtorAnalyticMapping,
-    MetricSnapshot, MetricSnapshotJob, MetricSnapshotValue, RevenueAnalyticMapping,
+    MetricSnapshot, MetricSnapshotJob, MetricSnapshotSource, MetricSnapshotValue,
+    RevenueAnalyticMapping,
     Upload, DailyRow, ConsumerCollectionAccrual, ConsumerPaymentAllocation,
     ConsumerCollectionNorm, db, utcnow,
 )
@@ -96,7 +100,15 @@ def _latest_date(source):
     return max(dates) if dates else date.today()
 
 
+def _pack_source(source):
+    return zlib.compress(_json(source).encode('utf-8'), level=6)
+
+
 METHODOLOGY_VERSION = 'metric-snapshots-v2'
+_PAYLOAD_CACHE = OrderedDict()
+_PAYLOAD_CACHE_LIMIT = 8
+_PAYLOAD_CACHE_LOCK = RLock()
+_PAYLOAD_INFLIGHT = {}
 
 
 def enqueue_metric_snapshot(company_id, session=None):
@@ -209,6 +221,7 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
         raise ValueError('Unknown company')
     fingerprint, _ = _revision(company_id)
     source, _updated = load_company_source(company_id, uploads_root)
+    source = {**source, '_source_updated_at': _updated}
     endpoint = endpoint_date or _latest_date(source)
     if isinstance(endpoint, str):
         endpoint = date.fromisoformat(endpoint)
@@ -256,6 +269,11 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
     candidate = MetricSnapshot(company_id=company_id, version=version,
                                revision_fingerprint=fingerprint,
                                period=period, endpoint_date=endpoint)
+    # Persist the parsed source in the same candidate transaction.  It is the
+    # durable boundary for arbitrary range requests; readers never fall back
+    # to reparsing raw ОСВ files on a cache miss.
+    candidate.source_cache = MetricSnapshotSource(
+        revision_fingerprint=fingerprint, source_blob=_pack_source(source))
     for granularity, start, end, endpoint_value, cards in calculated:
         if isinstance(start, str):
             start = date.fromisoformat(start)
@@ -296,6 +314,65 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
         db.session.rollback()
         raise
     return candidate
+
+def publish_indicator_source_cache(company_id, uploads_root):
+    """Parse and durably publish a source cache without calculating periods.
+
+    This is the lightweight background hook intended after an upload.  It
+    creates a source-only metric snapshot, so the normal active pointer and
+    revision guard also protect it from concurrent publishers.  A later full
+    rebuild supersedes this snapshot and adds the scalar period values.
+    """
+    from key_indicators_service import load_company_source
+
+    company = db.session.get(Company, company_id)
+    if company is None:
+        raise ValueError('Unknown company')
+    fingerprint, _ = _revision(company_id)
+    active = get_active_snapshot(company_id)
+    if (active and active.revision_fingerprint == fingerprint and
+            active.source_cache and
+            active.source_cache.revision_fingerprint == fingerprint):
+        return active
+    source, _updated = load_company_source(company_id, uploads_root)
+    source = {**source, '_source_updated_at': _updated}
+    current_fingerprint, _ = _revision(company_id)
+    if current_fingerprint != fingerprint:
+        raise RuntimeError('Indicator source cache is stale; source changed')
+    endpoint = _latest_date(source)
+    pointer = (ActiveMetricSnapshot.query.filter_by(company_id=company_id)
+               .with_for_update().first())
+    previous = db.session.get(MetricSnapshot, pointer.snapshot_id) if pointer else None
+    # Recheck after locking: another request may have published this revision.
+    if (pointer and pointer.revision_fingerprint == fingerprint and
+            previous and previous.source_cache and
+            previous.source_cache.revision_fingerprint == fingerprint):
+        return previous
+    version = (previous.version + 1) if previous else 1
+    candidate = MetricSnapshot(company_id=company_id, version=version,
+                               revision_fingerprint=fingerprint,
+                               period='source', endpoint_date=endpoint)
+    candidate.source_cache = MetricSnapshotSource(
+        revision_fingerprint=fingerprint, source_blob=_pack_source(source))
+    try:
+        db.session.add(candidate)
+        db.session.flush()
+        if pointer is None:
+            db.session.add(ActiveMetricSnapshot(
+                company_id=company_id, snapshot_id=candidate.id,
+                revision_fingerprint=fingerprint))
+        else:
+            pointer.snapshot_id = candidate.id
+            pointer.revision_fingerprint = fingerprint
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return candidate
+
+
+publish_source_cache = publish_indicator_source_cache
+publish_source_snapshot = publish_indicator_source_cache
 
 
 def recover_metric_snapshot_jobs():
@@ -407,20 +484,30 @@ def get_active_snapshot(company_id):
     return pointer.snapshot if pointer else None
 
 
-def get_metric_snapshot(company_id, metric_id=None, value_date=None):
+def get_metric_snapshot(company_id, metric_id=None, value_date=None,
+                        date_from=None, date_to=None, granularity=None):
     """Return the active snapshot or its compact reader result.
 
     With only a company id this returns the immutable snapshot record; adding
     a metric or date is equivalent to ``read_metric_values``.
     """
-    if metric_id is None and value_date is None:
+    if (metric_id is None and value_date is None and date_from is None and
+            date_to is None and granularity is None):
         return get_active_snapshot(company_id)
     return read_metric_values(company_id, metric_id=metric_id,
-                              value_date=value_date)
+                              value_date=value_date, date_from=date_from,
+                              date_to=date_to, granularity=granularity)
 
 
-def read_metric_values(company_id, metric_id=None, value_date=None):
-    """Read active scalar rows, optionally narrowed by card and date."""
+def read_metric_values(company_id, metric_id=None, value_date=None,
+                       date_from=None, date_to=None, granularity=None):
+    """Read active scalar rows, optionally narrowed to an arbitrary range.
+
+    Range selection is against the stored calculation bounds, never against
+    reconstructed calendar periods.  Consequently a cache miss is explicit
+    (an empty result), rather than reparsing source files or silently
+    manufacturing a zero.
+    """
     snapshot = get_active_snapshot(company_id)
     if snapshot is None:
         return []
@@ -431,6 +518,16 @@ def read_metric_values(company_id, metric_id=None, value_date=None):
         if isinstance(value_date, str):
             value_date = date.fromisoformat(value_date)
         query = query.filter_by(value_date=value_date)
+    if date_from is not None:
+        if isinstance(date_from, str):
+            date_from = date.fromisoformat(date_from)
+        query = query.filter(MetricSnapshotValue.period_start >= date_from)
+    if date_to is not None:
+        if isinstance(date_to, str):
+            date_to = date.fromisoformat(date_to)
+        query = query.filter(MetricSnapshotValue.period_end <= date_to)
+    if granularity is not None:
+        query = query.filter_by(granularity=str(granularity))
     return [{
         'company_id': company_id, 'snapshot_id': snapshot.id,
         'version': snapshot.version, 'metric_id': row.metric_id,
@@ -441,7 +538,93 @@ def read_metric_values(company_id, metric_id=None, value_date=None):
         'value': json.loads(row.value_json),
     } for row in query.order_by(MetricSnapshotValue.metric_id).all()]
 
+def get_precomputed_key_indicators(company_id, period='month',
+                                   endpoint_date=None, date_from=None,
+                                   section=None):
+    """Build an arbitrary-range payload from the durable parsed-source cache.
+
+    This callable is intended for the application route.  It returns
+    ``None`` when no source cache exists (or when its revision is stale);
+    importantly, it never calls the file loader on that miss.  Publication of
+    the source cache and its snapshot pointer is atomic in
+    :func:`build_metric_snapshot`.
+    """
+    from key_indicators import build_key_indicators
+
+    pointer = ActiveMetricSnapshot.query.filter_by(company_id=company_id).first()
+    if pointer is None or pointer.snapshot is None:
+        return None
+    fingerprint, _ = _revision(company_id)
+    snapshot = pointer.snapshot
+    if (pointer.revision_fingerprint != fingerprint or
+            snapshot.revision_fingerprint != fingerprint):
+        return None
+    key = (company_id, fingerprint, period, str(endpoint_date or ''),
+           str(date_from or ''))
+    while True:
+        with _PAYLOAD_CACHE_LOCK:
+            payload = _PAYLOAD_CACHE.get(key)
+            if payload is not None:
+                _PAYLOAD_CACHE.move_to_end(key)
+                break
+            flight = _PAYLOAD_INFLIGHT.get(key)
+            owner = flight is None
+            if owner:
+                flight = Event()
+                _PAYLOAD_INFLIGHT[key] = flight
+        if not owner:
+            if not flight.wait(timeout=60):
+                from key_indicators_service import SourceBusyError
+                raise SourceBusyError('Расчёт выбранного диапазона ещё выполняется.')
+            continue
+        try:
+            source_cache = snapshot.source_cache
+            if (source_cache is None or
+                    source_cache.revision_fingerprint != fingerprint):
+                return None
+            try:
+                source = _unpack_source(source_cache.source_blob)
+            except (TypeError, ValueError, zlib.error):
+                return None
+            revenue, costs, debtors, accruals, allocations, norms = \
+                _calculation_inputs(company_id)
+            payload = build_key_indicators(
+                source, period=period, date=endpoint_date,
+                date_from=date_from, revenue_mappings=revenue,
+                cost_mappings=costs, debtor_mappings=debtors,
+                collection_accruals=accruals,
+                collection_allocations=allocations,
+                collection_norms=norms)
+            from source_passport import build_period_passport
+            payload['source_passport'] = build_period_passport(source, payload)
+            payload['updated_at'] = source.get('_source_updated_at')
+            if _revision(company_id)[0] != fingerprint:
+                return None
+            with _PAYLOAD_CACHE_LOCK:
+                _PAYLOAD_CACHE[key] = payload
+                _PAYLOAD_CACHE.move_to_end(key)
+                while len(_PAYLOAD_CACHE) > _PAYLOAD_CACHE_LIMIT:
+                    _PAYLOAD_CACHE.popitem(last=False)
+            break
+        finally:
+            with _PAYLOAD_CACHE_LOCK:
+                _PAYLOAD_INFLIGHT.pop(key, None)
+                flight.set()
+    if section is None:
+        return payload
+    from key_indicators import select_indicator_section
+    return select_indicator_section(payload, section)
+
+
+read_precomputed_key_indicators = get_precomputed_key_indicators
+get_metric_snapshot_payload = get_precomputed_key_indicators
+
 
 read_snapshot_values = read_metric_values
 read_metric_snapshot = read_metric_values
+# Explicit name for API callers selecting a precomputed arbitrary interval.
+read_metric_snapshot_range = read_metric_values
 publish_metric_snapshot = build_metric_snapshot
+
+def _unpack_source(blob):
+    return json.loads(zlib.decompress(blob).decode('utf-8'))
