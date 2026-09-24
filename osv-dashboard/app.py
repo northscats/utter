@@ -53,6 +53,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                         ConsumerPaymentAllocation, ConsumerCollectionNorm,
                        MetricLayout,
                        MetricSnapshot, MetricSnapshotValue, ActiveMetricSnapshot,
+                       MetricSnapshotJob,
                        OsvSourceCleanup, Setting, Upload, User,
                        UserModuleAccess, OneCChannel, OneCAttempt,
                        OneCIdempotency, AnalogPassport, AnalogPassportVersion,
@@ -335,6 +336,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 }
 
 db.init_app(app)
+import metric_snapshots  # Register transactional source-change queue hooks.
 csrf = CSRFProtect(app)
 
 
@@ -3810,6 +3812,21 @@ def metric_snapshot_summary():
     pointers = (ActiveMetricSnapshot.query
                 .filter(ActiveMetricSnapshot.company_id.in_(company_ids)).all())
     snapshots = {row.company_id: row.snapshot for row in pointers}
+    from metric_snapshots import _revision
+    jobs = {row.company_id: row for row in MetricSnapshotJob.query.filter(
+        MetricSnapshotJob.company_id.in_(company_ids)).all()}
+    pointer_by_company = {row.company_id: row for row in pointers}
+    def snapshot_status(company_id):
+        job = jobs.get(company_id)
+        pointer = pointer_by_company.get(company_id)
+        if job:
+            return job.status
+        if pointer is None:
+            return 'not_built'
+        # Legacy/manual publications without a queue record are checked once
+        # per request until the startup reconciliation creates their job.
+        fingerprint, _ = _revision(company_id)
+        return 'ready' if fingerprint == pointer.revision_fingerprint else 'stale'
     snapshot_ids = [row.snapshot_id for row in pointers]
     values = []
     if snapshot_ids:
@@ -3825,7 +3842,8 @@ def metric_snapshot_summary():
                 'granularity': granularity},
         companies=[{
             'company_id': company_id,
-            'status': 'ready' if company_id in snapshots else 'not_built',
+            'status': snapshot_status(company_id),
+            'error': jobs[company_id].error if company_id in jobs and jobs[company_id].status == 'failed' else None,
             'snapshot_id': snapshots[company_id].id if company_id in snapshots else None,
             'published_at': (snapshots[company_id].created_at.isoformat()
                              if company_id in snapshots else None),
@@ -4405,6 +4423,8 @@ def key_indicator_collection_source(company_id):
     ConsumerCollectionNorm.query.filter_by(company_id=company_id).delete()
     db.session.add_all(
         normalized_accruals + normalized_allocations + normalized_norms)
+    from metric_snapshots import enqueue_metric_snapshot
+    enqueue_metric_snapshot(company_id)
     try:
         db.session.commit()
     except IntegrityError:
@@ -5305,6 +5325,11 @@ def coverage_data_delete(company_id):
         ))
     company.osv_source_revision = (
         f'delete:{mode}:{int(time.time())}')
+    if deleted_rows or deleted_sources:
+        # Bulk Query.delete bypasses ORM flush events. Keep the rebuild request
+        # in the same transaction as the direct-daily deletion.
+        from metric_snapshots import enqueue_metric_snapshot
+        enqueue_metric_snapshot(company.id)
     db.session.commit()
     try:
         backup_result = _durable_backup(
@@ -5939,6 +5964,9 @@ def _delete_company_records(company):
             model.channel_id.in_(channel_ids)).delete(synchronize_session=False)
     snapshot_ids = db.session.query(MetricSnapshot.id).filter_by(
         company_id=company_id)
+    deleted_counts[MetricSnapshotJob.__tablename__] = (
+        MetricSnapshotJob.query.filter_by(company_id=company_id)
+        .delete(synchronize_session=False))
     deleted_counts[ActiveMetricSnapshot.__tablename__] = (
         ActiveMetricSnapshot.query.filter_by(company_id=company_id)
         .delete(synchronize_session=False))
@@ -7211,6 +7239,10 @@ def init_db(perform_durable=True):
         _add_missing('daily_rows', [
             ('source_type', "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),
         ])
+        _add_missing('metric_snapshot_jobs', [
+            ('methodology_version',
+             "VARCHAR(80) NOT NULL DEFAULT 'metric-snapshots-v1'"),
+        ])
 
         # Task 117 is additive for deployed installations which already have
         # the analogue tables.  Columns carrying historical children remain
@@ -8082,6 +8114,8 @@ if __name__ == '__main__':
                 raise
             time.sleep(2)
     _ensure_imap_thread()
+    from metric_snapshots import start_metric_snapshot_worker
+    start_metric_snapshot_worker(app, UPLOADS)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)),
             debug=False, threaded=True)
 

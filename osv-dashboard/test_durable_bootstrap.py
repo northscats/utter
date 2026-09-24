@@ -210,18 +210,20 @@ class DurableBootstrapTest(unittest.TestCase):
                       )), \
                 patch('app._ensure_imap_thread',
                       side_effect=lambda: calls.append('imap')), \
+                patch('metric_snapshots.start_metric_snapshot_worker',
+                      side_effect=lambda *_args: calls.append('metrics')), \
                 patch.object(config.threading, 'Thread', ImmediateThread):
             config.post_fork(server, worker)
         return calls
 
     def test_development_worker_reconciles_without_remote_restore(self):
         self.assertEqual(
-            ['schema', ('durable', False), 'imap'],
+            ['schema', ('durable', False), 'metrics', 'imap'],
             self._gunicorn_startup_calls())
 
     def test_deployment_worker_restores_before_imap(self):
         self.assertEqual(
-            ['schema', ('durable', True), 'imap'],
+            ['schema', ('durable', True), 'metrics', 'imap'],
             self._gunicorn_startup_calls('true'))
 
     def test_post_fork_returns_while_schema_initializes_in_background(self):
@@ -276,6 +278,7 @@ class DurableBootstrapTest(unittest.TestCase):
         with patch('app.init_db', side_effect=initialize), \
                 patch('app._finish_durable_startup', return_value=True), \
                 patch('app._ensure_imap_thread'), \
+                patch('metric_snapshots.start_metric_snapshot_worker'), \
                 patch.object(config.time, 'sleep'), \
                 patch.object(config.os, 'kill') as kill, \
                 patch.object(config.threading, 'Thread', ImmediateThread):

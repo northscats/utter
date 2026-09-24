@@ -9,11 +9,18 @@ a reproducible-build hash.
 """
 import hashlib
 import json
+import logging
+import threading
+import time
 from datetime import date
 
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 from database import (
     ActiveMetricSnapshot, Company, CostAnalyticMapping, DebtorAnalyticMapping,
-    MetricSnapshot, MetricSnapshotValue, RevenueAnalyticMapping, Upload, db,
+    MetricSnapshot, MetricSnapshotJob, MetricSnapshotValue, RevenueAnalyticMapping,
+    Upload, DailyRow, ConsumerCollectionAccrual, ConsumerPaymentAllocation,
+    ConsumerCollectionNorm, db, utcnow,
 )
 
 
@@ -89,7 +96,59 @@ def _latest_date(source):
     return max(dates) if dates else date.today()
 
 
-METHODOLOGY_VERSION = 'metric-snapshots-v1'
+METHODOLOGY_VERSION = 'metric-snapshots-v2'
+
+
+def enqueue_metric_snapshot(company_id, session=None):
+    """Enqueue in the writer's transaction; the row also serializes publication."""
+    session = session or db.session
+    table = MetricSnapshotJob.__table__
+    dialect = session.get_bind().dialect.name
+    if dialect == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == 'sqlite':
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise RuntimeError('Metric snapshot queue requires PostgreSQL or SQLite')
+    stmt = insert(table).values(company_id=company_id, generation=1,
+                                methodology_version=METHODOLOGY_VERSION,
+                                status='stale', error=None, updated_at=utcnow())
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[table.c.company_id],
+        set_={'generation': table.c.generation + 1, 'status': 'stale',
+              'methodology_version': METHODOLOGY_VERSION,
+              'error': None, 'updated_at': utcnow()})
+    session.execute(stmt)
+
+
+_SOURCE_MODELS = (Upload, DailyRow, RevenueAnalyticMapping,
+                  CostAnalyticMapping, DebtorAnalyticMapping,
+                  ConsumerCollectionAccrual, ConsumerPaymentAllocation,
+                  ConsumerCollectionNorm)
+
+
+@event.listens_for(Session, 'before_flush')
+def _enqueue_changed_sources(session, flush_context, instances):
+    ids = set()
+    for row in session.new | session.dirty | session.deleted:
+        if isinstance(row, _SOURCE_MODELS) and row.company_id is not None:
+            if row in session.dirty and not session.is_modified(row, include_collections=False):
+                continue
+            ids.add(row.company_id)
+    queued = session.info.setdefault('metric_snapshot_queued', set())
+    for company_id in ids - queued:
+        queued.add(company_id)
+        enqueue_metric_snapshot(company_id, session)
+
+
+@event.listens_for(Session, 'after_commit')
+@event.listens_for(Session, 'after_rollback')
+def _clear_enqueued_sources(session):
+    session.info.pop('metric_snapshot_queued', None)
+
+
+class SourceChanged(RuntimeError):
+    pass
 
 
 def _periods(source, endpoint):
@@ -134,7 +193,8 @@ def _calculation_inputs(company_id):
 
 
 def build_metric_snapshot(company_id, uploads_root, period='month',
-                          endpoint_date=None, date_from=None):
+                          endpoint_date=None, date_from=None,
+                          expected_generation=None):
     """Build and atomically publish a snapshot for ``company_id``.
 
     ``uploads_root`` is passed explicitly to make the source boundary clear
@@ -175,9 +235,19 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
 
     # Recheck after the potentially slow parse/calculation.  A concurrent
     # upload/settings change therefore cannot publish this candidate.
+    # Serialize the final check and pointer swap against incoming writes.
+    # Writers update the same job row before committing their source changes.
+    job = (MetricSnapshotJob.query.filter_by(company_id=company_id)
+           .with_for_update().first()) if expected_generation is not None else None
+    if expected_generation is not None and (
+            job is None or job.generation != expected_generation
+            or job.status != 'building'):
+        db.session.rollback()
+        raise SourceChanged('New rebuild request arrived during calculation')
     current_fingerprint, _ = _revision(company_id)
     if current_fingerprint != fingerprint:
-        raise RuntimeError('Metric snapshot is stale; source or settings changed')
+        db.session.rollback()
+        raise SourceChanged('Metric snapshot source or settings changed')
 
     pointer = (ActiveMetricSnapshot.query.filter_by(company_id=company_id)
                .with_for_update().first())
@@ -214,6 +284,10 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
         else:
             pointer.snapshot_id = candidate.id
             pointer.revision_fingerprint = fingerprint
+        if job is not None:
+            job.status = 'ready'
+            job.error = None
+            job.updated_at = utcnow()
         db.session.commit()
     except Exception:
         # In particular, a concurrent publisher may win the unique
@@ -222,6 +296,106 @@ def build_metric_snapshot(company_id, uploads_root, period='month',
         db.session.rollback()
         raise
     return candidate
+
+
+def recover_metric_snapshot_jobs():
+    """Requeue interrupted work and publications from older methodology."""
+    MetricSnapshotJob.query.filter_by(status='building').update(
+        {'status': 'stale'}, synchronize_session=False)
+    for pointer in ActiveMetricSnapshot.query.all():
+        job = db.session.get(MetricSnapshotJob, pointer.company_id)
+        # Failed work is handled below, including jobs with no publication.
+        if job is not None and job.status == 'failed':
+            continue
+        if job is None or job.status == 'ready':
+            fingerprint, _ = _revision(pointer.company_id)
+            if pointer.revision_fingerprint != fingerprint:
+                enqueue_metric_snapshot(pointer.company_id)
+    for job in MetricSnapshotJob.query.filter_by(status='failed').all():
+        if job.methodology_version != METHODOLOGY_VERSION:
+            # Also handles first builds which have no active pointer yet.
+            enqueue_metric_snapshot(job.company_id)
+    # Existing installations may have accepted uploads but no queue or
+    # publication yet. Backfill them asynchronously, never in HTTP startup.
+    source_ids = (set(row[0] for row in db.session.query(Upload.company_id).distinct())
+                  | set(row[0] for row in db.session.query(DailyRow.company_id).distinct()))
+    for company_id in source_ids:
+        if db.session.get(MetricSnapshotJob, company_id) is None:
+            enqueue_metric_snapshot(company_id)
+    db.session.commit()
+
+
+def process_metric_snapshot_job(uploads_root, company_id=None):
+    """Process one item; failed jobs stay failed until another source change."""
+    query = MetricSnapshotJob.query.filter_by(status='stale')
+    if company_id is not None:
+        query = query.filter_by(company_id=company_id)
+    job = query.order_by(MetricSnapshotJob.updated_at).first()
+    if job is None:
+        return False
+    company_id, generation = job.company_id, job.generation
+    changed = (MetricSnapshotJob.query.filter_by(
+        company_id=company_id, generation=generation, status='stale')
+        .update({'status': 'building'}, synchronize_session=False))
+    db.session.commit()
+    if not changed:
+        return True
+    try:
+        build_metric_snapshot(company_id, uploads_root,
+                              expected_generation=generation)
+    except SourceChanged:
+        db.session.rollback()
+        # If a new write arrived it already marked the row stale.
+        MetricSnapshotJob.query.filter_by(
+            company_id=company_id, generation=generation,
+            status='building').update({'status': 'stale'}, synchronize_session=False)
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception('Metric snapshot rebuild failed for company %s', company_id)
+        MetricSnapshotJob.query.filter_by(
+            company_id=company_id, generation=generation,
+            status='building').update(
+                {'status': 'failed', 'error': str(exc)[:2000]},
+                synchronize_session=False)
+        db.session.commit()
+    finally:
+        db.session.remove()
+    return True
+
+
+_worker_lock = threading.Lock()
+_worker_thread = None
+
+
+def start_metric_snapshot_worker(app, uploads_root):
+    """One poller in the single Gunicorn worker; database survives its exit."""
+    global _worker_thread
+    with _worker_lock:
+        if _worker_thread is not None and _worker_thread.is_alive():
+            return
+
+        def run():
+            with app.app_context():
+                try:
+                    recover_metric_snapshot_jobs()
+                except Exception:
+                    db.session.rollback()
+                    logging.exception('Metric snapshot recovery failed')
+                while True:
+                    try:
+                        if not process_metric_snapshot_job(uploads_root):
+                            db.session.remove()
+                            time.sleep(2)
+                    except Exception:
+                        db.session.rollback()
+                        db.session.remove()
+                        logging.exception('Metric snapshot worker error')
+                        time.sleep(5)
+
+        _worker_thread = threading.Thread(
+            target=run, daemon=True, name='metric-snapshot-worker')
+        _worker_thread.start()
 
 
 # Short explicit aliases useful to jobs and callers.

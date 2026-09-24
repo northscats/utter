@@ -2,13 +2,13 @@
 
 Run after the application schema is initialized:
     cd osv-dashboard && python rebuild_metric_snapshots.py --company-id 3
-No web request starts a potentially long all-period backfill.
+Web requests only enqueue work; the background worker performs the build.
 """
 import argparse
 
 from app import UPLOADS, app
-from database import Company, db
-from metric_snapshots import build_metric_snapshot
+from database import Company, MetricSnapshotJob, db
+from metric_snapshots import enqueue_metric_snapshot, process_metric_snapshot_job
 
 
 def main():
@@ -22,8 +22,13 @@ def main():
                else [row[0] for row in db.session.query(Company.id).order_by(Company.id)])
         for company_id in ids:
             try:
-                snapshot = build_metric_snapshot(company_id, UPLOADS)
-                print(f'company={company_id} snapshot={snapshot.id} version={snapshot.version}')
+                enqueue_metric_snapshot(company_id)
+                db.session.commit()
+                process_metric_snapshot_job(UPLOADS, company_id=company_id)
+                job = db.session.get(MetricSnapshotJob, company_id)
+                if job.status != 'ready':
+                    raise RuntimeError(f'build {job.status}: {job.error or "retry pending"}')
+                print(f'company={company_id} ready')
             except Exception as exc:
                 db.session.rollback()
                 print(f'company={company_id} failed: {type(exc).__name__}: {exc}')

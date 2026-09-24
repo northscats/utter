@@ -707,6 +707,20 @@ class ActiveMetricSnapshot(db.Model):
     snapshot = db.relationship('MetricSnapshot', lazy=True)
 
 
+class MetricSnapshotJob(db.Model):
+    """One durable, coalesced rebuild request per company."""
+    __tablename__ = 'metric_snapshot_jobs'
+    company_id = db.Column(db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+                           primary_key=True)
+    generation = db.Column(db.Integer, nullable=False, default=1)
+    methodology_version = db.Column(db.String(80), nullable=False,
+                                    default='metric-snapshots-v1')
+    status = db.Column(db.String(16), nullable=False, default='stale')
+    error = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+
+
 # Descriptive alias for callers that refer to the record as a preference.
 # Both names identify the same mapped table; no second schema object exists.
 MetricLayoutPreference = MetricLayout
