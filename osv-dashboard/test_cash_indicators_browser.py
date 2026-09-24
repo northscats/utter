@@ -253,6 +253,16 @@ def main():
                 'domain': host, 'path': '/', 'secure': True,
             }])
             page = context.new_page()
+            # This is a visual test of injected synthetic cards. The real
+            # background data request can fail for an empty company and leave
+            # an error overlay above the modal, racing the synthetic fixture.
+            page.route(
+                f'**/company/{company_id}/key-indicators/data?*',
+                lambda route: route.fulfill(json={
+                    'period': {'kind': 'year', 'label': 'Синтетический период'},
+                    'cards': [],
+                }),
+            )
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(
