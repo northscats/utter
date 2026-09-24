@@ -615,9 +615,19 @@ def simple_search():
         return jsonify(items=rows, page=page, per_page=per_page,
                        total=pagination.total, pages=pagination.pages,
                         good=pagination.total)
+    search_object_types = (
+        sorted(
+            (value for (value,) in
+             db.session.query(AnalogPassport.object_type)
+             .filter(AnalogPassport.archived.is_(False))
+             .distinct().all()
+             if value and value.strip()),
+            key=str.casefold)
+        if view == 'search' else [])
     return render_template('analog_search.html', rows=rows, good_rows=rows,
                             poor_rows=[], good_count=pagination.total,
                            pagination=pagination,
+                             search_object_types=search_object_types,
                             object_types=OBJECT_TYPES, work_types=WORK_TYPES,
                             current_view=view)
 

@@ -34,12 +34,9 @@
 
   <select name="object_type" style="width: 140px; flex-shrink: 0;">
     <option value="">Все типы</option>
-    {% for val in object_types %}
-      <option value="{{ val }}" {% if request.args.get('object_type') == val %}selected{% endif %}>{{ val|capitalize }}</option>
+    {% for val in search_object_types %}
+      <option value="{{ val }}" {% if request.args.get('object_type') == val %}selected{% endif %}>{{ val }}</option>
     {% endfor %}
-    {% if 'тепловая сеть' not in object_types %}
-      <option value="тепловая сеть" {% if request.args.get('object_type') == 'тепловая сеть' %}selected{% endif %}>Сети</option>
-    {% endif %}
   </select>
 
   <select name="work_type" style="width: 150px; flex-shrink: 0;">

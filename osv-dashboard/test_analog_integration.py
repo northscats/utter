@@ -5,6 +5,7 @@ import pathlib
 import tempfile
 import unittest
 import json
+import re
 import zipfile
 from io import BytesIO
 from datetime import date
@@ -302,6 +303,57 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('gcal-inside', html)
         self.assertIn('gcal-boundary', html)
         self.assertNotIn('gcal-outside', html)
+
+    def test_search_type_options_reflect_only_active_passports(self):
+        with app.app_context():
+            passports = [
+                AnalogPassport(title='filter-type-live-1',
+                               object_type='тип-доступен', created_by=self.admin_id),
+                AnalogPassport(title='filter-type-live-2',
+                               object_type='тип-доступен', created_by=self.admin_id),
+                AnalogPassport(title='filter-type-archived',
+                               object_type='тип-архивный', archived=True,
+                               created_by=self.admin_id),
+            ]
+            db.session.add_all(passports)
+            db.session.commit()
+            ids = [passport.id for passport in passports]
+
+        def options(query=None):
+            response = self.client.get('/analog-search/simple', query_string=query)
+            self.assertEqual(response.status_code, 200)
+            html = response.get_data(as_text=True)
+            select = re.search(
+                r'<select name="object_type"[^>]*>(.*?)</select>',
+                html, re.DOTALL)
+            self.assertIsNotNone(select)
+            return html, re.findall(r'<option value="([^"]*)"', select.group(1))
+
+        try:
+            html, values = options({'object_type': 'тип-доступен'})
+            with app.app_context():
+                expected = {value for (value,) in db.session.query(
+                    AnalogPassport.object_type).filter(
+                        AnalogPassport.archived.is_(False)).distinct().all()
+                    if value and value.strip()}
+            self.assertEqual(set(values), expected | {''})
+            self.assertEqual(values.count('тип-доступен'), 1)
+            self.assertNotIn('тип-архивный', values)
+            self.assertIn('value="тип-доступен" selected', html)
+
+            with app.app_context():
+                for passport_id in ids[:2]:
+                    db.session.get(AnalogPassport, passport_id).archived = True
+                db.session.commit()
+            _, values = options()
+            self.assertNotIn('тип-доступен', values)
+        finally:
+            with app.app_context():
+                for passport_id in ids:
+                    passport = db.session.get(AnalogPassport, passport_id)
+                    if passport:
+                        db.session.delete(passport)
+                db.session.commit()
 
     def test_fractional_capacity_accepts_dot_and_comma_and_filters_results(self):
         with app.app_context():
