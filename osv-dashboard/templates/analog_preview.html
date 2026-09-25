@@ -95,7 +95,7 @@
 
 {% if pair.conclusion.cost_rows %}
 <details>
-  <summary>Стоимостные показатели заключения ({{ pair.conclusion.cost_rows|length }})</summary>
+  <summary>Стоимостные показатели заключения, тыс. руб. ({{ pair.conclusion.cost_rows|length }})</summary>
   <div class="details-body table-wrap"><table>
     <thead><tr><th>Раздел</th><th>Представлено</th><th>Утверждено</th><th>Изменение</th></tr></thead>
     <tbody>{% for item in pair.conclusion.cost_rows %}<tr>

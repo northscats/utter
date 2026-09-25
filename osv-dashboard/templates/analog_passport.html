@@ -67,7 +67,7 @@
       <div style="height: 1px; background: var(--line);"></div>
       {% set brief_total = gge.get('summary', {}) %}
       <div>
-        <div style="font-weight: 600; margin-bottom: 10px;">Стоимость по ССР</div>
+        <div style="font-weight: 600; margin-bottom: 10px;">Стоимость по ССР, тыс. руб.</div>
         <div class="table-wrap">
           <table style="border: 1px solid var(--line);">
             <thead><tr><th>Строительные работы</th><th>Монтажные работы</th><th>Оборудование</th><th>Прочие затраты</th><th>Всего</th></tr></thead>
@@ -241,7 +241,7 @@
   </details>
 
   <details>
-    <summary>Таблица 3.2.1</summary>
+    <summary>Таблица 3.2.1 — сметная стоимость, тыс. руб.</summary>
     <div class="details-body table-wrap" style="padding: 0;">
       <table>
         <thead><tr><th>Строка</th><th>Наименование</th><th>Представление</th><th>Утверждение</th><th>Изменение</th><th>Причина</th></tr></thead>
@@ -266,11 +266,11 @@
   </details>
 
   <details>
-    <summary>Сводный сметный расчёт (GGE)</summary>
+    <summary>Сводный сметный расчёт (GGE) — стоимость в тыс. руб.</summary>
     <div class="details-body">
       {% if version %}
       <div class="panel" style="margin-bottom: 24px;">
-        <div class="panel-header" style="background: #f8fafc;">Сводка ССР</div>
+        <div class="panel-header" style="background: #f8fafc;">Сводка ССР, тыс. руб.</div>
         <div class="panel-body">
           <dl style="margin-bottom: 16px;">
             <dt>Наименование</dt><dd>{{ gge.get('name') or passport.title }}</dd>
@@ -304,7 +304,7 @@
         <details class="gge-chapter" {% if chapter.get('items') %}open{% endif %} style="margin-bottom: 8px;">
           <summary style="background: #f8fafc; display: flex; justify-content: space-between;">
             <strong>Глава {{ chapter.get('number') }}{% if chapter.get('name') and chapter.get('name') != 'Глава ' ~ chapter.get('number') %}: {{ chapter.get('name') }}{% endif %}</strong>
-            <span style="font-weight: 600; color: var(--blue);">Итого: {{ chapter.get('total', 0) }}</span>
+            <span style="font-weight: 600; color: var(--blue);">Итого: {{ chapter.get('total', 0) }} тыс. руб.</span>
           </summary>
           <div class="details-body" style="padding: 12px;">
             <table style="margin-bottom: 12px; border: 1px solid var(--line); font-size: 11px;">
@@ -324,7 +324,7 @@
             <details class="gge-item" style="margin-bottom: 8px;">
               <summary style="background: #fff; border: 1px solid var(--line); font-size: 12px; display: flex; justify-content: space-between;">
                 <span>{{ item.get('ordinal') or loop.index }}. {{ item.get('name') or item.get('item_type')|analog_label('item_type') }}</span>
-                <strong style="color: var(--blue);">{{ item.get('total', 0) }}</strong>
+                <strong style="color: var(--blue);">{{ item.get('total', 0) }} тыс. руб.</strong>
               </summary>
               <div class="details-body" style="padding: 12px;">
                 <dl style="margin-bottom: 12px; font-size: 12px; grid-template-columns: 120px 1fr;">
@@ -332,6 +332,7 @@
                   <dt>Обоснование</dt><dd>{{ item.get('reason') or '—' }}</dd>
                   <dt>Связанный файл</dt><dd>{{ item.get('link') or '—' }}</dd>
                 </dl>
+                <div style="font-size: 12px; color: var(--mut); margin-bottom: 8px;">Стоимость, тыс. руб.</div>
                 <table style="margin-bottom: 12px; border: 1px solid var(--line); font-size: 11px;">
                   <thead><tr><th>Строительные</th><th>Монтажные</th><th>Оборудование</th><th>Прочие</th><th>Всего</th></tr></thead>
                   <tbody>
