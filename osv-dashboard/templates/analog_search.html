@@ -32,12 +32,10 @@
     </select>
   </div>
 
-  <label style="display: grid; gap: 4px; font-size: 12px; flex-shrink: 0;">
-    Допустимое отклонение, %
-    <input type="number" name="tolerance_percent" min="0" max="100" step="any"
-           value="{{ request.args.get('tolerance_percent') or '10' }}"
-           title="Максимальное отклонение от заданной мощности" style="width: 160px;">
-  </label>
+  <input type="number" name="tolerance_percent" min="0" max="100" step="any"
+         value="{{ request.args.get('tolerance_percent') or '10' }}"
+         placeholder="Отклонение, %" aria-label="Допустимое отклонение, %"
+         title="Допустимое отклонение мощности, %" style="width: 160px; flex-shrink: 0;">
 
   <select name="object_type" style="width: 140px; flex-shrink: 0;">
     <option value="">Все типы</option>
