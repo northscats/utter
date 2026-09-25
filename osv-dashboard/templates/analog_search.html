@@ -57,7 +57,6 @@
       <thead>
         <tr>
           <th>Наименование</th>
-          <th>Адрес</th>
           <th>Тип</th>
           <th>Вид работ</th>
           <th>МВт/<strong>Гкал/ч</strong></th>
@@ -67,11 +66,10 @@
       </thead>
       <tbody>
         {% if good_rows %}
-          <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--success); letter-spacing: 0.05em;">Хорошие аналоги (отклонение &le; 10%)</td></tr>
+          <tr><td colspan="6" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--success); letter-spacing: 0.05em;">Хорошие аналоги (отклонение &le; 10%)</td></tr>
           {% for row in good_rows %}
             <tr class="good" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
               <td style="font-weight: 500;">{{ row.title }}</td>
-              <td>{{ row.address or '—' }}</td>
               <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
               <td>
@@ -86,11 +84,10 @@
         {% endif %}
         
         {% if poor_rows %}
-          <tr><td colspan="7" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--amber); letter-spacing: 0.05em;">Остальные аналоги (отклонение &gt; 10%)</td></tr>
+          <tr><td colspan="6" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--amber); letter-spacing: 0.05em;">Остальные аналоги (отклонение &gt; 10%)</td></tr>
           {% for row in poor_rows %}
             <tr class="poor" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
               <td style="font-weight: 500;">{{ row.title }}</td>
-              <td>{{ row.address or '—' }}</td>
               <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
               <td>
@@ -105,7 +102,7 @@
         {% endif %}
 
         {% if not good_rows and not poor_rows %}
-          <tr><td colspan="7" style="text-align: center; padding: 32px; color: var(--mut);">Результаты не найдены. Укажите параметры для поиска.</td></tr>
+          <tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--mut);">Результаты не найдены. Укажите параметры для поиска.</td></tr>
         {% endif %}
       </tbody>
     </table>
@@ -205,16 +202,21 @@
 </script>
 {% endif %}
 
+<form method="get" class="search-row">
+  <input type="hidden" name="view" value="base">
+  <input name="address" value="{{ request.args.get('address', '') }}" placeholder="Поиск по адресу" aria-label="Поиск по адресу" style="flex: 1;">
+  <button class="btn btn-primary" type="submit">Найти</button>
+</form>
+
 <div class="panel table-wrap">
   <table>
     <thead>
       <tr>
         <th>Наименование<br><input type="text" class="col-filter" data-col="0" placeholder="Фильтр..."></th>
-        <th>Адрес<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..."></th>
-        <th>Тип<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..."></th>
-        <th>Вид работ<br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..."></th>
-        <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
-        <th>Стоимость<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..."></th>
+        <th>Тип<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..."></th>
+        <th>Вид работ<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..."></th>
+        <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..."></th>
+        <th>Стоимость<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
         {% if current_user.is_admin %}<th style="vertical-align: bottom; width: 80px;">Действия</th>{% endif %}
       </tr>
     </thead>
@@ -222,7 +224,6 @@
       {% for row in good_rows + poor_rows %}
       <tr onclick="if(!event.target.closest('button')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
         <td style="font-weight: 500;">{{ row.title }}</td>
-        <td>{{ row.address or '—' }}</td>
         <td>{{ row.object_type or '—' }}</td>
         <td>{{ row.work_type or '—' }}</td>
         <td>
@@ -242,7 +243,7 @@
       </tr>
       {% endfor %}
       {% if not good_rows and not poor_rows %}
-      <tr><td colspan="{{ 7 if current_user.is_admin else 6 }}" style="text-align: center; padding: 32px; color: var(--mut);">База объектов пуста.</td></tr>
+      <tr><td colspan="{{ 6 if current_user.is_admin else 5 }}" style="text-align: center; padding: 32px; color: var(--mut);">Объекты не найдены.</td></tr>
       {% endif %}
     </tbody>
   </table>
