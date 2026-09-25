@@ -176,16 +176,6 @@
         </div>
       </form>
       
-      <div style="height: 1px; background: var(--line);"></div>
-
-      <div style="display: flex; gap: 32px; flex-wrap: wrap;">
-        <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}" style="display: grid; gap: 12px; align-content: start;">
-          <div style="font-weight: 600; color: var(--danger);">Опасная зона</div>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="btn btn-danger" type="submit" style="width: max-content;">Архивировать паспорт</button>
-        </form>
-      </div>
-      
       <script>
       (() => { 
         const type = document.getElementById('edit-object-type');
