@@ -128,10 +128,14 @@ def main():
                 _login(user_client, user)
 
                 # Each role previews its OWN import: a regular user cannot open
-                # another user's preview. Versions use the same real document pair.
+                # another user's preview. Different bytes for one conclusion
+                # cannot replace the original document pair.
                 admin_preview = _preview(admin_client, conclusion, ssr)
                 user_preview = _preview(
                     user_client, conclusion + b'\n<!-- user preview -->', ssr)
+                private_preview = _preview(
+                    admin_client, conclusion + b'\n<!-- private preview -->',
+                    ssr + b'\n<!-- private preview -->')
                 assert db.session.get(AnalogImport, admin_preview).created_by == admin.id
                 assert db.session.get(AnalogImport, user_preview).created_by == user.id
                 preview_access = admin_client.get(
@@ -144,24 +148,19 @@ def main():
                     f'/analog-search/import/{admin_preview}/confirm', json={})
                 assert first.status_code == 200, first.get_data(as_text=True)
                 passport_id = first.get_json()['passport_id']
-                old_version_id = first.get_json()['version_id']
-                second_preview = _preview(
-                    admin_client, conclusion + b'\n<!-- second version -->',
-                    ssr + b'\n<!-- second version -->')
-                second = admin_client.post(
-                    f'/analog-search/import/{second_preview}/confirm', json={})
-                assert second.status_code == 200, second.get_data(as_text=True)
-                assert second.get_json()['passport_id'] == passport_id
-                latest_version_id = second.get_json()['version_id']
-                private_preview = _preview(
-                    admin_client, conclusion + b'\n<!-- private preview -->',
-                    ssr + b'\n<!-- private preview -->')
-
-                old_version = db.session.get(AnalogPassportVersion, old_version_id)
-                latest_version = db.session.get(
-                    AnalogPassportVersion, latest_version_id)
-                assert old_version.source_hash != latest_version.source_hash
-                old_payload = json.loads(old_version.payload_json)
+                original_version = db.session.get(
+                    AnalogPassportVersion, first.get_json()['version_id'])
+                rejected = admin_client.post(
+                    '/analog-search/import/preview',
+                    data={'conclusion': (BytesIO(conclusion + b'\n<!-- second version -->'),
+                                         'conclusion.xml'),
+                          'ssr': (BytesIO(ssr), 'summary.gge')},
+                    content_type='multipart/form-data')
+                assert rejected.status_code == 409
+                assert admin_client.post(
+                    f'/analog-search/import/{private_preview}/confirm',
+                    json={}).status_code == 409
+                old_payload = json.loads(original_version.payload_json)
                 item = next(i for i in old_payload['ssr']['items']
                             if i['name'] == 'Конструктивные решения')
                 assert item['item_type'] == 'LocalEstimate'
@@ -241,7 +240,7 @@ def main():
                             assert 'WorkersSalary' not in detail
                             assert 'LocalEstimate' not in detail
                             assert 'Building' not in detail
-                            assert latest_version.source_hash in detail
+                            assert original_version.source_hash in detail
                             if role == 'user':
                                 assert 'Администрирование паспорта' not in detail
                             else:
@@ -249,24 +248,11 @@ def main():
                             path = screenshot_dir / f'{role}-expanded.png'
                             page.screenshot(path=str(path), full_page=True)
                             print(path)
-                            page.goto(
-                                f'https://analog.test/analog-search/passports/{passport_id}'
-                                f'?version={old_version_id}', wait_until='networkidle')
-                            page.locator('button[data-target="detail-tab"]').click()
-                            old_detail = _expanded_text(page)
-                            assert 'Оплата труда рабочих' in old_detail
-                            assert 'WorkersSalary' not in old_detail
-                            assert 'Конструктивные решения.gsfx' in old_detail
-                            assert old_version.source_hash in old_detail
-                            assert latest_version.source_hash not in old_detail
-                            path = screenshot_dir / f'{role}-old-version.png'
-                            page.screenshot(path=str(path), full_page=True)
-                            print(path)
                             context.close()
                         assert not errors, errors
                     finally:
                         browser.close()
-                print('PASS: isolated user/admin previews, both passport versions, '
+                print('PASS: isolated user/admin previews, immutable passport, '
                       'expanded details, original values and API machine keys')
 
 

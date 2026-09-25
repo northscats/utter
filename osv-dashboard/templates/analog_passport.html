@@ -179,21 +179,6 @@
       <div style="height: 1px; background: var(--line);"></div>
 
       <div style="display: flex; gap: 32px; flex-wrap: wrap;">
-        <form method="post" enctype="multipart/form-data" action="{{ url_for('analog.reimport', passport_id=passport.id) }}" style="display: grid; gap: 12px;">
-          <div style="font-weight: 600;">Переимпортировать новую версию</div>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="passport_id" value="{{ passport.id }}">
-          <div style="display: grid; gap: 4px;">
-            <label style="font-size: 11px; color: var(--mut);">XML заключения</label>
-            <input type="file" name="conclusion" accept=".xml" required style="font-size: 12px;">
-          </div>
-          <div style="display: grid; gap: 4px;">
-            <label style="font-size: 11px; color: var(--mut);">ССР 3.01 (.gge)</label>
-            <input type="file" name="ssr" accept=".gge,.xml" required style="font-size: 12px;">
-          </div>
-          <button class="btn btn-outline" type="submit" style="width: max-content;">Переимпортировать</button>
-        </form>
-
         <form method="post" action="{{ url_for('analog.archive', passport_id=passport.id) }}" style="display: grid; gap: 12px; align-content: start;">
           <div style="font-weight: 600; color: var(--danger);">Опасная зона</div>
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -212,60 +197,6 @@
     </div>
   </details>
   {% endif %}
-
-  <details>
-    <summary>Версии и происхождение</summary>
-    <div class="details-body table-wrap" style="padding: 0;">
-      <table>
-        <thead><tr><th>Версия</th><th>Заключение</th><th>Итог ССР</th><th>С коэфф.</th><th>Происхождение</th></tr></thead>
-        <tbody>
-          {% for item in passport.versions %}
-          <tr>
-            <td><a href="{{ url_for('analog.passport_detail', passport_id=passport.id, version=item.id) }}" style="color: var(--blue); font-weight: 500;">{{ item.version_no }}</a></td>
-            <td>{{ item.conclusion_number }}</td>
-            <td>{{ item.total_cost or '—' }}</td>
-            <td>{{ item.adjusted_cost or '—' }}</td>
-            <td>
-              {{ item.adjustment_provenance|analog_label('source') if item.adjustment_provenance else '—' }}
-              {% if item.adjustment_reference_version %}
-                <div style="font-size: 11px; color: var(--mut); margin-top: 4px;">версия {{ item.adjustment_reference_version }} от {{ item.adjustment_reference_date }} (уровень {{ item.adjustment_price_level }})</div>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    
-    {% if current_user.is_admin and version %}
-    <div style="padding: 16px; border-top: 1px solid var(--line); background: #f8fafc; border-radius: 0 0 6px 6px;">
-      <form id="cost-adjust-form" method="post" action="{{ url_for('analog.adjust_cost', passport_id=passport.id, version_id=version.id) }}" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div style="display: grid; gap: 4px;">
-          <label style="font-size: 11px; color: var(--mut);">Коэфф.</label>
-          <input name="factor" type="number" step="any" value="1" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 80px;">
-        </div>
-        <div style="display: grid; gap: 4px;">
-          <label style="font-size: 11px; color: var(--mut);">Уровень цен</label>
-          <input name="price_level" value="{% if version.price_year %}{{ version.price_year }}/Q{{ version.price_quarter or '' }}{% endif %}" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 100px;">
-        </div>
-        <div style="display: grid; gap: 4px;">
-          <label style="font-size: 11px; color: var(--mut);">Дата расчёта</label>
-          <input name="calculation_date" type="date" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 130px;">
-        </div>
-        <div style="display: grid; gap: 4px;">
-          <label style="font-size: 11px; color: var(--mut);">Происхождение</label>
-          <input name="provenance" value="Введено администратором" class="search-row" style="margin:0; height:28px; padding: 0 8px; width: 180px;">
-        </div>
-        <input type="hidden" name="reference_version"><input type="hidden" name="confirmed">
-        
-        <button type="button" class="btn btn-outline" id="suggest-factor" style="height: 28px;">Справочник</button>
-        <button class="btn btn-primary" style="height: 28px;">Рассчитать</button>
-        <div id="factor-suggestion" style="font-size: 12px; margin-left: 8px; align-self: center;"></div>
-      </form>
-    </div>
-    {% endif %}
-  </details>
 
   <details>
     <summary>Организации (Все)</summary>
@@ -534,27 +465,6 @@
       } catch (err) { box.textContent = 'Ошибка сети'; }
     };
 
-    const form = document.getElementById('cost-adjust-form');
-    if (form) {
-      document.getElementById('suggest-factor').onclick = async () => {
-        const box = document.getElementById('factor-suggestion');
-        box.textContent = 'Загрузка...';
-        try {
-          const params = new URLSearchParams({price_level: form.price_level.value, date: form.calculation_date.value});
-          const res = await fetch({{ url_for('analog.cost_index_suggestion')|tojson }} + '?' + params);
-          const suggestion = await res.json();
-          if (suggestion.status !== 'suggested') { box.textContent = suggestion.message || 'Не удалось получить коэффициент'; return; }
-          form.factor.value = suggestion.factor; 
-          form.reference_version.value = suggestion.reference_version;
-          form.confirmed.value = ''; 
-          showSuggestion(box, suggestion.factor, suggestion.source, suggestion.reference_version, (e) => {
-            form.confirmed.value = 'true'; 
-            e.target.textContent = '✓';
-            e.target.disabled = true;
-          }, 'Подтвердить');
-        } catch(err) { box.textContent = 'Ошибка сети'; }
-      };
-    }
   })();
   {% endif %}
 </script>

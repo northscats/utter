@@ -13,14 +13,6 @@
 
 <h1 style="margin-bottom: 24px;">Предварительный просмотр импорта</h1>
 
-{% if duplicate_passport %}
-<div class="alert warning">
-  <strong>Номер заключения уже есть в базе.</strong>
-  Объект «<a href="{{ url_for('analog.passport_detail', passport_id=duplicate_passport.id) }}">{{ duplicate_passport.title }}</a>»
-  будет заменён новой версией данных. Предыдущая версия останется в истории паспорта.
-</div>
-{% endif %}
-
 {% for item in diagnostics %}
   <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.message|analog_message(item.code) }}</div>
 {% endfor %}

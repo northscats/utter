@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import re
+import fcntl
+import tempfile
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from functools import wraps
@@ -202,6 +204,34 @@ def _admin_only(fn):
             abort(403)
         return fn(*args, **kwargs)
     return wrapped
+
+
+def _serialized_import(fn):
+    """Serialize imports across workers sharing a database, including SQLite."""
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        database_key = hashlib.sha256(str(db.engine.url).encode()).hexdigest()
+        path = os.path.join(tempfile.gettempdir(), f'osv-analog-import-{database_key}.lock')
+        with open(path, 'a+b') as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+    return wrapped
+
+
+def _reject_import_target():
+    if any(key in request.args or key in request.form or
+           (request.is_json and key in (request.get_json(silent=True) or {}))
+           for key in ('passport_id', 'target_passport_id')):
+        abort(400, description='Загрузка файлов в существующий паспорт запрещена')
+
+
+def _reject_existing_conclusion(number):
+    if number and AnalogPassportVersion.query.filter_by(
+            conclusion_number=number).first():
+        abort(409, description='Заключение с этим номером уже импортировано')
 
 
 def _json(value):
@@ -818,29 +848,20 @@ def search_api():
 @analog_bp.post('/import')
 @analog_bp.post('/api/import/preview')
 @login_required
+@_serialized_import
 def import_preview():
+    _reject_import_target()
     conclusion_upload, ssr_upload = _files()
     try:
         conclusion, source_hash = _hash_upload(conclusion_upload)
         ssr, ssr_hash = _hash_upload(ssr_upload)
-        requested_target = (request.args.get('passport_id', type=int)
-                            or request.form.get('passport_id', type=int))
-        if requested_target:
-            target = db.session.get(AnalogPassport, requested_target) or abort(404)
-            if not current_user.is_admin and target.created_by != current_user.id:
-                abort(403)
         pair = parse_pair(conclusion, ssr)
         existing = AnalogSource.query.filter_by(
             source_hash=source_hash, ssr_hash=ssr_hash).first()
         if existing:
             return _duplicate_import_response(existing, pair)
         conclusion_number = pair.get('conclusion', {}).get('conclusion_number')
-        if not requested_target and conclusion_number:
-            existing_identity = AnalogPassportVersion.query.filter_by(
-                conclusion_number=conclusion_number).order_by(
-                    AnalogPassportVersion.id.desc()).first()
-            if existing_identity:
-                requested_target = existing_identity.passport_id
+        _reject_existing_conclusion(conclusion_number)
         conclusion_path = _persist_raw(source_hash, 'conclusion.xml', conclusion)
         ssr_path = _persist_raw(ssr_hash, 'summary.gge', ssr)
         row = AnalogImport(source_hash=source_hash, ssr_hash=ssr_hash,
@@ -848,7 +869,6 @@ def import_preview():
                            ssr_filename=ssr_upload.filename[:500],
                            raw_conclusion_path=conclusion_path,
                            raw_ssr_path=ssr_path,
-                           target_passport_id=requested_target,
                            preview_json=_json(pair), diagnostics_json=_json(pair['diagnostics']),
                            created_by=current_user.id)
         db.session.add(row)
@@ -884,6 +904,8 @@ def import_preview_detail(import_id):
     row = db.session.get(AnalogImport, import_id) or abort(404)
     if not current_user.is_admin and row.created_by != current_user.id:
         abort(403, description='Предпросмотр доступен только его автору или администратору')
+    if row.target_passport_id:
+        abort(409, description='Загрузка файлов в существующий паспорт запрещена')
     if row.status != 'preview':
         if row.status == 'confirmed':
             version = AnalogPassportVersion.query.filter_by(
@@ -893,18 +915,15 @@ def import_preview_detail(import_id):
                       'info')
                 return redirect(url_for('analog.simple_search'))
         abort(410, description='Предпросмотр больше не доступен')
-    duplicate_passport = (
-        db.session.get(AnalogPassport, row.target_passport_id)
-        if row.target_passport_id else None
-    )
     return render_template('analog_preview.html', pair=row.preview,
-                           import_id=row.id, diagnostics=row.diagnostics,
-                           duplicate_passport=duplicate_passport)
+                           import_id=row.id, diagnostics=row.diagnostics)
 @analog_bp.post('/import/<int:import_id>/confirm')
 @analog_bp.post('/imports/<int:import_id>/confirm')
 @analog_bp.post('/api/import/<int:import_id>/confirm')
 @login_required
+@_serialized_import
 def import_confirm(import_id):
+    _reject_import_target()
     row = db.session.get(AnalogImport, import_id) or abort(404)
     if not current_user.is_admin and row.created_by != current_user.id:
         abort(403, description='Подтвердить импорт может только его автор или администратор')
@@ -914,11 +933,18 @@ def import_confirm(import_id):
         if not request.is_json and version:
             return redirect(url_for('analog.simple_search', view='base'))
         return jsonify(status='duplicate', passport_id=version.passport_id if version else None)
+    if row.target_passport_id:
+        abort(409, description='Загрузка файлов в существующий паспорт запрещена')
+    existing = AnalogSource.query.filter_by(
+        source_hash=row.source_hash, ssr_hash=row.ssr_hash).first()
+    if existing:
+        return _duplicate_import_response(existing)
     preview = row.preview
     diagnostics = row.diagnostics
     if any(item.get('severity') == 'error' for item in diagnostics):
         return jsonify(status='rejected', diagnostics=diagnostics), 422
     conclusion, ssr = preview['conclusion'], preview['ssr']
+    _reject_existing_conclusion(conclusion.get('conclusion_number'))
     if conclusion.get('examination_result') != 'positive':
         return jsonify(status='rejected', diagnostics=[{
             'code': 'negative_conclusion',
@@ -926,18 +952,7 @@ def import_confirm(import_id):
             'severity': 'error'}]), 422
     try:
         values = request.form.to_dict() or (request.get_json(silent=True) or {})
-        target_id = row.target_passport_id
-        passport = db.session.get(AnalogPassport, target_id) if target_id else None
-        if target_id and passport is None:
-            abort(404, description='Целевой паспорт не найден')
-        if passport is None:
-            identity = None
-            if conclusion.get('conclusion_number'):
-                identity = AnalogPassportVersion.query.filter_by(
-                    conclusion_number=conclusion['conclusion_number']).first()
-            passport = identity.passport if identity else None
-        if passport is None:
-            passport = AnalogPassport(
+        passport = AnalogPassport(
                 title=conclusion.get('expert_object_name') or ssr.get('name') or 'Без названия',
                 address=conclusion.get('address', ''),
                 object_type=(values.get('object_type')
@@ -950,21 +965,9 @@ def import_confirm(import_id):
                 natural_conditions=conclusion.get('natural_conditions', ''),
                 construction_object=conclusion.get('construction_object', ''),
                 created_by=current_user.id)
-            db.session.add(passport)
-            db.session.flush()
-        else:
-            values = request.form.to_dict() or (request.get_json(silent=True) or {})
-            for field in ('title', 'address', 'object_type', 'work_type',
-                          'climate_zone', 'climate_subzone',
-                          'natural_conditions', 'cadastral_number'):
-                if values.get(field) not in (None, ''):
-                    setattr(passport, field, values[field])
-            passport.cadastral_number = values.get(
-                'cadastral_number') or conclusion.get('cadastral_number', passport.cadastral_number)
-            passport.natural_conditions = values.get(
-                'natural_conditions') or conclusion.get('natural_conditions', passport.natural_conditions)
-            passport.construction_object = conclusion.get('construction_object', passport.construction_object)
-        version_no = (max((v.version_no for v in passport.versions), default=0) + 1)
+        db.session.add(passport)
+        db.session.flush()
+        version_no = 1
         summary = ssr.get('summary') or {}
         total_cost = summary.get('total')
         if total_cost is None:
@@ -1253,12 +1256,7 @@ def archive(passport_id):
 @analog_bp.post('/passports/<int:passport_id>/reimport')
 @_admin_only
 def reimport(passport_id):
-    if not db.session.get(AnalogPassport, passport_id):
-        abort(404)
-    # Keep the exact same parser/preview transaction and preserve the target
-    # passport title through the normal versioned import path.
-    response = import_preview()
-    return response
+    abort(409, description='Повторная загрузка файлов в паспорт запрещена')
 
 
 @analog_bp.post('/passports/<int:passport_id>/edit')

@@ -5,11 +5,15 @@ import pathlib
 import tempfile
 import unittest
 import json
+import hashlib
 import re
+import shutil
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 
 _tmp = tempfile.mkdtemp(prefix='analog_route_test_')
@@ -29,6 +33,7 @@ from analog_parser import _tei_rows  # noqa: E402
 from analog_routes import (_backfill_analog_total_costs,
                            _backfill_inferred_object_types, _format_ru_number,
                            _result_row, _table_321_total)  # noqa: E402
+import analog_routes  # noqa: E402
 
 
 ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
@@ -38,6 +43,11 @@ class AnalogRoutesTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         os.environ['INITIAL_ADMIN_PASSWORD'] = 'analog-admin-passphrase-2026'
+        cls.addClassCleanup(shutil.rmtree, _tmp, ignore_errors=True)
+        cls.storage_patch = patch.object(
+            analog_routes, 'ANALOG_STORAGE', os.path.join(_tmp, 'raw_sources'))
+        cls.storage_patch.start()
+        cls.addClassCleanup(cls.storage_patch.stop)
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
         init_db()
         cls.conclusion = (ROOT / '50-1-1-2-018685-2026_26-04-29_11-32-17_signature_1789461292785.xml').read_bytes()
@@ -46,6 +56,13 @@ class AnalogRoutesTest(unittest.TestCase):
         cls.ssr_101 = (ROOT / 'Сводный_сметный_расчет_1789537733540.gge').read_bytes()
 
     def setUp(self):
+        # Keep fixture identities distinct between tests sharing this temporary
+        # database, while preserving the real XML/GGE payloads within each test.
+        marker = int(hashlib.sha256(self._testMethodName.encode()).hexdigest()[:8], 16)
+        self.conclusion = type(self).conclusion.replace(
+            b'018685-2026', f'{marker % 1000000:06d}-2026'.encode())
+        self.conclusion_101 = type(self).conclusion_101.replace(
+            b'044346-2024', f'{(marker + 1) % 1000000:06d}-2024'.encode())
         self.client = app.test_client()
         with app.app_context():
             self.admin = User.query.filter_by(role='admin').first()
@@ -110,7 +127,7 @@ class AnalogRoutesTest(unittest.TestCase):
                              'hidden-document-checksum', 'hidden-signature.sig',
                              'hidden-signature-checksum'):
                     self.assertNotIn(text, html)
-                for text in ('Основные сведения', 'Версии и происхождение',
+                for text in ('Основные сведения',
                              'Организации (Все)', 'Геология и прочий климат',
                              'Технико-экономические показатели', 'Таблица 3.2.1',
                              'Сводный сметный расчёт (GGE)',
@@ -120,8 +137,9 @@ class AnalogRoutesTest(unittest.TestCase):
                              'id="detail-tab" class="tab-content" hidden',
                              "document.getElementById(btn.dataset.target).hidden = false"):
                     self.assertIn(text, html)
-                for version_id in version_ids:
-                    self.assertIn(f'{base}?version={version_id}', html)
+                self.assertNotIn('Версии и происхождение', html)
+                self.assertNotIn('cost-adjust-form', html)
+                self.assertNotIn('Переимпортировать', html)
         with app.app_context():
             self.assertEqual(AnalogDocument.query.filter_by(
                 passport_id=passport_id).count(), 2)
@@ -304,7 +322,10 @@ class AnalogRoutesTest(unittest.TestCase):
         passport_id = confirmed.get_json()['passport_id']
         with app.app_context():
             row = db.session.get(AnalogImport, preview['import_id'])
-            self.assertTrue(row.raw_conclusion_path.startswith('uploads/0/analog_sources/'))
+            raw_path = os.path.realpath(os.path.join(
+                os.path.dirname(analog_routes.__file__), row.raw_conclusion_path))
+            self.assertTrue(raw_path.startswith(
+                os.path.realpath(os.path.join(_tmp, 'raw_sources')) + os.sep))
             self.assertTrue(AnalogPassport.query.get(passport_id).current_version_id)
             documents = AnalogDocument.query.filter_by(
                 passport_id=passport_id).all()
@@ -578,24 +599,111 @@ class AnalogRoutesTest(unittest.TestCase):
             self.assertGreater(AnalogPassportVersion.query.filter(
                 AnalogPassportVersion.total_cost.is_not(None)).count(), 0)
 
-    def test_reimport_target_and_same_identity_version(self):
+    def test_reimport_target_and_same_identity_are_rejected(self):
         first = self.client.post('/analog-search/import/preview',
                                  data=self.files(self.conclusion + b'\t'),
                                  content_type='multipart/form-data').get_json()
+        pending = self.client.post(
+            '/analog-search/api/import/preview',
+            data=self.files(self.conclusion + b' \n'),
+            content_type='multipart/form-data').get_json()
+        self.assertEqual(pending['status'], 'preview')
         confirmed = self.client.post(
             f"/analog-search/import/{first['import_id']}/confirm", json={}).get_json()
         target = confirmed['passport_id']
         with app.app_context():
             baseline = len(AnalogPassport.query.get(target).versions)
-        second = self.client.post(
-            f'/analog-search/import/preview?passport_id={target}',
-            data=self.files(self.conclusion + b' \n'),
-            content_type='multipart/form-data').get_json()
-        second_confirm = self.client.post(
-            f"/analog-search/import/{second['import_id']}/confirm", json={}).get_json()
-        self.assertEqual(second_confirm['passport_id'], target)
+            baseline_imports = AnalogImport.query.count()
+        for endpoint in ('/analog-search/import/preview',
+                         '/analog-search/import',
+                         '/analog-search/api/import/preview'):
+            for key in ('passport_id', 'target_passport_id'):
+                for value in ('', str(target)):
+                    response = self.client.post(
+                        f'{endpoint}?{key}={value}',
+                        data=self.files(self.conclusion + b' \n'),
+                        content_type='multipart/form-data')
+                    self.assertEqual(response.status_code, 400)
+                response = self.client.post(
+                    endpoint, data={**self.files(self.conclusion + b' \n'),
+                                    key: str(target)},
+                    content_type='multipart/form-data')
+                self.assertEqual(response.status_code, 400)
+            response = self.client.post(
+                endpoint, data=self.files(self.conclusion + b' \n'),
+                content_type='multipart/form-data')
+            self.assertEqual(response.status_code, 409)
+        for endpoint in (f'/analog-search/import/{pending["import_id"]}/confirm',
+                         f'/analog-search/imports/{pending["import_id"]}/confirm',
+                         f'/analog-search/api/import/{pending["import_id"]}/confirm'):
+            self.assertEqual(self.client.post(endpoint, json={}).status_code, 409)
+            self.assertEqual(self.client.post(
+                endpoint, json={'passport_id': target}).status_code, 400)
+            self.assertEqual(self.client.post(
+                endpoint, data={'target_passport_id': target}).status_code, 400)
+        self.assertEqual(self.client.post(
+            f'/analog-search/passports/{target}/reimport',
+            data=self.files(), content_type='multipart/form-data').status_code, 409)
+        duplicate = self.client.post(
+            '/analog-search/import/preview',
+            data=self.files(self.conclusion + b'\t'),
+            content_type='multipart/form-data')
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertEqual(duplicate.get_json()['status'], 'duplicate')
+        self.assertEqual(duplicate.get_json()['passport_id'], target)
         with app.app_context():
-            self.assertEqual(len(AnalogPassport.query.get(target).versions), baseline + 1)
+            self.assertEqual(len(AnalogPassport.query.get(target).versions), baseline)
+            self.assertEqual(AnalogImport.query.count(), baseline_imports)
+            self.assertEqual(db.session.get(AnalogImport, pending['import_id']).status, 'preview')
+
+    def test_old_targeted_preview_cannot_confirm(self):
+        first = self.client.post('/analog-search/import/preview',
+                                 data=self.files(self.conclusion_101, self.ssr_101),
+                                 content_type='multipart/form-data').get_json()
+        self.assertEqual(first['status'], 'preview')
+        with app.app_context():
+            target = AnalogPassport(title='legacy-target', object_type='ЦТП',
+                                    created_by=self.admin_id)
+            db.session.add(target)
+            db.session.flush()
+            row = db.session.get(AnalogImport, first['import_id'])
+            row.target_passport_id = target.id
+            db.session.commit()
+            target_id = target.id
+        response = self.client.post(
+            f"/analog-search/import/{first['import_id']}/confirm", json={})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.client.get(
+            f"/analog-search/imports/{first['import_id']}/preview").status_code, 409)
+        with app.app_context():
+            self.assertEqual(AnalogPassportVersion.query.filter_by(
+                passport_id=target_id).count(), 0)
+
+    def test_concurrent_pending_confirms_create_only_one_passport(self):
+        first = self.client.post('/analog-search/import/preview',
+                                 data=self.files(self.conclusion + b'\t'),
+                                 content_type='multipart/form-data').get_json()
+        second = self.client.post('/analog-search/import/preview',
+                                  data=self.files(self.conclusion + b'\n '),
+                                  content_type='multipart/form-data').get_json()
+        self.assertEqual((first['status'], second['status']), ('preview', 'preview'))
+
+        def confirm(import_id):
+            client = app.test_client()
+            with client.session_transaction() as session:
+                session['_user_id'] = str(self.admin_id)
+                session['_fresh'] = True
+                session['password_version'] = self.admin_version
+            return client.post(
+                f'/analog-search/api/import/{import_id}/confirm', json={}).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses = list(pool.map(confirm, (first['import_id'], second['import_id'])))
+        self.assertEqual(sorted(statuses), [200, 409])
+        with app.app_context():
+            self.assertEqual(AnalogPassportVersion.query.filter_by(
+                conclusion_number=first['preview']['conclusion']['conclusion_number']
+            ).count(), 1)
 
     def test_network_create_api_and_html_persist_typed_attrs(self):
         api = self.client.post('/analog-search/passports', json={
