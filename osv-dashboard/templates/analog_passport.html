@@ -320,36 +320,6 @@
   </details>
 
   <details>
-    <summary>Документация 3.1.1</summary>
-    <div class="details-body table-wrap" style="padding: 0;">
-      <table>
-        <thead><tr><th>Раздел</th><th>Наименование</th><th>Формат</th><th>Контрольная сумма</th><th>Подпись</th></tr></thead>
-        <tbody>
-          {% for item in documents %}
-          <tr class="{{ item.node_kind }}">
-            <td style="padding-left:{{ 12 + (item.parent_ordinal.count('.') + 1 if item.parent_ordinal else 0) * 18 }}px; font-variant-numeric: tabular-nums;">
-              {{ item.ordinal }}{% if item.parent_ordinal %} <span style="color: var(--mut); font-size: 11px;">(раздел {{ item.parent_ordinal }})</span>{% endif %}
-            </td>
-            <td>
-              {% if item.node_kind == 'section' %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}
-              {% if item.note %}<div style="font-size: 11px; color: var(--mut); margin-top: 2px;">{{ item.note }}</div>{% endif %}
-            </td>
-            <td style="font-size: 11px;">{{ item.file_format }}</td>
-            <td style="font-size: 11px; font-family: monospace; color: var(--mut);">{{ item.checksum }}</td>
-            <td>
-              <div style="font-size: 11px;">{{ item.signature_name }}</div>
-              <div style="font-size: 10px; font-family: monospace; color: var(--mut);">{{ item.signature_checksum }}</div>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="5" style="text-align: center; color: var(--mut); padding: 16px;">Нет данных</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details>
     <summary>Таблица 3.2.1</summary>
     <div class="details-body table-wrap" style="padding: 0;">
       <table>

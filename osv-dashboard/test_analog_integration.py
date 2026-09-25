@@ -69,6 +69,63 @@ class AnalogRoutesTest(unittest.TestCase):
         return {'conclusion': (BytesIO(conclusion or self.conclusion), 'conclusion.xml'),
                 'ssr': (BytesIO(ssr or self.ssr), 'summary.gge')}
 
+    def test_passport_omits_documentation_for_current_and_previous_versions(self):
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Паспорт без технического перечня', object_type='котельная',
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version_ids = []
+            for number in (1, 2):
+                version = AnalogPassportVersion(
+                    passport_id=passport.id, version_no=number,
+                    conclusion_number=f'ui-docs-{number}',
+                    examination_result='positive',
+                    source_hash=f'ui-docs-source-{number}',
+                    ssr_hash=f'ui-docs-ssr-{number}', imported_by=self.admin_id,
+                    payload_json=json.dumps({'ssr': {'name': f'ССР версии {number}'}}))
+                db.session.add(version)
+                db.session.flush()
+                version_ids.append(version.id)
+                db.session.add(AnalogDocument(
+                    passport_id=passport.id, version_id=version.id,
+                    ordinal='3.1.1.987', name='hidden-document-name',
+                    checksum='hidden-document-checksum',
+                    signature_name='hidden-signature.sig',
+                    signature_checksum='hidden-signature-checksum'))
+            passport.current_version_id = version_ids[-1]
+            db.session.commit()
+            passport_id = passport.id
+
+        base = f'/analog-search/passports/{passport_id}'
+        for suffix, number in (('', 2), (f'?version={version_ids[0]}', 1),
+                               (f'?version={version_ids[1]}', 2)):
+            with self.subTest(version=number, url=suffix):
+                response = self.client.get(base + suffix)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                for text in ('Документация 3.1.1', 'Контрольная сумма',
+                             '3.1.1.987', 'hidden-document-name',
+                             'hidden-document-checksum', 'hidden-signature.sig',
+                             'hidden-signature-checksum'):
+                    self.assertNotIn(text, html)
+                for text in ('Основные сведения', 'Версии и происхождение',
+                             'Организации (Все)', 'Геология и прочий климат',
+                             'Технико-экономические показатели', 'Таблица 3.2.1',
+                             'Сводный сметный расчёт (GGE)',
+                             'Диагностика и происхождение', f'ССР версии {number}',
+                             'data-target="brief-tab"', 'data-target="detail-tab"',
+                             'id="brief-tab" class="tab-content"',
+                             'id="detail-tab" class="tab-content" hidden',
+                             "document.getElementById(btn.dataset.target).hidden = false"):
+                    self.assertIn(text, html)
+                for version_id in version_ids:
+                    self.assertIn(f'{base}?version={version_id}', html)
+        with app.app_context():
+            self.assertEqual(AnalogDocument.query.filter_by(
+                passport_id=passport_id).count(), 2)
+
     def test_summary_estimate_101_preview_and_confirm(self):
         response = self.client.post(
             '/analog-search/import/preview',
