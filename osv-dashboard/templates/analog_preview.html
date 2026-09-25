@@ -22,7 +22,7 @@
 {% endif %}
 
 {% for item in diagnostics %}
-  <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.message }}</div>
+  <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.message|analog_message(item.code) }}</div>
 {% endfor %}
 
 <div class="panel">
@@ -80,7 +80,7 @@
   <div class="details-body table-wrap"><table>
     <thead><tr><th>Роль</th><th>Наименование</th><th>ИНН / ОГРН / КПП</th><th>Контакты</th></tr></thead>
     <tbody>{% for item in pair.conclusion.roles %}<tr>
-      <td>{{ item.role or '—' }}</td><td>{{ item.name or '—' }}</td>
+       <td>{{ item.role|analog_label('organization') }}</td><td>{{ item.name or '—' }}</td>
       <td>{{ item.inn or '—' }} / {{ item.ogrn or '—' }} / {{ item.kpp or '—' }}</td>
       <td>{{ item.email or '—' }}<br>{{ item.address or '—' }}</td>
     </tr>{% endfor %}</tbody>
@@ -107,7 +107,7 @@
   <div class="details-body table-wrap"><table>
     <thead><tr><th>Раздел</th><th>Представлено</th><th>Утверждено</th><th>Изменение</th></tr></thead>
     <tbody>{% for item in pair.conclusion.cost_rows %}<tr>
-      <td>{{ item.name or item.ordinal or '—' }}</td><td>{{ item.submitted_cost or '—' }}</td>
+      <td>{{ item.name|analog_cost_row(item.ordinal) if item.name else item.ordinal or '—' }}</td><td>{{ item.submitted_cost or '—' }}</td>
       <td>{{ item.approved_cost or '—' }}</td><td>{{ item.change_cost or '—' }}</td>
     </tr>{% endfor %}</tbody>
   </table></div>
@@ -174,7 +174,7 @@
       <input type="hidden" name="natural_conditions" value="{{ pair.conclusion.natural_conditions }}">
       
       <div style="font-size: 12px; color: var(--mut); margin-top: 8px;">
-        Результат заключения фиксирован: <strong>{{ pair.conclusion.examination_result }}</strong><br>
+         Результат заключения фиксирован: <strong>{{ pair.conclusion.examination_result|analog_label('result') }}</strong><br>
         После загрузки объект появится в общей таблице модуля «Поиск объектов-аналогов».
       </div>
       

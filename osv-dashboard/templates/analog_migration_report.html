@@ -4,6 +4,17 @@
 <a class="back" href="{{ url_for('analog.simple_search') }}">← Быстрый поиск</a>
 <h1>Отчёт миграции JSON v4</h1>
 <section class="panel"><dl>
-{% for key, value in report.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+{% for key, value in report.items() %}
+  <dt>{{ key|analog_report_label }}</dt>
+  <dd>
+    {% if key == 'warnings' %}
+      {% if value %}<ul>{% for warning in value %}<li>{{ warning|analog_report_message }}</li>{% endfor %}</ul>{% else %}Нет предупреждений{% endif %}
+    {% elif key == 'error' %}
+      {{ value|analog_report_message }}
+    {% else %}
+      {{ value }}
+    {% endif %}
+  </dd>
+{% endfor %}
 </dl></section>
 {% endblock %}

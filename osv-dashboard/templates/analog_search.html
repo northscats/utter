@@ -320,7 +320,11 @@
         if (xhr.status === 413) return restore('Файлы слишком велики.');
         try {
           const data = JSON.parse(xhr.responseText);
-          if (data.diagnostics && data.diagnostics.length) return restore(data.diagnostics.map(i => i.message).join(' '));
+           if (data.diagnostics && data.diagnostics.length) return restore(data.diagnostics.map(i => {
+             const message = i.message || 'Сообщение проверки без описания';
+             const parts = message.split(': повреждённый XML:');
+             return parts.length > 1 ? `${parts[0]}: повреждённый XML. Проверьте структуру файла.` : message;
+           }).join(' '));
           if (data.error) return restore(data.error);
         } catch (_) {}
         restore('Не удалось обработать файлы. Проверьте их формат.');
