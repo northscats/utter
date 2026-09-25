@@ -486,7 +486,7 @@ def _backfill_analog_total_costs():
     return changed
 
 
-def _result_row(passport, query_capacity=None):
+def _result_row(passport, query_capacity=None, tolerance_percent=Decimal('10')):
     capacity = _passport_capacity_kw(passport)
     current_version = next((version for version in passport.versions
                             if version.id == passport.current_version_id), None)
@@ -509,7 +509,7 @@ def _result_row(passport, query_capacity=None):
             'capacity_mw_display': capacity_mw,
             'capacity_gcal_h_display': capacity_gcal_h,
             'deviation_percent': float(deviation) if deviation is not None else None,
-            'similarity_percent': float(score), 'good': deviation is None or deviation <= 10,
+            'similarity_percent': float(score), 'good': deviation is None or deviation <= tolerance_percent,
             'adjusted_cost': str(current_version.adjusted_cost or '')
             if current_version else '',
             'total_cost_display': _format_ru_number(
@@ -734,6 +734,17 @@ def _suitability(passport, criteria):
     return not reasons, reasons
 
 
+def _tolerance_percent(args):
+    raw = args.get('tolerance_percent', '10').strip() or '10'
+    try:
+        value = Decimal(raw.replace(',', '.'))
+    except InvalidOperation:
+        abort(400, description='Допустимое отклонение должно быть числом от 0 до 100%')
+    if not value.is_finite() or not 0 <= value <= 100:
+        abort(400, description='Допустимое отклонение должно быть числом от 0 до 100%')
+    return value
+
+
 def _simple_query(args, capacity=None):
     """Build the one indexed query shared by HTML and JSON search."""
     query = AnalogPassport.query.filter_by(archived=False)
@@ -765,7 +776,7 @@ def _simple_query(args, capacity=None):
         deviation = case(
             (AnalogPassport.capacity_kw.is_(None), None),
             else_=func.abs((AnalogPassport.capacity_kw - wanted) / wanted))
-        group = case((deviation <= Decimal('0.10'), 0), else_=1)
+        group = case((deviation <= _tolerance_percent(args) / 100, 0), else_=1)
         return query, group, deviation
     return query, None, None
 
@@ -785,6 +796,7 @@ def simple_search():
     page = max(request.args.get('page', 1, type=int), 1)
     per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
     capacity = _capacity_kw_from_args(request.args)
+    tolerance = _tolerance_percent(request.args)
     query, group, deviation = _simple_query(request.args, capacity)
     title = request.args.get('title', '').strip()
     address = request.args.get('address', '').strip()
@@ -793,13 +805,13 @@ def simple_search():
     if address:
         query = query.filter(AnalogPassport.address.ilike(f'%{address}%'))
     if view == 'search' and deviation is not None:
-        query = query.filter(deviation <= Decimal('0.10'))
+        query = query.filter(deviation <= tolerance / 100)
     ordering = ((deviation.asc(), AnalogPassport.id.asc())
                 if deviation is not None else
                 (func.lower(AnalogPassport.title).asc(), AnalogPassport.id.asc()))
     pagination = query.order_by(*ordering).paginate(
                                     page=page, per_page=per_page, error_out=False)
-    rows = [_result_row(p, capacity) for p in pagination.items]
+    rows = [_result_row(p, capacity, tolerance) for p in pagination.items]
     if request.args.get('format') == 'json':
         return jsonify(items=rows, page=page, per_page=per_page,
                        total=pagination.total, pages=pagination.pages,
@@ -827,18 +839,19 @@ def search_api():
     # The same indexed query as the UI, with stable pagination and ranking.
     args = request.args
     capacity = _capacity_kw_from_args(args)
+    tolerance = _tolerance_percent(args)
     page = max(args.get('page', 1, type=int), 1)
     per_page = min(max(args.get('per_page', 25, type=int), 1), 100)
     query, group, deviation = _simple_query(args, capacity)
     if capacity:
         if args.get('capacity_value', '').strip():
-            query = query.filter(deviation <= Decimal('0.10'))
+            query = query.filter(deviation <= tolerance / 100)
         query = query.order_by(group.asc(), deviation.asc(),
                                AnalogPassport.id.asc())
     else:
         query = query.order_by(AnalogPassport.id.asc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    rows = [_result_row(p, capacity) for p in pagination.items]
+    rows = [_result_row(p, capacity, tolerance) for p in pagination.items]
     return jsonify(items=rows, page=page, per_page=per_page,
                    total=pagination.total,
                    good=sum(1 for row in rows if row['good']))

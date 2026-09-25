@@ -383,6 +383,32 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('gcal-boundary', html)
         self.assertNotIn('gcal-outside', html)
 
+    def test_configurable_capacity_tolerance(self):
+        with app.app_context():
+            db.session.add_all([
+                AnalogPassport(title='tolerance-exact', capacity_kw=1000,
+                               created_by=self.admin_id),
+                AnalogPassport(title='tolerance-wide', capacity_kw=1200,
+                               created_by=self.admin_id),
+            ])
+            db.session.commit()
+        for endpoint in ('/analog-search/simple', '/analog-search/api/search'):
+            params = dict(capacity_value='1', capacity_unit='mw',
+                          q='tolerance-', format='json')
+            for value, expected in [('10', 1), ('20', 2), ('0', 1), ('19,5', 1)]:
+                response = self.client.get(endpoint, query_string={
+                    **params, 'tolerance_percent': value})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.get_json()['total'], expected)
+                self.assertTrue(all(row['good'] for row in response.get_json()['items']))
+            for value in ('-1', '101', 'NaN', 'Infinity', 'abc'):
+                response = self.client.get(endpoint, query_string={
+                    **params, 'tolerance_percent': value})
+                self.assertEqual(response.status_code, 400)
+        html = self.client.get('/analog-search/simple').get_data(as_text=True)
+        self.assertIn('name="tolerance_percent"', html)
+        self.assertNotIn('Хорошие аналоги', html)
+
     def test_search_type_options_reflect_only_active_passports(self):
         with app.app_context():
             passports = [

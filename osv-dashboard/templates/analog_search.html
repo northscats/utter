@@ -32,6 +32,13 @@
     </select>
   </div>
 
+  <label style="display: grid; gap: 4px; font-size: 12px; flex-shrink: 0;">
+    Допустимое отклонение, %
+    <input type="number" name="tolerance_percent" min="0" max="100" step="any"
+           value="{{ request.args.get('tolerance_percent') or '10' }}"
+           title="Максимальное отклонение от заданной мощности" style="width: 160px;">
+  </label>
+
   <select name="object_type" style="width: 140px; flex-shrink: 0;">
     <option value="">Все типы</option>
     {% for val in search_object_types %}
@@ -66,7 +73,6 @@
       </thead>
       <tbody>
         {% if good_rows %}
-          <tr><td colspan="6" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--success); letter-spacing: 0.05em;">Хорошие аналоги (отклонение &le; 10%)</td></tr>
           {% for row in good_rows %}
             <tr class="good" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
               <td style="font-weight: 500;">{{ row.title }}</td>
@@ -84,7 +90,6 @@
         {% endif %}
         
         {% if poor_rows %}
-          <tr><td colspan="6" style="background: #f8fafc; font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--amber); letter-spacing: 0.05em;">Остальные аналоги (отклонение &gt; 10%)</td></tr>
           {% for row in poor_rows %}
             <tr class="poor" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
               <td style="font-weight: 500;">{{ row.title }}</td>
