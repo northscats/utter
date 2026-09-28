@@ -1,7 +1,7 @@
-{% extends "modules.html" %}
+{% extends "limits_base.html" %}
 {% block title %}Реестр лимитов — {{ dataset.name }}{% endblock %}
 {% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
-{% block content %}
+{% block limits_content %}
 {% include "limits_nav.html" %}
 <div class="eyebrow">Реестр объектов</div>
 <h1>{{ dataset.name }}</h1>
@@ -9,7 +9,7 @@
 {% if not dataset.current_version_id %}
 <div class="notice warning" style="margin-bottom:24px;">
   В реестре нет актуального принятого среза. Сохранены только минимальные сведения
-  об объектах и действующие подписки. Загрузите и примите новую версию, чтобы снова
+  об объектах. Загрузите и примите новую версию, чтобы снова
   видеть строки мероприятий и финансирование.
 </div>
 {% endif %}
@@ -88,10 +88,6 @@
     </div>
     
     <div class="checkbox-filters">
-      <label class="cb-label">
-        <input type="checkbox" name="subscribers" value="1" {% if request.args.get('subscribers') == '1' %}checked{% endif %}>
-        Только с активными подписчиками
-      </label>
       <label class="cb-label">
         <input type="checkbox" name="changed" value="1" {% if request.args.get('changed') == '1' %}checked{% endif %}>
         Только с изменениями в актуальной версии

@@ -1,22 +1,21 @@
-{% extends "modules.html" %}
-{% block title %}Удаление загрузки — Оповещение о лимитах{% endblock %}
-{% block content %}
+{% extends "limits_base.html" %}
+{% block title %}Удаление загрузки — Лимиты{% endblock %}
+{% block limits_content %}
 {% include "limits_nav.html" %}
 <h1>Удаление загрузки #{{ version.id }}</h1>
 {% for category,message in get_flashed_messages(with_categories=true) %}<p>{{ message }}</p>{% endfor %}
 <p><b>{{ version.source_name }}</b> · Дата среза {{ version.source_date }}</p>
 <section style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px">
-<p>Будут удалены исходный Excel, данные этой версии, связанные отчёты и сравнения ({{ comparison_count }}), а также её сообщения и попытки отправки.</p>
+<p>Будут удалены исходный Excel, данные этой версии, связанные отчёты и сравнения ({{ comparison_count }}).</p>
 {% if version.id == dataset.current_version_id %}
 <p role="alert"><b>Удаляется текущий принятый срез.</b>
 {% if fallback %}Актуальным станет последний оставшийся принятый срез: #{{ fallback.id }} от {{ fallback.source_date }} ({{ fallback.source_name }}).
 {% else %}Других принятых срезов нет. Реестр останется без текущего среза до принятия новой загрузки.{% endif %}
-Это переключение не запускает повторную рассылку уведомлений.</p>
+Это переключение не изменяет сохранённую историю других версий.</p>
 {% else %}<p>Текущий срез не изменится.</p>{% endif %}
-<p>Подписчики, их доступ и действующие подписки сохранятся. Старые общие резервные копии очищаются по отдельной политике хранения.</p>
+<p>Старые общие резервные копии очищаются по отдельной политике хранения.</p>
 {% if blocked %}
 <p role="alert" style="color:#a52626"><b>{{ blocked }}</b></p>
-<a href="{{ url_for('limit_delivery_journal',dataset_id=dataset.id) }}">Журнал уведомлений</a>
 {% else %}
 <form method="post" action="{{ url_for('limit_version_delete',version_id=version.id) }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

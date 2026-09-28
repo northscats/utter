@@ -45,7 +45,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        DadataDiagnosticEvent,
                        CompanyFinance, CompanyLicense, CompanyMembership,
-                       CompanyOkved, DailyRow, EmailRule, HistoricalImport,
+                       CompanyOkved, DailyRow, DailyReconciliationAlert, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
                        CostAnalyticMapping,
@@ -59,13 +59,13 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                        AnalogDocument, AnalogCostRow, AnalogSSRChapter,
                        AnalogSSRItem, AnalogSSRSignature, AnalogDiagnostic,
                        AnalogNetworkAttribute, AnalogImport,
-                       LimitChange, LimitComparison,
-                       LimitComparisonResolution, LimitDataset, LimitDelivery,
-                       LimitDeliveryAttempt, LimitMaxEvent, LimitBotDialog,
-                       LimitBotOutbound, LimitModerationRequest, LimitObject,
-                       LimitRecipient, LimitRowSnapshot, LimitSubscription,
-                       LimitVersion, LimitVersionTombstone,
-                       LimitDeliveryPart, db, utcnow)
+                        LimitChange, LimitComparison,
+                        LimitComparisonResolution, LimitDataset, LimitObject,
+                        LimitRowSnapshot, LimitVersion, LimitVersionTombstone,
+                          MaxLimitsSubscription, MaxLimitsCursor,
+                          MaxLimitsOutbox, MaxLimitsProfile, MaxLimitsUin,
+                          MaxLimitsApplication,
+                        db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
                                 duplicate_companies,
@@ -121,7 +121,7 @@ ANALYTICAL_ACCOUNT_NAMES = {
 }
 
 _DURABLE_MODELS = (
-    User, Company, Upload, OsvSourceCleanup, DailyRow,
+    User, Company, Upload, OsvSourceCleanup, DailyRow, DailyReconciliationAlert,
     HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
     RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
@@ -133,9 +133,9 @@ _DURABLE_MODELS = (
     AnalogSSRSignature, AnalogNetworkAttribute, AnalogImport,
     LimitDataset, LimitVersion, LimitObject, LimitRowSnapshot, LimitComparison,
     LimitVersionTombstone,
-    LimitComparisonResolution, LimitChange, LimitRecipient, LimitSubscription,
-    LimitModerationRequest, LimitMaxEvent, LimitBotDialog, LimitBotOutbound,
-    LimitDelivery, LimitDeliveryAttempt, LimitDeliveryPart,
+    LimitComparisonResolution, LimitChange,
+    MaxLimitsSubscription, MaxLimitsCursor, MaxLimitsOutbox,
+    MaxLimitsProfile, MaxLimitsUin, MaxLimitsApplication,
 )
 def _durable_backup(reason, allow_removals=False, required=False,
                     allowed_removed_tables=()):
@@ -436,21 +436,6 @@ def _ensure_limits_recovery() -> None:
             db.session.commit()
             for row in LimitVersion.query.filter_by(status='queued').all():
                 _limit_parse_in_background(row.id)
-            from limits_connection import (
-                configured_webhook_url, configuration_complete,
-                reconcile_connection, start_reconciler)
-            # Revalidate synchronously under the same cross-process guard used
-            # by dispatch. Never reset shared state outside that guard.
-            if configuration_complete():
-                reconcile_connection(
-                    encrypt=encrypt_value, decrypt=decrypt_value,
-                    adapter_factory=_limits_adapter,
-                    webhook_url=configured_webhook_url(app))
-            start_reconciler(
-                app, encrypt_value, decrypt_value, _limits_adapter,
-                lambda: configured_webhook_url(app))
-            from limits_bot import start_worker
-            start_worker(app, _limits_adapter, lambda: _limits_history_ready.is_set())
         while True:
             time.sleep(3600)
             with app.app_context():
@@ -506,24 +491,6 @@ def _maybe_start_imap_thread():
         return None
     _ensure_imap_thread()
     _ensure_limits_recovery()
-
-
-@app.context_processor
-def _limits_max_admin_alert():
-    """Expose the current MAX outage once as a persistent admin-only banner."""
-    if not current_user.is_authenticated or not current_user.is_admin:
-        return {'limits_max_admin_alert': None}
-    try:
-        from limits_connection import connection_alert
-        threshold = app.config.get(
-            'LIMITS_MAX_ALERT_AFTER_SECONDS',
-            os.environ.get('LIMITS_MAX_ALERT_AFTER_SECONDS', 3600))
-        return {'limits_max_admin_alert': connection_alert(
-            alert_after_seconds=threshold)}
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('could not build limits MAX admin alert')
-        return {'limits_max_admin_alert': None}
 
 
 @app.before_request
@@ -1156,15 +1123,15 @@ def _sync_daily_reconciliation_alerts(company_id):
     """Best-effort post-ingestion hook; accepted financial data stays accepted."""
     try:
         from key_indicators_service import load_company_source
-        from max_notifications import sync_daily_reconciliation_notifications
+        from daily_reconciliation_state import sync_daily_reconciliation_state
         notification_source, _ = load_company_source(company_id, UPLOADS)
-        sync_daily_reconciliation_notifications(
+        sync_daily_reconciliation_state(
             company_id,
             notification_source.get('_daily_control_reconciliations') or [])
     except Exception:
         db.session.rollback()
         app.logger.exception(
-            'daily reconciliation notification sync failed for company %s',
+            'daily reconciliation state sync failed for company %s',
             company_id)
 
 
@@ -7104,6 +7071,8 @@ def init_db(perform_durable=True):
     """
     with app.app_context():
         db.create_all()
+        from max_limits import migrate_max_limits_schema
+        migrate_max_limits_schema()
         _purge_retired_module_grants()
         # Limits tables are additive and may predate the current model set.
         # Complete this migration before durable restore reads restored rows.
@@ -7712,8 +7681,7 @@ def _run_post_startup_backup(limit_cleanup):
                 allowed_removed_tables=(
                     'limit_versions', 'limit_row_snapshots',
                     'limit_comparisons', 'limit_comparison_resolutions',
-                    'limit_changes', 'limit_deliveries',
-                    'limit_delivery_attempts', 'limit_delivery_parts',
+                    'limit_changes',
                 ) if limit_cleanup else ())
             if limit_cleanup and result and result.get('promoted'):
                 Setting.set('limits_rotation_needs_backup', '0')
@@ -7784,6 +7752,10 @@ def _finish_durable_startup(restore=False):
             # blocked.  Its own gate exposes the recovery UI without hiding
             # every unrelated application route behind the startup message.
             app.config['DURABLE_STARTUP_READY'] = True
+            if (not app.config.get('TESTING')
+                    and Setting.get('limits_history_ready') == 'ready'):
+                from max_limits import start_max_limits_worker
+                start_max_limits_worker(app)
             if not app.config.get('TESTING'):
                 limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
                 threading.Thread(
@@ -7993,12 +7965,6 @@ def rating_results():
                    generated_at=datetime.now(timezone.utc).isoformat(),
                    results=rank_companies(results))
 
-def _limits_adapter():
-    from limits_max import MaxClient
-    token = decrypt_value(Setting.get('limits_max_token', ''))
-    return MaxClient(token=token or None)
-
-
 # Самая внешняя WSGI-граница фиксирует реальный peer/scheme до ProxyFix и
 # возможного DispatcherMiddleware. Не перемещать внутрь других middleware.
 from one_c_transport import OneCTransportMiddleware
@@ -8099,7 +8065,7 @@ def limit_dataset_create():
 def limit_notifications():
     if Setting.get('limits_history_ready', 'ready') != 'ready':
         return render_template('limits_unavailable.html',
-                               detail='Восстановление проверяет окно хранения версий и очередь уведомлений.'), 503
+                               detail='Восстановление проверяет окно хранения версий.'), 503
     datasets = LimitDataset.query.order_by(LimitDataset.updated_at.desc()).all()
     dataset_id = request.args.get('dataset', type=int)
     dataset = _limit_dataset_or_404(dataset_id) if dataset_id else (datasets[0] if datasets else None)
@@ -8113,10 +8079,6 @@ def limit_notifications():
     ).filter(LimitVersion.dataset_id == dataset.id).all()] if dataset else []
     changes = (LimitChange.query.filter(LimitChange.comparison_id.in_(comparison_ids)).count()
                if comparison_ids else 0)
-    delivery_query = LimitDelivery.query.join(LimitVersion).filter(
-        LimitVersion.dataset_id == dataset.id) if dataset else LimitDelivery.query.filter(False)
-    queued = delivery_query.filter(LimitDelivery.status.in_(
-        ('queued', 'retry', 'sending', 'unknown'))).count()
     current = db.session.get(LimitVersion, dataset.current_version_id) if dataset and dataset.current_version_id else None
     latest_comparison = LimitComparison.query.filter_by(new_version_id=current.id,
         old_version_id=current.previous_version_id).first() if current else None
@@ -8124,15 +8086,175 @@ def limit_notifications():
     return render_template(
         'limits_dashboard.html', datasets=datasets, dataset=dataset, versions=versions,
         default_source_date=datetime.now(timezone(timedelta(hours=3))).date().isoformat(),
-        changes=changes, queued=queued,
-        max_connected=bool(Setting.get('limits_max_token', '')),
-        max_errors=delivery_query.filter(LimitDelivery.status.in_(('error', 'unknown'))).count(),
+        changes=changes,
         summary=summary, current_version=current,
         current_objects=LimitObject.query.filter_by(dataset_id=dataset.id, is_present=True).count() if dataset else 0,
-        pending_count=sum(v.status in ('queued', 'parsing', 'review') for v in versions),
-        max_enabled=Setting.get('limits_max_enabled') == '1',
-        max_group_id=Setting.get('limits_max_group_chat_id', ''),
-        bot_dataset_id=Setting.get('limits_bot_dataset_id', ''))
+        pending_count=sum(v.status in ('queued', 'parsing', 'review') for v in versions))
+
+@app.route('/limit-notifications/dashboard', endpoint='limit_dashboard')
+@login_required
+def limit_dashboard():
+    """Charts for one selected registry; default to the newest created one."""
+    if Setting.get('limits_history_ready', 'ready') != 'ready':
+        return render_template(
+            'limits_unavailable.html',
+            detail='Восстановление проверяет окно хранения версий.'), 503
+    from limits_dashboard_data import dashboard_context
+    datasets = LimitDataset.query.order_by(
+        LimitDataset.created_at.desc(), LimitDataset.id.desc()).all()
+    requested = request.args.get('dataset')
+    if requested is not None:
+        if not requested.isdecimal() or int(requested) < 1:
+            abort(404)
+        dataset = _limit_dataset_or_404(int(requested))
+    else:
+        dataset = datasets[0] if datasets else None
+    return render_template(
+        'limits_analytics.html', datasets=datasets, dataset=dataset,
+        dashboard=dashboard_context(dataset) if dataset else {
+            'versions': [], 'metrics': [], 'changes': {
+                'available': False, 'comparison_id': None, 'old_label': '',
+                'new_label': '', 'total': 0, 'objects': 0,
+                'categories': [], 'ranking': [],
+                'ranking_label': 'Изменение предельной стоимости, тыс. руб.',
+                'metric_label': 'Предельная стоимость',
+            }, 'current_label': '', 'current_objects': None, 'has_data': False,
+        })
+
+
+@app.route('/limit-notifications/max', methods=['GET', 'POST'], endpoint='max_limits')
+@login_required
+def max_limits():
+    """Persist the administrator-selected data source used by the bot."""
+    from max_registration import group_id
+    from max_dataset_scope import selected_dataset_id
+    from max_funding_year import choices as funding_year_choices, selection as funding_year_selection
+    datasets = LimitDataset.query.order_by(
+        LimitDataset.created_at.desc(), LimitDataset.id.desc()).all()
+    if request.method == 'POST':
+        if not current_user.is_admin:
+            abort(403)
+        requested = request.form.get('dataset', '')
+        if not requested.isdecimal() or int(requested) < 1:
+            abort(400)
+        dataset = _limit_dataset_or_404(int(requested))
+        Setting.set('max_limits_dataset_id', str(dataset.id))
+        db.session.commit()
+        _schedule_durable_safety_backup('MAX dataset selection')
+        flash('Набор отчётности для бота сохранён.', 'success')
+        return redirect(url_for('max_limits'))
+    dataset_id = selected_dataset_id()
+    dataset = db.session.get(LimitDataset, dataset_id) if dataset_id else None
+    from max_user_registry import registry
+    users = registry(request.args.get('page', 1, type=int),
+                     request.args.get('q', '').strip()[:200]) if current_user.is_admin else None
+    return render_template(
+        'limits_max_bot.html', dataset=dataset, datasets=datasets, users=users,
+        funding_year_choices=funding_year_choices(),
+        funding_year_selection=funding_year_selection(),
+        configured=bool(
+            os.environ.get('MAX_LIMITS_BOT_TOKEN')
+            and Setting.get('max_limits_username', '')),
+        bot_username=Setting.get('max_limits_username', ''),
+        subscriptions_count=MaxLimitsUin.query.filter_by(status='approved').count(),
+        pending_count=MaxLimitsApplication.query.filter_by(status='pending').count(),
+        moderation_configured=group_id() is not None)
+
+
+@app.route('/limit-notifications/max/funding-year', methods=['POST'])
+@login_required
+def max_limits_funding_year():
+    if not current_user.is_admin:
+        abort(403)
+    from max_funding_year import SETTING_KEY, choices, selection
+    requested = request.form.get('funding_year', '')
+    if requested not in choices():
+        abort(400)
+    if requested != selection():
+        from max_digest import PREFIX
+        MaxLimitsOutbox.query.filter(
+            MaxLimitsOutbox.uin.like(PREFIX.replace('_', r'\_') + '%', escape='\\'),
+            MaxLimitsOutbox.delivered_at.is_(None),
+            MaxLimitsOutbox.cancelled_at.is_(None),
+        ).update({'cancelled_at': utcnow()}, synchronize_session=False)
+        Setting.set(SETTING_KEY, requested)
+        db.session.commit()
+        _schedule_durable_safety_backup('MAX funding year selection')
+    flash('Годы финансирования, доступные пользователям бота, сохранены.', 'success')
+    return redirect(url_for('max_limits'))
+
+
+@app.route('/limit-notifications/max/send-changes', methods=['POST'])
+@login_required
+def max_limits_send_changes():
+    if not current_user.is_admin:
+        abort(403)
+    if request.form.get('confirm') != 'yes':
+        abort(400)
+    if not os.environ.get('MAX_LIMITS_BOT_TOKEN') or not Setting.get('max_limits_username', ''):
+        flash('Бот MAX не подключён. Рассылка не поставлена в очередь.', 'error')
+        return redirect(url_for('max_limits'))
+    from max_digest import prepare_digest
+    try:
+        users, messages = prepare_digest()
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('max_limits'))
+    if users:
+        _schedule_durable_safety_backup('MAX manual limits digest')
+        flash(f'Рассылка изменений поставлена в очередь: {users} получателей, '
+              f'{messages} сообщений. Повторное нажатие с тем же фильтром не создаст дубль.',
+              'success')
+    else:
+        flash('Нет новых сообщений для выбранного фильтра: изменения по одобренным УИН '
+              'отсутствуют или рассылка этой версии с тем же фильтром уже поставлена в очередь.',
+              'info')
+    return redirect(url_for('max_limits'))
+
+
+@app.route('/limit-notifications/max/users/<int:user_id>/delete', methods=['POST'])
+@login_required
+def max_limits_user_delete(user_id):
+    if not current_user.is_admin:
+        abort(403)
+    if request.form.get('confirm') != 'yes':
+        abort(400)
+    from max_user_registry import remove_user
+    if not remove_user(user_id):
+        abort(404)
+    _schedule_durable_safety_backup('MAX user access removed')
+    flash('Пользователь удалён из реестра. Доступ и подписки отключены, ожидающие отправки отменены.', 'success')
+    return redirect(url_for('max_limits'))
+
+
+@app.route('/limit-notifications/max/webhook', methods=['POST'])
+@csrf.exempt
+def max_limits_webhook():
+    """Accept only MAX events bearing the server-derived subscription secret."""
+    import hmac
+    from max_limits import dispatch_update, webhook_secret
+    token = os.environ.get('MAX_LIMITS_BOT_TOKEN', '')
+    url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
+    if not token or not url:
+        abort(404)
+    expected = webhook_secret(token, app.secret_key)
+    if not hmac.compare_digest(request.headers.get('X-Max-Bot-Api-Secret', ''), expected):
+        abort(403)
+    if (request.content_length is None or request.content_length > 64 * 1024
+            or not request.is_json):
+        abort(400)
+    update = request.get_json(silent=True)
+    if not isinstance(update, dict):
+        abort(400)
+    try:
+        dispatch_update(token, update)
+        _schedule_durable_safety_backup('MAX limits webhook update')
+    except Exception:
+        db.session.rollback()
+        app.logger.warning('MAX limits webhook update failed; MAX will retry')
+        return '', 503
+    return '', 200
+
 
 def _limit_parse_in_background(version_id):
     """Parser runs outside request; status/error is durable for restart diagnosis."""
@@ -8146,19 +8268,6 @@ def _limit_parse_in_background(version_id):
                 app.logger.exception('limits parser failed for version %s', version_id)
     thread = threading.Thread(target=work, name=f'limits-parse-{version_id}', daemon=True)
     thread.start()
-
-@app.route('/limit-notifications/subscriptions/<int:subscription_id>/revoke', methods=['POST'])
-@admin_required
-def limit_subscription_revoke(subscription_id):
-    from limits_service import LimitsError, revoke_subscription
-    subscription = db.session.get(LimitSubscription, subscription_id) or abort(404)
-    try:
-        revoke_subscription(subscription.recipient_id, subscription.dataset_id, subscription.uin)
-        log_event('limits_subscription_revoked', {'subscription_id': subscription.id})
-        flash('Подписка отозвана. Очередь проверит это перед отправкой.', 'success')
-    except LimitsError as exc:
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_subscribers', dataset_id=subscription.dataset_id))
 
 @app.route('/limit-notifications/recovery', methods=['GET', 'POST'])
 @admin_required
@@ -8183,18 +8292,11 @@ def limit_history_recovery():
         if status == 'restoring':
             flash('Восстановление уже выполняется.', 'warning')
             return redirect(url_for('limit_history_recovery'))
-        delivery_id = request.form.get('delivery_id', type=int)
-        if delivery_id:
-            from limits_bot import cancel_delivery
-            cancel_delivery(delivery_id)
-            log_event('limits_recovery_delivery_cancelled', {'delivery_id': delivery_id})
         _reconcile_limits_after_restore()
         if _limits_history_ready.is_set():
             _ensure_limits_recovery()
             return redirect(url_for('limit_notifications'))
-    pending = LimitDelivery.query.filter(LimitDelivery.status.in_(
-        ('queued', 'retry', 'sending', 'unknown', 'error'))).all()
-    return render_template('limits_recovery.html', deliveries=pending,
+    return render_template('limits_recovery.html',
                            status=Setting.get('limits_history_ready', status),
                            startup_error=Setting.get('limits_startup_error', ''),
                            blocked=json.loads(Setting.get('limits_history_blocked', '[]')))
@@ -8213,9 +8315,7 @@ def _schedule_limits_rotation_backup():
     """
     allowed = (
         'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
-        'limit_comparison_resolutions', 'limit_changes', 'limit_deliveries',
-        'limit_delivery_attempts',
-        'limit_delivery_parts',
+        'limit_comparison_resolutions', 'limit_changes',
     )
     def work():
         with app.app_context():
@@ -8236,23 +8336,6 @@ def _schedule_limits_rotation_backup():
                 Setting.set('limits_rotation_needs_backup', '0')
                 db.session.commit()
     threading.Thread(target=work, name='limits-rotation-backup', daemon=True).start()
-
-@app.route('/limit-notifications/max-journal/<int:outbound_id>/<action>', methods=['POST'])
-@admin_required
-def limit_max_outbound_action(outbound_id, action):
-    from limits_bot import LimitsBotError, retry_bot_outbound, cancel_bot_outbound
-    try:
-        if action == 'retry':
-            retry_bot_outbound(outbound_id, confirm_unknown=request.form.get('confirm_unknown') == '1')
-        elif action == 'cancel':
-            cancel_bot_outbound(outbound_id, 'Отменено администратором веб-системы.')
-        else:
-            abort(404)
-        log_event('limits_bot_outbox_action', {'outbound_id': outbound_id, 'action': action})
-        flash('Состояние задания обновлено.', 'success')
-    except LimitsBotError as exc:
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_max_journal'))
 
 @app.route('/limit-notifications/versions/<int:version_id>/source.xlsx')
 @login_required
@@ -8279,7 +8362,7 @@ def limit_version_accept(version_id):
         g.durable_backup_done = True
         _schedule_limits_rotation_backup()
         log_event('limits_version_accepted', {'version_id': version.id})
-        flash('Версия принята. Уведомления поставлены в долговечную очередь.', 'success')
+        flash('Версия принята. Реестр объектов обновлён.', 'success')
     except LimitsError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('limit_notifications', dataset=version.dataset_id))
@@ -8297,174 +8380,6 @@ def limit_version_reject(version_id):
     flash('Загрузка отклонена. Временные данные будут удалены по техническому TTL.', 'success')
     return redirect(url_for('limit_notifications', dataset=version.dataset_id))
 
-@app.route('/limit-notifications/datasets/<int:dataset_id>/subscribers')
-@admin_required
-def limit_subscribers(dataset_id):
-    dataset = _limit_dataset_or_404(dataset_id)
-    search = request.args.get('q', '').strip()
-    query = LimitSubscription.query.filter_by(dataset_id=dataset.id)
-    if search:
-        query = query.join(LimitRecipient).filter(or_(
-            LimitSubscription.uin.ilike(f'%{search}%'),
-            LimitRecipient.organization_inn.ilike(f'%{search}%'),
-            LimitRecipient.surname_initials.ilike(f'%{search}%')))
-    requests = LimitModerationRequest.query.filter_by(dataset_id=dataset.id).order_by(
-        LimitModerationRequest.created_at.desc()).limit(200).all()
-    return render_template('limits_subscribers.html', dataset=dataset,
-                           subscriptions=query.order_by(LimitSubscription.created_at.desc()).limit(500).all(),
-                           moderation_requests=requests, search=search)
-
-@app.route('/limit-notifications/objects/<int:object_id>/message', methods=['GET', 'POST'])
-@admin_required
-def limit_manual_message(object_id):
-    from limits_service import LimitsError, manual_delivery_preview, queue_manual_object_message
-    signer = URLSafeTimedSerializer(app.secret_key, salt='limits-manual-preview')
-    try:
-        if request.method == 'POST' and request.form.get('confirm') == '1':
-            try:
-                preview = signer.loads(request.form.get('preview_token', ''), max_age=1800)
-            except (BadSignature, SignatureExpired):
-                raise LimitsError('Предпросмотр истёк или недействителен. Проверьте адресатов заново.')
-            if preview.get('object_id') != object_id or preview.get('actor_id') != current_user.id:
-                abort(403)
-            content = request.form.get('content', '')
-            if content != preview.get('content'):
-                raise LimitsError('Текст изменён после предпросмотра. Проверьте сообщение заново.')
-            count = queue_manual_object_message(
-                object_id, content, expected_version_id=preview['version_id'],
-                expected_recipient_ids=preview['recipient_ids'],
-                campaign_key=f"{current_user.id}:{preview['campaign_key']}")
-            log_event('limits_manual_message_queued', {
-                'object_id': object_id, 'version_id': preview['version_id'],
-                'campaign_key': f"manual:{current_user.id}:{preview['campaign_key']}",
-                'recipient_count': count,
-            })
-            flash(f'В очередь добавлено адресатов: {count}.', 'success')
-            return redirect(url_for('limit_object_card', object_id=object_id))
-        obj, version, recipients, content = manual_delivery_preview(
-            object_id, request.values.get('content', ''))
-        preview_token = signer.dumps({
-            'object_id': object_id, 'actor_id': current_user.id,
-            'version_id': version.id,
-            'recipient_ids': [r.id for r in recipients], 'content': content,
-            'campaign_key': __import__('uuid').uuid4().hex,
-        })
-        return render_template('limits_message_preview.html', object=obj, version=version,
-                               recipients=recipients, content=content, preview_token=preview_token)
-    except LimitsError as exc:
-        flash(str(exc), 'error')
-        return redirect(url_for('limit_object_card', object_id=object_id))
-
-@app.route('/limit-notifications/max/webhook', methods=['GET', 'POST'])
-@csrf.exempt
-def limit_max_webhook():
-    """Fast webhook boundary: authenticate + durable dedup before acknowledging."""
-    expected = decrypt_value(Setting.get('limits_max_webhook_secret', ''))
-    received = request.headers.get('X-Max-Bot-Api-Secret', '')
-    if not expected or not received or not __import__('hmac').compare_digest(expected, received):
-        return jsonify(error='Недействительный секрет webhook'), 403
-    if request.method == 'GET':
-        return jsonify(ready=True), 200
-    from limits_connection import _serialized_connection, registration_active
-    with _serialized_connection(blocking=False) as acquired:
-        if not acquired or not registration_active():
-            return jsonify(error='Интеграция MAX временно не готова'), 503
-        if request.content_length and request.content_length > 256 * 1024:
-            return jsonify(error='Событие превышает допустимый размер'), 413
-        payload = request.get_json(silent=True)
-        if not isinstance(payload, dict):
-            return jsonify(error='Ожидается JSON-событие MAX'), 400
-        try:
-            from limits_bot import ingest_event
-            event, created = ingest_event(payload)
-        except ValueError:
-            db.session.rollback()
-            return jsonify(error='Неверная структура события MAX'), 400
-        except Exception:
-            db.session.rollback()
-            app.logger.error('limits MAX event persistence failed')
-            return jsonify(error='Временная ошибка сохранения события'), 503
-    # This endpoint deliberately does not send MAX messages or do group lookups.
-    # A durable event is sufficient for provider retry semantics.
-    g.skip_durable_backup = True
-    return jsonify(accepted=True, duplicate=not created, event_id=event.id), 200
-
-@app.route('/limit-notifications/max-settings', methods=['POST'])
-@admin_required
-def limit_max_settings():
-    """Store connection material encrypted; never return token/secret to browser."""
-    from limits_connection import configure_connection, configured_webhook_url
-    from limits_max import MaxAPIError
-    token = request.form.get('token', '').strip()
-    group_id = request.form.get('group_chat_id', '').strip()
-    dataset_id = request.form.get('bot_dataset_id', type=int)
-    if group_id and not re.fullmatch(r'-?\d+', group_id):
-        abort(400, description='ID группы MAX должен быть целым числом.')
-    if dataset_id:
-        _limit_dataset_or_404(dataset_id)
-    try:
-        webhook_url = configured_webhook_url(app)
-        configure_connection(token=token, group_id=group_id, dataset_id=dataset_id,
-            encrypt=encrypt_value, decrypt=decrypt_value,
-            adapter_factory=_limits_adapter,
-            webhook_url=webhook_url)
-    except MaxAPIError:
-        flash('Настройки сохранены. Причина и время автоматического повтора указаны ниже.', 'error')
-        return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
-    log_event('limits_max_settings_changed', {'token_changed': bool(token),
-                                              'group_configured': bool(group_id)})
-    from limits_connection import connection_status
-    if connection_status()['active']:
-        flash('Настройки сохранены. MAX подтвердил регистрацию webhook; бот работает постоянно.', 'success')
-    else:
-        flash('Настройки сохранены не полностью. Укажите токен, ID админ-группы и набор данных.', 'error')
-    return redirect(url_for('limit_settings', dataset=request.form.get('context_dataset', type=int)))
-
-
-@app.route('/limit-notifications/max-retry', methods=['POST'])
-@admin_required
-def limit_max_retry():
-    """Retry the saved MAX connection immediately without changing settings."""
-    from limits_connection import (
-        configured_webhook_url, configuration_complete, connection_status,
-        reconcile_connection)
-    from limits_max import MaxAPIError
-    dataset_id = request.form.get('context_dataset', type=int)
-    if not configuration_complete():
-        flash('Сначала сохраните токен MAX, ID админ-группы и набор данных.', 'error')
-        return redirect(url_for('limit_settings', dataset=dataset_id))
-    try:
-        reconcile_connection(
-            encrypt=encrypt_value, decrypt=decrypt_value,
-            adapter_factory=_limits_adapter,
-            webhook_url=configured_webhook_url(app),
-            raise_on_error=True)
-    except MaxAPIError:
-        flash('Подключиться не удалось. Причина и время следующей автоматической попытки указаны ниже.', 'error')
-    else:
-        flash('MAX подтвердил регистрацию webhook; бот работает постоянно.', 'success')
-    log_event('limits_max_connection_retried', {
-        'connected': connection_status()['active'],
-    })
-    return redirect(url_for('limit_settings', dataset=dataset_id))
-
-
-@app.route('/limit-notifications/moderation/<int:request_id>/decide', methods=['POST'])
-@admin_required
-def limit_moderation_decide(request_id):
-    from limits_bot import decide_web_moderation
-    decision = request.form.get('decision')
-    if decision not in ('approved', 'rejected'):
-        abort(400)
-    try:
-        decide_web_moderation(request_id, decision, current_user.id,
-                              request.form.get('reason', ''))
-        flash('Решение по заявке сохранено.', 'success')
-    except ValueError as exc:
-        db.session.rollback()
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_notifications'))
-
 @app.route('/limit-notifications/objects/<int:object_id>')
 @login_required
 def limit_object_card(object_id):
@@ -8476,9 +8391,6 @@ def limit_object_card(object_id):
         if selected.dataset_id != obj.dataset_id or selected.status != 'accepted':
             abort(404)
     context = object_context(obj, selected_id)
-    if not current_user.is_admin:
-        # Do not fetch hidden personal details merely to hide them with CSS.
-        context['messages'] = []
     return render_template('limits_object.html', **context)
 
 def _limit_version_or_404(version_id):
@@ -8599,20 +8511,11 @@ def limit_comparison_view(comparison_id):
                                LimitChange.category).filter_by(
                                comparison_id=comparison.id).distinct().all()])
 
-@app.route('/limit-notifications/recipients/<int:recipient_id>/revoke-access', methods=['POST'])
-@admin_required
-def limit_recipient_revoke_access(recipient_id):
-    recipient = db.session.get(LimitRecipient, recipient_id) or abort(404)
-    from limits_bot import revoke_access
-    revoke_access(recipient_id, current_user.id, request.form.get('reason', 'Отозвано администратором'))
-    flash('Доступ получателя отозван. Очередь не отправит ему уже ожидающие сообщения.', 'success')
-    return redirect(url_for('limit_notifications'))
-
 @app.before_request
 def _limits_history_gate():
     if not request.path.startswith('/limit-notifications'):
         return
-    if request.endpoint in ('limit_max_webhook', 'limit_history_recovery'):
+    if request.endpoint == 'limit_history_recovery':
         return
     if not current_user.is_authenticated:
         return
@@ -8661,7 +8564,7 @@ def limit_upload(dataset_id):
         version, duplicate = stage_upload(
             dataset, uploaded, uploaded.filename, source_date, current_user.id, UPLOADS)
         if duplicate:
-            flash('Этот файл уже есть в наборе; повторная версия и рассылка не созданы.', 'info')
+            flash('Этот файл уже есть в наборе; повторная версия не создана.', 'info')
         else:
             _limit_parse_in_background(version.id)
             flash('Файл принят в фоновую проверку.', 'success')
@@ -8670,20 +8573,6 @@ def limit_upload(dataset_id):
     except (LimitsError, ValueError) as exc:
         flash(str(exc), 'error')
     return redirect(url_for('limit_notifications', dataset=dataset.id))
-
-@app.route('/limit-notifications/deliveries/<int:delivery_id>/cancel', methods=['POST'])
-@admin_required
-def limit_delivery_cancel(delivery_id):
-    from limits_bot import LimitsBotError, cancel_delivery
-    delivery = db.session.get(LimitDelivery, delivery_id) or abort(404)
-    dataset_id = delivery.version.dataset_id
-    try:
-        cancel_delivery(delivery_id)
-        log_event('limits_delivery_cancelled', {'delivery_id': delivery_id})
-        flash('Задание отменено явно.', 'success')
-    except LimitsBotError as exc:
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_delivery_journal', dataset_id=dataset_id))
 
 @app.route('/limit-notifications/comparisons/<int:comparison_id>/export.xlsx')
 @login_required
@@ -8696,58 +8585,12 @@ def limit_comparison_export(comparison_id):
                      download_name=f'limits-comparison-{comparison_id}.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-@app.route('/limit-notifications/deliveries/<int:delivery_id>/retry', methods=['POST'])
-@admin_required
-def limit_delivery_retry(delivery_id):
-    from limits_bot import LimitsBotError, retry_delivery
-    delivery = db.session.get(LimitDelivery, delivery_id) or abort(404)
-    dataset_id = delivery.version.dataset_id
-    try:
-        retry_delivery(delivery_id, confirm_unknown=request.form.get('confirm_unknown') == '1')
-        log_event('limits_delivery_retry_requested', {'delivery_id': delivery_id})
-        flash('Повтор разрешён и добавлен в очередь.', 'success')
-    except LimitsBotError as exc:
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_delivery_journal', dataset_id=dataset_id))
-
-@app.route('/limit-notifications/max-events/<int:event_id>/retry', methods=['POST'])
-@admin_required
-def limit_max_event_retry(event_id):
-    from limits_bot import LimitsBotError, retry_event
-    try:
-        retry_event(event_id, by_pk=True)
-        log_event('limits_max_event_retried', {'event_id': event_id})
-        flash('Событие поставлено на повторную обработку.', 'success')
-    except LimitsBotError as exc:
-        flash(str(exc), 'error')
-    return redirect(url_for('limit_max_journal'))
-
 @app.route('/limit-notifications/datasets/<int:dataset_id>/objects')
 @login_required
 def limit_objects(dataset_id):
     dataset = _limit_dataset_or_404(dataset_id)
     from limits_views import objects_context
     return render_template('limits_objects.html', **objects_context(dataset, request.args))
-
-@app.route('/limit-notifications/max-journal')
-@admin_required
-def limit_max_journal():
-    status = request.args.get('status', '').strip()
-    search = request.args.get('q', '').strip()
-    query = LimitBotOutbound.query
-    events = LimitMaxEvent.query.filter(LimitMaxEvent.status.in_(
-        ('received', 'processing', 'retry', 'error')))
-    if status:
-        query = query.filter_by(status=status)
-    if search:
-        query = query.filter(LimitBotOutbound.target_id.contains(search))
-    page = max(1, request.args.get('page', 1, type=int) or 1)
-    total = query.count()
-    return render_template(
-        'limits_max_journal.html',
-        outbound=query.order_by(LimitBotOutbound.id.desc()).offset((page - 1) * 100).limit(100).all(),
-        events=events.order_by(LimitMaxEvent.id.desc()).limit(100).all(),
-        total=total, page=page, pages=max(1, (total + 99) // 100), status=status, search=search)
 
 @app.route('/limit-notifications/versions/<int:version_id>/compare', methods=['POST'])
 @admin_required
@@ -8780,28 +8623,6 @@ def limit_version_review(version_id):
         summary=json.loads(comparison.summary_json or '{}') if comparison else {},
         warnings=json.loads(version.warnings_json or '[]'))
 
-@app.route('/limit-notifications/settings')
-@admin_required
-def limit_settings():
-    from limits_connection import configured_webhook_url, connection_status
-    datasets = LimitDataset.query.order_by(LimitDataset.updated_at.desc()).all()
-    dataset_id = request.args.get('dataset', type=int)
-    dataset = _limit_dataset_or_404(dataset_id) if dataset_id else (datasets[0] if datasets else None)
-    webhook_url = configured_webhook_url(app)
-    max_status = connection_status()
-    max_alert_after_seconds = int(app.config.get(
-        'LIMITS_MAX_ALERT_AFTER_SECONDS',
-        os.environ.get('LIMITS_MAX_ALERT_AFTER_SECONDS', 3600)))
-    return render_template('limits_settings.html', datasets=datasets, dataset=dataset,
-        max_connected=bool(Setting.get('limits_max_token', '')),
-        max_connection_error=max_status['error'],
-        max_status=max_status,
-        max_webhook_url=webhook_url,
-        max_alert_after_minutes=max(0, max_alert_after_seconds) // 60,
-        max_enabled=max_status['active'],
-        max_group_id=Setting.get('limits_max_group_chat_id', ''),
-        bot_dataset_id=Setting.get('limits_bot_dataset_id', ''))
-
 @app.route('/limit-notifications/versions/<int:version_id>/delete', methods=['GET', 'POST'])
 @admin_required
 def limit_version_delete(version_id):
@@ -8809,13 +8630,8 @@ def limit_version_delete(version_id):
     version = _limit_version_or_404(version_id)
     dataset = version.dataset
     dataset_id = dataset.id
-    unfinished = LimitDelivery.query.filter(
-        LimitDelivery.version_id == version.id,
-        ~LimitDelivery.status.in_(('accepted', 'cancelled'))).count()
     blocked = ('Загрузка ещё обрабатывается. Дождитесь завершения проверки.'
-               if version.status not in ('accepted', 'review', 'error', 'rejected') else
-               'Есть незавершённые отправки. Завершите или явно отмените их в журнале уведомлений.'
-               if unfinished else '')
+               if version.status not in ('accepted', 'review', 'error', 'rejected') else '')
     if request.method == 'POST':
         if request.form.get('confirm') != 'delete':
             flash('Подтвердите удаление загрузки на странице проверки.', 'error')
@@ -8843,29 +8659,3 @@ def limit_version_delete(version_id):
                 LimitVersion.accepted_at.desc(), LimitVersion.id.desc()).first()
     return render_template('limits_delete_version.html', dataset=dataset, version=version,
                            blocked=blocked, comparison_count=comparison_count, fallback=fallback)
-
-@app.route('/limit-notifications/datasets/<int:dataset_id>/deliveries')
-@admin_required
-def limit_delivery_journal(dataset_id):
-    dataset = _limit_dataset_or_404(dataset_id)
-    status = request.args.get('status', '').strip()
-    query = LimitDelivery.query.join(LimitVersion).filter(LimitVersion.dataset_id == dataset.id)
-    if status:
-        query = query.filter(LimitDelivery.status == status)
-    search = request.args.get('q', '').strip()
-    version_id = request.args.get('version_id', type=int) or request.args.get('version', type=int)
-    if version_id:
-        query = query.filter(LimitDelivery.version_id == version_id)
-    if search:
-        query = query.join(LimitObject).join(LimitRecipient).filter(or_(
-            LimitObject.uin.ilike(f'%{search}%'),
-            LimitRecipient.surname_initials.ilike(f'%{search}%'),
-            LimitRecipient.max_user_id.ilike(f'%{search}%')))
-    total = query.count()
-    pages = max(1, (total + 99)//100)
-    page = max(1, min(request.args.get('page', 1, type=int), pages))
-    return render_template('limits_delivery_journal.html', dataset=dataset,
-                           deliveries=query.order_by(LimitDelivery.created_at.desc()).offset((page-1)*100).limit(100).all(),
-                           selected_status=status, search=search, selected_version=version_id,
-                           total=total, page=page, pages=pages,
-                           versions=LimitVersion.query.filter_by(dataset_id=dataset_id, status='accepted').all())

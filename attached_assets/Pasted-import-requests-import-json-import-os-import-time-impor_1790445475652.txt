@@ -1,0 +1,1297 @@
+import requests
+import json
+import os
+import time
+import threading
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+import re
+
+# === Настройки ===
+MAX_BOT_TOKEN = os.environ.get("MAX_BOT_TOKEN",
+                               "токен")
+MAX_API_URL = "https://platform-api.max.ru"
+
+# === Файлы ===
+DATA_FILE = "SQL.json"
+USERS_FILE = "users.json"
+RSO_BASE_FILE = "rso_base.json"
+ADMIN_FILE = "Administrators.json"  # Новый файл для администраторов
+
+# === Константы ===
+main_service_order = ['topographic_plan', 'tech_conditions', 'project_docs']
+service_names = {
+    'project_docs': '📋 Согласование проектной/рабочей документации',
+    'tech_conditions': '🔧 Получение технических условий на пересечение/параллельное следование',
+    'topographic_plan': '🗺️ Согласование инженерно-топографического плана'
+}
+
+status_labels = {
+    'today': '❗️ Сегодня',
+    '1_day': '⏳ 1 день',
+    '2_3_days': '⏳ 2-3 дня',
+    'overdue': '🚨 Просрочено'
+}
+
+CIO_TO_RSO = {
+    "Минэнерго": "Минэнерго",
+    "Мингосуправление": "Мингосуправления",
+    "МТДИ": "МТДИ",
+    "МинЖКХ": "МинЖКХ"
+}
+
+CIO_OPTIONS = ["Минэнерго", "Мингосуправление", "МТДИ", "МинЖКХ"]
+
+# Глобальные переменные для кэширования
+global_data = []
+global_users = {}
+global_rso_base = []
+global_admins = []  # Список ID администраторов
+
+# Словарь для временных состояний (только для подписки)
+user_states = {}
+
+
+# === Вспомогательные функции ===
+def save_json(data, filename):
+    """Сохраняет данные в JSON файл"""
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_json(filename, default):
+    """Загружает данные из JSON файла"""
+    if not os.path.exists(filename):
+        save_json(default, filename)
+        return default
+    try:
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️ Ошибка загрузки {filename}: {e}")
+        return default
+
+
+def load_data():
+    """Загружает данные заявок"""
+    global global_data
+    data = load_json(DATA_FILE, [])
+    # Добавляем нормализованное имя РСО для каждой заявки
+    for app in data:
+        app['approver_name_normalized'] = normalize_rso_name(app.get('approver_name', ''))
+    global_data = data
+    return data
+
+
+def load_users():
+    """Загружает пользователей (только для рассылки)"""
+    global global_users
+    global_users = load_json(USERS_FILE, {})
+    return global_users
+
+
+def save_users(users):
+    """Сохраняет пользователей (только для рассылки)"""
+    global global_users
+    global_users = users
+    save_json(users, USERS_FILE)
+
+
+def load_rso_base():
+    """Загружает базу РСО"""
+    global global_rso_base
+    data = load_json(RSO_BASE_FILE, [])
+    # Добавляем нормализованное имя для каждой РСО
+    for rso in data:
+        rso['name_normalized'] = normalize_rso_name(rso.get('name', ''))
+    global_rso_base = data
+    return data
+
+
+def load_admins():
+    """Загружает список администраторов"""
+    global global_admins
+    global_admins = load_json(ADMIN_FILE, [])
+    return global_admins
+
+
+def save_admins(admins):
+    """Сохраняет список администраторов"""
+    global global_admins
+    global_admins = admins
+    save_json(admins, ADMIN_FILE)
+
+
+def is_admin(user_id):
+    """Проверяет, является ли пользователь администратором"""
+    admins = load_admins()
+    return str(user_id) in [str(admin) for admin in admins]
+
+
+def normalize_rso_name(name: str) -> str:
+    """Нормализует название РСО для сравнения"""
+    if not isinstance(name, str):
+        return ""
+    name = name.replace("«", "").replace("»", "").replace('"', "").replace("'", "").strip()
+    return re.sub(r'\s+', ' ', name).lower()
+
+
+def get_rso_by_inn(inn):
+    """Получает информацию о РСО по ИНН"""
+    rso_list = load_rso_base()
+    for rso in rso_list:
+        if rso.get('inn') == inn.strip():
+            return rso
+    return None
+
+
+def get_rso_names_by_cio(cio: str) -> list:
+    """Получает список РСО по ЦИО"""
+    rso_list = load_rso_base()
+    target_cio = CIO_TO_RSO.get(cio)
+    if not target_cio:
+        return []
+    return [rso['name'] for rso in rso_list if rso.get('curator') == target_cio]
+
+
+def get_cio_by_rso(rso_name: str) -> str:
+    """Получает ЦИО по названию РСО"""
+    rso_list = load_rso_base()
+    rso_norm = normalize_rso_name(rso_name)
+    for rso in rso_list:
+        if rso.get('name_normalized') == rso_norm:
+            curator = rso.get('curator')
+            # Ищем обратное соответствие
+            for cio, target in CIO_TO_RSO.items():
+                if target == curator:
+                    return cio
+    return None
+
+
+def validate_inn(inn):
+    """Валидация ИНН (10 или 12 цифр)"""
+    inn = inn.strip()
+    return inn.isdigit() and len(inn) in (10, 12)
+
+
+# === Формирование сообщений ===
+def format_app_for_user(app, hide_rso=False, is_overdue=False):
+    """Форматирует заявку для отображения"""
+    parts = [
+        f"📄 Номер и дата: {app.get('date_info', '—')}",
+    ]
+
+    if is_overdue:
+        parts.append(f"📅 Срок оказания: {app.get('service_deadline', '—')}")
+
+    if not hide_rso:
+        parts.append(f"🏢 Согласующая организация (РСО): {app.get('approver_name', '—')}")
+
+    parts.extend([
+        f"🏛️ Муниципалитет (МО): {app.get('municipality', '—')}",
+        f"📊 Статус: {app.get('process_status', '—')}",
+        f"🔗 <a href='{app.get('link', '#')}'>Ссылка на заявку</a>"
+    ])
+
+    return "\n".join(parts) + "\n" + ("—" * 30) + "\n"
+
+
+def build_summary_for_user(all_apps, rso_filter=None):
+    """Формирует аналитический свод"""
+    if rso_filter:
+        if isinstance(rso_filter, str):
+            rso_norm = normalize_rso_name(rso_filter)
+            all_apps = [a for a in all_apps if a.get('approver_name_normalized') == rso_norm]
+        elif isinstance(rso_filter, list):
+            rso_norm_set = {normalize_rso_name(r) for r in rso_filter}
+            all_apps = [a for a in all_apps if a.get('approver_name_normalized') in rso_norm_set]
+
+    grouped = {}
+    for app in all_apps:
+        key = (app['service'], app['type'])
+        grouped.setdefault(key, []).append(app)
+
+    msg = "📊 <b>Аналитический свод</b>:\n\n"
+    totals = {'today': 0, '1_day': 0, '2_3_days': 0, 'overdue': 0}
+
+    for key in main_service_order:
+        cnt = {
+            'today': len(grouped.get((key, 'today'), [])),
+            '1_day': len(grouped.get((key, '1_day'), [])),
+            '2_3_days': len(grouped.get((key, '2_3_days'), [])),
+            'overdue': len(grouped.get((key, 'overdue'), []))
+        }
+        msg += f"{service_names[key]}:\n"
+        msg += f"   ⏳ 2-3 дня: {cnt['2_3_days']}\n"
+        msg += f"   ⏳ 1 день: {cnt['1_day']}\n"
+        msg += f"   ❗️ Сегодня: {cnt['today']}\n"
+        msg += f"   🚨 Просрочено: {cnt['overdue']}\n\n"
+        for k in totals:
+            totals[k] += cnt[k]
+
+    total_all = sum(totals.values())
+    msg += f"📊 <b>ОБЩИЕ ИТОГИ:</b>\n"
+    msg += f"   ⏳ Осталось 2-3 дня: {totals['2_3_days']}\n"
+    msg += f"   ⏳ Остался 1 день: {totals['1_day']}\n"
+    msg += f"   ❗️ Сегодня: {totals['today']}\n"
+    msg += f"   🚨 Просрочено: {totals['overdue']}\n"
+    msg += f"   📈 ВСЕГО: {total_all}\n"
+
+    if rso_filter:
+        if isinstance(rso_filter, list):
+            if len(rso_filter) == 1:
+                msg = f"📬 <b>Только для РСО:</b> {rso_filter[0]}\n\n" + msg
+            else:
+                msg = f"📬 <b>По вашему ЦИО (всего РСО: {len(rso_filter)})</b>\n\n" + msg
+        elif isinstance(rso_filter, str):
+            msg = f"📬 <b>Только для РСО:</b> {rso_filter}\n\n" + msg
+
+    return msg
+
+# === Обновленная функция build_users_report с пагинацией ===
+def build_users_report(page=0, items_per_page=20):
+    """Формирует отчет о пользователях для администраторов с пагинацией"""
+    try:
+        users = load_users()
+        rso_base = load_rso_base()
+
+        total_users = len(users)
+        unsubscribed = 0
+        subscribed_cio = 0
+        subscribed_rso = 0
+
+        # Счетчики по ЦИО
+        cio_counts = {cio: 0 for cio in CIO_OPTIONS}
+        # Счетчики по РСО
+        rso_counts = {}
+
+        # Собираем все названия РСО из базы для отчета
+        all_rso_names = {}
+        for rso in rso_base:
+            name = rso.get('name', '')
+            if name:
+                all_rso_names[name] = 0
+
+        for user in users.values():
+            subscription = user.get('rso_subscribed')
+
+            if not subscription:
+                unsubscribed += 1
+            elif isinstance(subscription, dict) and subscription.get('type') == 'cio':
+                subscribed_cio += 1
+                cio_name = subscription.get('cio')
+                if cio_name in cio_counts:
+                    cio_counts[cio_name] += 1
+            elif isinstance(subscription, str):
+                subscribed_rso += 1
+                rso_name = subscription
+                # Увеличиваем счетчик для этой РСО
+                rso_counts[rso_name] = rso_counts.get(rso_name, 0) + 1
+                # Отмечаем, что эта РСО есть в системе
+                if rso_name in all_rso_names:
+                    all_rso_names[rso_name] = rso_counts[rso_name]
+                else:
+                    all_rso_names[rso_name] = rso_counts[rso_name]
+
+        # Сортируем РСО по убыванию количества подписок
+        sorted_rso = sorted(all_rso_names.items(), key=lambda x: x[1], reverse=True)
+
+        # Формируем отчет
+        report_lines = []
+        report_lines.append("📊 <b>ОТЧЕТ О ПОЛЬЗОВАТЕЛЯХ</b>")
+        report_lines.append("")
+        report_lines.append(f"1. Общее количество пользователей: {total_users}")
+        report_lines.append(f"2. Не подписанных вообще пользователей: {unsubscribed}")
+        report_lines.append(f"3. Подписанных на ЦИО: {subscribed_cio}")
+        report_lines.append("   Распределение по министерствам:")
+
+        for cio in CIO_OPTIONS:
+            report_lines.append(f"     - {cio}: {cio_counts.get(cio, 0)}")
+
+        report_lines.append(f"4. Подписанных на РСО: {subscribed_rso}")
+
+        # Добавляем заголовок с информацией о странице
+        total_rso = len(sorted_rso)
+        total_pages = (total_rso + items_per_page - 1) // items_per_page
+        current_page = max(0, min(page, total_pages - 1))
+
+        start_idx = current_page * items_per_page
+        end_idx = min(start_idx + items_per_page, total_rso)
+
+        report_lines.append(f"   Детализация по всем РСО (страница {current_page + 1} из {total_pages}):")
+
+        # Добавляем РСО для текущей страницы
+        for i in range(start_idx, end_idx):
+            rso_name, count = sorted_rso[i]
+            if rso_name and rso_name.strip():
+                report_lines.append(f"     - {rso_name}: {count}")
+
+        # Добавляем информацию о том, что есть еще страницы
+        if total_pages > 1:
+            report_lines.append("")
+            report_lines.append(f"   📑 Используйте кнопки ниже для навигации")
+
+        return "\n".join(report_lines), current_page, total_pages
+
+    except Exception as e:
+        print(f"❌ Ошибка в build_users_report: {e}")
+        return f"❌ Ошибка при формировании отчета: {str(e)}", 0, 1
+
+
+# === Новая функция для клавиатуры пагинации отчета ===
+def users_report_pagination_keyboard(current_page, total_pages):
+    """Создает клавиатуру с кнопками пагинации для отчета о пользователях"""
+    buttons = []
+
+    # Навигационные кнопки
+    nav_row = []
+    if current_page > 0:
+        nav_row.append({
+            "type": "callback",
+            "text": "⬅️ Назад",
+            "payload": f"admin_users_report_page_{current_page - 1}"
+        })
+
+    nav_row.append({
+        "type": "callback",
+        "text": f"{current_page + 1}/{total_pages}",
+        "payload": "noop"
+    })
+
+    if current_page < total_pages - 1:
+        nav_row.append({
+            "type": "callback",
+            "text": "Вперёд ➡️",
+            "payload": f"admin_users_report_page_{current_page + 1}"
+        })
+
+    if nav_row:
+        buttons.append(nav_row)
+
+    # Кнопка возврата в главное меню
+    buttons.append([
+        {"type": "callback", "text": "🏠 Главное меню", "payload": "back_to_main"}
+    ])
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": buttons
+        }
+    }
+
+# === Клавиатуры MAX ===
+def main_menu(user_data=None):
+    """Главное меню"""
+    buttons = [
+        [{"type": "callback", "text": "🗺️ Топоплан", "payload": "service_topographic_plan"}],
+        [{"type": "callback", "text": "🔧 Техусловия", "payload": "service_tech_conditions"}],
+        [{"type": "callback", "text": "📋 Проектная документация", "payload": "service_project_docs"}],
+        [{"type": "callback", "text": "📊 Аналитический свод", "payload": "analytical_summary"}],
+        [{"type": "callback", "text": "🔔 Управление подписками", "payload": "subscription_menu"}]
+    ]
+
+    # Добавляем кнопку для администраторов
+    if user_data and is_admin(user_data.get('user_id')):
+        buttons.append([{"type": "callback", "text": "👤 Отчет о пользователях", "payload": "admin_users_report"}])
+
+    # Добавляем информацию о текущей подписке если есть
+    if user_data and user_data.get('rso_subscribed'):
+        sub = user_data['rso_subscribed']
+        if isinstance(sub, dict) and sub.get('type') == 'cio':
+            buttons.insert(0, [{"type": "callback", "text": f"📌 Текущая подписка: ЦИО {sub['cio']}",
+                                "payload": "noop"}])
+        elif isinstance(sub, str):
+            cio = get_cio_by_rso(sub)
+            sub_text = f"РСО: {sub}"
+            if cio:
+                sub_text += f" (ЦИО: {cio})"
+            buttons.insert(0, [{"type": "callback", "text": f"📌 Текущая подписка: {sub_text}",
+                                "payload": "noop"}])
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": buttons
+        }
+    }
+
+
+def subscription_menu(user_data=None):
+    """Меню для подписки"""
+    buttons = [
+        [{"type": "callback", "text": "🏢 Подписаться на РСО по ИНН", "payload": "subscribe_rso"}],
+        [{"type": "callback", "text": "👷 Подписаться на ЦИО", "payload": "subscribe_cio"}]
+    ]
+
+    # Если уже есть подписка, показываем кнопку отписки
+    if user_data and user_data.get('rso_subscribed'):
+        sub = user_data['rso_subscribed']
+        if isinstance(sub, dict) and sub.get('type') == 'cio':
+            buttons.append([{"type": "callback", "text": f"❌ Отписаться от ЦИО: {sub['cio']}",
+                             "payload": "unsubscribe"}])
+        elif isinstance(sub, str):
+            # Показываем название РСО и ЦИО если есть
+            cio = get_cio_by_rso(sub)
+            sub_text = f"РСО: {sub}"
+            if cio:
+                sub_text += f" (ЦИО: {cio})"
+            buttons.append([{"type": "callback", "text": f"❌ Отписаться от {sub_text}",
+                             "payload": "unsubscribe"}])
+
+    buttons.append([{"type": "callback", "text": "🔙 Назад", "payload": "back_to_main"}])
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": buttons
+        }
+    }
+
+
+def cio_selection_keyboard(for_subscription=True):
+    """Клавиатура для выбора ЦИО (для подписки)"""
+    buttons = []
+    for cio in CIO_OPTIONS:
+        if for_subscription:
+            payload = f"subscribe_cio_{cio}"
+        else:
+            payload = f"select_cio_{cio}"
+        buttons.append([{"type": "callback", "text": cio, "payload": payload}])
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": buttons
+        }
+    }
+
+
+def status_selection_menu(service_key, user_id=None):
+    """Меню выбора статуса с информацией о количестве с учетом подписки пользователя"""
+    all_apps = load_data()
+
+    # Если есть user_id, проверяем подписку
+    rso_filter = None
+    if user_id:
+        users = load_users()
+        user = users.get(str(user_id), {})
+        rso_filter = user.get('rso_subscribed')
+
+    # Фильтруем заявки по подписке
+    filtered_apps = all_apps
+    if rso_filter:
+        if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+            # Подписка на ЦИО
+            allowed_rsos = get_rso_names_by_cio(rso_filter['cio'])
+            allowed_norm = {normalize_rso_name(r) for r in allowed_rsos}
+            filtered_apps = [a for a in all_apps if a.get('approver_name_normalized') in allowed_norm]
+        elif isinstance(rso_filter, str):
+            # Подписка на конкретную РСО
+            rso_norm = normalize_rso_name(rso_filter)
+            filtered_apps = [a for a in all_apps if a.get('approver_name_normalized') == rso_norm]
+
+    # Подсчитываем количество заявок по каждому статусу для выбранной услуги
+    counts = {}
+    for status in ['today', '1_day', '2_3_days', 'overdue']:
+        count = len([a for a in filtered_apps if a.get('service') == service_key and a.get('type') == status])
+        counts[status] = count
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": [
+                [{"type": "callback", "text": f"❗️ Сегодня ({counts['today']})",
+                  "payload": f"status_{service_key}_today"}],
+                [{"type": "callback", "text": f"⏳ 1 день ({counts['1_day']})",
+                  "payload": f"status_{service_key}_1_day"}],
+                [{"type": "callback", "text": f"⏳ 2-3 дня ({counts['2_3_days']})",
+                  "payload": f"status_{service_key}_2_3_days"}],
+                [{"type": "callback", "text": f"🚨 Просрочено ({counts['overdue']})",
+                  "payload": f"status_{service_key}_overdue"}],
+                [{"type": "callback", "text": "🔙 Назад", "payload": "back_to_main"}]
+            ]
+        }
+    }
+
+
+def pagination_keyboard(service_key, status_key, current_page, total_pages, user_id=None,
+                        base_payload_prefix="status_"):
+    """Создает клавиатуру с кнопками пагинации"""
+    buttons = []
+
+    # Навигационные кнопки
+    nav_row = []
+    if current_page > 0:
+        nav_row.append({
+            "type": "callback",
+            "text": "⬅️ Назад",
+            "payload": f"{base_payload_prefix}{service_key}_{status_key}_page_{current_page - 1}"
+        })
+
+    nav_row.append({
+        "type": "callback",
+        "text": f"{current_page + 1}/{total_pages}",
+        "payload": "noop"
+    })
+
+    if current_page < total_pages - 1:
+        nav_row.append({
+            "type": "callback",
+            "text": "Вперёд ➡️",
+            "payload": f"{base_payload_prefix}{service_key}_{status_key}_page_{current_page + 1}"
+        })
+
+    if nav_row:
+        buttons.append(nav_row)
+
+    # Кнопка возврата к выбору статуса
+    buttons.append([
+        {"type": "callback", "text": "🔙 К выбору статуса", "payload": f"service_{service_key}"}
+    ])
+
+    # Кнопка возврата в главное меню
+    buttons.append([
+        {"type": "callback", "text": "🏠 Главное меню", "payload": "back_to_main"}
+    ])
+
+    return {
+        "type": "inline_keyboard",
+        "payload": {
+            "buttons": buttons
+        }
+    }
+
+
+def paginate_apps(apps, page=0, items_per_page=5):
+    """Разбивает список заявок на страницы"""
+    total_pages = (len(apps) + items_per_page - 1) // items_per_page
+    page = max(0, min(page, total_pages - 1))
+
+    start_idx = page * items_per_page
+    end_idx = min(start_idx + items_per_page, len(apps))
+
+    return apps[start_idx:end_idx], page, total_pages
+
+
+# === Отправка сообщений через MAX API ===
+def send_message(user_id, text, keyboard=None, max_length=4000):
+    """Отправляет сообщение пользователю"""
+    url = f"{MAX_API_URL}/messages"
+    headers = {
+        "Authorization": MAX_BOT_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    # Разбиваем длинные сообщения
+    parts = []
+    temp = text
+    while len(temp) > max_length:
+        pos = temp.rfind('\n', 0, max_length)
+        if pos == -1:
+            pos = temp.rfind(' ', 0, max_length)
+            if pos == -1:
+                pos = max_length
+        parts.append(temp[:pos])
+        temp = temp[pos:].lstrip('\n ')
+    parts.append(temp)
+
+    for i, part in enumerate(parts):
+        payload = {
+            "text": part,
+            "format": "html"
+        }
+        # Добавляем клавиатуру только к последней части
+        if keyboard and i == len(parts) - 1:
+            payload["attachments"] = [keyboard]
+
+        try:
+            resp = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                params={"user_id": user_id},
+                timeout=10
+            )
+            if not resp.ok:
+                print(f"⚠️ Ошибка отправки: {resp.status_code}")
+        except Exception as e:
+            print(f"⚠️ Исключение: {e}")
+
+        if i < len(parts) - 1:
+            time.sleep(0.1)
+
+
+# === Исправленная функция answer_callback с лучшей обработкой ошибок ===
+def answer_callback(callback_id, text=None, keyboard=None, notification=None):
+    """Отвечает на callback и обновляет сообщение с улучшенной обработкой ошибок"""
+    url = f"{MAX_API_URL}/answers"
+    headers = {
+        "Authorization": MAX_BOT_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    payload = {}
+    if text:
+        # Убедимся, что текст не пустой и не слишком длинный
+        if not text or len(text.strip()) == 0:
+            text = "✅ Действие выполнено."
+
+        payload["message"] = {
+            "text": text[:4000],  # Ограничиваем длину текста
+            "format": "html"
+        }
+        if keyboard:
+            payload["message"]["attachments"] = [keyboard]
+
+    if notification:
+        payload["notification"] = notification
+
+    try:
+        print(f"📤 Отправка ответа на callback {callback_id}")
+        resp = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            params={"callback_id": callback_id},
+            timeout=10
+        )
+
+        if resp.ok:
+            print(f"✅ Callback {callback_id} обработан успешно")
+            return True
+        else:
+            print(f"⚠️ Ошибка ответа на callback: {resp.status_code}")
+            print(f"📄 Текст ответа: {resp.text[:200]}")
+
+            # Пробуем отправить без клавиатуры, если ошибка связана с ней
+            if keyboard and resp.status_code == 400:
+                print("🔄 Пробуем отправить без клавиатуры...")
+                payload["message"].pop("attachments", None)
+                resp2 = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    params={"callback_id": callback_id},
+                    timeout=10
+                )
+                if resp2.ok:
+                    print("✅ Успешно отправлено без клавиатуры")
+                    return True
+
+            return False
+    except Exception as e:
+        print(f"⚠️ Ошибка ответа на callback: {e}")
+        return False
+
+
+def format_with_spacer(text, force_width=True):
+    """Добавляет длинную строку для принудительного задания ширины"""
+    if not force_width:
+        return text
+
+    # Невидимые символы для надежности
+    invisible = "‎" * 100
+
+    return f"{invisible}\n{text}"
+
+
+# === Обработка callback ===
+def handle_callback(user_id, payload, message_id=None, callback_id=None):
+    """Обработка callback от inline-кнопок"""
+    print(f"🔘 Обработка callback от {user_id}: {payload}")
+
+    # Загружаем пользователей
+    users = load_users()
+    user = users.get(str(user_id), {})
+
+    # Добавляем пользователя в базу если его нет (для рассылки)
+    if str(user_id) not in users:
+        users[str(user_id)] = {
+            "added_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "active": True,
+            "user_id": user_id  # Сохраняем ID для проверки админа
+        }
+        save_users(users)
+
+    # === Возврат в главное меню ===
+    if payload == "back_to_main":
+        if callback_id:
+            menu_text = format_with_spacer("Главное меню:")
+            answer_callback(callback_id,
+                            text=menu_text,
+                            keyboard=main_menu(user))
+        else:
+            send_message(user_id, "Главное меню:", main_menu(user))
+        return
+
+    # === Меню управления подписками ===
+    if payload == "subscription_menu":
+        if callback_id:
+            menu_text = "🔔 Управление подписками:\n\nВыберите действие:"
+            formatted_text = format_with_spacer(menu_text)
+            answer_callback(callback_id,
+                            text=formatted_text,
+                            keyboard=subscription_menu(user))
+        else:
+            send_message(user_id, "🔔 Управление подписками:", subscription_menu(user))
+        return
+
+    # === Подписка на РСО по ИНН ===
+    if payload == "subscribe_rso":
+        user_states[user_id] = {'step': 'awaiting_rso_inn'}
+        if callback_id:
+            answer_callback(callback_id, text="🏢 Введите ИНН вашей РСО (10 или 12 цифр):", keyboard=None)
+        else:
+            send_message(user_id, "🏢 Введите ИНН вашей РСО (10 или 12 цифр):")
+        return
+
+    # === Подписка на ЦИО ===
+    if payload == "subscribe_cio":
+        if callback_id:
+            text = "👷 Выберите ваше ведомство:"
+            formatted_text = format_with_spacer(text)
+            answer_callback(callback_id,
+                            text=formatted_text,
+                            keyboard=cio_selection_keyboard(for_subscription=True))
+        else:
+            send_message(user_id, "👷 Выберите ваше ведомство:", cio_selection_keyboard(for_subscription=True))
+        return
+
+    # === Выбор ЦИО для подписки ===
+    if payload.startswith("subscribe_cio_"):
+        cio_name = payload.replace("subscribe_cio_", "")
+        if str(user_id) in users:
+            # Сохраняем подписку на ЦИО
+            users[str(user_id)]['rso_subscribed'] = {'type': 'cio', 'cio': cio_name}
+            save_users(users)
+
+            # Получаем количество РСО в этом ЦИО для информации
+            rso_list = get_rso_names_by_cio(cio_name)
+            rso_count = len(rso_list)
+
+            if callback_id:
+                text = f"✅ Вы подписаны на ЦИО: {cio_name}\n\n📊 В этом ведомстве {rso_count} РСО.\nТеперь вы будете видеть заявки всех этих организаций."
+                formatted_text = format_with_spacer(text)
+                answer_callback(callback_id,
+                                text=formatted_text,
+                                keyboard=main_menu(users.get(str(user_id))))
+            else:
+                send_message(user_id,
+                             f"✅ Вы подписаны на ЦИО: {cio_name}\n\n📊 В этом ведомстве {rso_count} РСО.\nТеперь вы будете видеть заявки всех этих организаций.",
+                             main_menu(users.get(str(user_id))))
+            return
+
+    # === Обработка отписки ===
+    if payload == "unsubscribe":
+        if str(user_id) in users:
+            old_sub = users[str(user_id)].get('rso_subscribed')
+            users[str(user_id)]['rso_subscribed'] = None
+            save_users(users)
+
+            if old_sub:
+                if isinstance(old_sub, dict) and old_sub.get('type') == 'cio':
+                    if callback_id:
+                        text = f"✅ Вы отписались от ЦИО: {old_sub['cio']}"
+                        formatted_text = format_with_spacer(text)
+                        answer_callback(callback_id,
+                                        text=formatted_text,
+                                        keyboard=main_menu(users.get(str(user_id))))
+                    else:
+                        send_message(user_id,
+                                     f"✅ Вы отписались от ЦИО: {old_sub['cio']}",
+                                     main_menu(users.get(str(user_id))))
+                else:
+                    if callback_id:
+                        text = f"✅ Вы отписались от рассылки по РСО: {old_sub}"
+                        formatted_text = format_with_spacer(text)
+                        answer_callback(callback_id,
+                                        text=formatted_text,
+                                        keyboard=main_menu(users.get(str(user_id))))
+                    else:
+                        send_message(user_id,
+                                     f"✅ Вы отписались от рассылки по РСО: {old_sub}",
+                                     main_menu(users.get(str(user_id))))
+            else:
+                if callback_id:
+                    text = "✅ Вы отписались от рассылки."
+                    formatted_text = format_with_spacer(text)
+                    answer_callback(callback_id,
+                                    text=formatted_text,
+                                    keyboard=main_menu(users.get(str(user_id))))
+                else:
+                    send_message(user_id, "✅ Вы отписались от рассылки.", main_menu(users.get(str(user_id))))
+            return
+
+    # === Админ: отчет о пользователях (с пагинацией) ===
+    if payload.startswith("admin_users_report"):
+        if is_admin(user_id):
+            try:
+                # Определяем страницу
+                page = 0
+                if "_page_" in payload:
+                    parts = payload.split("_page_")
+                    if len(parts) == 2:
+                        try:
+                            page = int(parts[1])
+                        except ValueError:
+                            page = 0
+
+                # Получаем отчет с пагинацией
+                report, current_page, total_pages = build_users_report(page=page)
+
+                if callback_id:
+                    # Отвечаем на callback с пагинацией
+                    formatted_report = format_with_spacer(report)
+                    success = answer_callback(
+                        callback_id,
+                        text=formatted_report,
+                        keyboard=users_report_pagination_keyboard(current_page, total_pages)
+                    )
+                    if not success:
+                        # Если не удалось ответить на callback, отправляем новое сообщение
+                        send_message(
+                            user_id,
+                            report,
+                            users_report_pagination_keyboard(current_page, total_pages)
+                        )
+                else:
+                    send_message(
+                        user_id,
+                        report,
+                        users_report_pagination_keyboard(current_page, total_pages)
+                    )
+
+            except Exception as e:
+                print(f"❌ Ошибка при формировании отчета: {e}")
+                error_text = "❌ Произошла ошибка при формировании отчета."
+                if callback_id:
+                    answer_callback(callback_id, text=error_text, keyboard=main_menu(user))
+                else:
+                    send_message(user_id, error_text, main_menu(user))
+        else:
+            if callback_id:
+                answer_callback(callback_id,
+                                text="⛔ У вас нет прав администратора.",
+                                keyboard=main_menu(user))
+            else:
+                send_message(user_id, "⛔ У вас нет прав администратора.", main_menu(user))
+        return
+
+    # === Обработка выбора услуги ===
+    if payload.startswith("service_"):
+        service_key = payload.replace("service_", "")
+        user_states[user_id] = {'step': 'status', 'service': service_key}
+
+        # Формируем текст
+        service_text = f"Выбрано: {service_names.get(service_key, service_key)}\n\nВыберите статус:"
+
+        # Добавляем статистику с учетом подписки
+        all_apps = load_data()
+        rso_filter = user.get('rso_subscribed')
+
+        # Фильтруем заявки по подписке
+        filtered_apps = all_apps
+        subscription_info = ""
+
+        if rso_filter:
+            if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+                # Подписка на ЦИО
+                allowed_rsos = get_rso_names_by_cio(rso_filter['cio'])
+                allowed_norm = {normalize_rso_name(r) for r in allowed_rsos}
+                filtered_apps = [a for a in all_apps if a.get('approver_name_normalized') in allowed_norm]
+                subscription_info = f"\n📬 По ЦИО: {rso_filter['cio']}"
+            elif isinstance(rso_filter, str):
+                # Подписка на конкретную РСО
+                rso_norm = normalize_rso_name(rso_filter)
+                filtered_apps = [a for a in all_apps if a.get('approver_name_normalized') == rso_norm]
+                subscription_info = f"\n📬 Только для РСО: {rso_filter}"
+
+        # Подсчитываем статистику для выбранной услуги с учетом фильтрации
+        counts = {}
+        for status in ['today', '1_day', '2_3_days', 'overdue']:
+            count = len([a for a in filtered_apps if a.get('service') == service_key and a.get('type') == status])
+            counts[status] = count
+
+        # Форматируем статистику красиво
+        stats_text = f"\n📊 Статистика:{subscription_info}\n⏳ 2-3 дня: {counts['2_3_days']}\n⏳ 1 день: {counts['1_day']}\n❗️ Сегодня: {counts['today']}\n🚨 Просрочено: {counts['overdue']}\n"
+
+        full_text = service_text + stats_text
+        formatted_text = format_with_spacer(full_text)
+
+        if callback_id:
+            answer_callback(callback_id,
+                            text=formatted_text,
+                            keyboard=status_selection_menu(service_key, user_id))
+        else:
+            send_message(user_id,
+                         service_text,
+                         status_selection_menu(service_key, user_id))
+        return
+
+
+# === Обработка текстовых сообщений ===
+def handle_message(user_id, text):
+    """Обработка текстовых сообщений от пользователя"""
+    print(f"📨 Сообщение от {user_id}: {text[:50]}")
+
+    # Загружаем пользователей
+    users = load_users()
+
+    # Добавляем пользователя в базу если его нет (для рассылки)
+    if str(user_id) not in users:
+        users[str(user_id)] = {
+            "added_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "active": True,
+            "user_id": user_id  # Сохраняем ID для проверки админа
+        }
+        save_users(users)
+
+    # === Команда /start ===
+    if text == "/start":
+        user = users.get(str(user_id), {})
+        welcome_text = (
+            "👋 Добро пожаловать в бот мониторинга заявок!\n\n"
+            "Здесь вы можете отслеживать статус заявок по:\n"
+            "• Инженерно-топографическим планам\n"
+            "• Техническим условиям\n"
+            "• Проектной документации\n\n"
+            "Используйте меню для навигации:"
+        )
+        send_message(user_id, welcome_text, main_menu(user))
+        return
+
+    # === Админ-команда /users_report ===
+    if text == "/users_report" and is_admin(user_id):
+        report, current_page, total_pages = build_users_report(page=0)
+        send_message(
+            user_id,
+            report,
+            users_report_pagination_keyboard(current_page, total_pages)
+        )
+        return
+
+    # === Команда /myid ===
+    if text == "/myid":
+        send_message(user_id, f"🆔 Ваш ID: <code>{user_id}</code>")
+        return
+
+    # === Команда /help или /instructions ===
+    if text in ["/help", "/instructions"]:
+        help_text = (
+            "📘 <b>ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ БОТА</b>\n\n"
+            "1️⃣ <b>Просмотр заявок</b>\n"
+            "   • Выберите услугу в меню\n"
+            "   • Затем выберите статус заявок\n"
+            "   • Используйте кнопки навигации для просмотра\n\n"
+            "2️⃣ <b>Подписка</b>\n"
+            "   • В меню «Управление подписками» можно подписаться на:\n"
+            "     - Конкретную РСО по ИНН\n"
+            "     - Все РСО выбранного ЦИО\n"
+            "   • Подписка фильтрует заявки в меню и рассылке\n\n"
+            "3️⃣ <b>Аналитический свод</b>\n"
+            "   • Нажмите «📊 Аналитический свод» для статистики\n\n"
+            "4️⃣ <b>Рассылка</b>\n"
+            "   • Автоматическая рассылка в 9:00, 14:00, 17:00 по Москве\n"
+            "   • Учитывает вашу текущую подписку"
+        )
+        user = users.get(str(user_id), {})
+        send_message(user_id, help_text, main_menu(user))
+        return
+
+    # === Команда /analytical_summary ===
+    if text == "/analytical_summary":
+        all_apps = load_data()
+        user = users.get(str(user_id), {})
+        rso_filter = user.get('rso_subscribed')
+
+        if not all_apps:
+            send_message(user_id, "📭 Нет данных для аналитического свода.", main_menu(user))
+            return
+
+        if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+            rso_list = get_rso_names_by_cio(rso_filter['cio'])
+            msg = build_summary_for_user(all_apps, rso_list)
+        else:
+            msg = build_summary_for_user(all_apps, rso_filter)
+
+        send_message(user_id, msg, main_menu(user))
+        return
+
+    # === Команда /unsubscribe ===
+    if text == "/unsubscribe":
+        if str(user_id) in users:
+            users[str(user_id)]['rso_subscribed'] = None
+            save_users(users)
+            send_message(user_id, "✅ Вы отписались от всех рассылок.", main_menu(users.get(str(user_id))))
+        return
+
+    # === Админ-команда /users_report ===
+    if text == "/users_report" and is_admin(user_id):
+        report = build_users_report()
+        send_message(user_id, report, main_menu(users.get(str(user_id))))
+        return
+
+    # === Обработка ввода ИНН для подписки ===
+    if user_id in user_states and user_states[user_id].get('step') == 'awaiting_rso_inn':
+        inn = text.strip()
+        if validate_inn(inn):
+            rso_data = get_rso_by_inn(inn)
+            if rso_data:
+                users = load_users()
+                if str(user_id) in users:
+                    users[str(user_id)]['rso_subscribed'] = rso_data['name']
+                    save_users(users)
+
+                    # Определяем ЦИО для этой РСО
+                    cio = get_cio_by_rso(rso_data['name'])
+                    cio_text = f" (ЦИО: {cio})" if cio else ""
+
+                    send_message(user_id,
+                                 f"✅ Вы успешно подписаны на РСО:\n<b>{rso_data['name']}</b>{cio_text}",
+                                 main_menu(users.get(str(user_id))))
+                    del user_states[user_id]
+            else:
+                send_message(user_id,
+                             "❌ ИНН не найден в базе РСО.\n\n"
+                             "Попробуйте снова или нажмите /start для возврата в меню.",
+                             main_menu(users.get(str(user_id))))
+                del user_states[user_id]
+        else:
+            send_message(user_id, "❌ Неверный формат ИНН. Должно быть 10 или 12 цифр. Попробуйте еще раз:")
+        return
+
+    # Если пользователь ввел неизвестную команду
+    user = users.get(str(user_id), {})
+    send_message(user_id, "Пожалуйста, используйте меню для навигации.", main_menu(user))
+
+
+# === MAX Bot Long Polling ===
+def handle_bot():
+    """Обработка событий бота через Long Polling MAX API"""
+    marker = None
+    headers = {
+        "Authorization": MAX_BOT_TOKEN
+    }
+
+    print("🤖 Бот MAX запущен, ожидаю обновления...")
+
+    while True:
+        try:
+            params = {
+                "timeout": 30,
+                "types": "bot_started,message_created,message_callback"
+            }
+            if marker:
+                params["marker"] = marker
+
+            url = f"{MAX_API_URL}/updates"
+            resp = requests.get(url, headers=headers, params=params, timeout=35)
+
+            if resp.ok:
+                data = resp.json()
+                updates = data.get("updates", [])
+
+                new_marker = data.get("marker")
+                if new_marker:
+                    marker = new_marker
+
+                for update in updates:
+                    try:
+                        update_type = update.get("update_type")
+
+                        # Обработка события "бот запущен"
+                        if update_type == "bot_started":
+                            user_id = update.get("user", {}).get("user_id")
+                            if not user_id:
+                                user_id = update.get("user_id")
+                            if not user_id:
+                                user_id = update.get("chat_id")
+
+                            if user_id:
+                                print(f"👤 Новый пользователь: {user_id}")
+                                handle_message(user_id, "/start")
+
+                        # Обработка нового сообщения
+                        elif update_type == "message_created":
+                            message = update.get("message", {})
+                            body = message.get("body", {})
+                            text = body.get("text", "")
+
+                            sender = message.get("sender", {})
+                            user_id = sender.get("user_id")
+                            is_bot = sender.get("is_bot", False)
+
+                            if user_id and not is_bot and text:
+                                handle_message(user_id, text)
+
+                        # Обработка callback от inline-кнопок
+                        elif update_type == "message_callback":
+                            callback = update.get("callback", {})
+                            payload = callback.get("payload", "")
+
+                            if not payload:
+                                payload = update.get("payload", "")
+                            if not payload:
+                                message = update.get("message", {})
+                                payload = message.get("payload", "")
+
+                            user = callback.get("user", {})
+                            user_id = user.get("user_id")
+                            if not user_id:
+                                user_id = update.get("user", {}).get("user_id")
+                            if not user_id:
+                                user_id = update.get("user_id")
+
+                            message = update.get("message", {})
+                            message_id = message.get("mid")
+                            callback_id = callback.get("callback_id")
+
+                            if user_id and payload:
+                                handle_callback(user_id, payload, message_id, callback_id)
+
+                    except Exception as e:
+                        print(f"⚠️ Ошибка обработки update: {e}")
+
+            elif resp.status_code == 401:
+                print(f"❌ Ошибка авторизации: проверьте MAX_BOT_TOKEN")
+                time.sleep(5)
+            else:
+                print(f"⚠️ Ошибка получения обновлений: {resp.status_code}")
+                time.sleep(1)
+
+        except requests.exceptions.Timeout:
+            # Timeout нормален для long polling
+            pass
+        except requests.exceptions.ConnectionError as e:
+            print(f"⚠️ Ошибка соединения: {e}")
+            time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Ошибка в handle_bot: {e}")
+            time.sleep(1)
+
+        time.sleep(0.5)
+
+
+# === Функция рассылки ===
+def send_summary_job():
+    """Периодическая рассылка аналитических сводок с кнопками"""
+    moscow_tz = ZoneInfo("Europe/Moscow")
+    now = datetime.now(moscow_tz)
+    time_str = now.strftime("%H:%M")
+
+    print(f"📬 Запуск плановой рассылки в {time_str}...")
+
+    users = load_users()
+    all_apps = load_data()
+
+    if not all_apps:
+        print("⚠️ Нет данных для рассылки")
+        return
+
+    for uid_str, user in users.items():
+        try:
+            if not user.get('active', True):
+                continue
+
+            chat_id = int(uid_str)
+            rso_filter = user.get('rso_subscribed')
+
+            if isinstance(rso_filter, dict) and rso_filter.get('type') == 'cio':
+                rso_list = get_rso_names_by_cio(rso_filter['cio'])
+                msg = build_summary_for_user(all_apps, rso_list)
+            else:
+                msg = build_summary_for_user(all_apps, rso_filter)
+
+            # Добавляем информацию о времени рассылки
+            header = f"📊 <b>Аналитический свод на {time_str}</b>\n\n"
+            full_msg = header + msg
+
+            # Добавляем главное меню к сообщению
+            keyboard = main_menu(user)
+
+            # Используем format_with_spacer для правильной ширины
+            formatted_msg = format_with_spacer(full_msg)
+
+            send_message(chat_id, formatted_msg, keyboard)
+            time.sleep(0.1)  # Небольшая задержка между отправками
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "chat not found" in error_msg or "user not found" in error_msg:
+                print(f"🗑️ Пользователь {uid_str} недоступен — деактивируем.")
+                user['active'] = False
+                save_users(users)
+            else:
+                print(f"❌ Ошибка отправки {uid_str}: {e}")
+
+    print(f"✅ Рассылка на {time_str} завершена")
+
+
+# === Поток для периодической рассылки ===
+def scheduler_thread():
+    """Поток для выполнения рассылки по расписанию"""
+    moscow_tz = ZoneInfo("Europe/Moscow")
+
+    while True:
+        try:
+            now = datetime.now(moscow_tz)
+
+            # Рассылка в 9:00, 14:00 и 17:00 по Москве
+            if (now.hour == 9 and now.minute == 0) or \
+                    (now.hour == 14 and now.minute == 0) or \
+                    (now.hour == 17 and now.minute == 0):
+                if now.second < 10:  # Добавляем проверку секунд
+                    send_summary_job()
+                    time.sleep(60)
+
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"⚠️ Ошибка в планировщике: {e}")
+            time.sleep(10)
+
+
+# === Основной запуск ===
+if __name__ == "__main__":
+    # Проверяем наличие необходимых файлов
+    required_files = [
+        (DATA_FILE, []),
+        (USERS_FILE, {}),
+        (RSO_BASE_FILE, []),
+        (ADMIN_FILE, []),  # Добавляем файл администраторов
+        ("baza.json", [])  # Файл с городскими округами (опционально)
+    ]
+
+    for filename, default in required_files:
+        if not os.path.exists(filename):
+            print(f"⚠️ Создаю файл {filename}")
+            save_json(default, filename)
+
+    # Загружаем данные в память
+    load_data()
+    load_users()
+    load_rso_base()
+    load_admins()
+
+    # Выводим информацию об администраторах
+    admins = load_admins()
+    if admins:
+        print(f"👑 Загружены администраторы: {', '.join(str(a) for a in admins)}")
+    else:
+        print("👑 Файл администраторов пуст. Добавьте ID администраторов в Administrators.json")
+        print("   Пример: [123456789, 987654321]")
+
+    # Запускаем планировщик в отдельном потоке
+    scheduler = threading.Thread(target=scheduler_thread, daemon=True)
+    scheduler.start()
+
+    print(f"🕒 Текущее время в Москве: {datetime.now(ZoneInfo('Europe/Moscow')).strftime('%Y-%m-%d %H:%M:%S')}")
+    print("✅ Планировщик рассылок настроен (9:00, 14:00, 17:00 по Москве)")
+    print("✅ Регистрация отключена — полный доступ сразу после /start")
+
+    try:
+        # Запускаем основную обработку бота
+        handle_bot()
+    except KeyboardInterrupt:
+        print("\n🛑 Бот остановлен.")

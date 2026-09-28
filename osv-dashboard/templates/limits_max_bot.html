@@ -1,0 +1,102 @@
+{% extends "limits_base.html" %}
+{% block title %}Лимиты · Бот MAX{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
+{% block limits_content %}
+<div class="eyebrow">ГИС РЭБ · Уведомления</div>
+<h1>Лимиты</h1>
+<p class="lead">Подавайте заявку на доступ к объектам и получайте изменения принятых версий через MAX.</p>
+{% include "limits_nav.html" %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages" role="status">
+      {% for category, message in messages %}
+        <p class="notice {{ category }}">{{ message }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+{% if datasets %}
+<form class="max-toolbar" method="post" action="{{ url_for('max_limits') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="max-dataset">Набор отчётности</label>
+  <select id="max-dataset" name="dataset" required {% if not current_user.is_admin %}disabled{% endif %}>
+    <option value="" {% if not dataset %}selected{% endif %} disabled>Выберите набор для бота</option>
+    {% for d in datasets %}<option value="{{ d.id }}" {% if dataset and d.id == dataset.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+  </select>
+  {% if current_user.is_admin %}<button type="submit">Сохранить для бота</button>{% endif %}
+</form>
+<p>Бот использует только сохранённый набор: {% if dataset %}<strong>{{ dataset.name }}</strong>{% else %}<strong>пока не выбран</strong>{% endif %}. Пользователям бота выбирать набор не нужно.</p>
+{% endif %}
+
+<section class="max-status {% if configured %}is-ready{% else %}is-unavailable{% endif %}" aria-live="polite">
+  <div>
+    {% if configured %}
+      <h2>Бот подключён</h2>
+      <p>Одобренных УИН: <strong>{{ subscriptions_count }}</strong> · Заявок на рассмотрении: <strong>{{ pending_count }}</strong></p>
+      <a class="max-button" href="https://max.ru/{{ bot_username }}">Открыть @{{ bot_username }} в MAX</a>
+    {% else %}
+      <h2>Бот не подключён</h2>
+      <p>Для работы бота администратору нужно настроить MAX_LIMITS_BOT_TOKEN и дождаться подключения.</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if current_user.is_admin %}
+<section class="max-panel">
+  <h2>Рассылка изменений лимитов</h2>
+  <p>По текущей принятой версии выбранного набора бот отправит каждому подписчику
+    краткий список только его объектов с изменениями. Объекты без изменений не включаются.
+    Одна версия рассылается один раз для каждого выбранного фильтра; доставка выполняется в фоне.</p>
+  <form method="post" action="{{ url_for('max_limits_funding_year') }}" class="max-year-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="max-funding-year">Показывать финансирование за годы</label>
+    <select id="max-funding-year" name="funding_year">
+      <option value="all" {% if funding_year_selection == 'all' %}selected{% endif %}>Все года</option>
+      {% for year in funding_year_choices if year != 'all' %}
+      <option value="{{ year }}" {% if funding_year_selection == year %}selected{% endif %}>{{ year }} и выше</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Сохранить настройку</button>
+  </form>
+  <p>Фильтр действует для бота и его Excel-выгрузки: данные финансирования за более ранние годы скрываются. Остальные сведения об объектах не меняются.</p>
+  <form method="post" action="{{ url_for('max_limits_send_changes') }}"
+        onsubmit="return window.confirm('Отправить изменения по лимитам всем подписчикам с изменившимися объектами?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="confirm" value="yes">
+    <button type="submit" {% if not configured or not dataset %}disabled{% endif %}>Рассылка изменений лимитов</button>
+  </form>
+</section>
+{% endif %}
+
+<section class="max-panel">
+  <h2>Группа модерации</h2>
+  {% if moderation_configured %}
+    <p>Группа настроена. Заявки направляются в неё с кнопками «Одобрить» и «Не одобрить». Решение могут принять только действующие администраторы группы; боту тоже нужны права администратора для проверки этого статуса.</p>
+  {% else %}
+    <p>Добавьте бота в группу MAX с правами администратора и укажите настоящий ID группы в Configurations под ключом <code>MAX_LIMITS_MODERATION_CHAT_ID</code>, затем перезапустите приложение. Если ID неизвестен, отправьте в группе <code>/chatid</code>. До настройки группы отправка новых заявок приостановлена.</p>
+  {% endif %}
+</section>
+{% include "limits_max_users.html" %}
+
+<style>
+.max-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;margin:0 0 20px;background:#fff;border:1px solid var(--line);border-radius:10px}
+.max-toolbar label{font-weight:600;color:var(--mut)}
+.max-toolbar select{min-width:min(100%,280px);padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit}
+.max-status,.max-panel{padding:20px 22px;margin-bottom:18px;border:1px solid var(--line);border-radius:12px;background:#fff}
+.max-year-form{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0}
+.max-year-form label{font-weight:600}
+.max-year-form select{min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit}
+.max-status.is-ready{border-color:#bbf7d0;background:#f0fdf4}
+.max-status.is-unavailable{border-color:#fde68a;background:#fffbeb}
+.max-status h2,.max-panel h2{font-size:17px;margin:0 0 8px}
+.max-status p,.max-panel p{color:var(--mut)}
+.max-button{display:inline-flex;margin-top:10px;padding:9px 14px;border-radius:7px;background:var(--blue);color:#fff;text-decoration:none;font-weight:650}
+.max-panel ol{padding-left:24px;line-height:2}
+.max-panel dl>div{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.max-panel dt,.max-panel dd{margin:0}
+.max-panel code{padding:3px 7px;border-radius:5px;background:#f1f5f9;color:#0f4c6e;font:600 13px ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(max-width:600px){.max-panel dl>div{grid-template-columns:95px 1fr}}
+</style>
+{% endblock %}

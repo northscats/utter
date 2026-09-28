@@ -1,126 +1,26 @@
-{% extends "modules.html" %}
-{% block title %}Панель восстановления лимитов{% endblock %}
-{% block content %}
-<a class="back" href="{{ url_for('limit_notifications') }}">← Назад в модуль</a>
-<div class="eyebrow">Техническое обслуживание</div>
+{% extends "limits_base.html" %}
+{% block title %}Восстановление лимитов{% endblock %}
+{% block limits_content %}
+<a href="{{ url_for('limit_notifications') }}">← Назад в модуль</a>
 <h1>Восстановление после сбоя</h1>
-<p class="lead">Ниже показаны только <b>идентификаторы</b> и статусы доставки для заблокированной версии.<br>Содержимое сообщений и финансовых данных скрыто.</p>
-
-<div class="panel recovery-status">
-  {% if status == 'restoring' %}
-    <h2>Восстановление выполняется</h2>
-    <p>Дождитесь завершения восстановления App Storage и проверки окна хранения.</p>
-  {% elif status == 'error' %}
-    <h2>Восстановление не завершено</h2>
-    <p>Произошёл временный сбой на этапе
-      {% if startup_error == 'restore' %}восстановления данных
-      {% elif startup_error == 'reconcile' %}проверки истории
-      {% else %}завершения безопасного запуска{% endif %}.
-      Финансовые данные и фоновые обработчики остаются закрыты.</p>
-    <form method="post" action="{{ url_for('limit_history_recovery') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="retry_startup">
-      <button type="submit" class="btn-outline">Повторить полное восстановление</button>
-    </form>
-  {% elif status == 'blocked' %}
-    <h2>Нужна сверка истории</h2>
-    <p>Обнаружены конфликты окна хранения. Устраните их и повторите проверку.</p>
-    <form method="post" action="{{ url_for('limit_history_recovery') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="action" value="reconcile">
-      <button type="submit" class="btn-outline">Повторить проверку истории</button>
-    </form>
-  {% else %}
-    <h2>Проверка завершена</h2>
-    <p>История согласована, модуль доступен.</p>
-  {% endif %}
-</div>
-
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <div class="flash-messages">
-      {% for category, message in messages %}
-        <p class="notice {{ category }}">{{ message }}</p>
-      {% endfor %}
-    </div>
-  {% endif %}
-{% endwith %}
-
-<div class="table-wrap panel" style="padding: 0; overflow: hidden;">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th style="width: 100px;">Delivery ID</th>
-        <th style="width: 120px;">Версия XLSX</th>
-        <th>Текущий статус</th>
-        <th style="width: 200px;">Действие (принудительно)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for delivery in deliveries %}
-      <tr>
-        <td class="font-mono font-bold">#{{ delivery.id }}</td>
-        <td class="font-mono text-mut">v{{ delivery.version_id }}</td>
-        <td>
-          {% if delivery.status in ('queued', 'retry') %}
-            <span class="badge warning">{{ delivery.status }}</span>
-          {% elif delivery.status == 'sending' %}
-            <span class="badge warning">sending</span>
-          {% elif delivery.status == 'error' %}
-            <span class="badge danger">error</span>
-          {% elif delivery.status == 'unknown' %}
-            <span class="badge danger">unknown</span>
-          {% else %}
-            <span class="badge neutral">{{ delivery.status }}</span>
-          {% endif %}
-        </td>
-        <td>
-          <form method="post" action="{{ url_for('limit_history_recovery') }}" style="margin:0;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="delivery_id" value="{{ delivery.id }}">
-            <button type="submit" class="btn-sm btn-outline text-danger" style="width:100%">Отменить доставку</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr>
-        <td colspan="4" class="text-center text-mut" style="padding: 60px;">
-          Нет заблокированных отправок, требующих административного вмешательства.
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<style>
-.panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); }
-.recovery-status { padding: 20px; }
-.recovery-status h2 { margin: 0 0 8px; font-size: 18px; }
-.recovery-status p { margin: 0 0 16px; color: var(--mut); }
-
-.data-table { width: 100%; border-collapse: collapse; text-align: left; }
-.data-table th { padding: 14px 20px; border-bottom: 2px solid var(--line); font-size: 13px; font-weight: 700; color: var(--mut); white-space: nowrap; background: #fafbfc; }
-.data-table td { padding: 16px 20px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-
-.btn-outline { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border: 1px solid #cdd7e0; border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 600; transition: 0.2s; font-size: 13px; cursor: pointer; }
-.btn-outline:hover { background: var(--paper); border-color: #b0c0cd; }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
-
-.badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-.badge.warning { background: #fff8e1; color: #f57f17; }
-.badge.danger { background: #ffebee; color: #c62828; }
-.badge.neutral { background: var(--line); color: var(--ink); }
-
-.font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.font-bold { font-weight: 700; }
-.text-mut { color: var(--mut); }
-.text-danger { color: #d32f2f !important; }
-.text-danger:hover { background: #ffebee !important; border-color: #ffcdd2 !important; }
-.text-center { text-align: center; }
-
-.flash-messages { margin-bottom: 24px; }
-.notice { padding: 12px 16px; border-radius: 8px; background: #eaf5f8; border-left: 4px solid var(--blue); margin: 0 0 10px; font-size: 14px; }
-.notice.success { background: #e8f5e9; border-left-color: #43a047; color: #1b5e20; }
-</style>
+{% if status == 'restoring' %}
+<p>Восстановление выполняется. Дождитесь проверки истории версий.</p>
+{% elif status == 'error' %}
+<p>Восстановление данных не завершилось. Повторите запуск.</p>
+{% elif status == 'blocked' %}
+<p>Проверка истории обнаружила конфликт, требующий решения администратора.</p>
+<p>{{ blocked }}</p>
+{% else %}
+<p>История согласована, модуль доступен.</p>
+{% endif %}
+{% for category, message in get_flashed_messages(with_categories=true) %}
+<p class="notice {{ category }}">{{ message }}</p>
+{% endfor %}
+{% if status != 'ready' %}
+<form method="post" action="{{ url_for('limit_history_recovery') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="action" value="retry_startup">
+  <button type="submit">Повторить восстановление</button>
+</form>
+{% endif %}
 {% endblock %}

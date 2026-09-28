@@ -20,8 +20,6 @@ WorkingDirectory=/opt/osv-dashboard
 Environment="DATABASE_URL=postgresql://осв_user:ПАРОЛЬ@localhost:5432/осв_db"
 Environment="SESSION_SECRET=замените-на-случайную-строку-32-символа"
 Environment="SCRIPT_NAME=/osv"
-Environment="LIMITS_MAX_WEBHOOK_URL=https://домен.ru/osv/limit-notifications/max/webhook"
-
 # Один worker обязателен для внутрипроцессных фоновых обработчиков.
 ExecStart=/opt/osv-dashboard/venv/bin/gunicorn \
     --workers 1 \

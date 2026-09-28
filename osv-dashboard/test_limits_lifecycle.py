@@ -24,7 +24,7 @@ from openpyxl import load_workbook
 
 _TMP = tempfile.mkdtemp(prefix="limits_lifecycle_test_")
 os.environ["DATABASE_URL"] = f"sqlite:///{_TMP}/limits.db"
-os.environ.setdefault("INITIAL_ADMIN_PASSWORD", "test-admin-passphrase-2026")
+os.environ["INITIAL_ADMIN_PASSWORD"] = "Cedar!river7Orbit#lantern"
 os.environ.setdefault(
     "ENCRYPTION_KEY",
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
@@ -36,13 +36,8 @@ from database import (
     LimitChange,
     LimitComparison,
     LimitDataset,
-    LimitDelivery,
-    LimitDeliveryAttempt,
-    LimitDeliveryPart,
     LimitObject,
-    LimitRecipient,
     LimitRowSnapshot,
-    LimitSubscription,
     LimitVersion,
     User,
     db,
@@ -53,10 +48,8 @@ from limits_service import (
     accept_version,
     create_comparison,
     export_comparison,
-    manual_delivery_preview,
     parse_version,
     purge_version,
-    queue_manual_object_message,
     resolve_comparison_issue,
     stage_upload,
 )
@@ -137,17 +130,6 @@ def ambiguous_snapshot(rows):
     return result
 
 
-class FakeMax:
-    is_configured = True
-
-    def __init__(self):
-        self.sent = []
-
-    def send_message(self, user_id, content):
-        self.sent.append((str(user_id), content))
-        return f"accepted-{len(self.sent)}"
-
-
 class LimitsLifecycleAcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -219,7 +201,7 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         accept_version(version.id, self.admin_id)
         return db.session.get(LimitVersion, version.id)
 
-    def _direct_rotation_fixture(self, pending_status=None):
+    def _direct_rotation_fixture(self):
         """Seed ten accepted snapshots and a review candidate for eviction tests."""
         dataset = self._dataset()
         obj = LimitObject(dataset_id=dataset.id, uin="100.200", title="Object")
@@ -291,29 +273,6 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         )
         db.session.add(comparison)
         db.session.flush()
-        if pending_status:
-            recipient = LimitRecipient(
-                max_user_id=f"rotation-{pending_status}",
-                access_status="approved",
-                consent_granted_at=utcnow(),
-            )
-            db.session.add(recipient)
-            db.session.flush()
-            db.session.add(
-                LimitSubscription(
-                    recipient_id=recipient.id,
-                    dataset_id=self.dataset_id,
-                    uin=obj.uin,
-                )
-            )
-            delivery = LimitDelivery(
-                version_id=accepted[0].id,
-                object_id=obj.id,
-                recipient_id=recipient.id,
-                content="old notification",
-                status=pending_status,
-            )
-            db.session.add(delivery)
         db.session.commit()
         return accepted, candidate, obj
 
@@ -325,53 +284,20 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         self.assertIsNone(LimitRowSnapshot.query.filter_by(version_id=version.id).one().object_id)
         self.assertIsNone(self._dataset().current_version_id)
 
-    def test_first_baseline_is_accepted_without_mass_notifications(self):
-        recipient = LimitRecipient(
-            max_user_id="baseline-user",
-            access_status="approved",
-            consent_granted_at=utcnow(),
-        )
-        db.session.add(recipient)
-        db.session.flush()
-        db.session.add(
-            LimitSubscription(
-                recipient_id=recipient.id,
-                dataset_id=self.dataset_id,
-                uin="100.200",
-            )
-        )
-        db.session.commit()
+    def test_first_baseline_is_accepted(self):
         first = self._accept_first()
         self.assertEqual("accepted", first.status)
         self.assertEqual(first.id, self._dataset().current_version_id)
-        self.assertEqual(0, LimitDelivery.query.count())
 
-    def test_second_accepted_update_notifies_consented_approved_subscriber(self):
+    def test_second_accepted_update_preserves_financial_changes(self):
         first = self._accept_first()
-        recipient = LimitRecipient(
-            max_user_id="approved-user",
-            access_status="approved",
-            consent_granted_at=utcnow(),
-        )
-        db.session.add(recipient)
-        db.session.flush()
-        db.session.add(
-            LimitSubscription(
-                recipient_id=recipient.id,
-                dataset_id=self.dataset_id,
-                uin="100.200",
-            )
-        )
-        db.session.commit()
         second = self._draft("15", previous=first.id)
         comparison = create_comparison(first.id, second.id)
         self.assertEqual("ready", comparison.status)
         accepted = accept_version(second.id, self.admin_id)
         self.assertEqual("accepted", accepted.status)
-        self.assertEqual(1, LimitDelivery.query.count())
-        delivery = LimitDelivery.query.one()
-        self.assertEqual("automatic", delivery.campaign_key)
-        self.assertEqual(recipient.id, delivery.recipient_id)
+        self.assertEqual(second.id, self._dataset().current_version_id)
+        self.assertTrue(LimitChange.query.filter_by(comparison_id=comparison.id).count())
 
     def test_duplicate_stage_returns_existing_version(self):
         from werkzeug.datastructures import FileStorage
@@ -397,49 +323,6 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         self.assertTrue(duplicate_again)
         self.assertEqual(first.id, second.id)
         self.assertEqual(1, LimitVersion.query.count())
-
-    def test_manual_preview_is_bound_to_version_recipients_and_campaign(self):
-        first = self._accept_first()
-        recipient = LimitRecipient(
-            max_user_id="manual-user",
-            access_status="approved",
-            consent_granted_at=utcnow(),
-        )
-        db.session.add(recipient)
-        db.session.flush()
-        db.session.add(
-            LimitSubscription(
-                recipient_id=recipient.id,
-                dataset_id=self.dataset_id,
-                uin="100.200",
-            )
-        )
-        db.session.commit()
-        second = self._draft("15", previous=first.id)
-        create_comparison(first.id, second.id)
-        accept_version(second.id, self.admin_id)
-        obj = LimitObject.query.filter_by(dataset_id=self.dataset_id, uin="100.200").one()
-        preview_obj, preview_version, recipients, content = manual_delivery_preview(
-            obj.id, "Ручное сообщение"
-        )
-        self.assertEqual(obj.id, preview_obj.id)
-        self.assertEqual(second.id, preview_version.id)
-        self.assertEqual([recipient.id], [item.id for item in recipients])
-        self.assertEqual("Ручное сообщение", content)
-        kwargs = {
-            "expected_version_id": preview_version.id,
-            "expected_recipient_ids": [item.id for item in recipients],
-            "campaign_key": "manual-campaign-a",
-        }
-        self.assertEqual(1, queue_manual_object_message(obj.id, content, **kwargs))
-        self.assertEqual(0, queue_manual_object_message(obj.id, content, **kwargs))
-        independent = dict(kwargs, campaign_key="manual-campaign-b")
-        self.assertEqual(1, queue_manual_object_message(obj.id, content, **independent))
-        self.assertEqual(3, LimitDelivery.query.count())
-        self.assertEqual(
-            {"automatic", "manual:manual-campaign-a", "manual:manual-campaign-b"},
-            {item.campaign_key for item in LimitDelivery.query.all()},
-        )
 
     def test_resolved_added_absent_rows_export_with_metadata_and_sources(self):
         old_data = ambiguous_snapshot([
@@ -560,7 +443,7 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
                          [cell.value for cell in workbook["Финансирование"][1]])
         self.assertEqual(1, workbook["Проблемы данных"].max_row)
 
-    def test_rotation_deletes_old_version_messages_parts_and_comparisons_both_sides(self):
+    def test_rotation_deletes_old_version_and_comparisons_both_sides(self):
         accepted, candidate, obj = self._direct_rotation_fixture()
         old = accepted[0]
         other = accepted[1]
@@ -586,45 +469,6 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
                 new_json='"2"',
             )
         )
-        recipient = LimitRecipient(
-            max_user_id="rotation-survivor",
-            access_status="approved",
-            consent_granted_at=utcnow(),
-        )
-        db.session.add(recipient)
-        db.session.flush()
-        db.session.add(
-            LimitSubscription(
-                recipient_id=recipient.id,
-                dataset_id=self.dataset_id,
-                uin=obj.uin,
-            )
-        )
-        delivery = LimitDelivery(
-            version_id=old.id,
-            object_id=obj.id,
-            recipient_id=recipient.id,
-            content="old message",
-            status="accepted",
-        )
-        db.session.add(delivery)
-        db.session.flush()
-        db.session.add(
-            LimitDeliveryAttempt(
-                delivery_id=delivery.id,
-                attempt_no=1,
-                status="accepted",
-                response_ref="max-1",
-            )
-        )
-        db.session.add(
-            LimitDeliveryPart(
-                delivery_id=delivery.id,
-                part_no=1,
-                content="old message",
-                status="accepted",
-            )
-        )
         db.session.commit()
         with open(old_path, "ab") as stream:
             stream.write(b"source exists")
@@ -632,18 +476,6 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         self.assertIsNone(db.session.get(LimitVersion, old.id))
         self.assertFalse(os.path.exists(old_path))
         self.assertIsNotNone(db.session.get(LimitObject, obj.id))
-        self.assertIsNotNone(
-            LimitSubscription.query.filter_by(
-                recipient_id=recipient.id, dataset_id=self.dataset_id, uin=obj.uin
-            ).one()
-        )
-        self.assertFalse(
-            LimitDelivery.query.filter_by(version_id=old.id).first()
-        )
-        self.assertFalse(
-            LimitDeliveryAttempt.query.filter_by(delivery_id=delivery.id).first()
-        )
-        self.assertFalse(LimitDeliveryPart.query.filter_by(delivery_id=delivery.id).first())
         self.assertFalse(
             LimitComparison.query.filter(
                 (LimitComparison.old_version_id == old.id)
@@ -651,24 +483,6 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
             ).first()
         )
         self.assertIsNone(db.session.get(LimitVersion, other.id).previous_version_id)
-
-    def test_queued_eviction_is_blocked_without_partial_commit(self):
-        accepted, candidate, _ = self._direct_rotation_fixture("queued")
-        current_id = self._dataset().current_version_id
-        with self.assertRaises(LimitsError):
-            accept_version(candidate.id, self.admin_id)
-        self.assertEqual(current_id, self._dataset().current_version_id)
-        self.assertEqual("review", db.session.get(LimitVersion, candidate.id).status)
-        self.assertEqual(10, LimitVersion.query.filter_by(status="accepted").count())
-
-    def test_unknown_eviction_is_blocked_without_partial_commit(self):
-        accepted, candidate, _ = self._direct_rotation_fixture("unknown")
-        current_id = self._dataset().current_version_id
-        with self.assertRaises(LimitsError):
-            accept_version(candidate.id, self.admin_id)
-        self.assertEqual(current_id, self._dataset().current_version_id)
-        self.assertEqual("review", db.session.get(LimitVersion, candidate.id).status)
-        self.assertEqual(10, LimitVersion.query.filter_by(status="accepted").count())
 
     def test_stale_comparison_is_rejected_after_concurrent_accept(self):
         first, _, obj = self._direct_rotation_fixture()

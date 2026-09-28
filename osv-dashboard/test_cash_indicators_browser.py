@@ -27,6 +27,7 @@ SNAPSHOTS = (
     'cash-table-partial.png',
     'cash-modal-narrow.png',
 )
+CASH_TABLE_SNAPSHOT_WIDTH = 932
 
 
 def snapshot(date, value, accounts):
@@ -288,7 +289,14 @@ def main():
 
             open_cash(card(['50', '51', '52', '55']))
             full_path = actual_dir / SNAPSHOTS[0]
-            page.locator('.cash-table-scroll').screenshot(path=str(full_path))
+            full_table = page.locator('.cash-table-scroll')
+            # Compare the table at the reference's original content width.
+            # The modal itself now fills its iframe, so an unconstrained
+            # element screenshot depends on the browser viewport width.
+            full_table.evaluate(
+                '(element, width) => { element.style.width = `${width}px`; }',
+                CASH_TABLE_SNAPSHOT_WIDTH)
+            full_table.screenshot(path=str(full_path))
             assert_matches(full_path, REFERENCES / SNAPSHOTS[0],
                            args.update_snapshots)
 

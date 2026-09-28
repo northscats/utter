@@ -40,9 +40,9 @@ MODULES = {
     },
     'limit_notifications': {
         'key': 'limit_notifications',
-        'name': 'Оповещение о лимитах',
-        'description': 'Контроль лимитов и уведомления об их увеличении.',
-        'icon': 'bell',
+        'name': 'Лимиты',
+        'description': 'История срезов лимитов, реестр объектов и сравнение версий.',
+        'icon': 'chart',
         'endpoint': 'limit_notifications',
         'exact_paths': ('/limit-notifications',),
         'path_prefixes': ('/limit-notifications/',),

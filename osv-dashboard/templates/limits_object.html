@@ -1,6 +1,6 @@
-{% extends "modules.html" %}
+{% extends "limits_base.html" %}
 {% block title %}{{ object.uin }}{% endblock %}
-{% block content %}
+{% block limits_content %}
 <a class="back" href="{{ url_for('limit_objects', dataset_id=object.dataset_id) }}">← К реестру</a>
 <div class="eyebrow">Карточка объекта</div>
 <h1><span class="font-mono text-blue">{{ object.uin }}</span></h1>
@@ -149,7 +149,7 @@
       {% else %}
       <h2>Данные актуального среза отсутствуют</h2>
       <div class="notice warning">
-        Принятых версий сейчас нет. Карточка сохраняет УИН и действующие подписки,
+        Принятых версий сейчас нет. Карточка сохраняет УИН,
         но строки мероприятий, финансирование и сроки станут доступны только после
         загрузки и принятия нового среза.
       </div>
@@ -195,60 +195,10 @@
     {% endif %}
   </div>
 
-  <div class="side-col">
-    <section class="panel">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
-        <h2 style="margin:0">Подписчики ({{ subscriptions|length }})</h2>
-      </div>
-      <p class="text-sm text-mut" style="margin-top:-8px; margin-bottom: 16px;">Активные получатели уведомлений в MAX.</p>
-      
-      <ul class="subscribers-list">
-        {% for sub in subscriptions %}
-          <li>
-            <div class="sub-avatar">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
-            </div>
-            <div class="sub-info">
-              <b>{{ sub.recipient.surname_initials or ('ID: ' ~ sub.recipient.max_user_id) }}</b>
-              <span class="text-mut">{{ sub.recipient.organization_inn or 'Организация не указана' }}</span>
-              {% if current_user.is_admin and sub.recipient.phone %}
-                <span class="text-mut">{{ sub.recipient.phone }}</span>
-              {% endif %}
-            </div>
-          </li>
-        {% else %}
-          <li class="text-mut text-sm">Нет активных подписок.</li>
-        {% endfor %}
-      </ul>
-      
-      {% if current_user.is_admin and dataset.current_version_id %}
-      <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);">
-        <a class="btn-primary" style="width:100%; text-align:center" href="{{ url_for('limit_manual_message', object_id=object.id) }}">Создать ручное сообщение</a>
-      </div>
-      {% endif %}
-    </section>
-
-    {% if messages %}
-    <section class="panel">
-      <h2>Сообщения</h2>
-      <div class="messages-list">
-        {% for msg in messages %}
-          <div class="msg-card">
-            <div class="msg-header">
-              <span class="badge {{ 'success' if msg.status == 'accepted' else 'warning' if msg.status in ('queued','retry') else 'danger' }}">{{ msg.status }}</span>
-              <span class="text-mut text-sm">{{ msg.created_at.strftime('%d.%m.%Y %H:%M') if msg.created_at else '' }}</span>
-            </div>
-            <div class="msg-content">{{ msg.content|truncate(100) }}</div>
-          </div>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
-  </div>
 </div>
 
 <style>
-.layout-grid { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+.layout-grid { display: grid; grid-template-columns: 1fr; gap: 24px; align-items: start; }
 @media (max-width: 900px) { .layout-grid { grid-template-columns: 1fr; } }
 
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; margin: 0 0 24px; box-shadow: 0 4px 12px rgba(36, 52, 71, 0.02); padding: 24px; }

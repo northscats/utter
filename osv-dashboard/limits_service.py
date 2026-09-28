@@ -1,14 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Transactional application service for the GИС РЭБ limits module.
-
-The parser and MAX adapter are deliberately kept at the edges.  This module
-owns durable state only and can therefore be exercised with a SQLite Flask
-context and a fake MAX transport.
-"""
+"""Transactional application service for the GИС РЭБ limits module."""
 import hashlib
 import json
 import os
-import re
 import shutil
 import uuid
 import threading
@@ -20,14 +14,12 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from database import (
-    LimitBotDialog, LimitBotOutbound, LimitChange, LimitComparison, LimitComparisonResolution,
-    LimitDataset, LimitDelivery, LimitDeliveryAttempt, LimitDeliveryPart, LimitMaxEvent,
-    LimitModerationRequest, LimitObject, LimitRecipient, LimitRowSnapshot,
-    LimitSubscription, LimitVersion, LimitVersionTombstone, Setting, db, utcnow,
+    LimitChange, LimitComparison, LimitComparisonResolution, LimitDataset,
+    LimitObject, LimitRowSnapshot, LimitVersion, LimitVersionTombstone, Setting,
+    db, utcnow,
 )
 
 MAX_HISTORY = 10
-MAX_ATTEMPTS = 5
 _service_lock = threading.RLock()
 
 
@@ -113,17 +105,10 @@ def rename_legacy_limits_dataset():
         return False
 
     dataset = None
-    configured_id = str(Setting.get('limits_bot_dataset_id', '') or '').strip()
-    if configured_id.isdigit():
-        candidate = db.session.get(LimitDataset, int(configured_id))
-        if (candidate is not None and candidate.name == '1'
-                and candidate.current_version_id == 22):
-            dataset = candidate
-    if dataset is None:
-        candidates = LimitDataset.query.filter_by(
-            name='1', current_version_id=22).limit(2).all()
-        if len(candidates) == 1:
-            dataset = candidates[0]
+    candidates = LimitDataset.query.filter_by(
+        name='1', current_version_id=22).limit(2).all()
+    if len(candidates) == 1:
+        dataset = candidates[0]
 
     if (dataset is not None and dataset.name == '1'
             and dataset.current_version_id == 22):
@@ -319,27 +304,9 @@ def _unresolved(comparison):
     return _json(comparison.issues_json, [])
 
 
-def _delivery_text(version, obj, changes):
-    from limits_views import display_value
-    lines = [f'Изменения лимитов по УИН {obj.uin}', f'Срез: {version.source_date:%d.%m.%Y}',
-             'Денежные показатели — тыс. руб.; прочерк и пустота не равны нулю.']
-    financial = [change for change in changes if change.category in (
-        'annual_funding', 'funding_snapshot', 'limit_cost')]
-    for change in financial + [x for x in changes if x not in financial]:
-        lines.append(f'• {change.field_label or change.field_key}: '
-                      f'{display_value(change.old_json)} → {display_value(change.new_json)}')
-        source = _json(change.source_json, {})
-        if source.get('old_cell') or source.get('new_cell'):
-            lines.append(f'  Ячейки: {source.get("old_cell") or "—"} → {source.get("new_cell") or "—"}')
-        if source.get('kind') == 'row_transferred':
-            lines.append(f'  Коды: {display_value(source.get("old_programme"))} → '
-                         f'{display_value(source.get("new_programme"))}')
-    return '\n'.join(lines)
-
-
 @_serialized
 def accept_version(version_id, user_id):
-    """Publish atomically; all delivery records are inserted before commit."""
+    """Publish the reviewed financial snapshot atomically."""
     version = db.session.get(LimitVersion, version_id)
     if not version or version.status != 'review':
         raise LimitsError('К принятию доступна только проверенная версия.')
@@ -360,15 +327,6 @@ def accept_version(version_id, user_id):
             raise LimitsError('Есть неразрешённые неоднозначности сопоставления.')
     accepted = LimitVersion.query.filter_by(dataset_id=dataset.id, status='accepted')\
         .order_by(LimitVersion.accepted_at.asc(), LimitVersion.id.asc()).all()
-    if len(accepted) >= MAX_HISTORY:
-        evicted = accepted[0]
-        pending = LimitDelivery.query.filter(
-            LimitDelivery.version_id == evicted.id,
-            ~LimitDelivery.status.in_(('accepted', 'cancelled'))).count()
-        if pending:
-            raise LimitsError(
-                'Нельзя вытеснить 11-ю версию: завершите или явно отмените '
-                'retry/error/неопределённые задания очереди.')
     version.previous_version_id = dataset.current_version_id
     version.status = 'accepted'
     version.accepted_by = user_id
@@ -400,21 +358,10 @@ def accept_version(version_id, user_id):
         for change in LimitChange.query.filter_by(comparison_id=comparison.id).all():
             change.object_id = objects[change.uin].id
         db.session.flush()
-    if comparison:  # A first baseline intentionally produces no mass delivery.
-        for object_id in {change.object_id for change in LimitChange.query.filter_by(
-                comparison_id=comparison.id).all() if change.object_id}:
-            obj = db.session.get(LimitObject, object_id)
-            changes = LimitChange.query.filter_by(comparison_id=comparison.id, object_id=object_id).all()
-            for sub in LimitSubscription.query.filter_by(dataset_id=dataset.id, uin=obj.uin,
-                                                         is_active=True).all():
-                recipient = db.session.get(LimitRecipient, sub.recipient_id)
-                if (recipient and recipient.access_status == 'approved' and not recipient.stopped_at
-                        and recipient.consent_granted_at):
-                    db.session.add(LimitDelivery(
-                        version_id=version.id, object_id=obj.id, recipient_id=recipient.id,
-                        content=_delivery_text(version, obj, changes)))
     if len(accepted) >= MAX_HISTORY:
         _purge_version_data(accepted[0], manual=False)
+    from max_limits import queue_accepted_changes
+    queue_accepted_changes(version, comparison)
     db.session.commit()
     cleanup_purged_files()
     return version
@@ -500,13 +447,6 @@ def _publish_manual_tombstone(tombstone):
 
 def _purge_version_data(version, manual=False):
     """Delete materialisations and record filesystem intent in caller transaction."""
-    unfinished = LimitDelivery.query.filter(
-        LimitDelivery.version_id == version.id,
-        ~LimitDelivery.status.in_(('accepted', 'cancelled'))).count()
-    if unfinished:
-        raise LimitsError(
-            'Нельзя очистить версию: очередь содержит retry/error/неопределённые '
-            'результаты. Отмените их явной административной операцией.')
     source_path = version.source_path
     comparisons = LimitComparison.query.filter(
         (LimitComparison.old_version_id == version.id) |
@@ -515,10 +455,6 @@ def _purge_version_data(version, manual=False):
         LimitComparisonResolution.query.filter_by(comparison_id=comparison.id).delete()
         LimitChange.query.filter_by(comparison_id=comparison.id).delete()
         db.session.delete(comparison)
-    for delivery in LimitDelivery.query.filter_by(version_id=version.id).all():
-        LimitDeliveryAttempt.query.filter_by(delivery_id=delivery.id).delete()
-        LimitDeliveryPart.query.filter_by(delivery_id=delivery.id).delete()
-        db.session.delete(delivery)
     LimitRowSnapshot.query.filter_by(version_id=version.id).delete()
     LimitObject.query.filter_by(last_seen_version_id=version.id).update(
         {LimitObject.last_seen_version_id: None}, synchronize_session=False)
@@ -587,7 +523,7 @@ def cleanup_temporary_versions(hours=72):
 
 @_serialized
 def reconcile_history_window():
-    """Recovery gate: do not expose history/send queues before rotation is sane."""
+    """Enforce the retained financial-version history window on recovery."""
     blocked = []
     for dataset in LimitDataset.query.all():
         accepted = LimitVersion.query.filter_by(dataset_id=dataset.id, status='accepted')\
@@ -600,74 +536,6 @@ def reconcile_history_window():
                 break
             accepted.pop(0)
     return blocked
-
-
-def valid_inn(inn):
-    digits = re.sub(r'\D', '', inn or '')
-    if len(digits) not in (10, 12):
-        return False
-    def control(values, weights):
-        return str(sum(int(x) * y for x, y in zip(values, weights)) % 11 % 10)
-    if len(digits) == 10:
-        return control(digits[:9], (2, 4, 10, 3, 5, 9, 4, 6, 8)) == digits[9]
-    return (control(digits[:10], (7, 2, 4, 10, 3, 5, 9, 4, 6, 8)) == digits[10]
-            and control(digits[:11], (3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8)) == digits[11])
-
-
-def revoke_subscription(recipient_id, dataset_id, uin):
-    subscription = LimitSubscription.query.filter_by(
-        recipient_id=recipient_id, dataset_id=dataset_id, uin=uin, is_active=True).first()
-    if not subscription:
-        raise LimitsError('Активная подписка не найдена.')
-    subscription.is_active, subscription.revoked_at = False, utcnow()
-    db.session.commit()
-
-
-def manual_delivery_preview(object_id, content=''):
-    obj = db.session.get(LimitObject, object_id)
-    if not obj:
-        raise LimitsError('Объект не найден.')
-    version_id = obj.dataset.current_version_id
-    if not version_id:
-        raise LimitsError('Для набора ещё не принята актуальная версия.')
-    recipients = []
-    for subscription in LimitSubscription.query.filter_by(
-            dataset_id=obj.dataset_id, uin=obj.uin, is_active=True).all():
-        recipient = db.session.get(LimitRecipient, subscription.recipient_id)
-        if (recipient and recipient.access_status == 'approved' and not recipient.stopped_at
-                and recipient.consent_granted_at):
-            recipients.append(recipient)
-    return obj, db.session.get(LimitVersion, version_id), recipients, content.strip()
-
-
-@_serialized
-def queue_manual_object_message(object_id, content, expected_version_id=None,
-                                expected_recipient_ids=None, campaign_key=None):
-    obj, version, recipients, content = manual_delivery_preview(object_id, content)
-    db.session.query(LimitDataset).filter_by(id=obj.dataset_id).populate_existing().with_for_update().one()
-    obj, version, recipients, content = manual_delivery_preview(object_id, content)
-    if not content:
-        raise LimitsError('Введите текст сообщения.')
-    if expected_version_id is not None and expected_version_id != version.id:
-        raise LimitsError('Актуальная версия изменилась. Повторите предпросмотр.')
-    if expected_recipient_ids is not None and set(expected_recipient_ids) != {r.id for r in recipients}:
-        raise LimitsError('Список адресатов изменился. Повторите предпросмотр.')
-    campaign_key = 'manual:' + str(campaign_key or uuid.uuid4().hex)
-    created = 0
-    for recipient in recipients:
-        delivery = LimitDelivery.query.filter_by(
-            version_id=version.id, object_id=obj.id, recipient_id=recipient.id,
-            campaign_key=campaign_key).first()
-        if delivery:
-            # A version/object/recipient has one journaled package; a manual
-            # dispatch must not overwrite an accepted automatic notification.
-            continue
-        db.session.add(LimitDelivery(
-            version_id=version.id, object_id=obj.id, recipient_id=recipient.id,
-            content=content, campaign_key=campaign_key))
-        created += 1
-    db.session.commit()
-    return created
 
 
 def export_comparison(comparison_id):

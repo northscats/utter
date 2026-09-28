@@ -1,0 +1,54 @@
+<section class="max-panel">
+  <h2>Реестр пользователей{% if users %} · {{ users.total }}{% endif %}</h2>
+  {% if not current_user.is_admin %}
+  <p>Просмотр персональных данных и удаление пользователей доступны администратору.</p>
+  {% else %}
+  <form class="max-toolbar" method="get" action="{{ url_for('max_limits') }}">
+    <label for="max-user-search">Поиск</label>
+    <input id="max-user-search" name="q" value="{{ users.search }}" placeholder="ФИО, телефон или ID MAX">
+    <button type="submit">Найти</button>
+    {% if users.search %}<a href="{{ url_for('max_limits') }}">Сбросить</a>{% endif %}
+  </form>
+  <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse" class="max-users-table">
+      <thead><tr><th>ID MAX</th><th>ФИО</th><th>Телефон</th><th>Статус</th><th>Одобренные УИН</th><th>Действие</th></tr></thead>
+      <tbody>
+      {% for user in users.rows %}
+      <tr>
+        <td>{{ user.user_id }}</td><td>{{ user.name or 'Не указано' }}</td>
+        <td>{{ user.phone or 'Не указан' }}</td><td>{{ user.status }}</td>
+        <td>{% for uin in user.approved %}<div>{{ uin }}</div>{% else %}—{% endfor %}</td>
+        <td>
+          <details><summary>Удалить пользователя</summary>
+            <p>Удалить из реестра и отключить доступ? Все подписки будут отключены, ожидающие заявки и уведомления отменены. Повторная регистрация потребует нового одобрения.</p>
+            <form method="post" action="{{ url_for('max_limits_user_delete', user_id=user.user_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="confirm" value="yes">
+              <button type="submit">Да, удалить</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">{{ 'По запросу никто не найден.' if users.search else 'Пользователей пока нет.' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if users.pages > 1 %}
+  <nav aria-label="Страницы реестра" class="max-toolbar">
+    {% if users.page > 1 %}<a href="{{ url_for('max_limits', page=users.page-1, q=users.search) }}">Назад</a>{% endif %}
+    <span>Страница {{ users.page }} из {{ users.pages }}</span>
+    {% if users.page < users.pages %}<a href="{{ url_for('max_limits', page=users.page+1, q=users.search) }}">Далее</a>{% endif %}
+  </nav>
+  {% endif %}
+  <p>Удаление отключает доступ к боту, но не удаляет аккаунт MAX и уже отправленные сообщения.</p>
+  {% endif %}
+</section>
+<style>
+.max-users-table th,.max-users-table td{padding:12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+.max-users-table th{color:var(--mut);font-size:13px}
+.max-users-table summary{color:#b42318;cursor:pointer;min-width:140px}
+.max-users-table details p{max-width:300px;min-width:210px}
+.max-toolbar input{padding:9px 12px;border:1px solid var(--line);border-radius:7px;font:inherit;max-width:100%}
+</style>

@@ -26,7 +26,6 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       SCRIPT_NAME: ${SCRIPT_NAME:-/osv}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-      LIMITS_MAX_WEBHOOK_URL: ${LIMITS_MAX_WEBHOOK_URL:?Задайте канонический HTTPS-адрес webhook MAX}
       PORT: 8080
     volumes:
       - uploads_data:/app/uploads

@@ -1,0 +1,10 @@
+{% extends "modules.html" %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='limits_premium.css', v='20260928-1') }}">
+{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
+{% block content %}
+<div class="lp lp-endpoint-{{ (request.endpoint or 'none')|replace('_','-') }}">
+  {% block limits_content %}{% endblock %}
+</div>
+{% endblock %}

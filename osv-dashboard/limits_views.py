@@ -9,8 +9,8 @@ from collections import defaultdict
 from sqlalchemy import or_
 
 from database import (
-    LimitChange, LimitComparison, LimitDataset, LimitDelivery, LimitObject,
-    LimitRowSnapshot, LimitSubscription, LimitVersion, db,
+    LimitChange, LimitComparison, LimitDataset, LimitObject, LimitRowSnapshot,
+    LimitVersion, db,
 )
 
 
@@ -63,11 +63,6 @@ def objects_context(dataset, args):
                                  LimitObject.address.ilike(like)))
     if args.get('present') in ('0', '1'):
         query = query.filter_by(is_present=args['present'] == '1')
-    subscription_uins = db.session.query(LimitSubscription.uin).filter_by(
-        dataset_id=dataset.id, is_active=True)
-    if args.get('subscribers') in ('0', '1'):
-        condition = LimitObject.uin.in_(subscription_uins)
-        query = query.filter(condition if args['subscribers'] == '1' else ~condition)
     version = db.session.get(LimitVersion, dataset.current_version_id) if dataset.current_version_id else None
     snapshot = decode(version.snapshot_json, {}) if version else {}
     columns = snapshot.get('columns', [])
@@ -185,17 +180,11 @@ def object_context(obj, version_id=None):
         for change in LimitChange.query.filter(
                 LimitChange.comparison_id.in_(comparison_map), LimitChange.uin == obj.uin).all():
             grouped[comparison_map[change.comparison_id].new_version_id].append(change)
-    messages = LimitDelivery.query.filter(
-        LimitDelivery.object_id == obj.id, LimitDelivery.version_id.in_(version_ids)
-    ).order_by(LimitDelivery.created_at.desc()).all()
     return dict(
         object=obj, dataset=dataset, versions=versions, selected_version=selected,
         current_rows=current_rows, conflicts=conflicts,
         snapshots=LimitRowSnapshot.query.filter(
             LimitRowSnapshot.object_id == obj.id,
             LimitRowSnapshot.version_id.in_(version_ids)).all(),
-        subscriptions=LimitSubscription.query.filter_by(
-            dataset_id=obj.dataset_id, uin=obj.uin, is_active=True).all(),
         history=[{'version': v, 'changes': grouped[v.id]} for v in versions],
-        messages=messages,
     )

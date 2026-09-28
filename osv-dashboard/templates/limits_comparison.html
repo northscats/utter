@@ -1,6 +1,6 @@
-{% extends "modules.html" %}
+{% extends "limits_base.html" %}
 {% block title %}Сравнение лимитов — {{ comparison.id }}{% endblock %}
-{% block content %}
+{% block limits_content %}
 <style>
   .changes-table { table-layout:fixed; }
   .changes-table th:nth-child(1) { width:28%; }
@@ -115,7 +115,7 @@
 {% if issues %}
 <section class="panel issue-panel">
   <h2 class="text-danger">Неоднозначности сопоставления ({{ issues|length }})</h2>
-  <p class="text-mut" style="margin-top:-10px; margin-bottom: 20px;">Требуется ручное решение для корректной генерации уведомлений.</p>
+  <p class="text-mut" style="margin-top:-10px; margin-bottom: 20px;">Требуется ручное решение для корректного сопоставления строк.</p>
   
   <div class="issues-list">
     {% for issue in issues %}

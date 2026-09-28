@@ -1,9 +1,8 @@
-{% extends "modules.html" %}
-{% block title %}Оповещение о лимитах{% endblock %}
+{% extends "limits_base.html" %}
+{% block title %}Лимиты{% endblock %}
 {% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
-{% block content %}
-<div class="eyebrow">ГИС РЭБ · Версии XLSX</div>
-<h1>Оповещение о лимитах</h1>
+{% block limits_content %}
+<h1>Лимиты</h1>
 <p class="lead">История хранит 10 последних принятых версий.</p>
 {% include "limits_nav.html" %}
 
@@ -19,33 +18,20 @@
 
 <div class="stats">
   <div>
+    <b>{{ current_objects if dataset and dataset.current_version_id else '—' }}</b>
+    <span>объектов в актуальном срезе</span>
+  </div>
+  <div>
+    <b>{{ versions | selectattr('status', 'equalto', 'accepted') | list | length if dataset else '—' }}</b>
+    <span>принятых версий в истории</span>
+  </div>
+  <div>
     <b>{{ changes }}</b>
     <span>изменений в истории</span>
-  </div>
-  <div>
-    <b>{{ queued }}</b>
-    <span>ожидают отправки</span>
-  </div>
-  <div>
-    <b>{{ max_errors }}</b>
-    <span>ошибок очереди</span>
-  </div>
-  <div>
-    <b>
-      {% if max_enabled %}
-        MAX активен
-      {% elif max_connected %}
-        MAX подключается повторно
-      {% else %}
-        MAX не подключён
-      {% endif %}
-    </b>
-    <span>статус платформы MAX</span>
   </div>
 </div>
 
 {% if current_user.is_admin %}
-<p><a class="btn-outline" href="{{ url_for('limit_max_journal') }}">Очередь бота и ошибки модерации MAX</a></p>
 <section class="panel">
   <h2>Новый набор отчётности</h2>
   <form class="flex-form" method="post" action="{{ url_for('limit_dataset_create') }}">
@@ -68,10 +54,6 @@
     </div>
     <div class="panel-actions">
       <a class="btn btn-outline" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Реестр объектов</a>
-      {% if current_user.is_admin %}
-      <a class="btn btn-outline" href="{{ url_for('limit_delivery_journal', dataset_id=dataset.id) }}">Журнал уведомлений</a>
-      <a class="btn btn-outline" href="{{ url_for('limit_subscribers', dataset_id=dataset.id) }}">Подписчики</a>
-      {% endif %}
     </div>
   </div>
 

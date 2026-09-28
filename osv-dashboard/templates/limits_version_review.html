@@ -1,6 +1,6 @@
-{% extends "modules.html" %}
+{% extends "limits_base.html" %}
 {% block title %}Проверка версии лимитов #{{ version.id }}{% endblock %}
-{% block content %}
+{% block limits_content %}
 <a class="back" href="{{ url_for('limit_notifications',dataset=dataset.id) }}">← {{ dataset.name }}</a>
 <h1>Проверка версии #{{ version.id }}</h1>
 <p>Срез {{ version.source_date }} · {{ 'Уже принят' if version.status=='accepted' else 'Ещё не принят: текущий реестр не изменён' }}</p>
@@ -23,7 +23,7 @@
 <p><a href="{{ url_for('limit_comparison_view',comparison_id=comparison.id) }}">Проверить «было / стало», исходные ячейки и неоднозначности</a></p>
 {% if comparison.status!='ready' %}<p style="color:#a52626">Есть неразрешённые неоднозначности. Принятие заблокировано.</p>{% endif %}
 {% elif not dataset.current_version_id or dataset.current_version_id==version.id %}
-<p>Первоначальная база сравнения. Массовых уведомлений о новых объектах не будет.</p>
+<p>Первоначальная база сравнения.</p>
 {% else %}
 <p>Сначала сравните эту загрузку с актуальной версией.</p>
 <form method="post" action="{{ url_for('limit_compare',version_id=version.id) }}">
@@ -39,7 +39,7 @@
 <form method="post" action="{{ url_for('limit_version_accept',version_id=version.id) }}" style="margin-top:24px">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <label><input type="checkbox" name="confirm" value="1" required> Проверил количества, область охвата и изменения. Подтверждаю принятие версии.</label>
-  <p>Принятие обновит реестр и поставит уведомления подписчикам в очередь. Без подключения MAX отправки не выполняются.</p>
+  <p>Принятие обновит реестр объектов и историю изменений.</p>
   <button {% if comparison and comparison.status!='ready' or not comparison and dataset.current_version_id %}disabled{% endif %}>Подтвердить принятие</button>
 </form>
 {% endif %}

@@ -34,10 +34,33 @@ COUNT_TABLES = (
     "analog_imports",
     "limit_datasets", "limit_versions", "limit_objects", "limit_row_snapshots",
     "limit_version_tombstones",
-    "limit_comparisons", "limit_changes", "limit_recipients",
-    "limit_subscriptions", "limit_moderation_requests", "limit_bot_outbound",
-    "limit_deliveries",
+    "limit_comparisons", "limit_changes",
+    "max_limits_subscriptions", "max_limits_outbox", "max_limits_cursors",
+    "max_limits_profiles", "max_limits_uins", "max_limits_applications",
 )
+# Older manifests and PostgreSQL dumps may still contain the retired bot
+# tables. They are intentionally never merged into the live data again.
+RETIRED_LIMIT_TABLES = (
+    "telegram_limits_subscriptions", "telegram_limits_outbox",
+    "telegram_limits_cursors",
+    "daily_reconciliation_alert_deliveries", "limit_delivery_attempts",
+    "limit_delivery_parts", "limit_bot_dialogs", "limit_subscriptions",
+    "limit_max_events", "limit_deliveries", "limit_bot_outbound",
+    "limit_moderation_requests", "limit_recipients",
+)
+RETIRED_LIMIT_MODELS = {
+    "TelegramLimitsSubscription", "TelegramLimitsOutbox",
+    "TelegramLimitsCursor",
+    "DailyReconciliationAlertDelivery", "LimitDeliveryAttempt",
+    "LimitDeliveryPart", "LimitBotDialog", "LimitSubscription",
+    "LimitMaxEvent", "LimitDelivery", "LimitBotOutbound",
+    "LimitModerationRequest", "LimitRecipient",
+}
+
+
+def _active_models(models):
+    return tuple(model for model in models
+                 if model.__tablename__ not in RETIRED_LIMIT_TABLES)
 _BACKUP_LOCK = threading.Lock()
 _LIMIT_TOMBSTONE_LOCK = threading.Lock()
 LIMIT_TOMBSTONES_KEY = f"{ROOT}/limit-version-tombstones.json"
@@ -258,6 +281,7 @@ def _encoded(value):
 
 
 def _snapshot_rows(models):
+    models = _active_models(models)
     return {
         model.__name__: [
             {column.name: _encoded(getattr(row, column.name))
@@ -382,6 +406,7 @@ def _write_table_chunks(store, snapshot_prefix, model_name, rows,
 
 def _snapshot_table_chunks(db, store, snapshot_prefix, models):
     """Read one consistent DB snapshot and upload bounded table objects."""
+    models = _active_models(models)
     table_chunks = {}
     table_ids = {}
     table_row_counts = {}
@@ -566,6 +591,7 @@ def _removed_snapshot_tables(previous, current, models):
 def backup(db, uploads_root, output_root, models, reason,
            allow_removals=False, allowed_removed_tables=()):
     """Create an immutable snapshot, promoting latest only after validation."""
+    models = _active_models(models)
     with _BACKUP_LOCK:
         store = _store()
         snapshot_id = _snapshot_id()
@@ -596,7 +622,12 @@ def backup(db, uploads_root, output_root, models, reason,
             fd, dump_path = tempfile.mkstemp(prefix="osv_", suffix=".dump")
             os.close(fd)
             try:
+                # SQL dumps are archival only: restore() merges the JSON table
+                # chunks, never executes an old database_object/pg_restore.
+                # An operator manually restoring an old dump must run the
+                # idempotent schema migration before serving requests.
                 _run(["pg_dump", "--no-password", "--format=custom",
+                      *[f"--exclude-table={table}" for table in RETIRED_LIMIT_TABLES],
                       "--file", dump_path],
                      _pg_environment(db.engine.url))
                 dump_key = f"{snapshot_prefix}/database.dump"
@@ -886,6 +917,7 @@ def _database_limit_tombstones(db):
     } for row in LimitVersionTombstone.query.all()]
 def _restore_json(db, manifest, models, include_parents=True,
                   external_tombstones=None, store=None):
+    models = _active_models(models)
     restored = skipped = conflicts = 0
     deferred_limit_heads = []
     tombstoned_object_ids = set()
@@ -916,8 +948,7 @@ def _restore_json(db, manifest, models, include_parents=True,
     # This makes a populated deployment restore newly added modules promptly.
     ordered_models = sorted(
         models, key=lambda model: fully_present[model.__name__])
-    (tombstoned_versions, tombstoned_comparisons,
-     tombstoned_deliveries) = _limit_tombstone_sets(
+    tombstoned_versions, tombstoned_comparisons = _limit_tombstone_sets(
          manifest, db, external_tombstones, store=store)
     # Persist sidecar markers into the recovered database as well.  Otherwise
     # a later backup would lose the only evidence that an older manifest must
@@ -963,7 +994,7 @@ def _restore_json(db, manifest, models, include_parents=True,
                 tombstoned_object_ids.add(row_id)
             if _restore_row_blocked(
                     model.__name__, values, tombstoned_versions,
-                    tombstoned_comparisons, tombstoned_deliveries):
+                     tombstoned_comparisons):
                 skipped += 1
                 checkpoint()
                 continue
@@ -1163,6 +1194,7 @@ def _restore_files(store, manifest, uploads_root, output_root,
 
 def restore(db, uploads_root, output_root, models, after_database=None):
     """Safely merge missing protected rows/files; never overwrite live data."""
+    models = _active_models(models)
     store = _store()
     pointer = store.get_json(LATEST_KEY)
     if not pointer:
@@ -1227,7 +1259,7 @@ def _restore_limit_object_from_head(obj, version):
     obj.address = " / ".join(addresses)
 
 def _restore_row_blocked(model_name, values, version_ids,
-                         comparison_ids, delivery_ids):
+                          comparison_ids):
     """Keep all materialisations whose required version was deleted."""
     if model_name == "LimitVersion" and values.get("id") in version_ids:
         return True
@@ -1239,8 +1271,6 @@ def _restore_row_blocked(model_name, values, version_ids,
             or values.get("new_version_id") in version_ids):
         return True
     if values.get("comparison_id") in comparison_ids:
-        return True
-    if values.get("delivery_id") in delivery_ids:
         return True
     return False
 
@@ -1306,12 +1336,7 @@ def _limit_tombstone_sets(manifest, db, external_tombstones=None, store=None):
             row.get("old_version_id") in version_ids
             or row.get("new_version_id") in version_ids)
     }
-    delivery_ids = {
-        row.get("id")
-        for row in _table_rows_from_manifest(store, manifest, "LimitDelivery")
-        if row.get("id") is not None and row.get("version_id") in version_ids
-    }
-    return version_ids, comparison_ids, delivery_ids
+    return version_ids, comparison_ids
 
 def _limit_version_matches_tombstone(values, marker):
     marker_sha = str(marker.get("source_sha256") or "")

@@ -1,6 +1,6 @@
-{% extends "modules.html" %}
-{% block title %}Оповещение о лимитах недоступно{% endblock %}
-{% block content %}
+{% extends "limits_base.html" %}
+{% block title %}Лимиты недоступны{% endblock %}
+{% block limits_content %}
 <a class="back" href="{{ url_for('modules_dashboard') }}">← Все модули</a>
 <div class="empty">
   <div class="ico" style="background: #ffebee; color: #c62828;">

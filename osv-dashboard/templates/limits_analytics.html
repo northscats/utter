@@ -1,0 +1,89 @@
+{% extends "limits_base.html" %}
+{% block title %}Лимиты · Дашборд{% endblock %}
+{% block header_actions %}{% include "limits_header_actions.html" %}{% endblock %}
+{% block limits_content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='limits_analytics.css', v='1') }}">
+<div class="eyebrow">ГИС РЭБ · Аналитика версий</div>
+<h1>Лимиты</h1>
+<p class="lead">Динамика финансовых показателей по принятым версиям и структура последних изменений.</p>
+{% include "limits_nav.html" %}
+
+{% if datasets %}
+<form class="la-toolbar" method="get" action="{{ url_for('limit_dashboard') }}">
+  <label for="la-dataset">Набор отчётности</label>
+  <select id="la-dataset" name="dataset" onchange="this.form.submit()">
+    {% for d in datasets %}<option value="{{ d.id }}" {% if dataset and d.id == dataset.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+  </select>
+  <noscript><button class="btn btn-outline" type="submit">Показать</button></noscript>
+  {% if dataset %}
+  <span class="la-spacer"></span>
+  <a class="btn btn-outline" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Реестр объектов</a>
+  <a class="btn btn-outline" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">Версии и сравнения</a>
+  {% endif %}
+</form>
+{% endif %}
+
+{% if not dataset %}
+<section class="empty"><h2>Нет наборов отчётности</h2><p>Создайте набор и загрузите первый XLSX на вкладке «Обзор и загрузки».</p>
+<a class="btn btn-primary" href="{{ url_for('limit_notifications') }}">Перейти к загрузкам</a></section>
+{% elif not dashboard or not dashboard.has_data %}
+<section class="empty"><h2>Пока нечего анализировать</h2><p>В наборе «{{ dataset.name }}» нет принятых версий. Дашборд появится после принятия первой загрузки.</p>
+<a class="btn btn-primary" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">Загрузить и принять версию</a></section>
+{% else %}
+{% set ch = dashboard.changes %}
+<div class="la-kpis">
+  <div class="la-kpi"><span>Текущая версия</span><b>{{ dashboard.current_label or '—' }}</b><small>{{ dashboard.versions|length }} принят{{ 'ая версия' if dashboard.versions|length == 1 else 'ых версий' }} в истории</small></div>
+  <div class="la-kpi"><span>Объектов в срезе</span><b>{{ dashboard.current_objects if dashboard.current_objects is not none else '—' }}</b><small>по текущей принятой версии</small></div>
+  <div class="la-kpi"><span>Изменения к предыдущей</span><b>{{ ch.total if ch and ch.available else '—' }}</b><small>{% if ch and ch.available %}{{ ch.objects }} объектов затронуто{% else %}сравнение недоступно{% endif %}</small></div>
+</div>
+
+<section class="panel la-panel">
+  <div class="panel-header"><span>Динамика показателя</span>
+    <label class="la-metric"><span class="sr">Показатель</span><select id="la-metric" aria-label="Показатель"></select></label>
+  </div>
+  <div class="panel-body">
+    <div class="la-metric-head"><div><b id="la-latest">—</b> <span class="la-unit" id="la-unit"></span></div><span id="la-delta" class="la-delta"></span></div>
+    <div id="la-trend" class="la-chart" role="img"></div>
+    <p class="la-note">Разрывы линии означают отсутствие значения в версии, а не ноль.</p>
+    <details class="la-table"><summary>Таблица значений</summary><div class="table-wrap"><table><thead><tr><th>Версия</th><th>Дата</th><th class="num">Значение</th></tr></thead><tbody id="la-trend-rows"></tbody></table></div></details>
+  </div>
+</section>
+
+<div class="la-grid">
+<section class="panel la-panel">
+  <div class="panel-header"><span>Категории изменений</span>{% if ch and ch.available %}<small class="la-sub">{{ ch.old_label }} → {{ ch.new_label }}</small>{% endif %}</div>
+  <div class="panel-body">
+  {% if ch and ch.available and ch.categories %}
+    <ul class="la-bars">
+    {% set maxv = (ch.categories|map(attribute='value')|max) or 1 %}
+    {% for c in ch.categories %}
+      <li><span class="la-bar-label">{{ c.label }}</span><span class="la-bar-track"><span class="la-bar" style="width: {{ ((c.value / maxv) * 100)|round(1) if maxv else 0 }}%"></span></span><b>{{ c.value }}</b></li>
+    {% endfor %}
+    </ul>
+  {% elif ch and ch.available %}
+    <p class="la-empty">Между версиями изменений не обнаружено.</p>
+  {% else %}
+    <p class="la-empty">Для сравнения нужна вторая принятая версия. Загрузите и примите следующий срез.</p>
+  {% endif %}
+  </div>
+</section>
+
+<section class="panel la-panel">
+  <div class="panel-header"><span>Крупнейшие изменения по УИН</span><small class="la-sub">{{ ch.metric_label if ch and ch.metric_label else 'финансовый показатель' }}, тыс. руб.</small></div>
+  <div class="panel-body">
+  {% if ch and ch.available and ch.ranking %}
+    <div id="la-rank" class="la-chart la-chart-rank" role="img"></div>
+    <details class="la-table"><summary>Таблица</summary><div class="table-wrap"><table><thead><tr><th>УИН</th><th>Объект</th><th class="num">Изменение</th></tr></thead><tbody id="la-rank-rows"></tbody></table></div></details>
+  {% elif ch and ch.available %}
+    <p class="la-empty">Изменений финансового показателя нет.</p>
+  {% else %}
+    <p class="la-empty">Рейтинг появится после сравнения двух версий.</p>
+  {% endif %}
+  {% if ch and ch.available %}<a class="la-link" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Открыть реестр объектов →</a>{% endif %}
+  </div>
+</section>
+</div>
+<script type="application/json" id="la-data">{{ dashboard|tojson }}</script>
+<script src="{{ url_for('static', filename='limits_analytics.js', v='1') }}"></script>
+{% endif %}
+{% endblock %}
