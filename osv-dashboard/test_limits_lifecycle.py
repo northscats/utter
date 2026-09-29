@@ -325,15 +325,29 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         self.assertEqual(1, LimitRowSnapshot.query.filter_by(version_id=first.id).count())
 
     def test_processing_error_keeps_current_data_and_records_reason(self):
+        from limits_parser import LimitsParserError
         first = self._accept_first()
         second = self._draft("20", previous=first.id)
         second.status = "queued"
         db.session.commit()
-        with patch("limits_parser.parse_xlsx", side_effect=ValueError("Invalid workbook columns")):
+        with patch("limits_parser.parse_xlsx", side_effect=LimitsParserError("Invalid workbook columns")):
             with self.assertRaisesRegex(ValueError, "Invalid workbook"):
                 process_version(second.id)
         self.assertEqual("error", second.status)
         self.assertIn("Invalid workbook columns", second.error_text)
+        self.assertEqual(first.id, self._dataset().current_version_id)
+
+    def test_unexpected_processing_error_does_not_expose_server_details(self):
+        first = self._accept_first()
+        second = self._draft("20", previous=first.id)
+        second.status = "queued"
+        db.session.commit()
+        with patch("limits_parser.parse_xlsx", side_effect=RuntimeError("private server detail")):
+            with self.assertRaises(RuntimeError):
+                process_version(second.id)
+        self.assertEqual("error", second.status)
+        self.assertIn("Обработка не завершена", second.error_text)
+        self.assertNotIn("private server detail", second.error_text)
         self.assertEqual(first.id, self._dataset().current_version_id)
 
     def test_parallel_workers_publish_in_one_serial_sequence(self):

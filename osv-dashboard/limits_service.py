@@ -26,6 +26,15 @@ _service_lock = threading.RLock()
 _lock_state = threading.local()
 
 
+def _processing_error_message(exc):
+    """Show validation failures, but keep unexpected server details private."""
+    from limits_parser import LimitsParserError
+    if isinstance(exc, (LimitsParserError, LimitsError)):
+        return 'Ошибка проверки файла: ' + str(exc)[:1000]
+    return ('Обработка не завершена. Проверьте файл и повторите попытку; '
+            'при повторной ошибке обратитесь к администратору.')
+
+
 @contextmanager
 def _process_lock():
     """Hold a database-wide lock across the pipeline's durable checkpoints."""
@@ -203,7 +212,7 @@ def process_version(version_id):
         version = db.session.get(LimitVersion, version_id)
         if version and version.status != 'accepted':
             version.status = 'error'
-            version.error_text = 'Обработка не завершена. Проверьте файл и повторите попытку; при повторной ошибке обратитесь к администратору.'
+            version.error_text = _processing_error_message(exc)
             _audit_version(version, 'limits_processing_error', error=str(exc))
             db.session.commit()
         raise
@@ -319,7 +328,7 @@ def parse_version(version_id, progress=None):
         db.session.rollback()
         version = db.session.get(LimitVersion, version_id)
         version.status = 'error'
-        version.error_text = 'Не удалось обработать XLSX. Проверьте структуру файла и повторите попытку.'
+        version.error_text = _processing_error_message(exc)
         db.session.commit()
         raise
 
