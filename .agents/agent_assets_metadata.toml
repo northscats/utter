@@ -358,3 +358,17 @@ mtime_ms = 1790101006035
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/c7681938-a489-4183-833b-3c9bee253ca5/b1a609b4-d8e7-4edc-9347-6befb3b29786"
 storage_version_token = "1790101033954112"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "Tm9oh5sbbeKjx0GhWWX_q"
+uri = "file://exports/migration_20260924_20260929_documentation.html"
+type = "html"
+title = "Миграция PostgreSQL: инструкция и полный SQL"
+description = "Единый документ за 24–29 сентября 2026: порядок запуска, ограничения безопасности и полный текст SQL-скрипта."
+logical_id = "e7500231-2c2d-4721-bfe9-0555bd94d516"
+content_hash = "sha256:6db8202274146806feaee2cbfa3a02adc5af3e818aa98ab8cd9b1beebdeb15a7"
+size = 35674
+mtime_ms = 1790704899172
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/e7500231-2c2d-4721-bfe9-0555bd94d516/7ce9afa4-2e58-4ca6-95fc-582e6c623165"
+storage_version_token = "1790704901479670"
+content_type = "text/html"
