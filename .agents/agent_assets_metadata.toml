@@ -372,3 +372,17 @@ mtime_ms = 1790704899172
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/e7500231-2c2d-4721-bfe9-0555bd94d516/7ce9afa4-2e58-4ca6-95fc-582e6c623165"
 storage_version_token = "1790704901479670"
 content_type = "text/html"
+
+[[outputs]]
+id = "kmUr1CqMemyA0IQLz9x_s"
+uri = "file://exports/migration_20260924_20260929_documentation.docx"
+type = "word_document"
+title = "Миграция PostgreSQL — Word-документ"
+description = "Инструкция по миграции за 24–29 сентября 2026 года, меры безопасности, команды запуска и полный SQL-код без изменений."
+logical_id = "e067c4f4-461e-47b3-b024-2125ac6962ff"
+content_hash = "sha256:7d986ffd049b204c67e435886dbc29c1fca4a4491b876cdac87fab4423ebdc57"
+size = 49024
+mtime_ms = 1790705165508
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/e067c4f4-461e-47b3-b024-2125ac6962ff/46dcf5f2-8024-49d2-bf53-be4b7d3180a9"
+storage_version_token = "1790705182895902"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
