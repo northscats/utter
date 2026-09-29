@@ -38,8 +38,17 @@ nano .env
 | `POSTGRES_PASSWORD` | Сложный пароль БД |
 | `SESSION_SECRET` | `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `INITIAL_ADMIN_PASSWORD` | Секретная фраза не менее 15 Unicode-символов (только для чистой БД) |
+| `MAX_LIMITS_WEBHOOK_URL` | Публичный HTTPS-адрес `https://ваш-домен/osv/limit-notifications/max/webhook` для бота MAX |
 
-Остальные значения можно оставить по умолчанию.
+В Docker-развёртывании webhook обязателен: без корректного URL кнопка
+«Запустить бота MAX» не запускает подключение.
+
+Остальные значения можно оставить по умолчанию. Настройки MAX сохраняются на
+странице «Лимиты → Бот MAX» в закрытом файле внутри named volume
+`max_bot_private`; том создаётся при первом запуске с владельцем процесса
+приложения (UID 10001) и правами каталога `0700`, а сам файл имеет права
+`0600`. В образ и Git токен не включается. Перед использованием перевыпустите
+ранее опубликованный в `.replit` токен у MAX.
 
 ---
 
@@ -109,7 +118,13 @@ cd osv-dashboard
 docker compose up -d --build
 ```
 
-Данные (БД, загруженные файлы) хранятся в named volumes и **не удаляются** при пересборке образа.
+Данные (БД, загруженные файлы и закрытые настройки MAX) хранятся в named
+volumes и **не удаляются** при пересборке образа. Не запускайте
+`docker compose down -v`: это удаляет все тома, включая закрытый файл бота.
+После обновления проверьте статус на странице «Бот MAX» — подключение
+подтверждается повторно через MAX, а не по старому имени пользователя.
+Для переезда в другую установку перенесите этот том закрытым архивом по
+инструкции в `deploy/DEPLOY.md`; одного `git clone` недостаточно.
 
 ---
 
@@ -139,8 +154,11 @@ sudo podman run -d \
    -e INITIAL_ADMIN_PASSWORD=<СЕКРЕТНАЯ_ФРАЗА_НЕ_МЕНЕЕ_15_СИМВОЛОВ> \
   -e PORT=4545 \
   -e SCRIPT_NAME=/osv \
+  -e MAX_LIMITS_WEBHOOK_URL=https://ваш-домен/osv/limit-notifications/max/webhook \
+  -e MAX_LIMITS_REQUIRE_WEBHOOK=1 \
   -v uploads_data:/app/uploads \
   -v output_data:/app/output \
+  -v max_bot_private:/app/private \
   localhost/osv-dashboard-web:latest
 ```
 

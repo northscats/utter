@@ -8,6 +8,8 @@ import re
 import ssl
 import threading
 import time
+import contextlib
+import fcntl
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -22,13 +24,86 @@ from database import (
     Setting, db, utcnow,
 )
 from max_dataset_scope import selected_dataset_id
+import max_bot_config as bot_config
 
 API_BASE = 'https://platform-api2.max.ru'
 TRUSTED_CA = Path(__file__).parent / 'certs' / 'russian-trusted-root-ca.pem'
 MAX_TEXT = 3800
 _logger = logging.getLogger(__name__)
 _worker_lock = threading.Lock()
-_worker_started = False
+_worker_thread = None
+_worker_token = None
+_worker_generation = None
+_connected_token = None
+_connected_generation = None
+_last_error = False
+
+
+def status():
+    """A saved username is not proof of a live connection."""
+    config = bot_config.read()
+    if not config['token'] or not config['group_id']:
+        return 'unconfigured'
+    if not config.get('enabled'):
+        return 'stopped'
+    if (_connected_token == config['token']
+            and _connected_generation == config.get('generation')
+            and _worker_thread and _worker_thread.is_alive()):
+        return 'connected'
+    if _last_error:
+        return 'error'
+    return 'connecting'
+
+
+def valid_webhook_url(url):
+    try:
+        parts = urlsplit(url)
+        prefix = os.environ.get('SCRIPT_NAME', '').rstrip('/')
+        if prefix and (not prefix.startswith('/') or '//' in prefix
+                       or any(segment in ('.', '..') for segment in prefix.split('/'))):
+            return False
+        return bool(parts.scheme == 'https' and parts.hostname
+                    and parts.port in (None, 443) and not parts.username
+                    and not parts.password and not parts.query and not parts.fragment
+                    and parts.path == prefix + '/limit-notifications/max/webhook')
+    except ValueError:
+        return False
+
+
+def requires_webhook():
+    return any(os.environ.get(name, '').strip().lower() in ('1', 'true')
+               for name in ('REPLIT_DEPLOYMENT', 'MAX_LIMITS_REQUIRE_WEBHOOK'))
+
+
+def _assert_active(token, generation=None):
+    config = bot_config._read()
+    if (not config.get('enabled') or config.get('token') != token
+            or (generation is not None and config.get('generation') != generation)):
+        raise RuntimeError('MAX bot is stopped')
+
+
+@contextlib.contextmanager
+def active_delivery(token, generation=None):
+    with bot_config.locked():
+        _assert_active(token, generation)
+        yield
+
+
+def _verify_group(token, chat_id):
+    """Confirm the configured group exists and this bot can moderate it."""
+    identity = max_api(token, 'GET', '/me', timeout=15)
+    username = identity.get('username') or ''
+    bot_id = identity.get('user_id')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}', username) or type(bot_id) is not int:
+        raise RuntimeError('MAX identity unavailable')
+    chat = max_api(token, 'GET', f'/chats/{chat_id}', timeout=15)
+    if str(chat.get('chat_id')) != str(chat_id):
+        raise RuntimeError('MAX group unavailable')
+    admins = max_api(token, 'GET', f'/chats/{chat_id}/members/admins', timeout=15)
+    if not any(isinstance(member, dict) and member.get('user_id') == bot_id
+               for member in (admins.get('members') or [])):
+        raise RuntimeError('MAX bot is not a group administrator')
+    return username
 
 
 def migrate_max_limits_schema():
@@ -279,8 +354,7 @@ def process_update(update, is_group_admin=None):
         if raw_text.strip().split('@')[0] == '/chatid':
             return 'chat', recipient.get('chat_id'), response(
                 f'ID этой группы: {recipient.get("chat_id")}. '
-                'Администратор может указать его как '
-                'MAX_LIMITS_MODERATION_CHAT_ID в Configurations.')
+                'Администратор может указать его на странице «Бот MAX» в Лимитах.')
         return None
     if recipient.get('chat_type') != 'dialog':
         return None
@@ -372,9 +446,15 @@ def group_admin_lookup(token, chat_id, user_id, api_call=max_api):
     return False
 
 
-def dispatch_update(token, update, api_call=None):
+def dispatch_update(token, update, api_call=None, generation=None):
+    with active_delivery(token, generation):
+        return _dispatch_update_active(token, update, api_call)
+
+
+def _dispatch_update_active(token, update, api_call=None):
     from max_registration import upload_catalog
     api_call = api_call or max_api
+    _assert_active(token)
     result = process_update(
         update, is_group_admin=lambda chat_id, user_id: group_admin_lookup(
             token, chat_id, user_id, api_call=api_call))
@@ -396,20 +476,26 @@ def dispatch_update(token, update, api_call=None):
     else:
         file_token = upload_catalog(token, api_call) if attachment else None
     if destination == 'callback':
-        result = api_call(token, 'POST', '/answers', {'callback_id': identifier},
+        with active_delivery(token):
+            result = api_call(token, 'POST', '/answers', {'callback_id': identifier},
                           {'message': _message_body(
                               answer['text'], answer.get('buttons'), file_token)},
                           timeout=15)
         if result.get('success') is not True:
             raise RuntimeError('MAX callback response failed')
     else:
-        send_message(token, identifier, answer['text'], api_call=api_call,
-                     buttons=answer.get('buttons'), file_token=file_token,
-                     chat=destination == 'chat')
+        with active_delivery(token):
+            send_message(token, identifier, answer['text'], api_call=api_call,
+                         buttons=answer.get('buttons'), file_token=file_token,
+                         chat=destination == 'chat')
 
 
-def drain_outbox(api_call=None, limit=20, on_state_change=None):
+def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None):
     api_call = api_call or max_api
+    config = bot_config.read()
+    if (not config.get('enabled') or not config.get('token')
+            or (generation is not None and config.get('generation') != generation)):
+        return 0
     dataset_id = selected_dataset_id()
     pending = MaxLimitsOutbox.query.filter(
         MaxLimitsOutbox.delivered_at.is_(None),
@@ -437,8 +523,9 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None):
             if on_state_change:
                 on_state_change()
             continue
-        token = os.environ.get('MAX_LIMITS_BOT_TOKEN', '')
-        if not token:
+        token = config['token']
+        if not bot_config.active(token) or (generation is not None
+                and bot_config.read().get('generation') != generation):
             break
         if item.uin.startswith('__manual_digest__:'):
             from max_digest import message_for_outbox
@@ -479,7 +566,8 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None):
             continue
         try:
             from max_registration import MENU
-            send_message(token, item.user_id, message, api_call=api_call, buttons=MENU)
+            with active_delivery(token, generation):
+                send_message(token, item.user_id, message, api_call=api_call, buttons=MENU)
         except Exception:
             _logger.warning('MAX limits outbox send failed; retry scheduled')
             db.session.rollback()
@@ -502,17 +590,17 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None):
     return sent
 
 
-def _worker_loop(application, token):
+def _worker_loop(application, token, generation):
+    global _connected_token, _connected_generation, _last_error
     backoff = 2
     identified = False
     while True:
+        if not _generation_active(token, generation):
+            break
         try:
             with application.app_context():
                 if not identified:
-                    identity = max_api(token, 'GET', '/me', timeout=15)
-                    username = identity.get('username') or ''
-                    if not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}', username):
-                        raise RuntimeError('MAX bot identity unavailable')
+                    username = _verify_group(token, bot_config.read()['group_id'])
                 changed = [False]
                 try:
                     cursor = db.session.get(MaxLimitsCursor, 1)
@@ -526,13 +614,18 @@ def _worker_loop(application, token):
                     if not isinstance(updates, list) or not isinstance(marker, (int, type(None))):
                         raise RuntimeError('Invalid MAX update batch')
                     if not identified:
-                        Setting.set('max_limits_username', username)
-                        db.session.commit()
+                        _assert_active(token, generation)
+                        _connected_token = token
+                        _connected_generation = generation
+                        _last_error = False
                         identified = True
                         _logger.warning('MAX limits bot polling connected as @%s', username)
                     for update in updates:
-                        dispatch_update(token, update)
+                        if not _generation_active(token, generation):
+                            break
+                        dispatch_update(token, update, generation=generation)
                         changed[0] = True
+                    _assert_active(token, generation)
                     if marker is not None and (cursor is None or cursor.marker != marker):
                         if cursor is None:
                             cursor = MaxLimitsCursor(id=1, marker=marker)
@@ -541,9 +634,12 @@ def _worker_loop(application, token):
                             cursor.marker = marker
                         db.session.commit()
                         changed[0] = True
-                    drain_outbox(on_state_change=lambda: changed.__setitem__(0, True))
+                    drain_outbox(on_state_change=lambda: changed.__setitem__(0, True),
+                                 generation=generation)
                     from max_registration import pending_moderation
-                    pending_moderation(max_api, token)
+                    if _generation_active(token, generation):
+                        with active_delivery(token, generation):
+                            pending_moderation(max_api, token)
                     backoff = 2
                 finally:
                     if changed[0]:
@@ -553,29 +649,36 @@ def _worker_loop(application, token):
             _logger.warning('MAX limits polling failed; retrying with backoff')
             with application.app_context():
                 db.session.rollback()
+            identified = False
+            if _connected_token == token and _connected_generation == generation:
+                _connected_token = None
+                _connected_generation = None
+            if _generation_active(token, generation):
+                _last_error = True
             time.sleep(backoff)
             backoff = min(60, backoff * 2)
+    if _connected_token == token and _connected_generation == generation:
+        _connected_token = None
+        _connected_generation = None
 
 
-def _webhook_outbox_loop(application, token, url):
+def _webhook_outbox_loop(application, token, url, generation):
     """Register production webhook and deliver queued changes independently."""
-    parts = urlsplit(url)
-    if (parts.scheme != 'https' or not parts.hostname or parts.port not in (None, 443)
-            or parts.query or parts.fragment
-            or parts.path != '/limit-notifications/max/webhook'):
+    if not valid_webhook_url(url):
         _logger.error('MAX webhook URL must be an HTTPS /limit-notifications/max/webhook endpoint')
         return
+    global _connected_token, _connected_generation, _last_error
     backoff = 2
     connected = False
     while True:
+        if not _generation_active(token, generation):
+            break
         try:
             with application.app_context():
                 if not connected:
                     secret = webhook_secret(token, application.secret_key)
-                    identity = max_api(token, 'GET', '/me', timeout=15)
-                    username = identity.get('username') or ''
-                    if not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}', username):
-                        raise RuntimeError('MAX bot identity unavailable')
+                    username = _verify_group(token, bot_config.read()['group_id'])
+                    _assert_active(token, generation)
                     result = max_api(token, 'POST', '/subscriptions', payload={
                         'url': url,
                         'update_types': [
@@ -586,23 +689,41 @@ def _webhook_outbox_loop(application, token, url):
                     }, timeout=15)
                     if result.get('success') is not True:
                         raise RuntimeError('MAX webhook registration failed')
-                    Setting.set('max_limits_username', username)
-                    db.session.commit()
+                    try:
+                        _assert_active(token, generation)
+                    except RuntimeError:
+                        _unregister_webhook(token, url)
+                        raise
                     connected = True
+                    _connected_token = token
+                    _connected_generation = generation
+                    _last_error = False
                     _logger.warning('MAX limits webhook connected as @%s', username)
                 drain_outbox(
-                    on_state_change=lambda: _schedule_max_backup('MAX limits delivery'))
+                    on_state_change=lambda: _schedule_max_backup('MAX limits delivery'),
+                    generation=generation)
                 from max_registration import pending_moderation
-                pending_moderation(max_api, token)
+                if _generation_active(token, generation):
+                    with active_delivery(token, generation):
+                        pending_moderation(max_api, token)
                 backoff = 2
         except Exception:
             _logger.warning('MAX limits webhook or delivery failed; retrying with backoff')
             with application.app_context():
                 db.session.rollback()
+            if _connected_token == token and _connected_generation == generation:
+                _connected_token = None
+                _connected_generation = None
+            if _generation_active(token, generation):
+                _last_error = True
+            connected = False
             time.sleep(backoff)
             backoff = min(60, backoff * 2)
             continue
         time.sleep(5)
+    if _connected_token == token and _connected_generation == generation:
+        _connected_token = None
+        _connected_generation = None
 
 
 def _schedule_max_backup(reason):
@@ -610,24 +731,87 @@ def _schedule_max_backup(reason):
     _schedule_durable_safety_backup(reason)
 
 
+def _unregister_webhook(token, url):
+    try:
+        subscriptions = max_api(token, 'GET', '/subscriptions', timeout=5)
+        for row in subscriptions.get('subscriptions', []):
+            if row.get('url') == url and row.get('subscription_id'):
+                max_api(token, 'DELETE',
+                        f"/subscriptions/{row['subscription_id']}", timeout=5)
+    except Exception:
+        _logger.warning('MAX webhook unregister failed; local bot remains stopped')
+
+
+def _generation_active(token, generation):
+    config = bot_config.read()
+    return bool(config.get('enabled') and config.get('token') == token
+                and config.get('generation') == generation)
+
+
+def _run_single_worker(application, token, webhook_url, generation):
+    """One active consumer even if two server processes start at once."""
+    bot_config._directory()
+    path = bot_config.CONFIG.parent / 'max-bot-worker.lock'
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        while _generation_active(token, generation):
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(0.25)
+        else:
+            return
+        if not _generation_active(token, generation):
+            return
+        if webhook_url:
+            _webhook_outbox_loop(application, token, webhook_url, generation)
+        else:
+            _worker_loop(application, token, generation)
+    finally:
+        os.close(fd)
+
+
 def start_max_limits_worker(application):
-    global _worker_started
-    token = os.environ.get('MAX_LIMITS_BOT_TOKEN', '')
-    if not token or application.config.get('TESTING') or not application.config.get('DURABLE_STARTUP_READY'):
+    global _worker_thread, _worker_token, _worker_generation, _last_error
+    if application.config.get('TESTING') or not application.config.get('DURABLE_STARTUP_READY'):
         return False
     with _worker_lock:
-        if _worker_started:
+        config = bot_config.read()
+        token = config['token']
+        if not config.get('enabled') or not token:
             return False
-        Setting.set('max_limits_username', '')
-        db.session.commit()
+        if (_worker_thread and _worker_thread.is_alive()
+                and _worker_token == token
+                and _worker_generation == config['generation']):
+            return True
         webhook_url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
-        deployed = os.environ.get('REPLIT_DEPLOYMENT', '').strip().lower() in ('1', 'true')
-        if deployed and not webhook_url:
-            _logger.error('MAX limits bot needs MAX_LIMITS_WEBHOOK_URL in production')
+        if ((requires_webhook() and not webhook_url)
+                or (webhook_url and not valid_webhook_url(webhook_url))):
+            _last_error = True
+            _logger.error('MAX limits bot needs a valid HTTPS webhook in production')
             return False
-        threading.Thread(
-            target=_webhook_outbox_loop if webhook_url else _worker_loop,
-            args=(application, token, webhook_url) if webhook_url else (application, token),
-            name='max-limits-bot', daemon=True).start()
-        _worker_started = True
+        _last_error = False
+        _worker_thread = threading.Thread(
+            target=_run_single_worker,
+            args=(application, token, webhook_url, config['generation']),
+            name='max-limits-bot', daemon=True)
+        _worker_thread.start()
+        _worker_token = token
+        _worker_generation = config['generation']
         return True
+
+
+def stop_max_limits_worker(old_token=None):
+    global _connected_token, _connected_generation, _last_error
+    with bot_config.locked():
+        config = bot_config._read()
+        bot_config.set_enabled(False)
+        _connected_token = None
+        _connected_generation = None
+        _last_error = False
+        # Serialize remote unsubscribe with a concurrent start.
+        unregister_token = old_token or config.get('token')
+        if unregister_token and os.environ.get('MAX_LIMITS_WEBHOOK_URL'):
+            _unregister_webhook(unregister_token, os.environ['MAX_LIMITS_WEBHOOK_URL'])

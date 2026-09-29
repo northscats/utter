@@ -1,0 +1,4 @@
+osv-dashboard/private/
+**/__pycache__/
+**/*.pyc
+.git/

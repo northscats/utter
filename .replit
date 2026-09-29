@@ -137,8 +137,6 @@ packages = ["libreoffice", "tesseract", "poppler-utils"]
 ENCRYPTION_KEY = "bDy8qWKNCy1e9xiTEkLnXQj3quVvmffN92WvHFHXC-o="
 INITIAL_ADMIN_PASSWORD = "admin123admin"
 OPERATOR_PASSWORD_RESET = "oper123oper"
-MAX_LIMITS_BOT_TOKEN = "f9LHodD0cOLIBV5GH3ceXj1HHl4tqky7aqtQhkZSBgdtqdhUM-15mxHFUPAjA7sHmoB53lpG_On83f55InUv"
-MAX_LIMITS_MODERATION_CHAT_ID = "-78918750871601"
 
 [userenv.development]
 ONE_C_ENV = "development"

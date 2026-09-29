@@ -1,7 +1,6 @@
 """Moderated MAX registrations, approved UIN access, and object catalog."""
 import io
 import json
-import os
 import re
 import secrets
 import ssl
@@ -28,11 +27,8 @@ PHONE = re.compile(r'^\+?[0-9][0-9 ()-]{8,19}$')
 
 
 def group_id():
-    try:
-        value = int(os.environ.get('MAX_LIMITS_MODERATION_CHAT_ID', ''))
-        return value if value else None
-    except ValueError:
-        return None
+    from max_bot_config import read
+    return read().get('group_id')
 
 
 def response(text, buttons=None, file=False):

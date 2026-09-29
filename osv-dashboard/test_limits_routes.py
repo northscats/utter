@@ -20,6 +20,8 @@ from database import (db, User, UserModuleAccess, Setting, LimitDataset,
 from limits_views import objects_context, object_context
 from database import (MaxLimitsProfile, MaxLimitsUin, MaxLimitsApplication,
                       MaxLimitsOutbox, MaxLimitsSubscription)
+import max_bot_config
+from pathlib import Path
 
 
 class LimitsRouteTests(unittest.TestCase):
@@ -33,6 +35,12 @@ class LimitsRouteTests(unittest.TestCase):
         init_db()
 
     def setUp(self):
+        self.bot_temp = tempfile.TemporaryDirectory(prefix='max-bot-route-')
+        self.addCleanup(self.bot_temp.cleanup)
+        config_patch = patch.object(
+            max_bot_config, 'CONFIG', Path(self.bot_temp.name) / 'private' / 'max-bot.json')
+        config_patch.start()
+        self.addCleanup(config_patch.stop)
         with app.app_context():
             for table in reversed(db.metadata.sorted_tables):
                 db.session.execute(table.delete())
@@ -128,9 +136,10 @@ class LimitsRouteTests(unittest.TestCase):
                          self.client_admin.get('/limit-notifications').get_data(as_text=True))
         with app.app_context():
             Setting.set('max_limits_dataset_id', '1')
-            Setting.set('max_limits_username', 'test')
             db.session.commit()
-        with patch.dict(os.environ, {'MAX_LIMITS_BOT_TOKEN': 'test-only'}), \
+        max_bot_config.save('A' * 40, '-345')
+        max_bot_config.set_enabled(True)
+        with patch('max_limits.status', return_value='connected'), \
              patch('max_digest.prepare_digest', return_value=(0, 0)):
             response = self.client_admin.post(
                 '/limit-notifications/max/send-changes', data={'confirm': 'yes'},
@@ -264,19 +273,61 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertEqual(404, self.client_admin.get(
             '/limit-notifications/telegram').status_code)
         url = 'https://example.org/limit-notifications/max/webhook'
+        max_bot_config.save('A' * 40, '-345')
+        max_bot_config.set_enabled(True)
         with patch.dict(os.environ, {
-            'MAX_LIMITS_BOT_TOKEN': 'test-only',
             'MAX_LIMITS_WEBHOOK_URL': url,
         }):
             endpoint = '/limit-notifications/max/webhook'
             self.assertEqual(403, app.test_client().post(
                 endpoint, json={'update_type': 'bot_started'}).status_code)
             headers = {'X-Max-Bot-Api-Secret': webhook_secret(
-                'test-only', app.secret_key)}
+                'A' * 40, app.secret_key)}
             self.assertEqual(200, app.test_client().post(
                 endpoint, json={'update_type': 'message_created',
                                 'message': {'sender': {'user_id': 2, 'is_bot': True}}},
                 headers=headers).status_code)
+            max_bot_config.set_enabled(False)
+            self.assertEqual(404, app.test_client().post(
+                endpoint, json={'update_type': 'bot_started'}, headers=headers).status_code)
+
+    def test_max_credentials_are_admin_only_masked_and_do_not_start(self):
+        token = 'NEW' * 20
+        url = '/limit-notifications/max/credentials'
+        self.assertEqual(403, self.client(2).post(
+            url, data={'token': token, 'group_id': '-345'}).status_code)
+        self.assertEqual(302, self.client_admin.post(
+            url, data={'token': token, 'group_id': '-345'}).status_code)
+        config = max_bot_config.read()
+        self.assertEqual(config['token'], token)
+        self.assertFalse(config['enabled'])
+        page = self.client_admin.get('/limit-notifications/max').get_data(as_text=True)
+        self.assertNotIn(token, page)
+        self.assertIn('Токен сохранён', page)
+        self.assertNotIn('Токен бота MAX', self.client(2).get(
+            '/limit-notifications/max').get_data(as_text=True))
+        self.assertEqual(403, self.client(2).post(
+            '/limit-notifications/max/start').status_code)
+        self.assertEqual(403, self.client(2).post(
+            '/limit-notifications/max/stop').status_code)
+        with patch('max_limits.start_max_limits_worker', return_value=True):
+            self.client_admin.post('/limit-notifications/max/start')
+        self.assertTrue(max_bot_config.read()['enabled'])
+        self.client_admin.post('/limit-notifications/max/stop')
+        self.assertFalse(max_bot_config.read()['enabled'])
+        self.assertEqual(302, self.client_admin.post(
+            url, data={'token': '', 'group_id': 'bad'}).status_code)
+        self.assertEqual(token, max_bot_config.read()['token'])
+
+    def test_max_new_operations_require_csrf(self):
+        app.config['WTF_CSRF_ENABLED'] = True
+        try:
+            for path in ('credentials', 'start', 'stop'):
+                self.assertEqual(403, self.client_admin.post(
+                    '/limit-notifications/max/' + path,
+                    data={'token': 'A' * 40, 'group_id': '-345'}).status_code)
+        finally:
+            app.config['WTF_CSRF_ENABLED'] = False
 
     def test_access_and_review_confirmation(self):
         viewer = self.client(2)

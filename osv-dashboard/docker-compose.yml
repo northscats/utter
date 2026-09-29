@@ -24,12 +24,16 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-osv_user}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-osv_db}
       SESSION_SECRET: ${SESSION_SECRET}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD}
       SCRIPT_NAME: ${SCRIPT_NAME:-/osv}
+      MAX_LIMITS_WEBHOOK_URL: ${MAX_LIMITS_WEBHOOK_URL:-}
+      MAX_LIMITS_REQUIRE_WEBHOOK: "1"
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
       PORT: 8080
     volumes:
       - uploads_data:/app/uploads
       - output_data:/app/output
+      - max_bot_private:/app/private
     depends_on:
       db:
         condition: service_healthy
@@ -38,3 +42,4 @@ volumes:
   postgres_data:
   uploads_data:
   output_data:
+  max_bot_private:

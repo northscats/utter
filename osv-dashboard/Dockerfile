@@ -20,7 +20,9 @@ RUN chmod +x deploy/entrypoint.sh
 
 # Непривилегированный пользователь (ИБ: контейнер не работает под root)
 RUN useradd --create-home --uid 10001 appuser \
-    && chown -R appuser:appuser /app
+    && mkdir -p /app/private \
+    && chown -R appuser:appuser /app \
+    && chmod 0700 /app/private
 USER appuser
 
 ENV PYTHONUNBUFFERED=1

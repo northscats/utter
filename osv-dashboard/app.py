@@ -8131,7 +8131,8 @@ def limit_dashboard():
 @login_required
 def max_limits():
     """Persist the administrator-selected data source used by the bot."""
-    from max_registration import group_id
+    from max_bot_config import read as read_bot_config
+    from max_limits import status as bot_status
     from max_dataset_scope import selected_dataset_id
     from max_funding_year import choices as funding_year_choices, selection as funding_year_selection
     datasets = LimitDataset.query.order_by(
@@ -8153,17 +8154,73 @@ def max_limits():
     from max_user_registry import registry
     users = registry(request.args.get('page', 1, type=int),
                      request.args.get('q', '').strip()[:200]) if current_user.is_admin else None
+    bot_settings = read_bot_config() if current_user.is_admin else {}
+    state = bot_status() if current_user.is_admin else 'hidden'
     return render_template(
         'limits_max_bot.html', dataset=dataset, datasets=datasets, users=users,
         funding_year_choices=funding_year_choices(),
         funding_year_selection=funding_year_selection(),
-        configured=bool(
-            os.environ.get('MAX_LIMITS_BOT_TOKEN')
-            and Setting.get('max_limits_username', '')),
-        bot_username=Setting.get('max_limits_username', ''),
+        configured=state == 'connected',
+        bot_state=state,
+        token_saved=bool(bot_settings.get('token')),
+        bot_group_id=bot_settings.get('group_id'),
         subscriptions_count=MaxLimitsUin.query.filter_by(status='approved').count(),
         pending_count=MaxLimitsApplication.query.filter_by(status='pending').count(),
-        moderation_configured=group_id() is not None)
+        moderation_configured=bool(bot_settings.get('group_id')))
+
+
+@app.route('/limit-notifications/max/credentials', methods=['POST'])
+@login_required
+def max_limits_credentials():
+    if not current_user.is_admin:
+        abort(403)
+    from max_bot_config import save
+    try:
+        changed, old_token = save(request.form.get('token', ''),
+                                  request.form.get('group_id', ''))
+    except ValueError:
+        flash('Проверьте токен и числовой ID группы. Настройки не изменены.', 'error')
+    else:
+        if changed:
+            from max_limits import stop_max_limits_worker
+            # save already disables on change; invalidate the live connection.
+            stop_max_limits_worker(old_token=old_token)
+        flash('Реквизиты сохранены. Бот не запускается при сохранении.', 'success')
+    g.skip_durable_backup = True
+    return redirect(url_for('max_limits'))
+
+
+@app.route('/limit-notifications/max/start', methods=['POST'])
+@login_required
+def max_limits_start():
+    if not current_user.is_admin:
+        abort(403)
+    from max_bot_config import set_enabled
+    from max_limits import start_max_limits_worker, valid_webhook_url, requires_webhook
+    url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
+    if (requires_webhook() and not url) or (url and not valid_webhook_url(url)):
+        flash('Для публикации нужен корректный публичный HTTPS webhook MAX.', 'error')
+    else:
+        try:
+            set_enabled(True)
+            start_max_limits_worker(app)
+            flash('Подключение к MAX проверяется. Статус обновится после подтверждения.', 'info')
+        except ValueError:
+            flash('Сначала сохраните корректный токен и ID группы.', 'error')
+    g.skip_durable_backup = True
+    return redirect(url_for('max_limits'))
+
+
+@app.route('/limit-notifications/max/stop', methods=['POST'])
+@login_required
+def max_limits_stop():
+    if not current_user.is_admin:
+        abort(403)
+    from max_limits import stop_max_limits_worker
+    stop_max_limits_worker()
+    g.skip_durable_backup = True
+    flash('Бот остановлен. Настройки и очередь сохранены.', 'success')
+    return redirect(url_for('max_limits'))
 
 
 @app.route('/limit-notifications/max/funding-year', methods=['POST'])
@@ -8196,7 +8253,8 @@ def max_limits_send_changes():
         abort(403)
     if request.form.get('confirm') != 'yes':
         abort(400)
-    if not os.environ.get('MAX_LIMITS_BOT_TOKEN') or not Setting.get('max_limits_username', ''):
+    from max_limits import status as bot_status
+    if bot_status() != 'connected':
         flash('Бот MAX не подключён. Рассылка не поставлена в очередь.', 'error')
         return redirect(url_for('max_limits'))
     from max_digest import prepare_digest
@@ -8237,8 +8295,10 @@ def max_limits_user_delete(user_id):
 def max_limits_webhook():
     """Accept only MAX events bearing the server-derived subscription secret."""
     import hmac
-    from max_limits import dispatch_update, webhook_secret
-    token = os.environ.get('MAX_LIMITS_BOT_TOKEN', '')
+    from max_limits import active_delivery, dispatch_update, webhook_secret
+    from max_bot_config import read as read_bot_config
+    config = read_bot_config()
+    token = config['token'] if config.get('enabled') else ''
     url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
     if not token or not url:
         abort(404)
@@ -8252,7 +8312,8 @@ def max_limits_webhook():
     if not isinstance(update, dict):
         abort(400)
     try:
-        dispatch_update(token, update)
+        with active_delivery(token):
+            dispatch_update(token, update)
         _schedule_durable_safety_backup('MAX limits webhook update')
     except Exception:
         db.session.rollback()

@@ -30,15 +30,39 @@
 <p>Бот использует только сохранённый набор: {% if dataset %}<strong>{{ dataset.name }}</strong>{% else %}<strong>пока не выбран</strong>{% endif %}. Пользователям бота выбирать набор не нужно.</p>
 {% endif %}
 
+{% if current_user.is_admin %}
+<section class="max-panel">
+  <h2>Настройка бота MAX</h2>
+  <p>Старый токен из конфигурации проекта мог быть раскрыт. Перевыпустите его у MAX перед использованием. Сохранение не запускает бота.</p>
+  <form method="post" action="{{ url_for('max_limits_credentials') }}" class="max-credentials" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="max-token">Токен бота MAX</label>
+    <input id="max-token" name="token" type="password" autocomplete="new-password" placeholder="{{ 'Сохранён — оставьте пустым, чтобы не менять' if token_saved else 'Новый токен' }}" {% if not token_saved %}required{% endif %}>
+    <label for="max-group">ID группы</label>
+    <input id="max-group" name="group_id" type="text" inputmode="numeric" required value="{{ bot_group_id or '' }}" placeholder="Числовой ID группы">
+    <button type="submit">Сохранить реквизиты</button>
+  </form>
+  {% if token_saved %}<p>Токен сохранён. Его значение нельзя просмотреть здесь.</p>{% endif %}
+  <div class="max-controls">
+    <form method="post" action="{{ url_for('max_limits_start') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" {% if bot_state == 'unconfigured' %}disabled{% endif %}>Запустить бота MAX</button>
+    </form>
+    <form method="post" action="{{ url_for('max_limits_stop') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" {% if bot_state in ('unconfigured', 'stopped') %}disabled{% endif %}>Остановить бота MAX</button>
+    </form>
+  </div>
+</section>
+{% endif %}
 <section class="max-status {% if configured %}is-ready{% else %}is-unavailable{% endif %}" aria-live="polite">
   <div>
     {% if configured %}
-      <h2>Бот подключён</h2>
+      <h2>Бот подключен</h2>
       <p>Одобренных УИН: <strong>{{ subscriptions_count }}</strong> · Заявок на рассмотрении: <strong>{{ pending_count }}</strong></p>
-      <a class="max-button" href="https://max.ru/{{ bot_username }}">Открыть @{{ bot_username }} в MAX</a>
     {% else %}
-      <h2>Бот не подключён</h2>
-      <p>Для работы бота администратору нужно настроить MAX_LIMITS_BOT_TOKEN и дождаться подключения.</p>
+      <h2>{% if bot_state == 'connecting' %}Подключается{% elif bot_state == 'error' %}Ошибка подключения{% elif bot_state == 'stopped' %}Остановлен{% else %}Не настроен{% endif %}</h2>
+      <p>{% if bot_state in ('connecting', 'error') %}MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.{% else %}Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.{% endif %}</p>
     {% endif %}
   </div>
 </section>
@@ -75,7 +99,7 @@
   {% if moderation_configured %}
     <p>Группа настроена. Заявки направляются в неё с кнопками «Одобрить» и «Не одобрить». Решение могут принять только действующие администраторы группы; боту тоже нужны права администратора для проверки этого статуса.</p>
   {% else %}
-    <p>Добавьте бота в группу MAX с правами администратора и укажите настоящий ID группы в Configurations под ключом <code>MAX_LIMITS_MODERATION_CHAT_ID</code>, затем перезапустите приложение. Если ID неизвестен, отправьте в группе <code>/chatid</code>. До настройки группы отправка новых заявок приостановлена.</p>
+    <p>Добавьте бота в группу MAX с правами администратора и укажите её числовой ID в форме выше. Если ID неизвестен, отправьте в группе <code>/chatid</code> после запуска бота. До настройки группы отправка новых заявок приостановлена.</p>
   {% endif %}
 </section>
 {% include "limits_max_users.html" %}
@@ -97,6 +121,9 @@
 .max-panel dl>div{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .max-panel dt,.max-panel dd{margin:0}
 .max-panel code{padding:3px 7px;border-radius:5px;background:#f1f5f9;color:#0f4c6e;font:600 13px ui-monospace,SFMono-Regular,Menlo,monospace}
+.max-credentials{display:grid;gap:10px;max-width:500px}
+.max-credentials input{padding:9px 12px;border:1px solid var(--line);border-radius:7px;font:inherit}
+.max-controls{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
 @media(max-width:600px){.max-panel dl>div{grid-template-columns:95px 1fr}}
 </style>
 {% endblock %}

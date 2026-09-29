@@ -18,12 +18,19 @@ from durable_data import COUNT_TABLES, RETIRED_LIMIT_TABLES
 import max_limits
 import max_registration
 import max_digest
+import max_bot_config
 from max_dataset_scope import selected_dataset_id
 
 
 class MaxLimitsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='max-limits-')
+        self.config_patch = patch.object(
+            max_bot_config, 'CONFIG',
+            __import__('pathlib').Path(self.temp.name) / 'private' / 'max-bot.json')
+        self.config_patch.start()
+        max_bot_config.save('A' * 40, '-345')
+        max_bot_config.set_enabled(True)
         self.app = Flask(__name__)
         self.app.config.update(
             TESTING=True,
@@ -60,6 +67,7 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.remove()
         db.drop_all()
         self.context.pop()
+        self.config_patch.stop()
         self.temp.cleanup()
 
     @staticmethod
@@ -300,7 +308,7 @@ class MaxLimitsTests(unittest.TestCase):
             self.assertEqual({row[0] for row in exported[1:]}, {'UIN-123'})
             return 'file-token'
         with patch.object(max_registration, 'upload_catalog', side_effect=fake_upload):
-            max_limits.dispatch_update('test-only', {
+            max_limits.dispatch_update('A' * 40, {
                 'update_type': 'message_callback',
                 'callback': {'user': {'user_id': 201}, 'callback_id': 'cb-file',
                              'payload': 'menu:changes-excel'},

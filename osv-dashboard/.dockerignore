@@ -1,0 +1,6 @@
+private/
+*.pyc
+__pycache__/
+uploads/
+output/
+.git/
