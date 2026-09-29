@@ -1840,6 +1840,7 @@ class LimitVersion(db.Model):
     source_path = db.Column(db.String(1000), nullable=False)
     sha256 = db.Column(db.String(64), nullable=False)
     parser_version = db.Column(db.String(80), default='')
+    progress_json = db.Column(db.Text, default='{}')
     snapshot_json = db.Column(db.Text, default='{}')
     warnings_json = db.Column(db.Text, default='[]')
     error_text = db.Column(db.Text, default='')

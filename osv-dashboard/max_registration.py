@@ -13,7 +13,7 @@ from database import (
     LimitDataset, LimitObject, LimitVersion, MaxLimitsApplication,
     MaxLimitsOutbox, MaxLimitsProfile, MaxLimitsUin, db, utcnow,
 )
-from max_dataset_scope import selected_dataset_id
+from max_dataset_scope import selected_dataset_id, snapshot_objects
 
 MENU = [[('Изменения', 'menu:changes'), ('Подписки', 'menu:subscriptions')],
         [('Выгрузка Excel', 'menu:changes-excel')]]
@@ -60,16 +60,7 @@ def pending_application(user_id):
 def _valid_uin(uin):
     if len(uin) > 120 or not uin or any(ch.isspace() for ch in uin):
         return False
-    dataset_id = selected_dataset_id()
-    if dataset_id is None:
-        return False
-    return (db.session.query(LimitObject.id)
-            .join(LimitDataset, LimitDataset.id == LimitObject.dataset_id)
-            .join(LimitVersion, LimitVersion.id == LimitDataset.current_version_id)
-            .filter(LimitDataset.id == dataset_id,
-                    LimitObject.uin == uin, LimitObject.is_present.is_(True),
-                    LimitObject.last_seen_version_id == LimitVersion.id,
-                    LimitVersion.status == 'accepted').first() is not None)
+    return uin in snapshot_objects()
 
 
 def _drafts(user_id):
@@ -330,15 +321,8 @@ def decide(chat_id, moderator_id, payload):
 
 def catalog_bytes():
     """Only current accepted objects; no historical or unreviewed rows."""
-    dataset_id = selected_dataset_id()
-    records = (db.session.query(LimitObject.uin, LimitObject.title, LimitObject.address)
-               .join(LimitDataset, LimitDataset.id == LimitObject.dataset_id)
-               .join(LimitVersion, LimitVersion.id == LimitDataset.current_version_id)
-               .filter(LimitDataset.id == dataset_id,
-                       LimitObject.is_present.is_(True),
-                       LimitObject.last_seen_version_id == LimitVersion.id,
-                       LimitVersion.status == 'accepted')
-               .order_by(LimitObject.uin).all())
+    records = [(obj.uin, obj.title, obj.address)
+               for _, obj in sorted(snapshot_objects().items())]
     book = Workbook(write_only=True)
     sheet = book.create_sheet('Объекты')
     sheet.append(['УИН', 'Наименование объекта', 'Адрес'])

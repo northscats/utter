@@ -17,17 +17,19 @@
   {% endif %}
 {% endwith %}
 
-{% if datasets %}
+{% if ready_versions %}
 <form class="max-toolbar" method="post" action="{{ url_for('max_limits') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label for="max-dataset">Набор отчётности</label>
-  <select id="max-dataset" name="dataset" required {% if not current_user.is_admin %}disabled{% endif %}>
-    <option value="" {% if not dataset %}selected{% endif %} disabled>Выберите набор для бота</option>
-    {% for d in datasets %}<option value="{{ d.id }}" {% if dataset and d.id == dataset.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+  <label for="max-version">Версия файла</label>
+  <select id="max-version" name="version_id" required {% if not current_user.is_admin %}disabled{% endif %}>
+    <option value="" {% if not selected_version %}selected{% endif %} disabled>Выберите версию для бота</option>
+    {% for v in ready_versions %}<option value="{{ v.id }}" {% if selected_version and v.id == selected_version.id %}selected{% endif %}>#{{ v|limit_version_number }} · {{ v.source_name }} · {{ v.source_date }}</option>{% endfor %}
   </select>
   {% if current_user.is_admin %}<button type="submit">Сохранить для бота</button>{% endif %}
 </form>
-<p>Бот использует только сохранённый набор: {% if dataset %}<strong>{{ dataset.name }}</strong>{% else %}<strong>пока не выбран</strong>{% endif %}. Пользователям бота выбирать набор не нужно.</p>
+<p>Бот использует сохранённую версию: {% if selected_version %}<strong>#{{ selected_version|limit_version_number }} · {{ selected_version.source_name }} · {{ selected_version.source_date }}</strong>{% else %}<strong>пока не выбрана</strong>{% endif %}. Новая загрузка не меняет источник MAX; смените версию явно. Номера в списке пересчитываются после удаления, сохранённый файл MAX не меняется.</p>
+{% else %}
+<p>Готовых файлов пока нет. Загрузите XLSX на вкладке «Обзор и загрузки».</p>
 {% endif %}
 
 {% if current_user.is_admin %}
@@ -70,7 +72,7 @@
 {% if current_user.is_admin %}
 <section class="max-panel">
   <h2>Рассылка изменений лимитов</h2>
-  <p>По текущей принятой версии выбранного набора бот отправит каждому подписчику
+  <p>По сохранённой версии файла бот отправит каждому подписчику
     краткий список только его объектов с изменениями. Объекты без изменений не включаются.
     Каждое подтверждённое нажатие создаёт новую рассылку, даже если версия и фильтр не изменились. Доставка выполняется в фоне.</p>
   <form method="post" action="{{ url_for('max_limits_funding_year') }}" class="max-year-form">

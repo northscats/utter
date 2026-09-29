@@ -51,7 +51,8 @@ class MaxLimitsTests(unittest.TestCase):
             dataset_id=self.dataset.id, uploaded_by=user.id,
             source_date=date(2025, 1, 1), status='accepted',
             source_name='source.xlsx', source_path='', sha256='a' * 64,
-            snapshot_json=json.dumps({'rows': []}),
+            snapshot_json=json.dumps({'rows': [{'uin': 'UIN-123', 'cells': {
+                'object_name': {'value': 'Объект'}, 'address': {'value': 'Адрес'}}}]}),
         )
         db.session.add(self.version)
         db.session.flush()
@@ -60,7 +61,7 @@ class MaxLimitsTests(unittest.TestCase):
             dataset_id=self.dataset.id, uin='UIN-123', title='Объект',
             address='Адрес', last_seen_version_id=self.version.id, is_present=True)
         db.session.add(self.obj)
-        Setting.set('max_limits_dataset_id', str(self.dataset.id))
+        Setting.set('max_limits_version_id', str(self.version.id))
         db.session.commit()
 
     def tearDown(self):
@@ -147,7 +148,7 @@ class MaxLimitsTests(unittest.TestCase):
                 {'key': 'annual_funding_2026_budget', 'category': 'annual_funding',
                  'year': 2026, 'label': 'Финансирование 2026'},
             ],
-            'rows': [{'uin': 'UIN-123', 'cells': {
+            'rows': [{'uin': 'ONLY-OLD', 'cells': {}}, {'uin': 'UIN-123', 'cells': {
                 'annual_funding_2024_budget': {'kind': 'money', 'value': '24'},
                 'annual_funding_2026_budget': {'kind': 'money', 'value': '26'},
             }}],
@@ -155,6 +156,7 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.add(new)
         db.session.flush()
         self.dataset.current_version_id = new.id
+        Setting.set('max_limits_version_id', str(new.id))
         comparison = LimitComparison(
             old_version_id=self.version.id, new_version_id=new.id, status='ready')
         db.session.add(comparison)
@@ -231,6 +233,9 @@ class MaxLimitsTests(unittest.TestCase):
             field_key='cost', field_label='Стоимость',
             old_json=json.dumps(10), new_json=json.dumps(12)))
         db.session.flush()
+        new.previous_version_id = self.version.id
+        new.snapshot_json = self.version.snapshot_json
+        Setting.set('max_limits_version_id', str(new.id))
         self.assertEqual(max_limits.queue_accepted_changes(new, comparison), 1)
         db.session.commit()
         item = MaxLimitsOutbox.query.one()
@@ -258,6 +263,8 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.add(new)
         db.session.flush()
         self.dataset.current_version_id = new.id
+        new.snapshot_json = self.version.snapshot_json
+        Setting.set('max_limits_version_id', str(new.id))
         comparison = LimitComparison(
             old_version_id=self.version.id, new_version_id=new.id, status='ready')
         db.session.add(comparison)
@@ -277,8 +284,8 @@ class MaxLimitsTests(unittest.TestCase):
                 old_json='2024', new_json='2025'),
         ])
         db.session.commit()
-        self.assertEqual(max_digest.prepare_digest(), (2, 2))
-        self.assertEqual(max_digest.prepare_digest(), (0, 0))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (2, 2))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (0, 0))
         outbox = MaxLimitsOutbox.query.order_by(MaxLimitsOutbox.user_id).all()
         self.assertEqual([item.user_id for item in outbox], [201, 203])
         message = max_digest.message_for_outbox(outbox[0])
@@ -326,7 +333,7 @@ class MaxLimitsTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][3], {'user_id': 201})
         self.assertIsNotNone(outbox[1].cancelled_at)
-        self.assertEqual(max_digest.prepare_digest(), (0, 0))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (0, 0))
 
     def test_digest_counts_all_approved_objects_and_lists_only_changed(self):
         for index in range(30):
@@ -344,6 +351,10 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.add(new)
         db.session.flush()
         self.dataset.current_version_id = new.id
+        new.snapshot_json = json.dumps({'rows': [
+            {'uin': row.uin, 'cells': {'object_name': {'value': row.title}}}
+            for row in LimitObject.query.filter_by(dataset_id=self.dataset.id).all()]})
+        Setting.set('max_limits_version_id', str(new.id))
         comparison = LimitComparison(
             old_version_id=self.version.id, new_version_id=new.id, status='ready')
         db.session.add(comparison)
@@ -382,6 +393,8 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.add(new)
         db.session.flush()
         self.dataset.current_version_id = new.id
+        new.snapshot_json = self.version.snapshot_json
+        Setting.set('max_limits_version_id', str(new.id))
         comparison = LimitComparison(
             old_version_id=self.version.id, new_version_id=new.id, status='ready')
         db.session.add(comparison)
@@ -399,23 +412,23 @@ class MaxLimitsTests(unittest.TestCase):
                 old_json='"Старое"', new_json='"Новое"'),
         ])
         db.session.commit()
-        self.assertEqual(max_digest.prepare_digest(), (1, 1))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (1, 1))
         first = MaxLimitsOutbox.query.one()
-        self.assertEqual(first.uin, '__manual_digest__:2026:0')
+        self.assertEqual(first.uin, '__manual_digest__:2026:' + 'a' * 32 + ':0')
         self.assertIn('UIN-123', max_digest.message_for_outbox(first))
-        self.assertEqual(max_digest.prepare_digest(), (0, 0))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (0, 0))
         first.cancelled_at = utcnow()
         Setting.set('max_limits_min_funding_year', 'all')
         db.session.commit()
         self.assertIsNone(max_digest.message_for_outbox(first))
-        self.assertEqual(max_digest.prepare_digest(), (1, 1))
-        second = MaxLimitsOutbox.query.filter_by(uin='__manual_digest__:all:0').one()
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (1, 1))
+        second = MaxLimitsOutbox.query.filter_by(uin='__manual_digest__:all:' + 'a' * 32 + ':0').one()
         self.assertIn('UIN-123', max_digest.message_for_outbox(second))
-        self.assertEqual(max_digest.prepare_digest(), (0, 0))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (0, 0))
         second.cancelled_at = utcnow()
         Setting.set('max_limits_min_funding_year', '2026')
         db.session.commit()
-        self.assertEqual(max_digest.prepare_digest(), (1, 1))
+        self.assertEqual(max_digest.prepare_digest('a' * 32), (1, 1))
         self.assertIsNone(first.cancelled_at)
         self.assertEqual(MaxLimitsOutbox.query.count(), 2)
 
@@ -432,6 +445,8 @@ class MaxLimitsTests(unittest.TestCase):
         db.session.add(new)
         db.session.flush()
         self.dataset.current_version_id = new.id
+        new.snapshot_json = self.version.snapshot_json
+        Setting.set('max_limits_version_id', str(new.id))
         comparison = LimitComparison(
             old_version_id=self.version.id, new_version_id=new.id, status='ready')
         db.session.add(comparison)
@@ -500,6 +515,9 @@ class MaxLimitsTests(unittest.TestCase):
     def test_catalog_contains_accepted_objects_and_not_formulas(self):
         from openpyxl import load_workbook
         self.obj.title = '=SUM(1,2)'
+        snapshot = json.loads(self.version.snapshot_json)
+        snapshot['rows'][0]['cells']['object_name']['value'] = '=SUM(1,2)'
+        self.version.snapshot_json = json.dumps(snapshot)
         db.session.commit()
         sheet = load_workbook(
             __import__('io').BytesIO(max_registration.catalog_bytes()),
@@ -518,7 +536,9 @@ class MaxLimitsTests(unittest.TestCase):
             dataset_id=dataset.id, uploaded_by=self.version.uploaded_by,
             source_date=date(2025, 1, 2), status='accepted',
             source_name='other.xlsx', source_path='', sha256='c' * 64,
-            snapshot_json=json.dumps({'rows': []}))
+            snapshot_json=json.dumps({'rows': [{'uin': uin, 'cells': {
+                'object_name': {'value': 'Чужой объект'},
+                'address': {'value': 'Чужой адрес'}}}]}))
         db.session.add(version)
         db.session.flush()
         dataset.current_version_id = version.id
@@ -531,14 +551,14 @@ class MaxLimitsTests(unittest.TestCase):
     def test_selected_dataset_is_explicit_and_existing(self):
         self.assertEqual(selected_dataset_id(), self.dataset.id)
         for value in ('', 'not-an-id', '-1', '²', '99999'):
-            Setting.set('max_limits_dataset_id', value)
+            Setting.set('max_limits_version_id', value)
             db.session.commit()
             self.assertIsNone(selected_dataset_id())
             self.assertFalse(max_registration._valid_uin('UIN-123'))
             self.assertNotIn('UIN-123', self._catalog_uins())
             self.assertNotIn('Объект: Объект',
                              max_limits.current_information('UIN-123'))
-        Setting.set('max_limits_dataset_id', str(self.dataset.id))
+        Setting.set('max_limits_version_id', str(self.version.id))
         db.session.commit()
         self.assertEqual(selected_dataset_id(), self.dataset.id)
 
@@ -560,7 +580,7 @@ class MaxLimitsTests(unittest.TestCase):
         self.assertIn('Объект: Объект', max_limits.current_information('UIN-123'))
         self.assertNotIn('Чужой объект',
                          max_limits.current_information('OTHER-UIN'))
-        Setting.set('max_limits_dataset_id', str(other.id))
+        Setting.set('max_limits_version_id', str(other.current_version_id))
         db.session.commit()
         self.assertFalse(max_registration._valid_uin('UIN-123'))
         self.assertTrue(max_registration._valid_uin('OTHER-UIN'))
@@ -600,7 +620,9 @@ class MaxLimitsTests(unittest.TestCase):
             user_id=301, uin='UIN-123', version_id=self.version.id, text='old',
             next_attempt_at=utcnow() + timedelta(days=1))
         db.session.add(old_item)
-        Setting.set('max_limits_dataset_id', str(other.id))
+        new_other.previous_version_id = old_other.id
+        new_other.snapshot_json = old_other.snapshot_json
+        Setting.set('max_limits_version_id', str(new_other.id))
         db.session.commit()
         self.assertEqual(max_limits.queue_accepted_changes(new_other, comparison), 1)
         db.session.commit()

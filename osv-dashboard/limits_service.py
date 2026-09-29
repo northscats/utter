@@ -6,6 +6,8 @@ import os
 import shutil
 import uuid
 import threading
+import tempfile
+from contextlib import contextmanager
 from functools import wraps
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -16,17 +18,51 @@ from openpyxl import Workbook
 from database import (
     LimitChange, LimitComparison, LimitComparisonResolution, LimitDataset,
     LimitObject, LimitRowSnapshot, LimitVersion, LimitVersionTombstone, Setting,
-    db, utcnow,
+    AuditLog, db, utcnow,
 )
 
 MAX_HISTORY = 10
 _service_lock = threading.RLock()
+_lock_state = threading.local()
+
+
+@contextmanager
+def _process_lock():
+    """Hold a database-wide lock across the pipeline's durable checkpoints."""
+    if getattr(_lock_state, 'held', False):
+        yield
+        return
+    _lock_state.held = True
+    try:
+        if db.engine.dialect.name == 'postgresql':
+            from sqlalchemy import text
+            with db.engine.connect() as connection:
+                connection.execute(text('SELECT pg_advisory_lock(301, 1)'))
+                try:
+                    yield
+                finally:
+                    connection.execute(text('SELECT pg_advisory_unlock(301, 1)'))
+        else:
+            import fcntl
+            identity = hashlib.sha256(str(db.engine.url).encode()).hexdigest()
+            with open(os.path.join(tempfile.gettempdir(), f'limits-{identity}.lock'), 'a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+    finally:
+        _lock_state.held = False
 
 
 def _serialized(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
-        with _service_lock:
+        # MAX selection and deletion must share the entire check/commit critical
+        # section. Always take MAX first: publication queues also take this
+        # reentrant lock, and callers may already own it.
+        from max_bot_config import locked
+        with locked(), _service_lock, _process_lock():
             try:
                 return function(*args, **kwargs)
             except Exception:
@@ -98,6 +134,96 @@ def make_dataset(name, scope, owner_id):
     return dataset
 
 
+@_serialized
+def resolve_upload_dataset(user_id):
+    """Persist one technical upload sequence without merging historical sources."""
+    db.session.expire_all()
+    saved = Setting.get('limits_upload_dataset_id', '')
+    if saved:
+        dataset = db.session.get(LimitDataset, int(saved))
+        if dataset is None:
+            raise LimitsError('Сохранённый источник загрузок отсутствует. Требуется восстановление.')
+        return dataset
+    legacy = Setting.get('max_limits_dataset_id', '')
+    dataset = db.session.get(LimitDataset, int(legacy)) if str(legacy).isdigit() else None
+    if dataset is None:
+        candidates = LimitDataset.query.limit(2).all()
+        dataset = candidates[0] if len(candidates) == 1 else None
+    if dataset is None:
+        dataset = LimitDataset(name='Лимиты', scope='Техническая последовательность файлов', owner_id=user_id)
+        db.session.add(dataset)
+        db.session.flush()
+    Setting.set('limits_upload_dataset_id', str(dataset.id))
+    db.session.commit()
+    return dataset
+
+
+def _audit_version(version, action, **details):
+    db.session.add(AuditLog(user_id=version.uploaded_by, action=action,
+                           details=_dump(dict(version_id=version.id, **details))))
+
+
+@_serialized
+def process_version(version_id):
+    """Idempotently parse, compare against the latest base, and publish."""
+    db.session.expire_all()
+    version = db.session.get(LimitVersion, version_id)
+    if not version:
+        raise LimitsError('Версия не найдена.')
+    if version.status == 'accepted':
+        return version
+    if version.status not in ('queued', 'parsing', 'review', 'error'):
+        raise LimitsError('Версия недоступна для обработки.')
+    from limits_progress import Progress
+    progress = Progress(version)
+    try:
+        if version.status != 'review':
+            # A previous process may have stopped after the parsing checkpoint.
+            version.status = 'queued'
+            version.progress_json = '{}'
+            dataset = db.session.get(LimitDataset, version.dataset_id)
+            version.previous_version_id = dataset.current_version_id
+            db.session.commit()
+            version = parse_version(version.id, progress=progress)
+        dataset = db.session.get(LimitDataset, version.dataset_id)
+        db.session.refresh(dataset)
+        version.previous_version_id = dataset.current_version_id
+        db.session.commit()
+        if dataset.current_version_id:
+            comparison = create_comparison(dataset.current_version_id, version.id, progress=progress)
+            if _unresolved(comparison):
+                version.error_text = 'Требуется исправить неоднозначности сопоставления.'
+                db.session.commit()
+                return version
+        version.error_text = ''
+        progress('applying')
+        return accept_version(version.id, version.uploaded_by)
+    except Exception as exc:
+        db.session.rollback()
+        version = db.session.get(LimitVersion, version_id)
+        if version and version.status != 'accepted':
+            version.status = 'error'
+            version.error_text = 'Обработка не завершена. Проверьте файл и повторите попытку; при повторной ошибке обратитесь к администратору.'
+            _audit_version(version, 'limits_processing_error', error=str(exc))
+            db.session.commit()
+        raise
+
+
+def resume_pending_versions():
+    """Run after restore; errors are reported per file, never silently discarded."""
+    ids = [row.id for row in LimitVersion.query.filter(
+        LimitVersion.status.in_(('queued', 'parsing', 'review'))
+    ).order_by(LimitVersion.id).all()]
+    results = []
+    for version_id in ids:
+        try:
+            version = process_version(version_id)
+            results.append({'version_id': version_id, 'status': version.status})
+        except Exception as exc:
+            results.append({'version_id': version_id, 'status': 'error', 'error': str(exc)})
+    return results
+
+
 def rename_legacy_limits_dataset():
     """Apply the one-time rename of the shipped registry with stable identity."""
     marker = 'limits_legacy_dataset_renamed_v2'
@@ -146,12 +272,14 @@ def stage_upload(dataset, stream, filename, source_date, uploaded_by, storage_ro
         source_name=clean_name, source_path=str(target), sha256=digest, status='queued',
         previous_version_id=dataset.current_version_id)
     db.session.add(version)
+    db.session.flush()
+    _audit_version(version, 'limits_upload')
     db.session.commit()
     return version, False
 
 
 @_serialized
-def parse_version(version_id):
+def parse_version(version_id, progress=None):
     """Parse staged file and materialise rows. Intended for a background worker."""
     version = db.session.get(LimitVersion, version_id)
     if not version:
@@ -163,9 +291,11 @@ def parse_version(version_id):
     db.session.commit()
     try:
         from limits_parser import parse_xlsx
-        snapshot = parse_xlsx(version.source_path)
+        snapshot = parse_xlsx(version.source_path, progress=progress) if progress else parse_xlsx(version.source_path)
         if not isinstance(snapshot, dict) or not isinstance(snapshot.get('rows'), list):
             raise LimitsError('Парсер вернул недопустимый снимок.')
+        if progress:
+            progress('saving')
         version.snapshot_json = _dump(snapshot)
         version.warnings_json = _dump(snapshot.get('warnings', []))
         LimitRowSnapshot.query.filter_by(version_id=version.id).delete()
@@ -182,14 +312,14 @@ def parse_version(version_id):
         db.session.commit()
         # A staged successor gets a durable preview immediately. Publication
         # still requires an operator and checks that this base is current.
-        if version.previous_version_id:
+        if version.previous_version_id and not progress:
             create_comparison(version.previous_version_id, version.id)
         return version
     except Exception as exc:
         db.session.rollback()
         version = db.session.get(LimitVersion, version_id)
         version.status = 'error'
-        version.error_text = str(exc)
+        version.error_text = 'Не удалось обработать XLSX. Проверьте структуру файла и повторите попытку.'
         db.session.commit()
         raise
 
@@ -206,7 +336,7 @@ def _decimal(value):
 
 
 @_serialized
-def create_comparison(old_version_id, new_version_id, resolutions=None):
+def create_comparison(old_version_id, new_version_id, resolutions=None, progress=None):
     old = db.session.get(LimitVersion, old_version_id)
     new = db.session.get(LimitVersion, new_version_id)
     if not old or not new or old.id == new.id or old.dataset_id != new.dataset_id:
@@ -223,9 +353,11 @@ def create_comparison(old_version_id, new_version_id, resolutions=None):
     from limits_parser import compare_snapshots, LimitsParserError
     try:
         result = compare_snapshots(_json(old.snapshot_json, {}), _json(new.snapshot_json, {}),
-                                   parsed_resolutions)
+                                   parsed_resolutions, progress=progress)
     except LimitsParserError as exc:
         raise LimitsError(str(exc)) from exc
+    if progress:
+        progress('changes')
     for index, issue in enumerate(result.get('issues', [])):
         if isinstance(issue, dict) and not issue.get('key'):
             issue['key'] = f"{issue.get('code', 'issue')}:{issue.get('uin', '')}"
@@ -297,7 +429,13 @@ def resolve_comparison_issue(comparison_id, issue_key, resolution, user_id):
     # Recompute from immutable snapshots with all explicit row mappings. This
     # makes publication auditable and prevents an operator note from silently
     # selecting a row.
+    db.session.add(AuditLog(user_id=user_id, action='limits_issue_resolved',
+                           details=_dump({'comparison_id': comparison.id,
+                                          'issue_key': issue_key, 'resolution': resolution})))
     create_comparison(comparison.old_version_id, comparison.new_version_id)
+    version = db.session.get(LimitVersion, comparison.new_version_id)
+    if version and version.status == 'review':
+        process_version(version.id)
 
 
 def _unresolved(comparison):
@@ -358,10 +496,15 @@ def accept_version(version_id, user_id):
         for change in LimitChange.query.filter_by(comparison_id=comparison.id).all():
             change.object_id = objects[change.uin].id
         db.session.flush()
-    if len(accepted) >= MAX_HISTORY:
-        _purge_version_data(accepted[0], manual=False)
+    protected = protected_version_ids()
+    removable = [row for row in accepted if row.id not in protected]
+    for row in removable[:max(0, len(accepted) + 1 - MAX_HISTORY)]:
+        _purge_version_data(row, manual=False)
+    _audit_version(version, 'limits_auto_accepted', accepted_by=user_id,
+                   previous_version_id=version.previous_version_id)
     from max_limits import queue_accepted_changes
     queue_accepted_changes(version, comparison)
+    version.accepted_at = utcnow()
     db.session.commit()
     cleanup_purged_files()
     return version
@@ -447,6 +590,8 @@ def _publish_manual_tombstone(tombstone):
 
 def _purge_version_data(version, manual=False):
     """Delete materialisations and record filesystem intent in caller transaction."""
+    if version.id in protected_version_ids():
+        raise LimitsError('Версия выбрана в MAX или нужна для её отчёта. Сначала смените источник MAX.')
     source_path = version.source_path
     comparisons = LimitComparison.query.filter(
         (LimitComparison.old_version_id == version.id) |
@@ -529,13 +674,37 @@ def reconcile_history_window():
         accepted = LimitVersion.query.filter_by(dataset_id=dataset.id, status='accepted')\
             .order_by(LimitVersion.accepted_at.asc(), LimitVersion.id.asc()).all()
         while len(accepted) > MAX_HISTORY:
-            try:
-                purge_version(accepted[0].id, manual=False)
-            except LimitsError:
-                blocked.append({'dataset_id': dataset.id, 'version_id': accepted[0].id})
+            protected = protected_version_ids()
+            candidate = next((row for row in accepted if row.id not in protected
+                              and row.id != dataset.current_version_id), None)
+            if candidate is None:
+                blocked.extend({'dataset_id': dataset.id, 'version_id': row.id}
+                               for row in accepted)
                 break
-            accepted.pop(0)
+            try:
+                purge_version(candidate.id, manual=False)
+            except LimitsError:
+                blocked.append({'dataset_id': dataset.id, 'version_id': candidate.id})
+                break
+            accepted.remove(candidate)
     return blocked
+
+
+def protected_version_ids():
+    """Pin the selected MAX snapshot and both inputs of its persisted report."""
+    setting = Setting.query.filter_by(key='max_limits_version_id').populate_existing().first()
+    value = setting.value if setting else ''
+    if not str(value).isdigit():
+        return set()
+    selected = db.session.get(LimitVersion, int(value))
+    if selected is None:
+        return set()
+    protected = {selected.id}
+    if selected.previous_version_id:
+        protected.add(selected.previous_version_id)
+    for comparison in LimitComparison.query.filter_by(new_version_id=selected.id).all():
+        protected.add(comparison.old_version_id)
+    return protected
 
 
 def export_comparison(comparison_id):

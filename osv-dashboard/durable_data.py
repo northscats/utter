@@ -57,10 +57,27 @@ RETIRED_LIMIT_MODELS = {
     "LimitModerationRequest", "LimitRecipient",
 }
 
+# Settings is deliberately NOT a durable model in its entirety: it contains
+# provider credentials and operational state. Preserve only these non-secret
+# MAX/source choices, including an existing empty max_limits_version_id row
+# (the absence/presence of that row controls the one-time migration).
+DURABLE_SETTING_KEYS = frozenset({
+    "limits_upload_dataset_id",
+    "max_limits_version_id",
+    "max_limits_dataset_id",
+    "max_limits_min_funding_year",
+})
 
 def _active_models(models):
-    return tuple(model for model in models
-                 if model.__tablename__ not in RETIRED_LIMIT_TABLES)
+    active = tuple(model for model in models
+                   if model.__tablename__ not in RETIRED_LIMIT_TABLES)
+    # The application deliberately excludes Setting from _DURABLE_MODELS.
+    # Include it only for limits backups, never as an unrestricted table.
+    if any(model.__name__ == "LimitDataset" for model in active) \
+            and not any(model.__name__ == "Setting" for model in active):
+        from database import Setting
+        active += (Setting,)
+    return active
 _BACKUP_LOCK = threading.Lock()
 _LIMIT_TOMBSTONE_LOCK = threading.Lock()
 LIMIT_TOMBSTONES_KEY = f"{ROOT}/limit-version-tombstones.json"
@@ -282,12 +299,16 @@ def _encoded(value):
 
 def _snapshot_rows(models):
     models = _active_models(models)
+    def rows_for(model):
+        query = model.query
+        if model.__name__ == "Setting":
+            query = query.filter(model.key.in_(DURABLE_SETTING_KEYS))
+        return query.order_by(*model.__table__.primary_key.columns).all()
     return {
         model.__name__: [
             {column.name: _encoded(getattr(row, column.name))
              for column in model.__table__.columns}
-            for row in model.query.order_by(
-                *model.__table__.primary_key.columns).all()
+            for row in rows_for(model)
         ]
         for model in models
     }
@@ -465,9 +486,12 @@ def _snapshot_table_chunks(db, store, snapshot_prefix, models):
             columns = tuple(model.__table__.columns)
             primary_keys = tuple(model.__table__.primary_key.columns)
             primary_key_names = tuple(column.name for column in primary_keys)
+            statement = select(*columns).order_by(*primary_keys)
+            if model.__name__ == "Setting":
+                statement = statement.where(
+                    model.key.in_(DURABLE_SETTING_KEYS))
             result = connection.execution_options(
-                stream_results=True).execute(
-                    select(*columns).order_by(*primary_keys))
+                stream_results=True).execute(statement)
 
             def rows():
                 for record in result.mappings():
@@ -686,6 +710,9 @@ def backup(db, uploads_root, output_root, models, reason,
                 # idempotent schema migration before serving requests.
                 _run(["pg_dump", "--no-password", "--format=custom",
                       *[f"--exclude-table={table}" for table in RETIRED_LIMIT_TABLES],
+                      # Settings can hold secrets. Only allowlisted rows in
+                      # JSON chunks are eligible for automatic recovery.
+                      "--exclude-table-data=settings",
                       "--file", dump_path],
                      _pg_environment(db.engine.url))
                 dump_key = f"{snapshot_prefix}/database.dump"
@@ -1040,6 +1067,13 @@ def _restore_json(db, manifest, models, include_parents=True,
         for values in _table_rows_from_manifest(
                 store, manifest, model.__name__):
             processed_since_checkpoint += 1
+            # Never import a secret from a legacy or forged manifest, even if
+            # somebody explicitly supplied Setting among the models.
+            if (model.__name__ == "Setting"
+                    and values.get("key") not in DURABLE_SETTING_KEYS):
+                skipped += 1
+                checkpoint()
+                continue
             large_payload = sum(
                 len(value.encode("utf-8"))
                 for value in values.values()

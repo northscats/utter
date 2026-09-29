@@ -158,7 +158,7 @@ class RetireMaxSchemaTest(unittest.TestCase):
             __tablename__ = 'limit_recipients'
 
         models = _active_models((LimitDataset, OldRecipient, LimitVersion))
-        self.assertEqual(models, (LimitDataset, LimitVersion))
+        self.assertEqual(models, (LimitDataset, LimitVersion, Setting))
         self.assertNotIn('limit_recipients', COUNT_TABLES)
         old = {'counts': {'limit_recipients': 42, 'limit_datasets': 1}}
         self.assertEqual(_manifest_counts(old, models)['limit_datasets'], 0)

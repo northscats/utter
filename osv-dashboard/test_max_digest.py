@@ -58,7 +58,12 @@ class MaxDigestTests(unittest.TestCase):
                 field_label='Финансирование', source_json='{"year": 2026}'))
             db.session.add(MaxLimitsUin(
                 user_id=50, uin='100.200', status='approved'))
-            Setting.set('max_limits_dataset_id', '1')
+            db.session.get(LimitVersion, 1).snapshot_json = '{"rows":[]}'
+            db.session.get(LimitVersion, 2).snapshot_json = json.dumps({'rows': [
+                {'uin': '100.200', 'cells': {
+                    'object_name': {'value': 'Тестовый объект'},
+                    'address': {'value': 'Старый адрес'}}}]})
+            Setting.set('max_limits_version_id', '2')
             Setting.set('max_limits_min_funding_year', '2026')
             db.session.commit()
 

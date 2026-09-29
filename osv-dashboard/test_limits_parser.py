@@ -21,10 +21,15 @@ class LimitsParserRealWorkbookTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.old = parse_xlsx(FORM_1)
-        cls.new = parse_xlsx(FORM_2)
+        cls.progress_events = []
+        cls.new = parse_xlsx(FORM_2, progress=lambda *event: cls.progress_events.append(event))
         cls.comparison = compare_snapshots(cls.old, cls.new)
 
     def test_real_workbooks_have_semantic_schema_and_expected_uins(self):
+        row_events = [event for event in self.progress_events if event[0] == 'rows']
+        self.assertEqual(0, row_events[0][1])
+        self.assertEqual(row_events[-1][2], row_events[-1][1])
+        self.assertEqual(list(range(row_events[-1][2] + 1)), [event[1] for event in row_events])
         self.assertEqual(68, len(self.old["columns"]))
         self.assertEqual(2545, len(self.old["rows"]))
         self.assertEqual(2563, len(self.new["rows"]))

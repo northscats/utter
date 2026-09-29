@@ -26,7 +26,11 @@ RETIRED_TABLES = (
 def migrate_limits_schema():
     """Retire MAX tables/settings and keep the financial snapshot migration."""
     tables = set(inspect(db.engine).get_table_names())
+    version_columns = {c['name'] for c in inspect(db.engine).get_columns('limit_versions')} if 'limit_versions' in tables else set()
     with db.engine.begin() as connection:
+        if version_columns and 'progress_json' not in version_columns:
+            guard = 'IF NOT EXISTS ' if db.engine.dialect.name == 'postgresql' else ''
+            connection.execute(text(f"ALTER TABLE limit_versions ADD COLUMN {guard}progress_json TEXT DEFAULT '{{}}'"))
         for table in RETIRED_TABLES:
             if table in tables:
                 # Names are static, not interpolated user input. Without

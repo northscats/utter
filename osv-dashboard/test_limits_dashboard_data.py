@@ -3,6 +3,7 @@ import json
 import unittest
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 from flask import Flask
 
@@ -146,8 +147,52 @@ class LimitsDashboardDataTests(unittest.TestCase):
         self.assertEqual(3, chart['changes']['total'])
         self.assertEqual(1, chart['current_objects'])
         self.assertEqual(1, chart['changes']['objects'])
-        self.assertEqual(20, chart['changes']['ranking'][0]['delta'])
+        self.assertEqual([12, 10, 8], [r['delta'] for r in chart['changes']['ranking']])
         self.assertEqual('Библиотека', chart['changes']['ranking'][0]['title'])
+
+    def test_annual_only_ranking_preserves_year_source_and_rows(self):
+        self.add_version(1, [report_row('100.1', '100', '0')])
+        self.add_version(2, [report_row('100.1', '100', '50')], previous=1,
+                         source_date=date(2026, 2, 1))
+        dataset = db.session.get(LimitDataset, 1)
+        dataset.current_version_id = 2
+        db.session.add(LimitComparison(id=1, old_version_id=1, new_version_id=2))
+        db.session.flush()
+        for year, source, delta, row in [
+            (2027, 'federal_budget', '50', 10),
+            (2028, 'regional_budget', '-50', 11),
+            (2027, 'federal_budget', '5', 12),
+            (2029, 'federal_budget', None, 13),
+            (2030, 'federal_budget', '0', 14),
+        ]:
+            db.session.add(LimitChange(
+                comparison_id=1, uin='100.1', category='annual_funding',
+                field_key=f'annual_funding_{year}_{source}',
+                field_label='Финансирование',
+                source_json=json.dumps(dict(year=year, source=source, new_row=row)),
+                absolute_delta=Decimal(delta) if delta is not None else None))
+        db.session.commit()
+        changes = dashboard_context(dataset)['changes']
+        self.assertEqual(3, changes['ranking_total'])
+        self.assertEqual(1, changes['ranking_unknown'])
+        self.assertEqual([50, -50, 5], [r['delta'] for r in changes['ranking']])
+        first = changes['ranking'][0]
+        self.assertIn('2027', first['field_label'])
+        self.assertIn('federal_budget', first['field_label'])
+        self.assertIn('строка 10', first['field_label'])
+        self.assertEqual('тыс. руб.', first['unit'])
+        self.assertEqual('annual_funding', first['category'])
+
+    def test_removed_controls_and_object_only_trend(self):
+        root = Path(__file__).resolve().parent
+        files = (root / 'templates/limits_dashboard.html').read_text()
+        template = (root / 'templates/limits_analytics.html').read_text()
+        script = (root / 'static/limits_analytics.js').read_text()
+        self.assertNotIn('Контрольные количества', files)
+        self.assertNotIn("url_for('limit_version_review'", files)
+        self.assertNotIn('id="la-metric"', template)
+        self.assertNotIn("getElementById('la-metric')", script)
+        self.assertIn("drawTrend(metrics.find(function (m) { return m.key === 'objects_count'; }))", script)
 
 
 if __name__ == '__main__':

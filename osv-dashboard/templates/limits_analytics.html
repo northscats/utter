@@ -5,16 +5,11 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='limits_analytics.css', v='1') }}">
 <div class="eyebrow">ГИС РЭБ · Аналитика версий</div>
 <h1>Лимиты</h1>
-<p class="lead">Динамика финансовых показателей по принятым версиям и структура последних изменений.</p>
+<p class="lead">Динамика количества объектов по принятым версиям и структура последних изменений.</p>
 {% include "limits_nav.html" %}
 
 {% if datasets %}
 <form class="la-toolbar" method="get" action="{{ url_for('limit_dashboard') }}">
-  <label for="la-dataset">Набор отчётности</label>
-  <select id="la-dataset" name="dataset" onchange="this.form.submit()">
-    {% for d in datasets %}<option value="{{ d.id }}" {% if dataset and d.id == dataset.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
-  </select>
-  <noscript><button class="btn btn-outline" type="submit">Показать</button></noscript>
   {% if dataset %}
   <span class="la-spacer"></span>
   <a class="btn btn-outline" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Реестр объектов</a>
@@ -24,11 +19,11 @@
 {% endif %}
 
 {% if not dataset %}
-<section class="empty"><h2>Нет наборов отчётности</h2><p>Создайте набор и загрузите первый XLSX на вкладке «Обзор и загрузки».</p>
+<section class="empty"><h2>Нет загруженных файлов</h2><p>Загрузите первый XLSX на вкладке «Обзор и загрузки».</p>
 <a class="btn btn-primary" href="{{ url_for('limit_notifications') }}">Перейти к загрузкам</a></section>
 {% elif not dashboard or not dashboard.has_data %}
-<section class="empty"><h2>Пока нечего анализировать</h2><p>В наборе «{{ dataset.name }}» нет принятых версий. Дашборд появится после принятия первой загрузки.</p>
-<a class="btn btn-primary" href="{{ url_for('limit_notifications', dataset=dataset.id) }}">Загрузить и принять версию</a></section>
+<section class="empty"><h2>Пока нечего анализировать</h2><p>Дашборд появится после успешной обработки первой загрузки.</p>
+<a class="btn btn-primary" href="{{ url_for('limit_notifications') }}">Загрузить файл</a></section>
 {% else %}
 {% set ch = dashboard.changes %}
 <div class="la-kpis">
@@ -38,8 +33,7 @@
 </div>
 
 <section class="panel la-panel">
-  <div class="panel-header"><span>Динамика показателя</span>
-    <label class="la-metric"><span class="sr">Показатель</span><select id="la-metric" aria-label="Показатель"></select></label>
+  <div class="panel-header"><span>Динамика количества объектов</span>
   </div>
   <div class="panel-body">
     <div class="la-metric-head"><div><b id="la-latest">—</b> <span class="la-unit" id="la-unit"></span></div><span id="la-delta" class="la-delta"></span></div>
@@ -73,17 +67,16 @@
   <div class="panel-body">
   {% if ch and ch.available and ch.ranking %}
     <div id="la-rank" class="la-chart la-chart-rank" role="img"></div>
-    <details class="la-table"><summary>Таблица</summary><div class="table-wrap"><table><thead><tr><th>УИН</th><th>Объект</th><th class="num">Изменение</th></tr></thead><tbody id="la-rank-rows"></tbody></table></div></details>
   {% elif ch and ch.available %}
-    <p class="la-empty">Изменений финансового показателя нет.</p>
+    <p class="la-empty">{% if ch.ranking_unknown %}Нет финансовых изменений с вычислимой числовой разницей.{% else %}Числовых изменений финансовых полей нет.{% endif %}</p>
   {% else %}
     <p class="la-empty">Рейтинг появится после сравнения двух версий.</p>
   {% endif %}
-  {% if ch and ch.available %}<a class="la-link" href="{{ url_for('limit_objects', dataset_id=dataset.id) }}">Открыть реестр объектов →</a>{% endif %}
+  {% if ch and ch.ranking_unknown %}<p class="la-note">Изменений без числовой разницы: {{ ch.ranking_unknown }}. Пустые и нечисловые значения не считаются нулями.</p>{% endif %}
   </div>
 </section>
 </div>
 <script type="application/json" id="la-data">{{ dashboard|tojson }}</script>
-<script src="{{ url_for('static', filename='limits_analytics.js', v='1') }}"></script>
+<script src="{{ url_for('static', filename='limits_analytics.js', v='2') }}"></script>
 {% endif %}
 {% endblock %}

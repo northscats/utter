@@ -4,7 +4,7 @@ Every monetary series represents one semantic XLSX column (one period and
 funding source); values from different columns are never combined.
 """
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from decimal import Decimal, InvalidOperation
 
 from database import LimitChange, LimitComparison, LimitObject, LimitVersion, db
@@ -50,7 +50,8 @@ def _money(cell):
 
 
 def _version_label(version):
-    return f'{version.source_date:%d.%m.%Y} · №{version.id}'
+    from limits_version_display import display_number
+    return f'{version.source_date:%d.%m.%Y} · №{display_number(version)}'
 
 
 def _column_totals(snapshot):
@@ -99,8 +100,9 @@ def _comparison_context(dataset, current, version_by_id):
         'available': False, 'comparison_id': None, 'old_label': '',
         'new_label': _version_label(current) if current else '',
         'total': 0, 'objects': 0, 'categories': [], 'ranking': [],
-        'ranking_label': 'Изменение предельной стоимости, тыс. руб.',
-        'metric_label': 'Предельная стоимость',
+        'ranking_label': 'Изменения отдельных финансовых полей, тыс. руб.',
+        'metric_label': 'Финансовые поля',
+        'ranking_total': 0, 'ranking_unknown': 0,
     }
     if not current or current.previous_version_id not in version_by_id:
         return empty
@@ -112,20 +114,43 @@ def _comparison_context(dataset, current, version_by_id):
 
     changes = LimitChange.query.filter_by(comparison_id=comparison.id).all()
     categories = Counter()
-    ranking = defaultdict(Decimal)
+    ranking = []
+    unknown = 0
     affected_uins = set()
     for change in changes:
         affected_uins.add(change.uin)
         categories[change.category] += 1
-        if change.field_key == 'limit_cost' and change.category == 'limit_cost':
-            # An object may have multiple programme rows. Signed row deltas
-            # are summed only within this one financial measure.
-            if change.absolute_delta is not None:
-                ranking[change.uin] += change.absolute_delta
+        if change.category in _MONEY_CATEGORIES:
+            # Rank individual field/row changes; never combine years, sources,
+            # categories or programme rows, even when they share a UIN.
+            amount = change.absolute_delta
+            if amount is None or not amount.is_finite():
+                unknown += 1
+                continue
+            if amount == 0:
+                continue
+            try:
+                source = json.loads(change.source_json or '{}')
+            except (TypeError, ValueError):
+                source = {}
+            if not isinstance(source, dict):
+                source = {}
+            label = change.field_label or change.field_key
+            details = [str(source[key]) for key in ('year', 'source', 'programme')
+                       if source.get(key) is not None and str(source[key]) not in label]
+            row = source.get('new_row') or source.get('old_row')
+            if row is not None:
+                details.append(f'строка {row}')
+            ranking.append({
+                'uin': change.uin, 'field_key': change.field_key,
+                'field_label': ' · '.join([_CATEGORY_LABELS[change.category], label] + details),
+                'category': change.category, 'source': source,
+                'unit': 'тыс. руб.', 'delta': float(amount),
+            })
     objects = {
         obj.uin: obj for obj in LimitObject.query.filter_by(
             dataset_id=dataset.id).filter(
-            LimitObject.uin.in_(ranking.keys())).all()
+            LimitObject.uin.in_({item['uin'] for item in ranking})).all()
     } if ranking else {}
     empty.update(
         available=True, comparison_id=comparison.id,
@@ -135,11 +160,11 @@ def _comparison_context(dataset, current, version_by_id):
             {'label': _CATEGORY_LABELS.get(category, category), 'value': count}
             for category, count in categories.most_common()
         ],
+        ranking_total=len(ranking), ranking_unknown=unknown,
         ranking=[
-            {'uin': uin, 'title': objects[uin].title if uin in objects else '',
-             'delta': float(amount)}
-            for uin, amount in sorted(ranking.items(), key=lambda pair: (
-                -abs(pair[1]), pair[0]))[:8]
+            dict(item, title=objects[item['uin']].title if item['uin'] in objects else '')
+            for item in sorted(ranking, key=lambda item: (
+                -abs(item['delta']), item['uin'], item['field_key']))[:8]
         ],
     )
     return empty

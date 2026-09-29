@@ -52,6 +52,9 @@ from limits_service import (
     purge_version,
     resolve_comparison_issue,
     stage_upload,
+    process_version,
+    resolve_upload_dataset,
+    resume_pending_versions,
 )
 
 
@@ -288,6 +291,269 @@ class LimitsLifecycleAcceptanceTests(unittest.TestCase):
         first = self._accept_first()
         self.assertEqual("accepted", first.status)
         self.assertEqual(first.id, self._dataset().current_version_id)
+
+    def test_automatic_pipeline_is_idempotent_and_audited(self):
+        from database import AuditLog
+        first = self._draft("10")
+        with patch("max_limits.queue_accepted_changes") as queue:
+            process_version(first.id)
+            process_version(first.id)
+            self.assertEqual(1, queue.call_count)
+        self.assertEqual("accepted", first.status)
+        self.assertEqual(self.admin_id, first.accepted_by)
+        self.assertEqual(0, LimitComparison.query.count())
+        self.assertEqual(1, AuditLog.query.filter_by(action="limits_auto_accepted").count())
+
+    def test_stale_automatic_upload_recomputes_current_base(self):
+        first = self._accept_first()
+        second = self._draft("20", previous=first.id)
+        third = self._draft("30", previous=first.id)
+        process_version(second.id)
+        process_version(third.id)
+        self.assertEqual(second.id, third.previous_version_id)
+        self.assertEqual(third.id, self._dataset().current_version_id)
+        self.assertIsNotNone(LimitComparison.query.filter_by(
+            old_version_id=second.id, new_version_id=third.id, status="ready").first())
+
+    def test_restart_resumes_parsing_and_review_without_duplicate_effects(self):
+        first = self._draft("10")
+        first.status = "parsing"
+        db.session.commit()
+        with patch("limits_parser.parse_xlsx", return_value=snapshot("10")):
+            self.assertEqual("accepted", resume_pending_versions()[0]["status"])
+        self.assertEqual([], resume_pending_versions())
+        self.assertEqual(1, LimitRowSnapshot.query.filter_by(version_id=first.id).count())
+
+    def test_processing_error_keeps_current_data_and_records_reason(self):
+        first = self._accept_first()
+        second = self._draft("20", previous=first.id)
+        second.status = "queued"
+        db.session.commit()
+        with patch("limits_parser.parse_xlsx", side_effect=ValueError("Invalid workbook columns")):
+            with self.assertRaisesRegex(ValueError, "Invalid workbook"):
+                process_version(second.id)
+        self.assertEqual("error", second.status)
+        self.assertIn("Invalid workbook columns", second.error_text)
+        self.assertEqual(first.id, self._dataset().current_version_id)
+
+    def test_parallel_workers_publish_in_one_serial_sequence(self):
+        import threading
+        first = self._accept_first()
+        ids = [self._draft(value, previous=first.id).id for value in ("20", "30")]
+        errors = []
+        def worker(version_id):
+            with app.app_context():
+                try:
+                    process_version(version_id)
+                except Exception as exc:
+                    errors.append(str(exc))
+                finally:
+                    db.session.remove()
+        workers = [threading.Thread(target=worker, args=(version_id,)) for version_id in ids]
+        for worker_thread in workers:
+            worker_thread.start()
+        for worker_thread in workers:
+            worker_thread.join(timeout=20)
+        self.assertFalse(any(worker_thread.is_alive() for worker_thread in workers))
+        self.assertEqual([], errors)
+        db.session.expire_all()
+        latest = db.session.get(LimitVersion, self._dataset().current_version_id)
+        self.assertIn(latest.id, ids)
+        self.assertEqual(set(ids) - {latest.id}, {latest.previous_version_id})
+
+    def test_separate_processes_serialize_publication(self):
+        import multiprocessing
+        context = multiprocessing.get_context("fork")
+        first = self._accept_first()
+        ids = [self._draft(value, previous=first.id).id for value in ("20", "30")]
+        db.session.remove()
+        gate = context.Event()
+        results = context.Queue()
+
+        def worker(version_id):
+            with app.app_context():
+                db.session.remove()
+                db.engine.dispose(close=False)
+                gate.wait(timeout=10)
+                try:
+                    with patch("max_limits.queue_accepted_changes"):
+                        process_version(version_id)
+                    results.put(None)
+                except Exception as exc:
+                    results.put(str(exc))
+                finally:
+                    db.session.remove()
+
+        workers = [context.Process(target=worker, args=(version_id,)) for version_id in ids]
+        for worker_process in workers:
+            worker_process.start()
+        gate.set()
+        for worker_process in workers:
+            worker_process.join(timeout=20)
+            if worker_process.is_alive():
+                worker_process.terminate()
+                worker_process.join()
+                self.fail("Concurrent processing deadlocked")
+            self.assertEqual(0, worker_process.exitcode)
+        self.assertEqual([None, None], [results.get(timeout=5) for _ in workers])
+        db.session.expire_all()
+        latest = db.session.get(LimitVersion, self._dataset().current_version_id)
+        self.assertIn(latest.id, ids)
+        self.assertEqual(set(ids) - {latest.id}, {latest.previous_version_id})
+
+    def test_unresolved_upload_continues_automatically_after_fix(self):
+        old_data = ambiguous_snapshot([
+            (5, "100.200", "01", "1"),
+            (6, "100.200", "02", "2"),
+        ])
+        new_data = ambiguous_snapshot([(5, "100.200", "03", "3")])
+        old = self._draft("10")
+        old.snapshot_json = json.dumps(old_data)
+        db.session.commit()
+        process_version(old.id)
+        new = self._draft("20", previous=old.id)
+        new.snapshot_json = json.dumps(new_data)
+        db.session.commit()
+        process_version(new.id)
+        self.assertEqual("review", new.status)
+        self.assertEqual(old.id, self._dataset().current_version_id)
+        comparison = LimitComparison.query.filter_by(
+            old_version_id=old.id, new_version_id=new.id).one()
+        issue = json.loads(comparison.issues_json)[0]
+        resolve_comparison_issue(comparison.id, issue["key"],
+                                 {"old_row": "100.200@5", "action": "absent"},
+                                 self.admin_id)
+        self.assertEqual("accepted", new.status)
+        self.assertEqual(new.id, self._dataset().current_version_id)
+        self.assertEqual([], json.loads(comparison.issues_json))
+
+    def test_upload_source_is_persisted_and_never_merges_legacy_sources(self):
+        from database import Setting
+        extra = LimitDataset(name="Other", owner_id=self.admin_id)
+        db.session.add(extra)
+        db.session.commit()
+        technical = resolve_upload_dataset(self.admin_id)
+        self.assertNotIn(technical.id, (self.dataset_id, extra.id))
+        Setting.set("max_limits_dataset_id", str(extra.id))
+        db.session.commit()
+        self.assertEqual(technical.id, resolve_upload_dataset(self.admin_id).id)
+        self.assertEqual(3, LimitDataset.query.count())
+
+    def test_upload_source_prefers_legacy_max_then_sole_dataset(self):
+        from database import Setting
+        self.assertEqual(self.dataset_id, resolve_upload_dataset(self.admin_id).id)
+        db.session.delete(db.session.get(Setting, "limits_upload_dataset_id"))
+        extra = LimitDataset(name="MAX", owner_id=self.admin_id)
+        db.session.add(extra)
+        db.session.flush()
+        Setting.set("max_limits_dataset_id", str(extra.id))
+        db.session.commit()
+        self.assertEqual(extra.id, resolve_upload_dataset(self.admin_id).id)
+
+    def test_empty_installation_creates_one_upload_source(self):
+        db.session.delete(self._dataset())
+        db.session.commit()
+        first = resolve_upload_dataset(self.admin_id)
+        self.assertEqual(first.id, resolve_upload_dataset(self.admin_id).id)
+        self.assertEqual(1, LimitDataset.query.count())
+
+    def test_selected_version_and_report_base_survive_rotation_and_deletion(self):
+        from database import Setting
+        accepted, candidate, _ = self._direct_rotation_fixture()
+        base_id, selected_id = accepted[0].id, accepted[1].id
+        Setting.set("max_limits_version_id", str(selected_id))
+        db.session.commit()
+        process_version(candidate.id)
+        for version_id in (base_id, selected_id):
+            self.assertIsNotNone(db.session.get(LimitVersion, version_id))
+            with self.assertRaisesRegex(LimitsError, "MAX"):
+                purge_version(version_id)
+        self.assertEqual(str(selected_id), Setting.get("max_limits_version_id"))
+        self.assertIsNone(db.session.get(LimitVersion, accepted[2].id))
+
+    def _race_selection_with_retirement(self, rotation=False, selection_first=False):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        import limits_service
+        import max_dataset_scope
+        from database import Setting
+        accepted, candidate, _ = self._direct_rotation_fixture()
+        victim_id, candidate_id = accepted[0].id, candidate.id
+        entered = threading.Event()
+        release = threading.Event()
+        contender_started = threading.Event()
+        db.session.remove()
+
+        def select():
+            with app.app_context():
+                try:
+                    # Deliberately cache the soon-to-be-deleted row before lock.
+                    db.session.get(LimitVersion, victim_id)
+                    contender_started.set()
+                    max_dataset_scope.select_version(victim_id)
+                    return "selected"
+                except ValueError:
+                    return "unavailable"
+                finally:
+                    db.session.remove()
+
+        def retire():
+            with app.app_context():
+                try:
+                    contender_started.set()
+                    if rotation:
+                        process_version(candidate_id)
+                    else:
+                        purge_version(victim_id)
+                    return "retired"
+                except LimitsError:
+                    return "protected"
+                finally:
+                    db.session.remove()
+
+        original = (max_dataset_scope.snapshot_objects if selection_first
+                    else limits_service.protected_version_ids)
+        def checkpoint(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if not entered.is_set():
+                entered.set()
+                if not release.wait(timeout=10):
+                    raise AssertionError("Retirement race checkpoint timed out")
+            return result
+
+        target = ("max_dataset_scope.snapshot_objects" if selection_first
+                  else "limits_service.protected_version_ids")
+        with patch(target, side_effect=checkpoint), ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(select if selection_first else retire)
+            self.assertTrue(entered.wait(timeout=10))
+            contender_started.clear()
+            second = pool.submit(retire if selection_first else select)
+            self.assertTrue(contender_started.wait(timeout=10))
+            release.set()
+            outcomes = [first.result(timeout=20), second.result(timeout=20)]
+        db.session.expire_all()
+        selected = Setting.get("max_limits_version_id", "")
+        if selected:
+            self.assertIsNotNone(db.session.get(LimitVersion, int(selected)))
+        if selection_first:
+            self.assertEqual(str(victim_id), selected)
+            self.assertEqual("selected", outcomes[0])
+            self.assertEqual("retired" if rotation else "protected", outcomes[1])
+        else:
+            self.assertEqual(["retired", "unavailable"], outcomes)
+            self.assertIsNone(db.session.get(LimitVersion, victim_id))
+
+    def test_selection_cannot_save_a_snapshot_during_purge(self):
+        self._race_selection_with_retirement()
+
+    def test_selection_cannot_save_a_snapshot_during_rotation(self):
+        self._race_selection_with_retirement(rotation=True)
+
+    def test_purge_waits_for_selection_commit_and_preserves_snapshot(self):
+        self._race_selection_with_retirement(selection_first=True)
+
+    def test_rotation_waits_for_selection_commit_and_preserves_snapshot(self):
+        self._race_selection_with_retirement(rotation=True, selection_first=True)
 
     def test_second_accepted_update_preserves_financial_changes(self):
         first = self._accept_first()

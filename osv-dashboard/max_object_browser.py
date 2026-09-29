@@ -6,7 +6,8 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import aliased
 from max_readable_changes import describe, label as readable_label, date_label
 from max_funding_year import visible_change, visible_column
-from max_dataset_scope import selected_dataset_id
+from max_dataset_scope import selected_dataset_id, selected_version, snapshot_objects, selected_history_ids
+from limits_version_display import display_number
 
 from database import (
     LimitChange, LimitComparison, LimitDataset, LimitObject, LimitVersion,
@@ -82,14 +83,9 @@ def _subscription(user_id, subscription_id):
 
 
 def _current_objects(uin):
-    return (db.session.query(LimitObject, LimitDataset, LimitVersion)
-            .join(LimitDataset, LimitDataset.id == LimitObject.dataset_id)
-            .join(LimitVersion, LimitVersion.id == LimitDataset.current_version_id)
-            .filter(LimitObject.uin == uin, LimitObject.is_present.is_(True),
-                    LimitDataset.id == selected_dataset_id(),
-                    LimitObject.last_seen_version_id == LimitVersion.id,
-                    LimitVersion.dataset_id == LimitDataset.id,
-                    LimitVersion.status == 'accepted'))
+    version = selected_version()
+    obj = snapshot_objects(version).get(uin)
+    return (obj, version.dataset, version) if obj else None
 
 
 def _listing(user_id, mode, page):
@@ -104,7 +100,7 @@ def _listing(user_id, mode, page):
     buttons = []
     descriptions = []
     for index, row in enumerate(rows[:PAGE_SIZE], page * PAGE_SIZE + 1):
-        obj = _current_objects(row.uin).order_by(LimitObject.id).first()
+        obj = _current_objects(row.uin)
         title = _short(obj[0].title, 30) if obj else 'Нет объекта'
         descriptions.append(f'{index}. {_short(obj[0].title, 150) if obj else "Нет объекта"}\nУИН {row.uin}')
         buttons.append([(f'{index}. {title}',
@@ -120,11 +116,10 @@ def _listing(user_id, mode, page):
 
 
 def _sources(subscription, mode, page):
-    query = _current_objects(subscription.uin).order_by(LimitDataset.id, LimitObject.id)
-    record = query.first()
+    record = _current_objects(subscription.uin)
     if record:
         return _card(subscription, record[0].id, mode, 0)
-    return _reply('Объекта нет в выбранном администратором наборе.',
+    return _reply('Объекта нет в выбранной администратором версии файла.',
                   [[('К объектам', f'browse:list:{mode}:0'),
                     ('Главное меню', 'menu:home')]])
 
@@ -169,6 +164,9 @@ def _change_pages(dataset_id, uin):
                .join(new, new.id == LimitComparison.new_version_id)
                .filter(LimitChange.uin == uin, old.dataset_id == dataset_id,
                        new.dataset_id == dataset_id,
+                       new.id.in_(selected_history_ids()),
+                       old.id.in_(selected_history_ids()),
+                       LimitComparison.status == 'ready',
                        old.status == 'accepted', new.status == 'accepted')
                .order_by(new.source_date.desc(), new.id.desc(), LimitChange.id).all())
     groups = {}
@@ -206,8 +204,8 @@ def _pages(entries):
 
 
 def _card(subscription, obj_id, mode, page):
-    record = _current_objects(subscription.uin).filter(LimitObject.id == obj_id).first()
-    if not record:
+    record = _current_objects(subscription.uin)
+    if not record or record[0].id != obj_id:
         return _reply('Объект недоступен или текущий срез не принят.',
                       [[('К объектам', f'browse:list:{mode}:0'),
                         ('Главное меню', 'menu:home')]])
@@ -221,7 +219,7 @@ def _card(subscription, obj_id, mode, page):
     heading = (f'УИН {_short(subscription.uin, 120)}\n'
                f'Объект: {_short(obj.title, 180) or "—"}\n'
                f'Адрес: {_short(obj.address, 180) or "—"}\n'
-               + (f'Источник: {_short(dataset.name, 100)}\n'
+               + (f'Файл #{display_number(version)}: {_short(version.source_name, 100)}\n'
                   f'Документ от {date_label(version.source_date)}\n' if mode == 'info' else '')
                +
                f'{"Текущие суммы (не изменения)" if mode == "info" else "Что изменилось по объекту"} · '
@@ -246,7 +244,7 @@ def browse(user_id, payload):
     if not isinstance(payload, str) or not payload.startswith('browse:'):
         return None
     if selected_dataset_id() is None:
-        return _reply('Администратор ещё не выбрал набор отчётности для бота.',
+        return _reply('Администратор ещё не выбрал версию файла для бота.',
                       [[('Главное меню', 'menu:home')]])
     if len(payload) > 100:
         return _reply('Неверная кнопка.', [[('Главное меню', 'menu:home')]])

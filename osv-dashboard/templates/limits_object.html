@@ -21,12 +21,12 @@
     <section class="panel">
       {% if selected_version %}
       <div class="panel-header">
-        <h2 style="margin:0">Строки мероприятий (Версия #{{ selected_version.id }})</h2>
+        <h2 style="margin:0">Строки мероприятий (Версия #{{ selected_version|limit_version_number }})</h2>
         <form method="get" class="version-select-form">
           <select name="version_id" onchange="this.form.submit()">
             {% for v in versions %}
               <option value="{{ v.id }}" {% if v.id == selected_version.id %}selected{% endif %}>
-                Версия #{{ v.id }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
+                Версия #{{ v|limit_version_number }} ({{ v.source_date.strftime('%d.%m.%Y') if v.source_date else '—' }})
               </option>
             {% endfor %}
           </select>
@@ -165,7 +165,7 @@
           <div class="tl-marker"></div>
           <div class="tl-content">
             <div class="tl-header">
-              <b>Версия #{{ hist.version.id }}</b>
+              <b>Версия #{{ hist.version|limit_version_number }}</b>
               <span class="text-mut text-sm">{{ hist.version.accepted_at.strftime('%d.%m.%Y %H:%M') if hist.version.accepted_at else '' }}</span>
             </div>
             <table class="history-table">

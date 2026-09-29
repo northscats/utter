@@ -23,8 +23,10 @@ from database import (
     MaxLimitsCursor, MaxLimitsOutbox, MaxLimitsSubscription, MaxLimitsUin,
     Setting, db, utcnow,
 )
-from max_dataset_scope import selected_dataset_id
+from max_dataset_scope import (selected_dataset_id, selected_version, selected_version_id,
+                               snapshot_objects, selected_history_ids, serialized)
 import max_bot_config as bot_config
+from limits_version_display import display_number, version_numbers
 
 API_BASE = 'https://platform-api2.max.ru'
 TRUSTED_CA = Path(__file__).parent / 'certs' / 'russian-trusted-root-ca.pem'
@@ -136,13 +138,9 @@ def _value(encoded):
 
 
 def _accepted_objects(uin):
-    return (db.session.query(LimitObject, LimitDataset, LimitVersion)
-            .join(LimitDataset, LimitDataset.id == LimitObject.dataset_id)
-            .join(LimitVersion, LimitVersion.id == LimitDataset.current_version_id)
-            .filter(LimitDataset.id == selected_dataset_id(),
-                    LimitObject.uin == uin, LimitObject.is_present.is_(True),
-                    LimitObject.last_seen_version_id == LimitVersion.id,
-                    LimitVersion.status == 'accepted').all())
+    version = selected_version()
+    obj = snapshot_objects(version).get(uin)
+    return [(obj, version.dataset, version)] if obj else []
 
 
 def _cancel_outbox(user_id):
@@ -157,10 +155,11 @@ def current_information(uin):
     if not records:
         return 'Для этого УИН нет объекта в текущих принятых срезах.'
     lines = [f'УИН {uin}: текущая принятая информация']
+    numbers = version_numbers()
     truncated = False
     for obj, dataset, version in records:
         block = [
-            f'Набор: {_clean(dataset.name, 160)}',
+            f'Файл #{display_number(version, numbers)}: {_clean(version.source_name, 160)}',
             f'Срез: {_clean(version.source_date, 40)}',
             f'Объект: {_clean(obj.title, 500) or "—"}',
             f'Адрес: {_clean(obj.address, 500) or "—"}',
@@ -228,6 +227,9 @@ def accepted_changes(uin):
             .filter(LimitChange.uin == uin,
                     old_version.status == 'accepted',
                     new_version.status == 'accepted',
+                    new_version.id.in_(selected_history_ids()),
+                    old_version.id.in_(selected_history_ids()),
+                    LimitComparison.status == 'ready',
                     old_version.dataset_id == new_version.dataset_id,
                     LimitDataset.id == selected_dataset_id())
             .order_by(new_version.accepted_at.desc(), new_version.id.desc(),
@@ -236,9 +238,10 @@ def accepted_changes(uin):
     if not rows:
         return f'Для УИН {uin} нет сохранённых изменений принятых версий.'
     lines = [f'Изменения по УИН {uin}:']
+    numbers = version_numbers()
     for change, _comparison, version, dataset in rows:
         lines.append(
-            f'{_clean(dataset.name, 100)} · {_clean(version.source_date, 40)}: '
+            f'Файл #{display_number(version, numbers)} · {_clean(version.source_date, 40)}: '
             f'{_clean(change.field_label, 160) or _clean(change.field_key, 100)} — '
             f'{_value(change.old_json)} → {_value(change.new_json)}')
         if sum(map(len, lines)) > MAX_TEXT - 100:
@@ -247,11 +250,13 @@ def accepted_changes(uin):
     return '\n'.join(lines)[:MAX_TEXT]
 
 
+@serialized
 def queue_accepted_changes(version, comparison):
     """Queue matching recipients inside the caller's acceptance transaction."""
     from max_readable_changes import describe, date_label
     from max_funding_year import visible_change
-    if comparison is None or version.dataset_id != selected_dataset_id():
+    if (comparison is None or version.id != selected_version_id()
+            or comparison.new_version_id != version.id or comparison.status != 'ready'):
         return 0
     changes = [change for change in LimitChange.query.filter_by(
         comparison_id=comparison.id).order_by(LimitChange.uin, LimitChange.id).all()
@@ -266,8 +271,7 @@ def queue_accepted_changes(version, comparison):
     for change in changes:
         grouped.setdefault(change.uin, []).append(change)
     for subscription in subscriptions:
-        obj = LimitObject.query.filter_by(
-            dataset_id=version.dataset_id, uin=subscription.uin).first()
+        obj = snapshot_objects(version).get(subscription.uin)
         lines = [f'Что изменилось по объекту · {date_label(version.source_date)}',
                  _clean(obj.title, 250) if obj else f'УИН {subscription.uin}',
                  f'УИН {subscription.uin}']
@@ -490,18 +494,19 @@ def _dispatch_update_active(token, update, api_call=None):
                          chat=destination == 'chat')
 
 
+@serialized
 def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None):
     api_call = api_call or max_api
     config = bot_config.read()
     if (not config.get('enabled') or not config.get('token')
             or (generation is not None and config.get('generation') != generation)):
         return 0
-    dataset_id = selected_dataset_id()
+    version_id = selected_version_id()
     pending = MaxLimitsOutbox.query.filter(
         MaxLimitsOutbox.delivered_at.is_(None),
         MaxLimitsOutbox.cancelled_at.is_(None))
     selected_versions = db.session.query(LimitVersion.id).filter(
-        LimitVersion.dataset_id == dataset_id)
+        LimitVersion.id == version_id)
     cancelled = pending.filter(
         ~MaxLimitsOutbox.version_id.in_(selected_versions)).update(
             {'cancelled_at': utcnow()}, synchronize_session=False)
@@ -517,7 +522,7 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
     sent = 0
     for item in items:
         version = db.session.get(LimitVersion, item.version_id)
-        if (version is None or version.dataset_id != selected_dataset_id()):
+        if (version is None or version.id != selected_version_id()):
             item.cancelled_at = utcnow()
             db.session.commit()
             if on_state_change:
@@ -535,7 +540,9 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
                 user_id=item.user_id, uin=item.uin, status='approved').first()
             # Pending messages may predate a stricter administrator setting.
             # Rebuild from verified changes rather than trusting queued text.
-            comparison = LimitComparison.query.filter_by(new_version_id=version.id).first()
+            comparison = LimitComparison.query.filter_by(
+                new_version_id=version.id, old_version_id=version.previous_version_id,
+                status='ready').first()
             visible = []
             if subscription is not None and comparison is not None:
                 from max_funding_year import visible_change
@@ -544,8 +551,7 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
                         LimitChange.id).all() if visible_change(change)]
             if visible:
                 from max_readable_changes import describe, date_label
-                obj = LimitObject.query.filter_by(
-                    dataset_id=version.dataset_id, uin=item.uin).first()
+                obj = snapshot_objects(version).get(item.uin)
                 lines = [f'Что изменилось по объекту · {date_label(version.source_date)}',
                          _clean(obj.title, 250) if obj else f'УИН {item.uin}',
                          f'УИН {item.uin}']

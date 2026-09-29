@@ -39,6 +39,11 @@ class BrowserTests(unittest.TestCase):
         self.temp.cleanup()
 
     def source(self, uin, name, snapshot=None):
+        snapshot = snapshot or {'rows': [{'uin': uin, 'cells': {}}]}
+        for row in snapshot.get('rows', []):
+            row.setdefault('cells', {}).update({
+                'object_name': {'value': 'Школа ' + name},
+                'address': {'value': 'Улица 1'}})
         dataset = LimitDataset(name=name, scope='', owner_id=self.owner)
         db.session.add(dataset)
         db.session.flush()
@@ -54,8 +59,8 @@ class BrowserTests(unittest.TestCase):
                           last_seen_version_id=version.id)
         db.session.add(obj)
         db.session.flush()
-        if not Setting.get('max_limits_dataset_id'):
-            Setting.set('max_limits_dataset_id', str(dataset.id))
+        if not Setting.get('max_limits_version_id'):
+            Setting.set('max_limits_version_id', str(version.id))
         return dataset, version, obj
 
     def subscription(self, user_id, uin, status='approved'):
@@ -113,10 +118,12 @@ class BrowserTests(unittest.TestCase):
             new = LimitVersion(
                 dataset_id=dataset.id, uploaded_by=self.owner, source_date=date(2025, 2, 1),
                 status='accepted', source_name='new.xlsx', source_path='',
-                sha256='b' * 64, snapshot_json='{}')
+                sha256='b' * 64, snapshot_json=old.snapshot_json, previous_version_id=old.id)
             db.session.add(new)
             db.session.flush()
             dataset.current_version_id = new.id
+            if dataset.id == a.id:
+                Setting.set('max_limits_version_id', str(new.id))
             obj.last_seen_version_id = new.id
             pair = LimitComparison(old_version_id=old.id, new_version_id=new.id,
                                    status='ready')
@@ -136,13 +143,13 @@ class BrowserTests(unittest.TestCase):
         self.assertNotIn('Источники по УИН', sources['text'])
         self.assertIn('A-only', sources['text'])
         self.assertNotIn('B-only', sources['text'])
-        card = browse(101, f'browse:card:changes:{subscription.id}:{obj_a.id}:0')['text']
+        card = browse(101, f'browse:card:changes:{subscription.id}:{a.current_version_id}:0')['text']
         self.assertIn('A-only', card)
         self.assertIn('1 234,50', card)
         self.assertNotIn('B-only', card)
         self.assertEqual(card.count('Обновление '), 1)
         self.assertIn('Обновление 01.02.2025 · Было на 01.01.2025', card)
-        Setting.set('max_limits_dataset_id', str(b.id))
+        Setting.set('max_limits_version_id', str(b.current_version_id))
         db.session.commit()
         stale = browse(101, f'browse:card:changes:{subscription.id}:{obj_a.id}:0')
         self.assertNotIn('A-only', stale['text'])
@@ -152,12 +159,13 @@ class BrowserTests(unittest.TestCase):
     def test_missing_selection_never_picks_arbitrary_dataset(self):
         row = self.subscription(101, 'ONE')
         self.source('ONE', 'A')
-        Setting.set('max_limits_dataset_id', '')
+        Setting.set('max_limits_version_id', '')
         db.session.commit()
         result = browse(101, f'browse:sources:info:{row.id}:0')
-        self.assertIn('не выбрал набор', result['text'])
+        self.assertIn('не выбрал версию', result['text'])
 
     def test_long_values_are_paginated_without_loss(self):
+        Setting.set('max_limits_min_funding_year', 'all')
         long_value = ''.join(str(i % 10) for i in range(9200))
         snapshot = {
             'columns': [

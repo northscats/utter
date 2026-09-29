@@ -11,7 +11,7 @@ from database import (
     LimitChange, LimitComparison, LimitDataset, LimitObject, LimitVersion,
     MaxLimitsOutbox, MaxLimitsUin, db, utcnow,
 )
-from max_dataset_scope import selected_dataset_id
+from max_dataset_scope import selected_dataset_id, selected_version, snapshot_objects, serialized
 from max_funding_year import selection, visible_change
 from max_readable_changes import label, transfer_fields, value
 
@@ -20,14 +20,11 @@ MAX_TEXT = 3800
 
 
 def current_comparison():
-    dataset = db.session.get(LimitDataset, selected_dataset_id())
-    if not dataset or not dataset.current_version_id:
-        return None
-    version = db.session.get(LimitVersion, dataset.current_version_id)
+    version = selected_version()
     if not version or version.status != 'accepted' or not version.previous_version_id:
         return None
     previous = db.session.get(LimitVersion, version.previous_version_id)
-    if not previous or previous.status != 'accepted':
+    if not previous or previous.status != 'accepted' or previous.dataset_id != version.dataset_id:
         return None
     comparison = LimitComparison.query.filter_by(
         old_version_id=previous.id, new_version_id=version.id, status='ready').first()
@@ -44,9 +41,7 @@ def _entries(comparison, uins, funding_year=None):
     for change in changes:
         if visible_change(change, funding_year):
             grouped[change.uin].append(change)
-    objects = {obj.uin: obj for obj in LimitObject.query.filter(
-        LimitObject.dataset_id == comparison.new_version.dataset_id,
-        LimitObject.uin.in_(grouped)).all()}
+    objects = snapshot_objects(comparison.new_version)
     entries = []
     for uin in sorted(grouped):
         title = (objects[uin].title if uin in objects else '') or 'Объект'
@@ -81,10 +76,10 @@ def _approved_objects(user_id):
     dataset_id = selected_dataset_id()
     if dataset_id is None:
         return set()
-    return {uin for (uin,) in db.session.query(MaxLimitsUin.uin).join(
-        LimitObject, (LimitObject.uin == MaxLimitsUin.uin) &
-        (LimitObject.dataset_id == dataset_id)).filter(
-        MaxLimitsUin.user_id == user_id, MaxLimitsUin.status == 'approved').all()}
+    objects = snapshot_objects()
+    return {uin for (uin,) in db.session.query(MaxLimitsUin.uin).filter(
+        MaxLimitsUin.user_id == user_id, MaxLimitsUin.status == 'approved').all()
+        if uin in objects}
 
 
 def changed_uins_for_user(user_id):
@@ -109,9 +104,7 @@ def changes_excel_bytes(user_id):
         LimitChange.comparison_id == current[1].id,
         LimitChange.uin.in_(uins)).order_by(LimitChange.uin, LimitChange.id).all()
         if visible_change(change)]
-    objects = {obj.uin: obj for obj in LimitObject.query.filter(
-        LimitObject.dataset_id == current[0].dataset_id,
-        LimitObject.uin.in_(uins)).all()}
+    objects = snapshot_objects(current[0])
     book = Workbook(write_only=True)
     sheet = book.create_sheet('Изменения')
     sheet.append(['УИН', 'Объект', 'Адрес', 'Изменившийся показатель', 'Было', 'Стало'])
@@ -140,6 +133,7 @@ def changes_excel_bytes(user_id):
     return output.getvalue()
 
 
+@serialized
 def prepare_digest(run_id=None):
     """Queue a manual digest once per recipient and confirmed admin action."""
     if run_id is None:
@@ -156,10 +150,9 @@ def prepare_digest(run_id=None):
         comparison_id=comparison.id).all() if visible_change(change, funding_year)}
     if not changed:
         return 0, 0
-    subscriptions = MaxLimitsUin.query.join(
-        LimitObject, (LimitObject.uin == MaxLimitsUin.uin) &
-        (LimitObject.dataset_id == version.dataset_id)).filter(
-        MaxLimitsUin.status == 'approved', MaxLimitsUin.uin.in_(changed)
+    subscriptions = MaxLimitsUin.query.filter(
+        MaxLimitsUin.status == 'approved',
+        MaxLimitsUin.uin.in_(changed & set(snapshot_objects(version)))
     ).order_by(MaxLimitsUin.user_id, MaxLimitsUin.uin).all()
     recipients = defaultdict(set)
     for subscription in subscriptions:

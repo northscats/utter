@@ -41,14 +41,14 @@
   .changes-table .badge { white-space:normal; line-height:1.15; }
   .changes-table .delta-value { font-weight:700; }
 </style>
-<a class="back" href="{{ url_for('limit_notifications', dataset=dataset.id if dataset else comparison.new_version.dataset_id) }}">← К набору отчётности</a>
+<a class="back" href="{{ url_for('limit_notifications') }}">← Все файлы</a>
 <div class="eyebrow">Сравнение версий</div>
 <h1>Анализ изменений</h1>
 <p class="lead">
-  Старая версия: <b>#{{ comparison.old_version_id }}</b> 
+  Старая версия: <b>#{{ comparison.old_version_id|limit_version_number }}</b>
   <span class="text-mut">({{ comparison.old_version.source_date.strftime('%d.%m.%Y') if comparison.old_version.source_date else '—' }})</span>
   → 
-  Новая версия: <b>#{{ comparison.new_version_id }}</b>
+  Новая версия: <b>#{{ comparison.new_version_id|limit_version_number }}</b>
   <span class="text-mut">({{ comparison.new_version.source_date.strftime('%d.%m.%Y') if comparison.new_version.source_date else '—' }})</span>
 </p>
 

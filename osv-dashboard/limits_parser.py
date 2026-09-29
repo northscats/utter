@@ -282,8 +282,10 @@ def _validate_formula_caches(path):
         raise LimitsParserError("XLSX formula cache could not be inspected") from exc
 
 
-def parse_xlsx(path):
+def parse_xlsx(path, progress=None):
     """Parse a GIS REB limits XLSX into an immutable, JSON-compatible snapshot."""
+    if progress:
+        progress('opening')
     _archive_is_safe(path)
     _validate_formula_caches(path)
     try:
@@ -297,6 +299,9 @@ def parse_xlsx(path):
         columns = [{key: value for key, value in column.items() if key != "_index"}
                    for column in internal_columns]
         warnings, rows = [], []
+        total_rows = max(0, sheet.max_row - header_row - 1)
+        if progress:
+            progress('rows', 0, total_rows)
         first_column = min(column["_index"] for column in internal_columns)
         last_column = max(column["_index"] for column in internal_columns)
         # Read-only worksheets cannot service repeated ``sheet.cell`` lookups
@@ -320,6 +325,8 @@ def parse_xlsx(path):
                         "code": "non_numeric_money", "row": excel_row,
                         "cell": cell.coordinate, "message": "Money cell is not numeric",
                     })
+            if progress:
+                progress('rows', excel_row - header_row - 1, total_rows)
             if not nonblank:
                 continue
             uin = values["uin"]["value"]
@@ -470,7 +477,7 @@ def _cell_category(column, old_cell, new_cell):
     return "requisites"
 
 
-def compare_snapshots(old, new, resolutions=None):
+def compare_snapshots(old, new, resolutions=None, progress=None):
     """Compare two parser snapshots using UIN, stable rows, then safe transfers.
 
     A transfer is auto-matched only when one unmatched old and one unmatched new
@@ -501,7 +508,11 @@ def compare_snapshots(old, new, resolutions=None):
     blocked_uins = set()
     used_old_resolutions, used_new_resolutions = set(), set()
 
-    for uin in all_uins:
+    if progress:
+        progress('matching', 0, len(all_uins))
+    for uin_index, uin in enumerate(all_uins):
+        if progress:
+            progress('matching', uin_index, len(all_uins))
         before, after = old_rows.get(uin, []), new_rows.get(uin, [])
         if not before:
             changes.append(_change("object_added", "object", uin, new_row=after[0]))
@@ -585,8 +596,13 @@ def compare_snapshots(old, new, resolutions=None):
     if expected_old_resolutions != used_old_resolutions or expected_new_resolutions != used_new_resolutions:
         raise LimitsParserError("Resolution is extraneous or does not apply to an unmatched row")
 
+    if progress:
+        progress('matching', len(all_uins), len(all_uins))
+        progress('comparing', 0, len(matches))
     new_columns = {column["key"]: column for column in new.get("columns", [])}
-    for before, after, transfer in matches:
+    for match_index, (before, after, transfer) in enumerate(matches):
+        if progress:
+            progress('comparing', match_index, len(matches))
         uin = after["uin"]
         if transfer:
             changes.append(_change(
@@ -614,6 +630,8 @@ def compare_snapshots(old, new, resolutions=None):
         item["uin"], item["kind"], item.get("field", ""), item["old_row"] or "",
         item["new_row"] or "",
     ))
+    if progress:
+        progress('comparing', len(matches), len(matches))
     counts = Counter(item["kind"] for item in changes)
     summary = {
         "new_objects": counts["object_added"],

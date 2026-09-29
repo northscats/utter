@@ -35,7 +35,6 @@
 
   var versions = data.versions || [];
   var metrics = data.metrics || [];
-  var sel = document.getElementById('la-metric');
 
   function drawTrend(m) {
     var box = document.getElementById('la-trend');
@@ -106,24 +105,12 @@
     box.appendChild(svg);
   }
 
-  if (sel) {
-    metrics.forEach(function (m, i) {
-      var o = document.createElement('option'); o.value = String(i); o.textContent = m.label; sel.appendChild(o);
-    });
-    if (!metrics.length) { var o = document.createElement('option'); o.textContent = 'Нет показателей'; sel.appendChild(o); sel.disabled = true; }
-    sel.addEventListener('change', function () { drawTrend(metrics[+sel.value]); });
-    drawTrend(metrics[0]);
-  }
+  drawTrend(metrics.find(function (m) { return m.key === 'objects_count'; }));
 
   var rank = document.getElementById('la-rank');
   var ch = data.changes || {};
   if (rank && ch.ranking && ch.ranking.length) {
     var list = ch.ranking.slice();
-    var rrows = document.getElementById('la-rank-rows');
-    list.forEach(function (r) {
-      var tr = document.createElement('tr');
-      td(tr, r.uin || '—'); td(tr, r.title || '—'); td(tr, sfmt(r.delta), 'num'); rrows.appendChild(tr);
-    });
     var RH = 26, W2 = 520, LW = 150, RP = 70, top = 6;
     var H2 = top * 2 + list.length * RH;
     var ds = list.map(function (r) { return r.delta || 0; });
@@ -136,13 +123,13 @@
     svg.appendChild(el('line', { x1: sx(0), x2: sx(0), y1: 0, y2: H2, 'class': 'zero' }));
     list.forEach(function (r, i) {
       var v = r.delta || 0, yy = top + i * RH;
-      var name = String(r.uin || '—');
+      var name = (i + 1) + '. ' + String(r.uin || '—');
       svg.appendChild(title(el('text', { x: LW - 8, y: yy + RH / 2 + 4, 'text-anchor': 'end', 'class': 'lbl' }, name.length > 20 ? name.slice(0, 19) + '…' : name), name + (r.title ? ' · ' + r.title : '')));
       var x0 = sx(Math.min(0, v)), w = Math.max(1, Math.abs(sx(v) - sx(0)));
-      svg.appendChild(title(el('rect', { x: x0, y: yy + 5, width: w, height: RH - 10, rx: 3, 'class': v < 0 ? 'neg' : 'pos' }), name + ': ' + sfmt(r.delta) + ' тыс. руб.'));
+      svg.appendChild(title(el('rect', { x: x0, y: yy + 5, width: w, height: RH - 10, rx: 3, 'class': v < 0 ? 'neg' : 'pos' }), name + ' · ' + r.field_label + ': ' + sfmt(r.delta) + ' ' + r.unit));
       svg.appendChild(el('text', { x: v < 0 ? x0 - 6 : x0 + w + 6, y: yy + RH / 2 + 4, 'text-anchor': v < 0 ? 'end' : 'start' }, (v > 0 ? '+' : '') + short(v)));
     });
-    rank.setAttribute('aria-label', 'Крупнейшие изменения по ' + list.length + ' УИН');
+    rank.setAttribute('aria-label', 'Крупнейшие изменения финансовых полей: ' + list.length + ', тыс. руб.');
     rank.appendChild(svg);
   }
 })();

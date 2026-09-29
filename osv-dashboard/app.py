@@ -394,6 +394,8 @@ _limits_parse_slots = threading.Semaphore(1)
 _limits_recovery_started = False
 _limits_recovery_lock = threading.Lock()
 _limits_startup_lock = threading.Lock()
+_limits_parse_threads = {}
+_limits_parse_threads_lock = threading.Lock()
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -432,10 +434,7 @@ def _ensure_limits_recovery() -> None:
     def work():
         with app.app_context():
             for row in LimitVersion.query.filter(
-                    LimitVersion.status.in_(('queued', 'parsing'))).all():
-                row.status = 'queued'
-            db.session.commit()
-            for row in LimitVersion.query.filter_by(status='queued').all():
+                    LimitVersion.status.in_(('queued', 'parsing', 'review'))).order_by(LimitVersion.id).all():
                 _limit_parse_in_background(row.id)
         while True:
             time.sleep(3600)
@@ -7798,6 +7797,8 @@ def _reconcile_limits_after_restore():
                                 rename_legacy_limits_dataset)
     try:
         rename_legacy_limits_dataset()
+        from max_dataset_scope import migrate_selected_version
+        migrate_selected_version()
         cleanup_purged_files()
         cleanup_temporary_versions(int(os.environ.get('LIMITS_TEMP_TTL_HOURS', '72')))
         blocked = reconcile_history_window()
@@ -8053,6 +8054,20 @@ def _limits_private_cache(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
+
+def _limits_upload_source_for_view():
+    """Read the stable upload source without creating datasets on GET."""
+    saved = Setting.get('limits_upload_dataset_id', '')
+    if saved:
+        return _limit_dataset_or_404(int(saved)) if saved.isdecimal() else abort(404)
+    legacy = Setting.get('max_limits_dataset_id', '')
+    if legacy.isdecimal():
+        dataset = db.session.get(LimitDataset, int(legacy))
+        if dataset:
+            return dataset
+    candidates = LimitDataset.query.limit(2).all()
+    return candidates[0] if len(candidates) == 1 else None
+
 @app.route('/limit-notifications/datasets', methods=['POST'])
 @admin_required
 def limit_dataset_create():
@@ -8071,14 +8086,42 @@ def limit_notifications():
     if Setting.get('limits_history_ready', 'ready') != 'ready':
         return render_template('limits_unavailable.html',
                                detail='Восстановление проверяет окно хранения версий.'), 503
+    # Snapshot before reading versions: a worker can publish and exit while
+    # this request is reading its earlier, committed review checkpoint.
+    with _limits_parse_threads_lock:
+        active_workers = set(_limits_parse_threads)
     datasets = LimitDataset.query.order_by(LimitDataset.updated_at.desc()).all()
     dataset_id = request.args.get('dataset', type=int)
-    dataset = _limit_dataset_or_404(dataset_id) if dataset_id else (datasets[0] if datasets else None)
-    version_query = LimitVersion.query.filter_by(dataset_id=dataset.id).filter(
-        LimitVersion.status != 'purged') if dataset else None
+    dataset = _limit_dataset_or_404(dataset_id) if dataset_id else _limits_upload_source_for_view()
+    version_query = LimitVersion.query.filter(LimitVersion.status != 'purged')
     if version_query is not None and not current_user.is_admin:
         version_query = version_query.filter_by(status='accepted')
-    versions = version_query.order_by(LimitVersion.uploaded_at.desc()).all() if version_query is not None else []
+    versions = version_query.order_by(LimitVersion.uploaded_at.desc(), LimitVersion.id.desc()).all() if version_query is not None else []
+    reports = {}
+    for version in versions:
+        report = LimitComparison.query.filter_by(
+            new_version_id=version.id, old_version_id=version.previous_version_id).first()
+        if report:
+            reports[version.id] = report
+    presentation_states = {}
+    for version in versions:
+        state = version.status
+        if state == 'error' and version.id in active_workers:
+            # A retry can wait for the bounded parser slot before its durable
+            # reset. Keep polling, but never display the previous attempt's ETA.
+            state = 'queued'
+        if state == 'review':
+            report = reports.get(version.id)
+            if report and (report.status == 'needs_resolution'
+                           or json.loads(report.issues_json or '[]')):
+                state = 'needs_resolution'
+            elif version.id in active_workers:
+                state = 'parsing'
+            else:
+                # Legacy/restarted review without a worker is not an endless
+                # processing state, nor evidence of a comparison ambiguity.
+                state = 'interrupted'
+        presentation_states[version.id] = state
     comparison_ids = [row.id for row in LimitComparison.query.join(
         LimitVersion, LimitComparison.new_version_id == LimitVersion.id
     ).filter(LimitVersion.dataset_id == dataset.id).all()] if dataset else []
@@ -8088,18 +8131,21 @@ def limit_notifications():
     latest_comparison = LimitComparison.query.filter_by(new_version_id=current.id,
         old_version_id=current.previous_version_id).first() if current else None
     summary = json.loads(latest_comparison.summary_json or '{}') if latest_comparison else {}
+    from limits_progress import presentation
+    progress_views = {v.id: presentation(v, presentation_states[v.id]) for v in versions}
     return render_template(
-        'limits_dashboard.html', datasets=datasets, dataset=dataset, versions=versions,
+        'limits_dashboard.html', datasets=datasets, dataset=dataset, versions=versions, reports=reports,
+        presentation_states=presentation_states, progress_views=progress_views,
         default_source_date=datetime.now(timezone(timedelta(hours=3))).date().isoformat(),
         changes=changes,
         summary=summary, current_version=current,
         current_objects=LimitObject.query.filter_by(dataset_id=dataset.id, is_present=True).count() if dataset else 0,
-        pending_count=sum(v.status in ('queued', 'parsing', 'review') for v in versions))
+        pending_count=sum(state in ('queued', 'parsing') for state in presentation_states.values()))
 
 @app.route('/limit-notifications/dashboard', endpoint='limit_dashboard')
 @login_required
 def limit_dashboard():
-    """Charts for one selected registry; default to the newest created one."""
+    """Charts for the stable upload source, retaining historical deep links."""
     if Setting.get('limits_history_ready', 'ready') != 'ready':
         return render_template(
             'limits_unavailable.html',
@@ -8113,7 +8159,7 @@ def limit_dashboard():
             abort(404)
         dataset = _limit_dataset_or_404(int(requested))
     else:
-        dataset = datasets[0] if datasets else None
+        dataset = _limits_upload_source_for_view()
     return render_template(
         'limits_analytics.html', datasets=datasets, dataset=dataset,
         dashboard=dashboard_context(dataset) if dataset else {
@@ -8133,31 +8179,40 @@ def max_limits():
     """Persist the administrator-selected data source used by the bot."""
     from max_bot_config import read as read_bot_config
     from max_limits import status as bot_status
-    from max_dataset_scope import selected_dataset_id
+    from max_dataset_scope import selected_version, select_version
     from max_funding_year import choices as funding_year_choices, selection as funding_year_selection
     datasets = LimitDataset.query.order_by(
         LimitDataset.created_at.desc(), LimitDataset.id.desc()).all()
     if request.method == 'POST':
         if not current_user.is_admin:
             abort(403)
-        requested = request.form.get('dataset', '')
+        requested = request.form.get('version_id', '')
         if not requested.isdecimal() or int(requested) < 1:
             abort(400)
-        dataset = _limit_dataset_or_404(int(requested))
-        Setting.set('max_limits_dataset_id', str(dataset.id))
+        version = _limit_version_or_404(int(requested))
+        if version.status != 'accepted':
+            abort(409)
+        try:
+            select_version(version.id)
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('max_limits'))
         db.session.commit()
-        _schedule_durable_safety_backup('MAX dataset selection')
-        flash('Набор отчётности для бота сохранён.', 'success')
+        _schedule_durable_safety_backup('MAX version selection')
+        flash('Версия файла для бота сохранена.', 'success')
         return redirect(url_for('max_limits'))
-    dataset_id = selected_dataset_id()
-    dataset = db.session.get(LimitDataset, dataset_id) if dataset_id else None
+    version = selected_version()
+    dataset = version.dataset if version else None
+    ready_versions = LimitVersion.query.filter_by(status='accepted').order_by(
+        LimitVersion.uploaded_at.desc(), LimitVersion.id.desc()).all()
     from max_user_registry import registry
     users = registry(request.args.get('page', 1, type=int),
                      request.args.get('q', '').strip()[:200]) if current_user.is_admin else None
     bot_settings = read_bot_config() if current_user.is_admin else {}
     state = bot_status() if current_user.is_admin else 'hidden'
     return render_template(
-        'limits_max_bot.html', dataset=dataset, datasets=datasets, users=users,
+        'limits_max_bot.html', dataset=dataset, selected_version=version,
+        ready_versions=ready_versions, users=users,
         digest_run_id=uuid.uuid4().hex,
         funding_year_choices=funding_year_choices(),
         funding_year_selection=funding_year_selection(),
@@ -8341,15 +8396,49 @@ def max_limits_webhook():
 def _limit_parse_in_background(version_id):
     """Parser runs outside request; status/error is durable for restart diagnosis."""
     def work():
-        with _limits_parse_slots, app.app_context():
-            try:
-                from limits_service import parse_version
-                parse_version(version_id)
-                _schedule_durable_safety_backup(f'limits_parse:{version_id}')
-            except Exception:
-                app.logger.exception('limits parser failed for version %s', version_id)
-    thread = threading.Thread(target=work, name=f'limits-parse-{version_id}', daemon=True)
-    thread.start()
+        try:
+            with app.app_context():
+                try:
+                    from limits_service import process_version
+                    # Only parsing/publication consumes the parser slot. Durable
+                    # backup may wait on remote storage and must not starve the
+                    # next upload. Keep rotation-safe promotion before the usual
+                    # safety snapshot, but perform both outside this semaphore.
+                    with _limits_parse_slots:
+                        process_version(version_id)
+                    if Setting.get('limits_rotation_needs_backup') == '1':
+                        _schedule_limits_rotation_backup(wait=True)
+                    _schedule_durable_safety_backup(f'limits_parse:{version_id}')
+                except Exception:
+                    db.session.rollback()
+                    app.logger.exception('limits parser failed for version %s', version_id)
+                    # Conditional update cannot overwrite acceptance by another worker.
+                    try:
+                        LimitVersion.query.filter(
+                            LimitVersion.id == version_id,
+                            LimitVersion.status.in_(('queued', 'parsing'))).update({
+                                'status': 'error',
+                                'error_text': 'Фоновая обработка прервана. Возобновите обработку; если ошибка повторится, обратитесь к администратору.',
+                            }, synchronize_session=False)
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+                        app.logger.exception('cannot persist limits worker error %s', version_id)
+        finally:
+            with _limits_parse_threads_lock:
+                _limits_parse_threads.pop(version_id, None)
+    with _limits_parse_threads_lock:
+        existing = _limits_parse_threads.get(version_id)
+        if existing is not None:
+            return existing
+        thread = threading.Thread(target=work, name=f'limits-parse-{version_id}', daemon=True)
+        _limits_parse_threads[version_id] = thread
+        try:
+            thread.start()
+        except Exception:
+            _limits_parse_threads.pop(version_id, None)
+            raise
+        return thread
 
 @app.route('/limit-notifications/recovery', methods=['GET', 'POST'])
 @admin_required
@@ -8388,12 +8477,13 @@ def _limit_json_filter(value):
     from limits_views import decode
     return decode(value, {})
 
-def _schedule_limits_rotation_backup():
+def _schedule_limits_rotation_backup(wait=False):
     """Promote a removal-aware durable snapshot after 10-version rotation.
 
     A regular safety snapshot intentionally rejects table shrinkage.  Without
     this explicit path a later restore could reintroduce an intentionally
-    purged version.  It is always background work, never an HTTP delay.
+    purged version. HTTP callers schedule background work; the parsing worker
+    waits for promotion before queuing its ordinary safety snapshot.
     """
     allowed = (
         'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
@@ -8417,7 +8507,10 @@ def _schedule_limits_rotation_backup():
             if result and result.get('promoted'):
                 Setting.set('limits_rotation_needs_backup', '0')
                 db.session.commit()
-    threading.Thread(target=work, name='limits-rotation-backup', daemon=True).start()
+    if wait:
+        work()
+    else:
+        threading.Thread(target=work, name='limits-rotation-backup', daemon=True).start()
 
 @app.route('/limit-notifications/versions/<int:version_id>/source.xlsx')
 @login_required
@@ -8489,13 +8582,12 @@ def limit_comparison_view(comparison_id):
     comparison = db.session.get(LimitComparison, comparison_id) or abort(404)
     old_version = _limit_version_or_404(comparison.old_version_id)
     new_version = _limit_version_or_404(comparison.new_version_id)
-    category = (request.args.get('category', '').strip()
-                if 'category' in request.args else 'limit_cost')
-    year_filter = (request.args.get('year', '').strip()
-                   if 'year' in request.args else '2026_plus')
-    ministry = (request.args.get('ministry', '').strip()
-                if 'ministry' in request.args
-                else 'МИНИСТЕРСТВО ЭНЕРГЕТИКИ МОСКОВСКОЙ ОБЛАСТИ')
+    # An automatically generated report initially shows its entire result.
+    # Legacy implicit filters hid valid changes from other ministries, missing
+    # completion dates, or categories other than cost without a user choice.
+    category = request.args.get('category', '').strip()
+    year_filter = request.args.get('year', '').strip()
+    ministry = request.args.get('ministry', '').strip()
     query = LimitChange.query.filter_by(comparison_id=comparison.id)
     if category:
         query = query.filter_by(category=category)
@@ -8632,21 +8724,29 @@ def _limit_value_filter(value):
     from limits_views import display_value
     return display_value(value)
 
+
+@app.template_filter('limit_version_number')
+def _limit_version_number_filter(value):
+    from limits_version_display import display_number
+    return display_number(value)
+
+@app.route('/limit-notifications/upload', methods=['POST'])
 @app.route('/limit-notifications/datasets/<int:dataset_id>/upload', methods=['POST'])
 @admin_required
-def limit_upload(dataset_id):
-    from limits_service import LimitsError, stage_upload
+def limit_upload(dataset_id=None):
+    from limits_service import LimitsError, stage_upload, resolve_upload_dataset
     from datetime import date
-    dataset = _limit_dataset_or_404(dataset_id)
     uploaded = request.files.get('file')
     try:
         source_date = date.fromisoformat(request.form.get('source_date', ''))
         if not uploaded or not uploaded.filename:
             raise LimitsError('Выберите исходный XLSX.')
+        dataset = (_limit_dataset_or_404(dataset_id) if dataset_id else
+                   resolve_upload_dataset(current_user.id))
         version, duplicate = stage_upload(
             dataset, uploaded, uploaded.filename, source_date, current_user.id, UPLOADS)
         if duplicate:
-            flash('Этот файл уже есть в наборе; повторная версия не создана.', 'info')
+            flash('Этот файл уже загружен; повторная версия не создана.', 'info')
         else:
             _limit_parse_in_background(version.id)
             flash('Файл принят в фоновую проверку.', 'success')
@@ -8654,7 +8754,17 @@ def limit_upload(dataset_id):
                                            'duplicate': duplicate})
     except (LimitsError, ValueError) as exc:
         flash(str(exc), 'error')
-    return redirect(url_for('limit_notifications', dataset=dataset.id))
+    return redirect(url_for('limit_notifications'))
+
+@app.route('/limit-notifications/versions/<int:version_id>/retry', methods=['POST'])
+@admin_required
+def limit_version_retry(version_id):
+    version = _limit_version_or_404(version_id)
+    if version.status not in ('queued', 'parsing', 'review', 'error'):
+        abort(409)
+    _limit_parse_in_background(version.id)
+    flash('Обработка возобновлена. При неоднозначности исправьте сопоставление в отчёте.', 'info')
+    return redirect(url_for('limit_notifications'))
 
 @app.route('/limit-notifications/comparisons/<int:comparison_id>/export.xlsx')
 @login_required
