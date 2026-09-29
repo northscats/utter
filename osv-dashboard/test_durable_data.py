@@ -16,15 +16,24 @@ os.environ["ENCRYPTION_KEY"] = (
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from app import (OUTPUT, UPLOADS, _DURABLE_MODELS, _bg_company_new,
+import app as app_module
+from app import (_DURABLE_MODELS, _bg_company_new,
                  _retry_pending_osv_source_cleanup, app, init_db)
-from database import (Company, DailyRow, HistoricalImport, HistoricalMapping,
-                      HistoricalMetricValue, HistoricalRawValue,
-                       HistoricalYearVersion, RevenueAnalyticMapping, Setting,
-                        OsvSourceCleanup, Upload, User, db)
+from database import (
+    AnalogMonthlyIndex, Company, DailyRow, HistoricalImport,
+    HistoricalMapping, HistoricalMetricValue, HistoricalRawValue,
+    HistoricalYearVersion, OsvSourceCleanup, RevenueAnalyticMapping, Setting,
+    Upload, User, db,
+)
 from durable_data import (ConcurrentPromotionError, LATEST_KEY, _GcsStore,
                           _LocalStore, backup, restore)
 
+# Keep this integration test's file operations beside its temporary SQLite
+# database; app defaults point at the checked-out uploads/output directories.
+UPLOADS = app_module.UPLOADS = str(Path(_TMP) / "uploads")
+OUTPUT = app_module.OUTPUT = str(Path(_TMP) / "output")
+Path(UPLOADS).mkdir()
+Path(OUTPUT).mkdir()
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
 init_db()
 
@@ -146,6 +155,7 @@ with app.app_context():
     check("pending source cleanup is promoted with its source file",
           pending_cleanup["promoted"])
 
+    baseline_analog_monthly_indices = AnalogMonthlyIndex.query.count()
     # Completely erase every table owned by the local JSON backend, including
     # User and Company, and both numeric file trees.
     for model in reversed(_DURABLE_MODELS):
@@ -156,7 +166,9 @@ with app.app_context():
 
     outcome = restore(db, UPLOADS, OUTPUT, _DURABLE_MODELS)
     check("latest restores all protected tables and both file areas",
-           outcome["rows"] == 10
+           outcome["rows"] == 10 + baseline_analog_monthly_indices
+           and AnalogMonthlyIndex.query.count()
+           == baseline_analog_monthly_indices
           and User.query.count() == 1
           and Company.query.count() == 1
           and Upload.query.count() == 1

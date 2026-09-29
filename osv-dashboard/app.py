@@ -8169,6 +8169,15 @@ def max_limits():
         moderation_configured=bool(bot_settings.get('group_id')))
 
 
+@app.get('/limit-notifications/max/status')
+@login_required
+def max_limits_status():
+    if not current_user.is_admin:
+        abort(403)
+    from max_limits import status as bot_status
+    return jsonify(status=bot_status())
+
+
 @app.route('/limit-notifications/max/credentials', methods=['POST'])
 @login_required
 def max_limits_credentials():
@@ -8203,8 +8212,11 @@ def max_limits_start():
     else:
         try:
             set_enabled(True)
-            start_max_limits_worker(app)
-            flash('Подключение к MAX проверяется. Статус обновится после подтверждения.', 'info')
+            if start_max_limits_worker(app):
+                flash('Подключение к MAX проверяется. Статус обновится после подтверждения.', 'info')
+            else:
+                flash('Бот пока не запущен. Проверьте готовность сервера и настройку webhook; '
+                      'после восстановления сервера повторите запуск.', 'error')
         except ValueError:
             flash('Сначала сохраните корректный токен и ID группы.', 'error')
     g.skip_durable_backup = True
@@ -8253,6 +8265,9 @@ def max_limits_send_changes():
         abort(403)
     if request.form.get('confirm') != 'yes':
         abort(400)
+    # The queue mutation below schedules its own safety snapshot; avoid a
+    # second snapshot from the generic POST hook.
+    g.skip_durable_backup = True
     from max_limits import status as bot_status
     if bot_status() != 'connected':
         flash('Бот MAX не подключён. Рассылка не поставлена в очередь.', 'error')

@@ -319,6 +319,43 @@ class LimitsRouteTests(unittest.TestCase):
             url, data={'token': '', 'group_id': 'bad'}).status_code)
         self.assertEqual(token, max_bot_config.read()['token'])
 
+    def test_max_status_updates_without_reloading_page(self):
+        max_page = self.client_admin.get('/limit-notifications/max')
+        self.assertEqual(max_page.status_code, 200)
+        html = max_page.get_data(as_text=True)
+        self.assertIn('id="max-connection-status"', html)
+        self.assertIn('id="max-send-changes"', html)
+        self.assertIn('/limit-notifications/max/status', html)
+        with patch('max_limits.status', return_value='connected'):
+            response = self.client_admin.get('/limit-notifications/max/status')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {'status': 'connected'})
+        self.assertEqual(
+            self.client(2).get('/limit-notifications/max/status').status_code, 403)
+
+    def test_max_start_does_not_claim_success_when_worker_is_not_started(self):
+        max_bot_config.save('A' * 40, '-345')
+        with patch('max_limits.start_max_limits_worker', return_value=False):
+            response = self.client_admin.post(
+                '/limit-notifications/max/start', follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Бот пока не запущен', html)
+        self.assertNotIn('Подключение к MAX проверяется.', html)
+
+    def test_connected_bot_can_queue_manual_digest_without_sending_in_test(self):
+        with patch('max_limits.status', return_value='connected'), \
+             patch('max_digest.prepare_digest', return_value=(2, 2)) as prepare, \
+             patch('app._schedule_durable_safety_backup') as backup:
+            response = self.client_admin.post(
+                '/limit-notifications/max/send-changes',
+                data={'confirm': 'yes'}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('2 получателей, 2 сообщений',
+                      response.get_data(as_text=True))
+        prepare.assert_called_once_with()
+        backup.assert_called_once()
+
     def test_max_new_operations_require_csrf(self):
         app.config['WTF_CSRF_ENABLED'] = True
         try:

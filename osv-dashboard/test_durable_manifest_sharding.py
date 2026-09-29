@@ -5,14 +5,20 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
+
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from durable_data import (
     DurableDataError,
     LATEST_KEY,
     _LocalStore,
+    _restore_json,
     _table_rows_from_manifest,
     _write_table_chunks,
+    backup,
     convert_latest_to_sharded,
     restore,
 )
@@ -105,6 +111,77 @@ class DurableManifestShardingTests(unittest.TestCase):
         with self.assertRaises(DurableDataError):
             list(_table_rows_from_manifest(
                 self.store, manifest, "Example"))
+
+    def test_non_id_primary_key_snapshot_and_restore(self):
+        """MAX profiles use user_id as their identity, not a synthetic id."""
+        engine = create_engine(
+            f"sqlite:///{Path(self.tmp.name) / 'profile-test.sqlite'}")
+        Base = declarative_base()
+
+        class MaxLimitsProfile(Base):
+            __tablename__ = "max_limits_profiles"
+
+            user_id = Column(Integer, primary_key=True)
+            full_name = Column(String, nullable=False)
+
+        class LegacyIdExample(Base):
+            __tablename__ = "legacy_id_examples"
+
+            id = Column(Integer, primary_key=True)
+            value = Column(String, nullable=False)
+
+        Base.metadata.create_all(engine)
+        session = sessionmaker(bind=engine)()
+        self.addCleanup(session.close)
+        self.addCleanup(engine.dispose)
+        session.add_all([
+            MaxLimitsProfile(user_id=9, full_name="Nine"),
+            MaxLimitsProfile(user_id=3, full_name="Three"),
+            LegacyIdExample(id=4, value="Four"),
+        ])
+        session.commit()
+
+        db = SimpleNamespace(engine=engine, session=session)
+        uploads = Path(self.tmp.name) / "uploads"
+        outputs = Path(self.tmp.name) / "outputs"
+        uploads.mkdir()
+        outputs.mkdir()
+        result = backup(
+            db, uploads, outputs, (MaxLimitsProfile, LegacyIdExample),
+            "non_id_primary_key_test")
+        self.assertTrue(result["promoted"])
+        pointer = self.store.get_json(LATEST_KEY)
+        manifest = self.store.get_json(pointer["manifest"])
+        chunks = manifest["table_chunks"]
+        legacy_ids = manifest["table_ids"]
+        primary_keys = manifest["table_primary_keys"]
+        pk_values = manifest["table_pk_values"]
+        counts = manifest["table_row_counts"]
+        self.assertEqual([], legacy_ids["MaxLimitsProfile"])
+        self.assertEqual(["user_id"], primary_keys["MaxLimitsProfile"])
+        self.assertEqual([3, 9], pk_values["MaxLimitsProfile"])
+        self.assertEqual([4], legacy_ids["LegacyIdExample"])
+        self.assertNotIn("LegacyIdExample", primary_keys)
+        self.assertNotIn("LegacyIdExample", pk_values)
+        self.assertEqual(
+            [3, 9],
+            [row["user_id"] for row in _table_rows_from_manifest(
+                self.store, manifest, "MaxLimitsProfile")])
+
+        session.query(MaxLimitsProfile).filter_by(user_id=9).delete()
+        session.commit()
+        with patch("durable_data._database_limit_tombstones", return_value=[]):
+            restored, skipped, conflicts = _restore_json(
+                db, manifest, (MaxLimitsProfile,), store=self.store)
+        self.assertEqual((1, 1, 0), (restored, skipped, conflicts))
+        self.assertEqual(2, session.query(MaxLimitsProfile).count())
+        self.assertEqual(
+            "Nine", session.get(MaxLimitsProfile, 9).full_name)
+
+        with patch("durable_data._database_limit_tombstones", return_value=[]):
+            restored, skipped, conflicts = _restore_json(
+                db, manifest, (MaxLimitsProfile,), store=self.store)
+        self.assertEqual((0, 2, 0), (restored, skipped, conflicts))
 
     def test_restore_converts_legacy_latest_before_loading_manifest(self):
         old_key = "osv-dashboard/snapshots/legacy/manifest.json"

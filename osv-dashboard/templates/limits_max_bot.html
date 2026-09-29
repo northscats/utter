@@ -55,14 +55,14 @@
   </div>
 </section>
 {% endif %}
-<section class="max-status {% if configured %}is-ready{% else %}is-unavailable{% endif %}" aria-live="polite">
+<section id="max-connection-status" class="max-status {% if configured %}is-ready{% else %}is-unavailable{% endif %}" aria-live="polite">
   <div>
     {% if configured %}
-      <h2>Бот подключен</h2>
-      <p>Одобренных УИН: <strong>{{ subscriptions_count }}</strong> · Заявок на рассмотрении: <strong>{{ pending_count }}</strong></p>
+      <h2 id="max-connection-heading">Бот подключен</h2>
+      <p id="max-connection-detail">Одобренных УИН: <strong>{{ subscriptions_count }}</strong> · Заявок на рассмотрении: <strong>{{ pending_count }}</strong></p>
     {% else %}
-      <h2>{% if bot_state == 'connecting' %}Подключается{% elif bot_state == 'error' %}Ошибка подключения{% elif bot_state == 'stopped' %}Остановлен{% else %}Не настроен{% endif %}</h2>
-      <p>{% if bot_state in ('connecting', 'error') %}MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.{% else %}Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.{% endif %}</p>
+      <h2 id="max-connection-heading">{% if bot_state == 'connecting' %}Подключается{% elif bot_state == 'error' %}Ошибка подключения{% elif bot_state == 'stopped' %}Остановлен{% else %}Не настроен{% endif %}</h2>
+      <p id="max-connection-detail">{% if bot_state in ('connecting', 'error') %}MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.{% else %}Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.{% endif %}</p>
     {% endif %}
   </div>
 </section>
@@ -89,7 +89,7 @@
         onsubmit="return window.confirm('Отправить изменения по лимитам всем подписчикам с изменившимися объектами?')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="confirm" value="yes">
-    <button type="submit" {% if not configured or not dataset %}disabled{% endif %}>Рассылка изменений лимитов</button>
+    <button id="max-send-changes" type="submit" {% if not configured or not dataset %}disabled{% endif %}>Рассылка изменений лимитов</button>
   </form>
 </section>
 {% endif %}
@@ -104,6 +104,42 @@
 </section>
 {% include "limits_max_users.html" %}
 
+{% if current_user.is_admin %}
+<script>
+(() => {
+  const panel = document.getElementById('max-connection-status');
+  const heading = document.getElementById('max-connection-heading');
+  const detail = document.getElementById('max-connection-detail');
+  const send = document.getElementById('max-send-changes');
+  if (!panel || !heading || !detail || !send) return;
+  const readyDetail = 'Одобренных УИН: {{ subscriptions_count }} · Заявок на рассмотрении: {{ pending_count }}';
+  const waitingDetail = 'MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.';
+  const stoppedDetail = 'Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.';
+  const hasDataset = {{ 'true' if dataset else 'false' }};
+  const titles = { connected: 'Бот подключен', connecting: 'Подключается',
+                   error: 'Ошибка подключения', stopped: 'Остановлен', unconfigured: 'Не настроен' };
+  async function updateStatus() {
+    try {
+      const response = await fetch('{{ url_for("max_limits_status") }}', { credentials: 'same-origin', cache: 'no-store' });
+      if (!response.ok) return;
+      const { status } = await response.json();
+      if (!Object.prototype.hasOwnProperty.call(titles, status)) return;
+      const connected = status === 'connected';
+      panel.classList.toggle('is-ready', connected);
+      panel.classList.toggle('is-unavailable', !connected);
+      heading.textContent = titles[status];
+      detail.textContent = connected ? readyDetail
+        : (status === 'connecting' || status === 'error' ? waitingDetail : stoppedDetail);
+      send.disabled = !connected || !hasDataset;
+    } catch (_) {
+      // Keep the last confirmed server-rendered state until the next check.
+    }
+  }
+  updateStatus();
+  setInterval(() => { if (!document.hidden) updateStatus(); }, 5000);
+})();
+</script>
+{% endif %}
 <style>
 .max-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;margin:0 0 20px;background:#fff;border:1px solid var(--line);border-radius:10px}
 .max-toolbar label{font-weight:600;color:var(--mut)}

@@ -15,7 +15,7 @@ from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
 import ijson
-from sqlalchemy import select, text
+from sqlalchemy import select, text, tuple_
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
@@ -286,7 +286,8 @@ def _snapshot_rows(models):
         model.__name__: [
             {column.name: _encoded(getattr(row, column.name))
              for column in model.__table__.columns}
-            for row in model.query.order_by(model.id).all()
+            for row in model.query.order_by(
+                *model.__table__.primary_key.columns).all()
         ]
         for model in models
     }
@@ -329,39 +330,75 @@ def _manifest_model_count(manifest, model_name):
     return len(manifest.get("tables", {}).get(model_name, []))
 
 
-def _manifest_model_ids(manifest, model_name):
+def _manifest_model_ids(manifest, model_name, model=None, store=None):
+    primary_keys = manifest.get("table_pk_values", {})
+    if model_name in primary_keys:
+        return {
+            tuple(value) if isinstance(value, list) else value
+            for value in primary_keys[model_name]
+            if value is not None
+        }
     indexes = manifest.get("table_ids", {})
     if model_name in indexes:
-        return {
+        values = {
             row_id for row_id in indexes[model_name]
             if row_id is not None
         }
-    return {
-        row.get("id")
-        for row in manifest.get("tables", {}).get(model_name, [])
-        if row.get("id") is not None
-    }
+        if values:
+            return values
+    if model is None:
+        return {
+            row.get("id")
+            for row in manifest.get("tables", {}).get(model_name, [])
+            if row.get("id") is not None
+        }
+    primary_key_names = tuple(
+        column.name for column in model.__table__.primary_key.columns)
+    rows = _table_rows_from_manifest(store, manifest, model_name)
+    identities = set()
+    for row in rows:
+        values = tuple(row.get(name) for name in primary_key_names)
+        if values and all(value is not None for value in values):
+            identities.add(values[0] if len(values) == 1 else values)
+    return identities
 
 
-def _manifest_model_fully_present(db, manifest, model):
-    """Check the manifest ID index without downloading the table chunks."""
-    ids = _manifest_model_ids(manifest, model.__name__)
+def _manifest_model_fully_present(db, manifest, model, store=None):
+    """Check the manifest primary-key index without downloading table chunks."""
+    ids = _manifest_model_ids(manifest, model.__name__, model, store)
     expected = _manifest_model_count(manifest, model.__name__)
     if expected == 0:
         return True
     if len(ids) != expected:
         return False
-    ordered = list(ids)
+    primary_keys = tuple(model.__table__.primary_key.columns)
+    if not primary_keys:
+        return False
+    ordered = []
+    for identity in ids:
+        values = identity if isinstance(identity, tuple) else (identity,)
+        if len(values) != len(primary_keys):
+            return False
+        ordered.append(tuple(
+            _decoded(column, value)
+            for column, value in zip(primary_keys, values)
+        ))
     found = 0
     for offset in range(0, len(ordered), 500):
         batch = ordered[offset:offset + 500]
-        found += len(db.session.execute(
-            select(model.id).where(model.id.in_(batch))).all())
+        if len(primary_keys) == 1:
+            statement = select(primary_keys[0]).where(
+                primary_keys[0].in_([identity[0] for identity in batch]))
+        else:
+            statement = select(*primary_keys).where(
+                tuple_(*primary_keys).in_(batch))
+        found += len(db.session.execute(statement).all())
     return found == expected
 
 
 def _write_table_chunks(store, snapshot_prefix, model_name, rows,
-                        target_bytes=TABLE_CHUNK_TARGET_BYTES):
+                        target_bytes=TABLE_CHUNK_TARGET_BYTES,
+                        primary_key=("id",), primary_key_values=None):
     """Write byte-bounded immutable JSON arrays and return root metadata."""
     chunks = []
     row_ids = []
@@ -400,6 +437,11 @@ def _write_table_chunks(store, snapshot_prefix, model_name, rows,
         current_bytes += encoded_size + (1 if len(current) > 1 else 0)
         if row.get("id") is not None:
             row_ids.append(row["id"])
+        if primary_key_values is not None:
+            identity = [row.get(name) for name in primary_key]
+            if all(value is not None for value in identity):
+                primary_key_values.append(
+                    identity[0] if len(identity) == 1 else identity)
     flush()
     return chunks, row_ids
 
@@ -409,6 +451,8 @@ def _snapshot_table_chunks(db, store, snapshot_prefix, models):
     models = _active_models(models)
     table_chunks = {}
     table_ids = {}
+    table_primary_keys = {}
+    table_pk_values = {}
     table_row_counts = {}
     connection = db.engine.connect()
     transaction = None
@@ -419,9 +463,11 @@ def _snapshot_table_chunks(db, store, snapshot_prefix, models):
         transaction = connection.begin()
         for model in models:
             columns = tuple(model.__table__.columns)
+            primary_keys = tuple(model.__table__.primary_key.columns)
+            primary_key_names = tuple(column.name for column in primary_keys)
             result = connection.execution_options(
                 stream_results=True).execute(
-                    select(*columns).order_by(model.__table__.c.id))
+                    select(*columns).order_by(*primary_keys))
 
             def rows():
                 for record in result.mappings():
@@ -430,10 +476,18 @@ def _snapshot_table_chunks(db, store, snapshot_prefix, models):
                         for column in columns
                     }
 
+            has_legacy_id_primary_key = primary_key_names == ("id",)
+            pk_values = []
             chunks, row_ids = _write_table_chunks(
-                store, snapshot_prefix, model.__name__, rows())
+                store, snapshot_prefix, model.__name__, rows(),
+                primary_key=primary_key_names,
+                primary_key_values=(
+                    None if has_legacy_id_primary_key else pk_values))
             table_chunks[model.__name__] = chunks
             table_ids[model.__name__] = row_ids
+            if not has_legacy_id_primary_key:
+                table_primary_keys[model.__name__] = list(primary_key_names)
+                table_pk_values[model.__name__] = pk_values
             table_row_counts[model.__name__] = sum(
                 chunk["rows"] for chunk in chunks)
         transaction.commit()
@@ -443,7 +497,7 @@ def _snapshot_table_chunks(db, store, snapshot_prefix, models):
         raise
     finally:
         connection.close()
-    return table_chunks, table_ids, table_row_counts
+    return table_chunks, table_ids, table_row_counts, table_primary_keys, table_pk_values
 
 
 def _legacy_table_rows(path):
@@ -573,16 +627,16 @@ def _snapshot_id():
     return f"{stamp}-{uuid.uuid4().hex}"
 
 
-def _removed_snapshot_tables(previous, current, models):
+def _removed_snapshot_tables(previous, current, models, store=None):
     """Detect removals even when replacement rows keep aggregate counts equal."""
     removed = set()
     for model in models:
         if model.__name__ == "User":
             continue
         old_ids = (
-            _manifest_model_ids(previous, model.__name__)
+            _manifest_model_ids(previous, model.__name__, model, store)
             if previous else set())
-        new_ids = _manifest_model_ids(current, model.__name__)
+        new_ids = _manifest_model_ids(current, model.__name__, model, store)
         if old_ids - new_ids:
             removed.add(model.__tablename__)
     return removed
@@ -596,7 +650,8 @@ def backup(db, uploads_root, output_root, models, reason,
         store = _store()
         snapshot_id = _snapshot_id()
         snapshot_prefix = f"{SNAPSHOTS_PREFIX}/{snapshot_id}"
-        table_chunks, table_ids, table_row_counts = _snapshot_table_chunks(
+        (table_chunks, table_ids, table_row_counts, table_primary_keys,
+         table_pk_values) = _snapshot_table_chunks(
             db, store, snapshot_prefix, models)
         counts = {}
         for model in models:
@@ -618,6 +673,9 @@ def backup(db, uploads_root, output_root, models, reason,
             "table_ids": table_ids,
             "table_row_counts": table_row_counts,
         }
+        if table_primary_keys:
+            manifest["table_primary_keys"] = table_primary_keys
+            manifest["table_pk_values"] = table_pk_values
         if db.engine.dialect.name == "postgresql":
             fd, dump_path = tempfile.mkstemp(prefix="osv_", suffix=".dump")
             os.close(fd)
@@ -660,7 +718,7 @@ def backup(db, uploads_root, output_root, models, reason,
                 < _manifest_counts(previous, models).get(name, 0)
             }
             shrunk.update(_removed_snapshot_tables(
-                previous, manifest, models))
+                previous, manifest, models, store))
             blocked_removals = shrunk - set(allowed_removed_tables)
             if blocked_removals and not allow_removals:
                 break
@@ -940,7 +998,7 @@ def _restore_json(db, manifest, models, include_parents=True,
     by_name = {model.__name__: model for model in models}
     fully_present = {
         model.__name__: _manifest_model_fully_present(
-            db, manifest, model)
+            db, manifest, model, store)
         for model in models
     }
     # Preserve dependency order within each group, but recover missing tables
@@ -987,6 +1045,15 @@ def _restore_json(db, manifest, models, include_parents=True,
                 for value in values.values()
                 if isinstance(value, str)
             ) >= TABLE_CHUNK_TARGET_BYTES
+            primary_keys = tuple(model.__table__.primary_key.columns)
+            identity_values = tuple(
+                _decoded(column, values.get(column.name))
+                for column in primary_keys
+            )
+            row_identity = (
+                identity_values[0] if len(identity_values) == 1
+                else identity_values
+            )
             row_id = values.get("id")
             if (model.__name__ == "LimitObject"
                     and values.get("last_seen_version_id") in tombstoned_versions
@@ -999,7 +1066,9 @@ def _restore_json(db, manifest, models, include_parents=True,
                 checkpoint()
                 continue
             existing = (
-                None if row_id is None else db.session.get(model, row_id))
+                None if (not primary_keys
+                         or any(value is None for value in identity_values))
+                else db.session.get(model, row_identity))
             if existing is not None:
                 # If a previous checkpoint committed the dataset but the
                 # connection died before pointer reconciliation, retain the
