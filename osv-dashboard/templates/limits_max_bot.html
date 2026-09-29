@@ -72,7 +72,7 @@
   <h2>Рассылка изменений лимитов</h2>
   <p>По текущей принятой версии выбранного набора бот отправит каждому подписчику
     краткий список только его объектов с изменениями. Объекты без изменений не включаются.
-    Одна версия рассылается один раз для каждого выбранного фильтра; доставка выполняется в фоне.</p>
+    Каждое подтверждённое нажатие создаёт новую рассылку, даже если версия и фильтр не изменились. Доставка выполняется в фоне.</p>
   <form method="post" action="{{ url_for('max_limits_funding_year') }}" class="max-year-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="max-funding-year">Показывать финансирование за годы</label>
@@ -85,13 +85,22 @@
     <button type="submit">Сохранить настройку</button>
   </form>
   <p>Фильтр действует для бота и его Excel-выгрузки: данные финансирования за более ранние годы скрываются. Остальные сведения об объектах не меняются.</p>
-  <form method="post" action="{{ url_for('max_limits_send_changes') }}"
-        onsubmit="return window.confirm('Отправить изменения по лимитам всем подписчикам с изменившимися объектами?')">
+  <form id="max-digest-form" method="post" action="{{ url_for('max_limits_send_changes') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="confirm" value="yes">
-    <button id="max-send-changes" type="submit" {% if not configured or not dataset %}disabled{% endif %}>Рассылка изменений лимитов</button>
+    <input type="hidden" name="run_id" value="{{ digest_run_id }}">
+    <button id="max-send-changes" type="button" {% if not configured or not dataset %}disabled{% endif %}>Рассылка изменений лимитов</button>
   </form>
 </section>
+<dialog id="max-digest-dialog" class="max-digest-dialog" aria-labelledby="max-digest-title" aria-describedby="max-digest-description">
+  <div class="max-digest-icon" aria-hidden="true">↗</div>
+  <h2 id="max-digest-title">Отправить изменения лимитов?</h2>
+  <p id="max-digest-description">Бот MAX отправит подписчикам сообщения по их объектам с изменениями. Повторная отправка создаст новые сообщения, даже если данные и фильтр не изменились.</p>
+  <div class="max-digest-actions">
+    <button id="max-digest-cancel" type="button" class="max-digest-cancel" autofocus>Отмена</button>
+    <button id="max-digest-confirm" type="submit" form="max-digest-form" class="max-digest-confirm">Отправить в MAX</button>
+  </div>
+</dialog>
 {% endif %}
 
 <section class="max-panel">
@@ -112,6 +121,17 @@
   const detail = document.getElementById('max-connection-detail');
   const send = document.getElementById('max-send-changes');
   if (!panel || !heading || !detail || !send) return;
+  const dialog = document.getElementById('max-digest-dialog');
+  const cancel = document.getElementById('max-digest-cancel');
+  const confirm = document.getElementById('max-digest-confirm');
+  const form = document.getElementById('max-digest-form');
+  send.addEventListener('click', () => dialog.showModal());
+  cancel.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => send.focus());
+  form.addEventListener('submit', () => {
+    confirm.disabled = true;
+    send.disabled = true;
+  });
   const readyDetail = 'Одобренных УИН: {{ subscriptions_count }} · Заявок на рассмотрении: {{ pending_count }}';
   const waitingDetail = 'MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.';
   const stoppedDetail = 'Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.';
@@ -160,6 +180,17 @@
 .max-credentials{display:grid;gap:10px;max-width:500px}
 .max-credentials input{padding:9px 12px;border:1px solid var(--line);border-radius:7px;font:inherit}
 .max-controls{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+.max-digest-dialog{width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box;border:1px solid #dce5ee;border-radius:16px;padding:28px;background:#fff;color:var(--ink);box-shadow:0 24px 75px rgba(15,37,64,.25)}
+.max-digest-dialog::backdrop{background:rgba(12,30,51,.48);backdrop-filter:blur(3px)}
+.max-digest-icon{display:grid;place-items:center;width:46px;height:46px;margin-bottom:18px;border-radius:12px;background:#e8f2ff;color:#0759a7;font-size:25px;font-weight:700}
+.max-digest-dialog h2{font-size:21px;line-height:1.25;margin:0 0 12px}
+.max-digest-dialog p{color:var(--mut);line-height:1.55;margin:0 0 24px}
+.max-digest-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.max-digest-actions button{padding:10px 16px;border-radius:8px;font:inherit;font-weight:650;cursor:pointer}
+.max-digest-cancel{background:#fff;color:var(--ink);border:1px solid #ccd8e4}
+.max-digest-confirm{background:#0759a7;color:#fff;border:1px solid #0759a7}
+.max-digest-actions button:focus-visible{outline:3px solid #7ab5f6;outline-offset:2px}
+.max-digest-actions button:disabled{opacity:.6;cursor:wait}
 @media(max-width:600px){.max-panel dl>div{grid-template-columns:95px 1fr}}
 </style>
 {% endblock %}

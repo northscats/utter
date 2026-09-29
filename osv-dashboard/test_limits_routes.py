@@ -144,9 +144,9 @@ class LimitsRouteTests(unittest.TestCase):
             response = self.client_admin.post(
                 '/limit-notifications/max/send-changes', data={'confirm': 'yes'},
                 follow_redirects=True)
-        self.assertIn('Нет новых сообщений для выбранного фильтра',
+        self.assertIn('Рассылка не создана',
                       response.get_data(as_text=True))
-        self.assertNotIn('Нет новых сообщений для выбранного фильтра',
+        self.assertNotIn('Рассылка не создана',
                          self.client_admin.get('/limit-notifications').get_data(as_text=True))
 
     def test_max_registry_and_delete_revoke_only_selected_user(self):
@@ -325,6 +325,8 @@ class LimitsRouteTests(unittest.TestCase):
         html = max_page.get_data(as_text=True)
         self.assertIn('id="max-connection-status"', html)
         self.assertIn('id="max-send-changes"', html)
+        self.assertIn('id="max-digest-dialog"', html)
+        self.assertNotIn('window.confirm', html)
         self.assertIn('/limit-notifications/max/status', html)
         with patch('max_limits.status', return_value='connected'):
             response = self.client_admin.get('/limit-notifications/max/status')
@@ -349,11 +351,11 @@ class LimitsRouteTests(unittest.TestCase):
              patch('app._schedule_durable_safety_backup') as backup:
             response = self.client_admin.post(
                 '/limit-notifications/max/send-changes',
-                data={'confirm': 'yes'}, follow_redirects=True)
+                data={'confirm': 'yes', 'run_id': 'a' * 32}, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn('2 получателей, 2 сообщений',
                       response.get_data(as_text=True))
-        prepare.assert_called_once_with()
+        prepare.assert_called_once_with(run_id='a' * 32)
         backup.assert_called_once()
 
     def test_max_new_operations_require_csrf(self):

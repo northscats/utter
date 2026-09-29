@@ -8158,6 +8158,7 @@ def max_limits():
     state = bot_status() if current_user.is_admin else 'hidden'
     return render_template(
         'limits_max_bot.html', dataset=dataset, datasets=datasets, users=users,
+        digest_run_id=uuid.uuid4().hex,
         funding_year_choices=funding_year_choices(),
         funding_year_selection=funding_year_selection(),
         configured=state == 'connected',
@@ -8274,18 +8275,18 @@ def max_limits_send_changes():
         return redirect(url_for('max_limits'))
     from max_digest import prepare_digest
     try:
-        users, messages = prepare_digest()
+        users, messages = prepare_digest(run_id=request.form.get('run_id') or None)
     except ValueError as exc:
         flash(str(exc), 'error')
         return redirect(url_for('max_limits'))
     if users:
         _schedule_durable_safety_backup('MAX manual limits digest')
         flash(f'Рассылка изменений поставлена в очередь: {users} получателей, '
-              f'{messages} сообщений. Повторное нажатие с тем же фильтром не создаст дубль.',
+              f'{messages} сообщений.',
               'success')
     else:
-        flash('Нет новых сообщений для выбранного фильтра: изменения по одобренным УИН '
-              'отсутствуют или рассылка этой версии с тем же фильтром уже поставлена в очередь.',
+        flash('Рассылка не создана: нет изменившихся объектов среди одобренных УИН '
+              'или эта попытка отправки уже поставлена в очередь.',
               'info')
     return redirect(url_for('max_limits'))
 

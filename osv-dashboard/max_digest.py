@@ -1,6 +1,8 @@
 """Administrator-triggered summaries of the current accepted limits comparison."""
 import json
 import io
+import re
+import uuid
 from collections import defaultdict
 
 from openpyxl import Workbook
@@ -138,8 +140,13 @@ def changes_excel_bytes(user_id):
     return output.getvalue()
 
 
-def prepare_digest():
-    """Queue once per recipient, accepted version and funding-year selection."""
+def prepare_digest(run_id=None):
+    """Queue a manual digest once per recipient and confirmed admin action."""
+    if run_id is None:
+        run_id = uuid.uuid4().hex
+    elif not isinstance(run_id, str) or re.fullmatch(r'[0-9a-fA-F]{32}', run_id) is None:
+        raise ValueError('Идентификатор запуска должен содержать 32 шестнадцатеричных символа.')
+    run_id = run_id.lower()
     current = current_comparison()
     if not current:
         raise ValueError('Нет принятого сравнения текущей версии с предыдущей.')
@@ -163,7 +170,7 @@ def prepare_digest():
         pages = _pages(_entries(comparison, uins, funding_year))
         queued = False
         for index, page in enumerate(pages):
-            marker = f'{PREFIX}{funding_year}:{index}'
+            marker = f'{PREFIX}{funding_year}:{run_id}:{index}'
             existing = MaxLimitsOutbox.query.filter_by(
                 user_id=user_id, version_id=version.id, uin=marker).first()
             if existing:
