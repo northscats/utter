@@ -28,7 +28,8 @@ os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 from app import app, init_db  # noqa: E402
 from database import (AnalogClimateReference, AnalogCostIndexReference,
                        AnalogMonthlyIndex,
-                       AnalogCostRow, AnalogDocument, AnalogImport,
+                        AnalogCostRow, AnalogDocument, AnalogImport,
+                        AnalogDiagnostic, AnalogSource,
                        AnalogSSRChapter, AnalogSSRItem,
                        AnalogNetworkAttribute,
                       AnalogPassport, AnalogPassportVersion, User, db)  # noqa: E402
@@ -46,6 +47,19 @@ ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
 
 
 class AnalogRoutesTest(unittest.TestCase):
+    def test_catalog_omits_manual_creation_and_system_import(self):
+        response = self.client.get('/analog-search/simple?view=base')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        for text in ('Ручное создание и системный импорт',
+                     'Создать пустой паспорт', 'Импорт JSON v4',
+                     'create-object-type', 'create-network-fields',
+                     'Импортировать JSON'):
+            self.assertNotIn(text, html)
+        for text in ('Добавить объект', 'Все объекты', 'catalog-tbody',
+                     'Поиск в каталоге по адресу', 'analog-import-form'):
+            self.assertIn(text, html)
+
     def test_similarity_column_only_after_search_filter(self):
         path = '/analog-search/simple'
         for params in ({}, {'view': 'search', 'page': '2'},
@@ -252,12 +266,12 @@ class AnalogRoutesTest(unittest.TestCase):
         page = listing.get_data(as_text=True)
         self.assertIn('Индексы', page)
         self.assertIn('Реестр индексов ↗', page)
-        self.assertIn('Пересчет на актальную стоимость', page)
+        self.assertIn('Стоимость (текущие цены), тыс. руб', page)
         self.assertIn('Помесячный тестовый объект', page)
         self.assertIn('1 000,0', page)
         self.assertIn('Уровень цен: 05.2026; коэффициент:', page)
         catalog = self.client.get('/analog-search/simple?view=base')
-        self.assertIn('Пересчет на актальную стоимость',
+        self.assertIn('Стоимость (текущие цены), тыс. руб',
                       catalog.get_data(as_text=True))
         with app.app_context():
             db.session.delete(db.session.get(AnalogPassportVersion, version_id))
@@ -468,6 +482,15 @@ class AnalogRoutesTest(unittest.TestCase):
                 db.session.add(version)
                 db.session.flush()
                 version_ids.append(version.id)
+                db.session.add(AnalogSource(
+                    version_id=version.id,
+                    source_hash=f'ui-docs-source-{number}',
+                    ssr_hash=f'ui-docs-ssr-{number}',
+                    source_filename='hidden-source.xml',
+                    ssr_filename='hidden-summary.gge'))
+                db.session.add(AnalogDiagnostic(
+                    version_id=version.id, code='ui_test',
+                    message='Сохранённое сообщение диагностики'))
                 db.session.add(AnalogDocument(
                     passport_id=passport.id, version_id=version.id,
                     ordinal='3.1.1.987', name='hidden-document-name',
@@ -488,13 +511,19 @@ class AnalogRoutesTest(unittest.TestCase):
                 for text in ('Документация 3.1.1', 'Контрольная сумма',
                              '3.1.1.987', 'hidden-document-name',
                              'hidden-document-checksum', 'hidden-signature.sig',
-                             'hidden-signature-checksum'):
+                             'hidden-signature-checksum',
+                             'Диагностика и происхождение',
+                             'Нет сообщений диагностики.',
+                             'Сырые байты сохранены по защищённым путям.',
+                             'hidden-source.xml', 'hidden-summary.gge',
+                             'ui-docs-source-', 'ui-docs-ssr-',
+                             'Сохранённое сообщение диагностики'):
                     self.assertNotIn(text, html)
                 for text in ('Основные сведения',
                              'Организации (Все)', 'Геология и прочий климат',
                              'Технико-экономические показатели', 'Таблица 3.2.1',
                              'Сводный сметный расчёт (GGE)',
-                             'Диагностика и происхождение', f'ССР версии {number}',
+                             f'ССР версии {number}',
                              'data-target="brief-tab"', 'data-target="detail-tab"',
                              'id="brief-tab" class="tab-content"',
                              'id="detail-tab" class="tab-content" hidden',
@@ -506,6 +535,17 @@ class AnalogRoutesTest(unittest.TestCase):
         with app.app_context():
             self.assertEqual(AnalogDocument.query.filter_by(
                 passport_id=passport_id).count(), 2)
+            for number, version_id in enumerate(version_ids, 1):
+                source = AnalogSource.query.filter_by(version_id=version_id).one()
+                self.assertEqual(source.source_filename, 'hidden-source.xml')
+                self.assertEqual(source.ssr_filename, 'hidden-summary.gge')
+                self.assertEqual(source.source_hash, f'ui-docs-source-{number}')
+                self.assertEqual(source.ssr_hash, f'ui-docs-ssr-{number}')
+                diagnostic = AnalogDiagnostic.query.filter_by(
+                    version_id=version_id).one()
+                self.assertEqual(diagnostic.code, 'ui_test')
+                self.assertEqual(diagnostic.message,
+                                 'Сохранённое сообщение диагностики')
 
     def test_summary_estimate_101_preview_and_confirm(self):
         response = self.client.post(
@@ -923,7 +963,7 @@ class AnalogRoutesTest(unittest.TestCase):
         for heading in ('Наименование', 'Тип', 'Вид работ', 'Аналогичность'):
             self.assertIn(f'<th>{heading}</th>', search_html)
         self.assertIn('<th>Стоимость, тыс. руб.</th>', search_html)
-        self.assertIn('<th>Пересчет на актальную стоимость</th>',
+        self.assertIn('<th>Стоимость (текущие цены), тыс. руб</th>',
                       search_html)
         self.assertIn('МВт/<strong>Гкал/ч</strong>', search_html)
         self.assertIn('<td>котельная</td>', search_html)
@@ -1139,14 +1179,18 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertIn('Геологические условия', html)
         self.assertIn('Сейсмическая активность (баллов)', html)
 
-    def test_module_entry_offers_both_search_modes(self):
+    def test_module_entry_opens_quick_search(self):
         page = self.client.get('/analog-search')
+        self.assertEqual(page.status_code, 302)
+        self.assertEqual(page.headers['Location'], '/analog-search/simple')
+        page = self.client.get('/analog-search', follow_redirects=True)
         self.assertEqual(page.status_code, 200)
         html = page.get_data(as_text=True)
-        self.assertIn('Быстрый поиск', html)
-        self.assertIn('Поиск по нормативно-правовому акту', html)
-        self.assertIn('/analog-search/simple', html)
-        self.assertIn('/analog-search/regulatory', html)
+        self.assertIn('Поиск объектов-аналогов', html)
+        self.assertIn('name="capacity_value"', html)
+        self.assertNotIn('Поиск по нормативно-правовому акту', html)
+        self.assertNotIn('Выберите способ', html)
+        self.assertNotIn('/analog-search/regulatory', html)
 
     def test_regulatory_search_applies_135pr_mandatory_criteria(self):
         with app.app_context():
@@ -1190,25 +1234,18 @@ class AnalogRoutesTest(unittest.TestCase):
         self.assertTrue(item['suitable'])
         self.assertEqual(item['algorithm_version'], '135pr-604pr-v1')
 
-    def test_regulatory_page_contains_all_filters_from_reference_html(self):
-        page = self.client.get('/analog-search/regulatory')
-        self.assertEqual(page.status_code, 200)
-        html = page.get_data(as_text=True)
-        for label in (
-                'Год сметного уровня цен', 'Пропускная способность, Гкал/ч',
-                'Инженерно-геологические условия', 'Материал трубопроводов',
-                'Температура подачи', 'Байпас требуется',
-                'Прокладка в сборных каналах', 'Замена запорной арматуры',
-                'Наличие водяного перехода', 'Типы ЗОУИТ',
-                'Ориентировочная стоимость на 1 м'):
-            self.assertIn(label, html)
-        for document in (
-                'Положительное заключение государственной экспертизы',
-                'Гидравлический расчёт',
-                'Планы и продольные профили трассы',
-                'Спецификации трубопроводов, арматуры, камер и оборудования',
-                'Материалы по ЗОУИТ и пересечениям'):
-            self.assertIn(document, html)
+    def test_old_regulatory_pages_redirect_to_quick_search(self):
+        for path in ('/analog-search/regulatory', '/analog-search/advanced'):
+            with self.subTest(path=path):
+                page = self.client.get(path)
+                self.assertEqual(page.status_code, 302)
+                self.assertEqual(page.headers['Location'], '/analog-search/simple')
+                submitted = self.client.post(
+                    path + '/search', data={},
+                    headers={'Accept': 'text/html'})
+                self.assertEqual(submitted.status_code, 303)
+                self.assertEqual(submitted.headers['Location'],
+                                 '/analog-search/simple')
 
     def test_climate_filter_supports_region_and_exact_subregion(self):
         with app.app_context():

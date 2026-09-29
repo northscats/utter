@@ -381,24 +381,6 @@
     </div>
   </details>
 
-  <details>
-    <summary>Диагностика и происхождение</summary>
-    <div class="details-body">
-      {% for item in diagnostics %}
-        <div class="alert {{ 'error' if item.severity == 'error' else 'warning' }}">{{ item.message|analog_message(item.code) }}</div>
-      {% else %}
-        <div style="font-size: 13px; color: var(--mut);">Нет сообщений диагностики.</div>
-      {% endfor %}
-      
-      {% if source %}
-        <div style="font-size: 12px; color: var(--mut); margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px;">
-          <strong>Источники:</strong> {{ source.source_filename }} <span style="font-family: monospace;">({{ source.source_hash }})</span>, 
-          {{ source.ssr_filename }} <span style="font-family: monospace;">({{ source.ssr_hash }})</span>.<br>
-          Сырые байты сохранены по защищённым путям.
-        </div>
-      {% endif %}
-    </div>
-  </details>
 </div>
 
 <script>

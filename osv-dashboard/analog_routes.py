@@ -828,7 +828,7 @@ def _simple_query(args, capacity=None):
 @analog_bp.get('')
 @login_required
 def index():
-    return render_template('analog_mode_select.html')
+    return redirect(url_for('analog.simple_search'))
 
 
 @analog_bp.get('/simple')
@@ -1544,6 +1544,8 @@ def climate_suggestion():
 @analog_bp.post('/regulatory/search')
 @login_required
 def advanced_search():
+    if request.accept_mimetypes.best == 'text/html':
+        return redirect(url_for('analog.simple_search'), code=303)
     criteria = request.get_json(silent=True) or request.form.to_dict()
     if not request.is_json:
         for field in ('material', 'zouit_types'):
@@ -1592,10 +1594,6 @@ def advanced_search():
     total = len(rows)
     start = (page - 1) * per_page
     rows = rows[start:start + per_page]
-    if request.accept_mimetypes.best == 'text/html':
-        return render_template('analog_advanced.html', rows=rows,
-                               criteria=criteria, page=page,
-                               total=total)
     return jsonify(items=rows, page=page, per_page=per_page,
                    total=total,
                    algorithm_version='135pr-604pr-v1')
@@ -1605,7 +1603,7 @@ def advanced_search():
 @analog_bp.get('/regulatory')
 @login_required
 def advanced_page():
-    return render_template('analog_advanced.html', rows=[], criteria={}, total=0)
+    return redirect(url_for('analog.simple_search'))
 
 
 @analog_bp.get('/advanced/criteria')

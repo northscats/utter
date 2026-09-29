@@ -101,7 +101,7 @@
           <th>Вид работ</th>
           <th>МВт/<strong>Гкал/ч</strong></th>
           <th>Стоимость, тыс. руб.</th>
-          <th>Пересчет на актальную стоимость</th>
+          <th>Стоимость (текущие цены), тыс. руб</th>
           <th>Excel</th>
           {% if show_similarity %}<th>Аналогичность</th>{% endif %}
         </tr>
@@ -199,53 +199,6 @@
   </div>
 </div>
 
-{% if current_user.is_admin %}
-<details class="analog-admin">
-  <summary>Ручное создание и системный импорт · Администратор</summary>
-  <div class="details-body">
-    <form method="post" action="{{ url_for('analog.create_passport') }}">
-      <h3>Создать пустой паспорт</h3>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input name="title" placeholder="Название объекта" aria-label="Название объекта" required>
-      <input name="address" placeholder="Адрес" aria-label="Адрес">
-      <select id="create-object-type" name="object_type" aria-label="Тип объекта">
-        {% for val in object_types %}<option>{{ val }}</option>{% endfor %}
-      </select>
-      <select name="work_type" aria-label="Вид работ">
-        {% for val in work_types %}<option>{{ val }}</option>{% endfor %}
-      </select>
-      <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт" aria-label="Мощность, кВт">
-      <div class="create-network-fields" hidden>
-        <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м" aria-label="Длина сети, м">
-        <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм" aria-label="Диаметр сети, мм">
-      </div>
-      <button class="btn btn-outline" type="submit">Создать паспорт</button>
-    </form>
-    
-    <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data">
-      <h3>Импорт JSON v4</h3>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="file" name="file" accept=".json" required aria-label="Файл JSON v4">
-      <button class="btn btn-outline" type="submit">Импортировать JSON</button>
-    </form>
-  </div>
-</details>
-
-<script>
-(() => {
-  const type = document.getElementById('create-object-type');
-  const fields = document.querySelector('.create-network-fields');
-  const inputs = fields ? fields.querySelectorAll('input') : [];
-  function toggleNetwork() {
-    const network = (type.value || '').toLowerCase().includes('сеть');
-    if (fields) fields.hidden = !network;
-    inputs.forEach(input => { input.required = network; });
-  }
-  if (type) { type.addEventListener('change', toggleNetwork); toggleNetwork(); }
-})();
-</script>
-{% endif %}
-
 <form method="get" class="search-row analog-catalog-search">
   <input type="hidden" name="view" value="base">
   <label class="analog-field"><span>Поиск в каталоге по адресу</span><input name="address" value="{{ request.args.get('address', '') }}" placeholder="Введите адрес объекта" aria-label="Поиск по адресу"></label>
@@ -268,7 +221,7 @@
         <th>Вид работ<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..." aria-label="Фильтр по виду работ"></th>
         <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..." aria-label="Фильтр по мощности"></th>
         <th>Стоимость, тыс. руб.<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..." aria-label="Фильтр по стоимости"></th>
-        <th>Пересчет на актальную стоимость<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..." aria-label="Фильтр по стоимости в текущих ценах"></th>
+        <th>Стоимость (текущие цены), тыс. руб<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..." aria-label="Фильтр по стоимости в текущих ценах"></th>
         <th>Excel</th>
         {% if current_user.is_admin %}<th>Действия</th>{% endif %}
       </tr>

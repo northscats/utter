@@ -240,7 +240,10 @@ def main():
                             assert 'WorkersSalary' not in detail
                             assert 'LocalEstimate' not in detail
                             assert 'Building' not in detail
-                            assert original_version.source_hash in detail
+                            assert original_version.source_hash not in detail
+                            expect(page.get_by_text(
+                                'Диагностика и происхождение', exact=True)).to_have_count(0)
+                            assert 'Сырые байты сохранены' not in detail
                             if role == 'user':
                                 assert 'Администрирование паспорта' not in detail
                             else:
@@ -248,6 +251,9 @@ def main():
                             path = screenshot_dir / f'{role}-expanded.png'
                             page.screenshot(path=str(path), full_page=True)
                             print(path)
+                            page.locator('button[data-target="brief-tab"]').click()
+                            expect(page.locator('#brief-tab')).to_be_visible()
+                            expect(page.locator('#detail-tab')).to_be_hidden()
                             context.close()
                         assert not errors, errors
                     finally:
