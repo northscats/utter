@@ -53,3 +53,4 @@ osv-dashboard/output/*
 !osv-dashboard/output/.gitkeep
 __pycache__/
 *.pyc
+/osv-dashboard/private/
