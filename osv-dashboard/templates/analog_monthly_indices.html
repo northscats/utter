@@ -1,0 +1,145 @@
+{% extends "modules.html" %}
+{% block title %}Реестр помесячных индексов{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='analog_monthly_indices.css', v='20260929-2') }}">
+{% endblock %}
+{% block header_actions %}
+<div class="header-actions"><a href="{{ url_for('analog.simple_search') }}">← Поиск объектов-аналогов</a></div>
+{% endblock %}
+{% block content %}
+{% set month_names = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'] %}
+<div class="indices-page">
+  <div class="indices-intro">
+    <div>
+      <span class="indices-kicker">Аналитика строительства / Индексы</span>
+      <h1>Реестр помесячных индексов</h1>
+      <p>Изменение стоимости к предыдущему месяцу, %. Данные для пересчёта объектов-аналогов.</p>
+    </div>
+    <div class="indices-latest" role="status">
+      <span>Последний загруженный индекс:</span>
+      <strong>{{ latest_index or 'Нет данных' }}</strong>
+    </div>
+  </div>
+
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="alert {{ category }}" role="alert">{{ message }}</div>
+  {% endfor %}
+
+  {% if current_user.is_admin %}
+  <section class="indices-create" aria-labelledby="indices-create-title">
+    <div class="indices-create-heading">
+      <h2 id="indices-create-title">Добавить год</h2>
+      <p>Заполните доступные месяцы — остальные можно оставить пустыми.</p>
+    </div>
+    <form class="indices-create-form" method="post" action="{{ url_for('analog.save_monthly_index_year') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="indices-create-top">
+        <label for="indices-new-year">Год
+          <input id="indices-new-year" type="number" name="year" min="2017" max="2100" value="{{ default_year }}" required>
+        </label>
+        <p>К предыдущему месяцу, %</p>
+      </div>
+      <div class="indices-month-grid">
+        {% for month in range(1, 13) %}
+        <label class="indices-month-field" for="indices-new-month-{{ month }}">
+          {{ month_names[month - 1] }}
+          <input id="indices-new-month-{{ month }}" type="text" name="percent_{{ month }}" inputmode="decimal"
+                 aria-label="Индекс за {{ month_names[month - 1] }}, %" placeholder="—" autocomplete="off">
+        </label>
+        {% endfor %}
+      </div>
+      <div class="indices-create-footer">
+        <span>Для сохранения укажите индекс хотя бы за один месяц.</span>
+        <button class="indices-submit" type="submit">Сохранить год</button>
+      </div>
+      <p class="indices-form-error" role="alert" hidden>Укажите индекс хотя бы за один месяц</p>
+    </form>
+  </section>
+  {% endif %}
+
+  <section class="indices-ledger" aria-labelledby="indices-ledger-title">
+    <div class="indices-ledger-heading">
+      <div>
+        <h2 id="indices-ledger-title">Индексы по годам</h2>
+        <p>Показатель к предыдущему месяцу, %</p>
+      </div>
+      <span class="indices-scroll-hint">Прокрутите таблицу, чтобы увидеть все месяцы →</span>
+    </div>
+    <div class="indices-table-scroll" role="region" aria-label="Таблица помесячных индексов" tabindex="0">
+      <table class="indices-table">
+        <colgroup>
+          <col class="indices-year-col">
+          <col class="indices-measure-col">
+          {% for month in range(1, 13) %}<col>{% endfor %}
+        </colgroup>
+        <thead>
+          <tr>
+            <th class="indices-year" scope="col">Год</th>
+            <th scope="col">Показатель</th>
+            {% for name in month_names %}
+            <th scope="col">{{ name }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for year in years %}
+          <tr id="year-{{ year }}">
+            <th class="indices-year" scope="row">{{ year }}</th>
+            <th class="indices-measure" scope="row">К предыдущему месяцу</th>
+            {% for month in range(1, 13) %}
+              {% set percent = indices.get((year, month)) %}
+              <td>
+                {% if current_user.is_admin %}
+                <form class="indices-cell-form" method="post" action="{{ url_for('analog.save_monthly_index') }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="year" value="{{ year }}">
+                  <input type="hidden" name="month" value="{{ month }}">
+                  <input type="text" name="percent" inputmode="decimal"
+                         aria-label="Индекс за {{ '%02d'|format(month) }}.{{ year }}, %"
+                         value="{{ percent|analog_index_percent }}" placeholder="—">
+                  <button type="submit" title="Сохранить {{ '%02d'|format(month) }}.{{ year }}"
+                          aria-label="Сохранить {{ '%02d'|format(month) }}.{{ year }}">
+                    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none">
+                      <path d="m3 8 3.2 3.2L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </form>
+                {% else %}
+                  {% if percent is not none %}{{ percent|analog_index_percent }}{% else %}<span class="indices-empty-value">—</span>{% endif %}
+                {% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr>
+            <td class="indices-empty" colspan="14">
+              <strong>Индексов пока нет</strong>
+              <span>{% if current_user.is_admin %}Добавьте год и укажите хотя бы один месяц выше.{% else %}Данные появятся после добавления администратором.{% endif %}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="indices-note">Пересчёт стоимости заканчивается последним загруженным месяцем. Месяц уровня цен объекта включается в расчёт. Пустое значение и 0 означают отсутствие индекса и не обнуляют стоимость.</p>
+  </section>
+</div>
+{% if current_user.is_admin %}
+<script>
+  (() => {
+    const form = document.querySelector('.indices-create-form');
+    const error = form.querySelector('.indices-form-error');
+    const months = [...form.querySelectorAll('[name^="percent_"]')];
+    form.addEventListener('submit', event => {
+      if (!months.some(input => input.value.trim())) {
+        event.preventDefault();
+        error.hidden = false;
+      }
+    });
+    months.forEach(input => input.addEventListener('input', () => {
+      error.hidden = true;
+    }));
+  })();
+</script>
+{% endif %}
+{% endblock %}

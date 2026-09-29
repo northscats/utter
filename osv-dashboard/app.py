@@ -58,7 +58,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                        AnalogSource, AnalogOrganizationRole, AnalogTep,
                        AnalogDocument, AnalogCostRow, AnalogSSRChapter,
                        AnalogSSRItem, AnalogSSRSignature, AnalogDiagnostic,
-                       AnalogNetworkAttribute, AnalogImport,
+                       AnalogNetworkAttribute, AnalogImport, AnalogMonthlyIndex,
                         LimitChange, LimitComparison,
                         LimitComparisonResolution, LimitDataset, LimitObject,
                         LimitRowSnapshot, LimitVersion, LimitVersionTombstone,
@@ -131,6 +131,7 @@ _DURABLE_MODELS = (
     AnalogOrganizationRole, AnalogTep, AnalogDocument, AnalogCostRow,
     AnalogSSRChapter, AnalogSSRItem, AnalogDiagnostic,
     AnalogSSRSignature, AnalogNetworkAttribute, AnalogImport,
+    AnalogMonthlyIndex,
     LimitDataset, LimitVersion, LimitObject, LimitRowSnapshot, LimitComparison,
     LimitVersionTombstone,
     LimitComparisonResolution, LimitChange,
@@ -7071,6 +7072,8 @@ def init_db(perform_durable=True):
     """
     with app.app_context():
         db.create_all()
+        from analog_monthly_indices import seed_monthly_indices
+        seed_monthly_indices()
         from max_limits import migrate_max_limits_schema
         migrate_max_limits_schema()
         _purge_retired_module_grants()
@@ -7735,6 +7738,8 @@ def _finish_durable_startup(restore=False):
                 app.logger.info('durable startup stage completed: restore')
             stage = 'reconcile'
             app.logger.info('durable startup stage started: reconcile')
+            from analog_monthly_indices import seed_monthly_indices
+            seed_monthly_indices()
             _import_bundled_mup_kgh_account55()
             _reconcile_limits_after_restore()
             cleanup_result = _retry_pending_osv_source_cleanup()

@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from functools import wraps
 
 from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
-                   request, url_for)
+                   request, send_file, url_for)
 from flask_login import current_user, login_required
 from markupsafe import escape
 from sqlalchemy import case, exists, func, or_
@@ -19,7 +19,10 @@ from sqlalchemy.exc import IntegrityError
 
 from analog_parser import (AnalogParseError, _suggested_object_type, parse_gge,
                            parse_pair)
+from analog_monthly_indices import indexed_cost, price_period
+from analog_cost_export import build_cost_workbook
 from database import (AnalogClimateReference, AnalogCostIndexReference,
+                       AnalogMonthlyIndex,
                        AnalogCostRow, AnalogDiagnostic, AnalogDocument,
                       AnalogImport, AnalogNetworkAttribute, AnalogOrganizationRole,
                       AnalogPassport, AnalogPassportVersion, AnalogSource,
@@ -114,6 +117,11 @@ def analog_cost_row(value, ordinal, part='name'):
     return name or '—'
 
 
+@analog_bp.app_template_filter('analog_index_percent')
+def analog_index_percent(value):
+    return format(Decimal(str(value)).normalize(), 'f') if value is not None else ''
+
+
 _ANALOG_REPORT_LABELS = {
     'transformed': 'Импортировано записей',
     'skipped': 'Пропущено записей',
@@ -188,6 +196,12 @@ def analog_request_error(error):
 
 OBJECT_TYPES = ('котельная', 'БМК', 'ЦТП', 'ТП', 'тепловая сеть', 'Сети')
 WORK_TYPES = ('строительство', 'капитальный ремонт', 'реконструкция')
+CLIMATE_ZONE_OPTIONS = (
+    'IА', 'IБ', 'IВ', 'IГ', 'IД',
+    'IIА', 'IIБ', 'IIВ', 'IIГ',
+    'IIIА', 'IIIБ', 'IIIВ',
+    'IVА', 'IVБ', 'IVВ', 'IVГ',
+)
 CAPACITY_UNITS = {
     'mw': Decimal('1000'),
     'gcal_h': Decimal('1163'),
@@ -486,7 +500,8 @@ def _backfill_analog_total_costs():
     return changed
 
 
-def _result_row(passport, query_capacity=None, tolerance_percent=Decimal('10')):
+def _result_row(passport, query_capacity=None, tolerance_percent=Decimal('10'),
+                monthly_indices=None, latest_index=None):
     capacity = _passport_capacity_kw(passport)
     current_version = next((version for version in passport.versions
                             if version.id == passport.current_version_id), None)
@@ -501,6 +516,8 @@ def _result_row(passport, query_capacity=None, tolerance_percent=Decimal('10')):
         capacity / Decimal('1000')) if capacity is not None else ''
     capacity_gcal_h = _format_ru_number(
         capacity / CAPACITY_UNITS['gcal_h']) if capacity is not None else ''
+    conversion = indexed_cost(current_version, monthly_indices or {}, latest_index)
+    source_period = price_period(current_version) if current_version else None
     return {'id': passport.id, 'title': passport.title, 'address': passport.address,
             'object_type': passport.object_type, 'work_type': passport.work_type,
             'climate_zone': passport.climate_zone,
@@ -514,7 +531,24 @@ def _result_row(passport, query_capacity=None, tolerance_percent=Decimal('10')):
             if current_version else '',
             'total_cost_display': _format_ru_number(
                 current_version.total_cost, minimum_decimals=1)
-            if current_version and current_version.total_cost is not None else ''}
+            if current_version and current_version.total_cost is not None else '',
+            'indexed_cost_display': _format_ru_number(
+                conversion[0], minimum_decimals=1) if conversion else '',
+            'indexed_cost_factor': str(conversion[1]) if conversion else None,
+            'price_period': (f'{source_period[1]:02d}.{source_period[0]}'
+                             if source_period else None)}
+
+
+_CLEARED_INDEX_SOURCE = 'Удалено администратором'
+
+
+def _monthly_index_context():
+    indices = {(row.year, row.month):
+               None if row.source == _CLEARED_INDEX_SOURCE else row.percent
+               for row in AnalogMonthlyIndex.query.all()}
+    latest = max((period for period, value in indices.items()
+                  if value is not None and value > 0), default=None)
+    return indices, latest
 
 
 def _capacity_kw_from_args(args):
@@ -745,6 +779,17 @@ def _tolerance_percent(args):
     return value
 
 
+def _climate_zone_key(value):
+    """Compare common Latin keyboard lookalikes without merging Б with В."""
+    return ''.join(str(value or '').upper().split()).replace('A', 'А').replace('B', 'В')
+
+
+def _climate_zone_column():
+    # Match the same canonical spelling in both SQLite tests and PostgreSQL.
+    zone = func.replace(func.upper(func.trim(AnalogPassport.climate_zone)), ' ', '')
+    return func.replace(func.replace(zone, 'A', 'А'), 'B', 'В')
+
+
 def _simple_query(args, capacity=None):
     """Build the one indexed query shared by HTML and JSON search."""
     query = AnalogPassport.query.filter_by(archived=False)
@@ -757,11 +802,10 @@ def _simple_query(args, capacity=None):
                     ('сети', 'тепловая сеть')))
             else:
                 query = query.filter(getattr(AnalogPassport, field) == value)
-    exact_climate = args.get('climate_zone', '').strip().upper()
+    exact_climate = _climate_zone_key(args.get('climate_zone', ''))
     climate_region = args.get('climate_region', '').strip().upper()
     if exact_climate:
-        query = query.filter(func.upper(AnalogPassport.climate_zone) ==
-                             exact_climate)
+        query = query.filter(_climate_zone_column() == exact_climate)
     elif climate_region in ('I', 'II', 'III', 'IV'):
         accepted = [climate_region] + [
             f'{climate_region}{suffix}' for suffix in ('А', 'Б', 'В', 'Г')]
@@ -797,6 +841,15 @@ def simple_search():
     per_page = min(max(request.args.get('per_page', 25, type=int), 1), 100)
     capacity = _capacity_kw_from_args(request.args)
     tolerance = _tolerance_percent(request.args)
+    # Pagination, unit and the default tolerance do not activate a search.
+    # Include the legacy URL filters as well as the fields in the form.
+    show_similarity = (
+        capacity is not None
+        or any(request.args.get(field, '').strip() for field in (
+            'object_type', 'work_type', 'climate_zone', 'q', 'title', 'address'))
+        or request.args.get('climate_region', '').strip().upper()
+        in ('I', 'II', 'III', 'IV')
+    )
     query, group, deviation = _simple_query(request.args, capacity)
     title = request.args.get('title', '').strip()
     address = request.args.get('address', '').strip()
@@ -811,7 +864,9 @@ def simple_search():
                 (func.lower(AnalogPassport.title).asc(), AnalogPassport.id.asc()))
     pagination = query.order_by(*ordering).paginate(
                                     page=page, per_page=per_page, error_out=False)
-    rows = [_result_row(p, capacity, tolerance) for p in pagination.items]
+    indices, latest = _monthly_index_context()
+    rows = [_result_row(p, capacity, tolerance, indices, latest)
+            for p in pagination.items]
     if request.args.get('format') == 'json':
         return jsonify(items=rows, page=page, per_page=per_page,
                        total=pagination.total, pages=pagination.pages,
@@ -825,12 +880,124 @@ def simple_search():
              if value and value.strip()),
             key=str.casefold)
         if view == 'search' else [])
+    climate_zones = []
+    if view == 'search':
+        zone_values = db.session.query(AnalogPassport.climate_zone).filter(
+            AnalogPassport.archived.is_(False)).distinct().all()
+        climate_zones = sorted(
+            set(CLIMATE_ZONE_OPTIONS) |
+            {_climate_zone_key(value) for (value,) in zone_values
+             if _climate_zone_key(value)}, key=str.casefold)
     return render_template('analog_search.html', rows=rows, good_rows=rows,
                             poor_rows=[], good_count=pagination.total,
                            pagination=pagination,
-                             search_object_types=search_object_types,
+                            show_similarity=show_similarity,
+                           latest_index=(f'{latest[1]:02d}.{latest[0]}'
+                                         if latest else None),
+                              search_object_types=search_object_types,
+                              climate_zones=climate_zones,
                             object_types=OBJECT_TYPES, work_types=WORK_TYPES,
                             current_view=view)
+
+
+@analog_bp.get('/monthly-indices')
+@login_required
+def monthly_index_register():
+    indices, latest = _monthly_index_context()
+    years = sorted({year for year, _ in indices})
+    default_year = min(2100, max(date.today().year, years[-1] + 1
+                                   if years else 2017))
+    return render_template(
+        'analog_monthly_indices.html', indices=indices, years=years,
+        default_year=default_year,
+        latest_index=(f'{latest[1]:02d}.{latest[0]}' if latest else None))
+
+
+@analog_bp.post('/monthly-indices')
+@_admin_only
+def save_monthly_index():
+    try:
+        year = int(request.form['year'])
+        month = int(request.form['month'])
+        raw = request.form['percent'].strip()
+    except (KeyError, TypeError, ValueError):
+        abort(400, description='Введите год и месяц')
+    if not (2017 <= year <= 2100 and 1 <= month <= 12):
+        abort(400, description='Укажите действительный месяц и год')
+    if raw:
+        try:
+            percent = Decimal(raw.replace(',', '.'))
+        except InvalidOperation:
+            abort(400, description='Укажите индекс числом')
+        if (not percent.is_finite() or not Decimal('0') <= percent <= Decimal('1000')
+                or percent.as_tuple().exponent < -3):
+            abort(400, description='Укажите индекс от 0 до 1000%')
+    else:
+        percent = Decimal('0')
+    row = AnalogMonthlyIndex.query.filter_by(year=year, month=month).first()
+    if row is None and raw:
+        row = AnalogMonthlyIndex(year=year, month=month)
+        db.session.add(row)
+    if row is not None:
+        row.percent = percent
+        source = (request.form.get('source') or 'Введено администратором').strip()[:255]
+        row.source = (_CLEARED_INDEX_SOURCE if not raw else
+                      'Введено администратором' if source == _CLEARED_INDEX_SOURCE else source)
+    db.session.add(AuditLog(user_id=current_user.id,
+                            action=('analog_monthly_index_saved' if raw else
+                                    'analog_monthly_index_cleared'),
+                            details=_json({'year': year, 'month': month,
+                                           'percent': str(percent) if raw else None}),
+                            ip=request.remote_addr))
+    db.session.commit()
+    flash(f'Индекс за {month:02d}.{year} '
+          f'{"сохранён" if raw else "очищен"}', 'success')
+    return redirect(url_for('analog.monthly_index_register'))
+
+
+@analog_bp.post('/monthly-indices/year')
+@_admin_only
+def save_monthly_index_year():
+    try:
+        year = int(request.form['year'])
+    except (KeyError, TypeError, ValueError):
+        abort(400, description='Укажите год числом')
+    if not 2017 <= year <= 2100:
+        abort(400, description='Год должен быть от 2017 до 2100')
+
+    values = {}
+    for month in range(1, 13):
+        raw = request.form.get(f'percent_{month}', '').strip()
+        if not raw:
+            continue
+        try:
+            percent = Decimal(raw.replace(',', '.'))
+        except (InvalidOperation, ValueError):
+            abort(400, description=f'Недействительный индекс за {month:02d}.{year}')
+        if (not percent.is_finite() or not Decimal('0') <= percent <= Decimal('1000')
+                or percent.as_tuple().exponent < -3):
+            abort(400, description=f'Недействительный индекс за {month:02d}.{year}')
+        values[month] = percent
+    if not values:
+        flash('Укажите индекс хотя бы за один месяц', 'error')
+        return redirect(url_for('analog.monthly_index_register',
+                                _anchor='indices-create-title'))
+    if AnalogMonthlyIndex.query.filter_by(year=year).first():
+        abort(409, description='Год уже есть в реестре — измените нужные месяцы в строке года')
+
+    for month, percent in values.items():
+        db.session.add(AnalogMonthlyIndex(
+            year=year, month=month, percent=percent,
+            source='Введено администратором'))
+    db.session.add(AuditLog(
+        user_id=current_user.id, action='analog_monthly_index_year_saved',
+        details=_json({'year': year, 'months': {
+            str(month): str(percent) for month, percent in values.items()}}),
+        ip=request.remote_addr))
+    db.session.commit()
+    flash(f'Индексы за {year} год сохранены ({len(values)} мес.)', 'success')
+    return redirect(url_for('analog.monthly_index_register',
+                            _anchor=f'year-{year}'))
 
 
 @analog_bp.get('/api/search')
@@ -851,7 +1018,9 @@ def search_api():
     else:
         query = query.order_by(AnalogPassport.id.asc())
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    rows = [_result_row(p, capacity, tolerance) for p in pagination.items]
+    indices, latest = _monthly_index_context()
+    rows = [_result_row(p, capacity, tolerance, indices, latest)
+            for p in pagination.items]
     return jsonify(items=rows, page=page, per_page=per_page,
                    total=pagination.total,
                    good=sum(1 for row in rows if row['good']))
@@ -1107,6 +1276,31 @@ def import_confirm(import_id):
     except Exception:
         db.session.rollback()
         raise
+
+
+@analog_bp.get('/passports/<int:passport_id>/estimate.xlsx')
+@login_required
+def export_cost_estimate(passport_id):
+    passport = db.session.get(AnalogPassport, passport_id)
+    if passport is None or passport.archived:
+        abort(404)
+    version = (db.session.get(AnalogPassportVersion, passport.current_version_id)
+               if passport.current_version_id else None)
+    if version is not None and version.passport_id != passport.id:
+        abort(404)
+    chapters = (AnalogSSRChapter.query.filter_by(version_id=version.id).all()
+                if version else [])
+    items = (AnalogSSRItem.query.filter_by(version_id=version.id).all()
+             if version else [])
+    power = _passport_capacity_kw(passport)
+    workbook = build_cost_workbook(
+        passport, version,
+        power / CAPACITY_UNITS['gcal_h'] if power is not None else None,
+        chapters, items)
+    return send_file(
+        workbook, as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        download_name=f'analog-estimate-{passport.id}.xlsx')
 
 
 @analog_bp.get('/passports/<int:passport_id>')

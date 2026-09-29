@@ -31,7 +31,7 @@ COUNT_TABLES = (
     "historical_raw_values", "historical_mappings",
     "debtor_analytic_mappings",
     "analog_passports", "analog_passport_versions", "analog_sources",
-    "analog_imports",
+    "analog_imports", "analog_monthly_indices",
     "limit_datasets", "limit_versions", "limit_objects", "limit_row_snapshots",
     "limit_version_tombstones",
     "limit_comparisons", "limit_changes",

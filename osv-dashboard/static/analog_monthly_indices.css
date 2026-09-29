@@ -1,0 +1,302 @@
+/* Monthly indices · quiet technical ledger, companion to analog search */
+body:has(.indices-page) {
+  --indices-bg: #f5f7f5;
+  --indices-surface: #fcfdfb;
+  --indices-wash: #edf3f1;
+  --indices-ink: #273c42;
+  --indices-secondary: #52676b;
+  --indices-muted: #657a7d;
+  --indices-line: #d8e3df;
+  --indices-accent: #326e71;
+  --indices-accent-hover: #285d60;
+  --paper: var(--indices-bg);
+  --panel: var(--indices-surface);
+  --ink: var(--indices-ink);
+  --mut: var(--indices-muted);
+  --line: var(--indices-line);
+  --blue: var(--indices-accent);
+  --blue-hover: var(--indices-accent-hover);
+  background: var(--indices-bg);
+  color: var(--indices-ink);
+  font-family: "Segoe UI", "Trebuchet MS", system-ui, sans-serif;
+  font-size: 13px;
+}
+body:has(.indices-page) .hd {
+  background: var(--indices-surface);
+  border-color: var(--indices-line);
+  box-shadow: 0 1px 0 rgba(49, 91, 89, .03);
+}
+body:has(.indices-page) .hd .logo { background: #daeae7; color: var(--indices-accent); }
+body:has(.indices-page) .hd .brand { color: var(--indices-ink); }
+body:has(.indices-page) .hd .header-actions a,
+body:has(.indices-page) .hd .out { color: var(--indices-secondary); }
+body:has(.indices-page) .hd a:hover,
+body:has(.indices-page) .hd button:hover { color: var(--indices-accent); }
+body:has(.indices-page) main { max-width: 1600px; padding: 28px clamp(16px, 3.2vw, 48px) 64px; }
+body:has(.indices-page) .header-actions a:focus-visible,
+.indices-page :is(a, button, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--indices-accent);
+  outline-offset: 3px;
+}
+.indices-page { min-width: 0; }
+.indices-page .alert { border-radius: 8px; padding: 12px 15px; }
+.indices-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+.indices-kicker {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--indices-accent);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.indices-intro h1 {
+  margin: 0;
+  font-size: clamp(24px, 2.1vw, 31px);
+  line-height: 1.17;
+  font-weight: 680;
+  letter-spacing: -.035em;
+}
+.indices-intro p {
+  margin: 8px 0 0;
+  color: var(--indices-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.indices-latest {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 15px;
+  border: 1px solid #d5e5df;
+  border-radius: 8px;
+  background: #edf5f1;
+}
+.indices-latest::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #8fb9a7;
+}
+.indices-latest span { color: var(--indices-secondary); font-size: 11px; }
+.indices-latest strong { font-size: 13px; font-weight: 720; font-variant-numeric: tabular-nums; }
+.indices-create {
+  margin: 0 0 23px;
+  border: 1px solid var(--indices-line);
+  border-radius: 9px;
+  background: var(--indices-surface);
+  box-shadow: 0 3px 18px rgba(43, 81, 74, .035);
+  overflow: hidden;
+}
+.indices-create-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 14px 19px;
+  border-bottom: 1px solid var(--indices-line);
+  background: #f0f5f2;
+}
+.indices-create-heading h2 { margin: 0; font-size: 15px; font-weight: 680; letter-spacing: -.01em; }
+.indices-create-heading p { margin: 0; color: var(--indices-secondary); font-size: 11px; }
+.indices-create-form { padding: 19px; }
+.indices-create-top { display: flex; align-items: end; gap: 16px; margin-bottom: 17px; }
+.indices-create-top label,
+.indices-month-field { display: flex; flex-direction: column; gap: 6px; color: var(--indices-secondary); font-size: 11px; font-weight: 660; }
+.indices-create-top input { width: 116px; }
+.indices-create-top p { margin: 0 0 7px; color: var(--indices-muted); font-size: 11px; line-height: 1.4; }
+.indices-page input {
+  height: 37px;
+  min-width: 0;
+  border: 1px solid #cbd9d4;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--indices-surface);
+  color: var(--indices-ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 1px rgba(48, 86, 78, .025);
+}
+.indices-page input::placeholder { color: #819390; opacity: 1; }
+.indices-page input:focus {
+  border-color: var(--indices-accent);
+  outline: 2px solid rgba(50, 110, 113, .17);
+  outline-offset: 0;
+}
+.indices-month-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+.indices-month-field input { width: 100%; }
+.indices-create-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+.indices-create-footer span { color: var(--indices-muted); font-size: 11px; }
+.indices-form-error { margin: 12px 0 0; padding: 10px 13px; border: 1px solid #e8c9bd; border-radius: 6px; background: #fff4ef; color: #884839; font-size: 12px; }
+.indices-form-error[hidden] { display: none; }
+.indices-submit {
+  min-height: 37px;
+  padding: 0 15px;
+  border: 1px solid #8bb9ad;
+  border-radius: 6px;
+  background: #e3f1eb;
+  color: #285d60;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color .16s, border-color .16s, transform .16s;
+}
+.indices-submit:hover { background: #d4eae1; border-color: #6eaa9a; }
+.indices-submit:active { transform: translateY(1px); }
+.indices-ledger {
+  border: 1px solid var(--indices-line);
+  border-radius: 9px;
+  background: var(--indices-surface);
+  box-shadow: 0 3px 18px rgba(43, 81, 74, .035);
+  overflow: hidden;
+}
+.indices-ledger-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 19px;
+  border-bottom: 1px solid var(--indices-line);
+}
+.indices-ledger-heading h2 { margin: 0; font-size: 15px; font-weight: 680; letter-spacing: -.01em; }
+.indices-ledger-heading p { margin: 3px 0 0; color: var(--indices-muted); font-size: 11px; }
+.indices-scroll-hint { color: var(--indices-muted); font-size: 11px; white-space: nowrap; }
+.indices-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-color: #b8cdc5 #edf3f0;
+  scrollbar-width: thin;
+}
+.indices-table {
+  width: 100%;
+  min-width: 1240px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  text-align: center;
+}
+.indices-table col.indices-year-col { width: 82px; }
+.indices-table col.indices-measure-col { width: 178px; }
+.indices-table th {
+  height: 47px;
+  padding: 10px 5px;
+  border-bottom: 1px solid #ccdad4;
+  background: #eef4f1;
+  color: #526b6b;
+  font-size: 10.5px;
+  font-weight: 720;
+  letter-spacing: .01em;
+  text-align: center;
+  vertical-align: middle;
+}
+.indices-table td,
+.indices-table tbody th {
+  height: 58px;
+  padding: 8px 5px;
+  border-bottom: 1px solid #e5ece8;
+  background: var(--indices-surface);
+  color: var(--indices-ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+.indices-table tbody tr:nth-child(even) :is(td, th) { background: #f8faf8; }
+.indices-table tbody tr:hover :is(td, th),
+.indices-table tbody tr:focus-within :is(td, th) { background: #eaf3ef; }
+.indices-table tbody tr:last-child :is(td, th) { border-bottom: 0; }
+.indices-table .indices-year {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  border-right: 1px solid var(--indices-line);
+  font-size: 13px;
+  font-weight: 750;
+}
+.indices-table thead .indices-year { z-index: 2; background: #eef4f1; }
+.indices-table .indices-measure { text-align: left; padding-left: 15px; color: var(--indices-secondary); font-size: 11px; font-weight: 600; }
+.indices-cell-form { display: flex; justify-content: center; align-items: center; gap: 3px; margin: 0; }
+.indices-cell-form input {
+  width: 53px;
+  height: 30px;
+  padding: 0 3px;
+  text-align: center;
+  font-size: 12px;
+}
+.indices-cell-form button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--indices-accent);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color .16s, border-color .16s;
+}
+.indices-cell-form button:hover,
+.indices-cell-form button:focus-visible { background: #dceee6; border-color: #b8d8ca; }
+.indices-empty-value { color: #899b98; }
+.indices-empty {
+  padding: 46px 22px !important;
+  background: var(--indices-surface) !important;
+  text-align: center;
+}
+.indices-empty strong { display: block; font-size: 14px; margin-bottom: 4px; }
+.indices-empty span { display: block; color: var(--indices-muted); font-size: 12px; }
+.indices-note {
+  margin: 0;
+  padding: 12px 19px;
+  border-top: 1px solid var(--indices-line);
+  color: var(--indices-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+@media (max-width: 900px) {
+  .indices-month-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 768px) {
+  body:has(.indices-page) .hd { height: auto; min-height: 48px; flex-wrap: wrap; padding-top: 9px; padding-bottom: 9px; }
+  body:has(.indices-page) .hd .brand { white-space: nowrap; }
+  body:has(.indices-page) main { padding: 19px 14px 48px; }
+  .indices-intro { align-items: flex-start; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+  .indices-latest { width: 100%; }
+  .indices-table { min-width: 1240px; }
+  .indices-table .indices-year { box-shadow: 7px 0 13px -12px #536c65; }
+}
+@media (max-width: 520px) {
+  .indices-month-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .indices-create-form { padding: 15px; }
+  .indices-create-footer { align-items: stretch; flex-direction: column; }
+  .indices-submit { width: 100%; }
+  .indices-ledger-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
+}

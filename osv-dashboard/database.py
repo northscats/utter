@@ -1443,6 +1443,21 @@ class AnalogCostIndexReference(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class AnalogMonthlyIndex(db.Model):
+    """Monthly index to the previous month, expressed as a percentage."""
+    __tablename__ = 'analog_monthly_indices'
+    __table_args__ = (
+        db.UniqueConstraint('year', 'month', name='uq_analog_monthly_index_period'),
+    )
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    percent = db.Column(db.Numeric(8, 3), nullable=False)
+    source = db.Column(db.String(255), nullable=False, default='')
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           onupdate=utcnow, nullable=False)
+
+
 class AnalogSource(db.Model):
     __tablename__ = 'analog_sources'
     __table_args__ = (

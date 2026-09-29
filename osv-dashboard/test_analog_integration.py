@@ -9,12 +9,14 @@ import hashlib
 import re
 import shutil
 import zipfile
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 from xml.etree import ElementTree as ET
+from openpyxl import load_workbook
 
 _tmp = tempfile.mkdtemp(prefix='analog_route_test_')
 os.environ['DATABASE_URL'] = f'sqlite:///{_tmp}/analog.db'
@@ -25,11 +27,15 @@ os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 
 from app import app, init_db  # noqa: E402
 from database import (AnalogClimateReference, AnalogCostIndexReference,
+                       AnalogMonthlyIndex,
                        AnalogCostRow, AnalogDocument, AnalogImport,
+                       AnalogSSRChapter, AnalogSSRItem,
                        AnalogNetworkAttribute,
                       AnalogPassport, AnalogPassportVersion, User, db)  # noqa: E402
 from analog_migration import import_json_v4  # noqa: E402
 from analog_parser import _tei_rows  # noqa: E402
+from analog_monthly_indices import indexed_cost, price_period, seed_monthly_indices  # noqa: E402
+from analog_cost_export import build_cost_workbook, estimate_values  # noqa: E402
 from analog_routes import (_backfill_analog_total_costs,
                            _backfill_inferred_object_types, _format_ru_number,
                            _result_row, _table_321_total)  # noqa: E402
@@ -40,6 +46,363 @@ ROOT = pathlib.Path(__file__).parent.parent / 'attached_assets'
 
 
 class AnalogRoutesTest(unittest.TestCase):
+    def test_similarity_column_only_after_search_filter(self):
+        path = '/analog-search/simple'
+        for params in ({}, {'view': 'search', 'page': '2'},
+                       {'view': 'search', 'capacity_unit': 'mw',
+                        'tolerance_percent': '20'}):
+            page = self.client.get(path, query_string=params)
+            self.assertEqual(page.status_code, 200)
+            html = page.get_data(as_text=True)
+            self.assertNotIn('<th>Аналогичность</th>', html)
+            self.assertNotIn('class="similarity"', html)
+        for params in ({'q': 'несуществующий объект'},
+                       {'object_type': 'котельная'},
+                       {'work_type': 'строительство'},
+                       {'climate_zone': 'IIВ'},
+                       {'climate_region': 'II'},
+                       {'capacity_value': '1', 'capacity_unit': 'mw'},
+                       {'title': 'несуществующий объект'},
+                       {'address': 'несуществующий адрес'},
+                       {'q': 'несуществующий объект', 'page': '2'}):
+            page = self.client.get(path, query_string=params)
+            self.assertEqual(page.status_code, 200)
+            self.assertIn('<th>Аналогичность</th>',
+                          page.get_data(as_text=True))
+        catalog = self.client.get(path, query_string={
+            'view': 'base', 'q': 'котельная'}).get_data(as_text=True)
+        self.assertNotIn('<th>Аналогичность</th>', catalog)
+
+    def test_cost_workbook_per_object_and_missing_breakdown(self):
+        chapter = SimpleNamespace(number=8, building=Decimal('27381.19163'),
+                                  mounting=Decimal('4161.972214'),
+                                  equipment=Decimal('10135.59086'))
+        row = lambda ch, title, total: SimpleNamespace(
+            chapter_number=ch, name=title, total=Decimal(total))
+        items = [
+            row(9, 'Пусконаладочные работы', '988.88576'),
+            row(12, 'Разработка проектной документации', '3751.07866'),
+            row(12, 'Инженерные изыскания', '1347.15036'),
+            row(12, 'Экспертиза проекта', '401.03'),
+            row(12, 'Авторский надзор', '25'),
+        ]
+        values = estimate_values([chapter], items)
+        self.assertEqual(values[11][0], Decimal('32532049.604000'))
+        self.assertEqual(values[15][0], Decimal('10135590.86000'))
+        self.assertEqual(values[16][0], Decimal('5499259.02000'))
+        self.assertEqual(values[17][0], Decimal('3751078.66000'))
+        self.assertEqual(values[18][0], Decimal('1347150.36000'))
+        self.assertEqual(values[19][0], Decimal('401030.00'))
+        self.assertIsNone(estimate_values([], [])[11][0])
+        self.assertIsNone(estimate_values([chapter], [])[11][0])
+        self.assertIsNone(estimate_values(
+            [chapter], [row(8, 'Утилизация отходов', '1')])[12][0])
+        self.assertIsNone(estimate_values([], [
+            row(12, 'Проектно-изыскательские работы', '100'),
+            row(12, 'Разработка проектной документации', '70')])[16][0])
+        empty_book = load_workbook(build_cost_workbook(
+            SimpleNamespace(title='Другой аналог'), None, None, [], []),
+            data_only=True)
+        self.assertEqual(empty_book.worksheets[0]['D9'].value, 'Другой аналог')
+        self.assertIsNone(empty_book.worksheets[0]['D11'].value)
+        self.assertIsNone(empty_book.worksheets[0]['D19'].value)
+        rounded_book = load_workbook(build_cost_workbook(
+            SimpleNamespace(title='БМК'), None,
+            Decimal('1.80567497850387'), [], []), data_only=True)
+        self.assertEqual(rounded_book.worksheets[0]['D10'].value, 1.81)
+        self.assertEqual(rounded_book.worksheets[0]['D10'].number_format, '0.00')
+
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Объект для выгрузки Excel', capacity_kw=Decimal('1163'),
+                created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1,
+                conclusion_number='export-test-2026',
+                approval_date=date(2026, 5, 19),
+                examination_result='positive', source_hash='export-source-test',
+                ssr_hash='export-ssr-test', imported_by=self.admin_id)
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.add(AnalogSSRChapter(
+                version_id=version.id, number=8, building=chapter.building,
+                mounting=chapter.mounting, equipment=chapter.equipment))
+            for item in items:
+                db.session.add(AnalogSSRItem(
+                    version_id=version.id, chapter_number=item.chapter_number,
+                    name=item.name, total=item.total))
+            db.session.commit()
+            passport_id = passport.id
+        try:
+            for view in ('search', 'base'):
+                listing = self.client.get(
+                    '/analog-search/simple', query_string={
+                        'view': view, 'q': 'Объект для выгрузки Excel'})
+                self.assertEqual(listing.status_code, 200)
+                self.assertIn(
+                    f'/analog-search/passports/{passport_id}/estimate.xlsx',
+                    listing.get_data(as_text=True))
+                self.assertIn('M12 10v7m-3-3 3 3 3-3',
+                              listing.get_data(as_text=True))
+            response = self.client.get(
+                f'/analog-search/passports/{passport_id}/estimate.xlsx')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.headers['Content-Type'],
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            self.assertIn(f'analog-estimate-{passport_id}.xlsx',
+                          response.headers['Content-Disposition'])
+            workbook = load_workbook(BytesIO(response.data), data_only=True)
+            self.assertEqual(workbook.sheetnames[:3],
+                             ['НМЦК СМР', 'индекс факт.инфл.',
+                              'расчет индекса прогнозной инф'])
+            sheet = workbook.worksheets[0]
+            self.assertEqual(sheet['D9'].value, 'Объект для выгрузки Excel')
+            self.assertEqual(sheet['D10'].value, 1)
+            self.assertEqual(sheet['D10'].number_format, '0.00')
+            self.assertEqual(sheet['D11'].value, 32532049.604)
+            self.assertEqual(sheet['D16'].value, 5499259.02)
+            self.assertEqual(sheet['D17'].value, 3751078.66)
+            self.assertEqual(sheet['E18'].value, 1347150.36)
+            self.assertEqual(sheet['D19'].value, 401030)
+            self.assertIn('не подтверждено', sheet['E15'].comment.text)
+            self.assertIn('главе 9',
+                          workbook['Источники сумм']['D2'].value)
+            self.assertIn('export-test-2026', sheet['A6'].value)
+            with app.app_context():
+                db.session.get(AnalogPassport, passport_id).archived = True
+                db.session.commit()
+            self.assertEqual(self.client.get(
+                f'/analog-search/passports/{passport_id}/estimate.xlsx').status_code,
+                404)
+        finally:
+            with app.app_context():
+                db.session.delete(db.session.get(AnalogPassport, passport_id))
+                db.session.commit()
+
+    def test_monthly_index_register_and_conversion(self):
+        with app.app_context():
+            seed_monthly_indices()
+            self.assertEqual(
+                AnalogMonthlyIndex.query.filter_by(year=2026, month=7).one().percent,
+                Decimal('101.670'))
+            self.assertIsNone(
+                AnalogMonthlyIndex.query.filter_by(year=2026, month=8).first())
+            months = {(row.year, row.month): row.percent
+                      for row in AnalogMonthlyIndex.query.all()}
+            self.assertEqual(max(months), (2026, 7))
+            version = SimpleNamespace(
+                total_cost=Decimal('1000'),
+                price_year=2026,
+                payload_json=json.dumps({'ssr': {
+                    'price_year': 2026, 'price_month': 5,
+                    'approved_date': '2026-06-25'}}))
+            cost, factor, start = indexed_cost(version, months, (2026, 7))
+            expected = (Decimal('100.13') / 100 *
+                        Decimal('100.88') / 100 *
+                        Decimal('101.67') / 100)
+            self.assertEqual(start, (2026, 5))
+            self.assertEqual(factor, expected)
+            self.assertEqual(cost, Decimal('1000') * expected)
+            self.assertIsNone(indexed_cost(version, {
+                (2026, 5): Decimal('100.13'),
+                (2026, 7): Decimal('101.67')}, (2026, 7)))
+            self.assertIsNone(indexed_cost(version, months, (2026, 4)))
+            quarter_only = SimpleNamespace(
+                price_year=2025, total_cost=100,
+                payload_json=json.dumps({'ssr': {
+                    'price_year': 2025, 'price_quarter': 2,
+                    'approved_date': '2025-05-01'}}))
+            self.assertEqual(price_period(quarter_only), (2025, 5))
+            self.assertIsNone(price_period(SimpleNamespace(
+                price_year=2025, payload_json=json.dumps({'ssr': {
+                    'price_year': 2025, 'price_quarter': 2,
+                    'approved_date': '2026-05-01'}}))))
+
+        response = self.client.get('/analog-search/monthly-indices')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Последний загруженный индекс:', html)
+        self.assertIn('07.2026', html)
+        self.assertIn('101.67', html)
+        with app.app_context():
+            passport = AnalogPassport(
+                title='Помесячный тестовый объект', object_type='котельная',
+                work_type='строительство', created_by=self.admin_id)
+            db.session.add(passport)
+            db.session.flush()
+            version = AnalogPassportVersion(
+                passport_id=passport.id, version_no=1, conclusion_number='monthly-test',
+                examination_result='positive', source_hash='monthly-source',
+                ssr_hash='monthly-ssr', total_cost=1000,
+                price_year=2026, price_quarter=2, imported_by=self.admin_id,
+                payload_json=json.dumps({'ssr': {
+                    'price_year': 2026, 'price_quarter': 2,
+                    'approved_date': '2026-05-01'}}))
+            db.session.add(version)
+            db.session.flush()
+            passport.current_version_id = version.id
+            db.session.commit()
+            passport_id, version_id = passport.id, version.id
+        listing = self.client.get('/analog-search/simple')
+        self.assertEqual(listing.status_code, 200)
+        page = listing.get_data(as_text=True)
+        self.assertIn('Индексы', page)
+        self.assertIn('Реестр индексов ↗', page)
+        self.assertIn('Пересчет на актальную стоимость', page)
+        self.assertIn('Помесячный тестовый объект', page)
+        self.assertIn('1 000,0', page)
+        self.assertIn('Уровень цен: 05.2026; коэффициент:', page)
+        catalog = self.client.get('/analog-search/simple?view=base')
+        self.assertIn('Пересчет на актальную стоимость',
+                      catalog.get_data(as_text=True))
+        with app.app_context():
+            db.session.delete(db.session.get(AnalogPassportVersion, version_id))
+            db.session.delete(db.session.get(AnalogPassport, passport_id))
+            db.session.commit()
+        invalid = self.client.post('/analog-search/monthly-indices', data={
+            'year': '2026', 'month': '8', 'percent': 'nan'})
+        self.assertEqual(invalid.status_code, 400)
+        saved = self.client.post('/analog-search/monthly-indices', data={
+            'year': '2026', 'month': '8', 'percent': '100,88'})
+        self.assertEqual(saved.status_code, 302)
+        try:
+            with app.app_context():
+                seed_monthly_indices()
+                row = AnalogMonthlyIndex.query.filter_by(year=2026, month=8).one()
+                self.assertEqual(row.percent, Decimal('100.880'))
+            self.assertIn('08.2026', self.client.get(
+                '/analog-search/monthly-indices').get_data(as_text=True))
+        finally:
+            with app.app_context():
+                AnalogMonthlyIndex.query.filter_by(year=2026, month=8).delete()
+                db.session.commit()
+
+    def test_add_monthly_indices_year_atomically_and_restrict_editing(self):
+        path = '/analog-search/monthly-indices'
+        listing = self.client.get(path)
+        self.assertEqual(listing.status_code, 200)
+        html = listing.get_data(as_text=True)
+        self.assertIn('action="/analog-search/monthly-indices/year"', html)
+        self.assertIn('name="percent_1"', html)
+        self.assertNotIn('id="year-2098"', html)
+        self.assertIn('name="year" min="2017" max="2100"', html)
+
+        year_path = path + '/year'
+        empty = self.client.post(year_path, data={'year': '2098'},
+                                 follow_redirects=True)
+        self.assertEqual(empty.status_code, 200)
+        self.assertIn('Укажите индекс хотя бы за один месяц',
+                      empty.get_data(as_text=True))
+        self.assertIn('class="alert error"', empty.get_data(as_text=True))
+        for data in ({'year': '2101', 'percent_1': '101'},
+                     {'year': '2098', 'percent_1': '101',
+                      'percent_2': 'не число'},
+                     {'year': '2098', 'percent_1': '101',
+                      'percent_2': 'NaN'},
+                     {'year': '2098', 'percent_1': '101.1234'}):
+            self.assertEqual(self.client.post(year_path, data=data).status_code,
+                             400)
+        with app.app_context():
+            self.assertEqual(AnalogMonthlyIndex.query.filter_by(year=2098).count(), 0)
+
+        try:
+            saved = self.client.post(year_path, data={
+                'year': '2098', 'percent_1': '101,125',
+                'percent_7': '99.5', 'percent_12': '0'})
+            self.assertEqual(saved.status_code, 302)
+            self.assertTrue(saved.headers['Location'].endswith('#year-2098'))
+            with app.app_context():
+                values = {(row.month, row.percent) for row in
+                          AnalogMonthlyIndex.query.filter_by(year=2098).all()}
+                self.assertEqual(values, {
+                    (1, Decimal('101.125')), (7, Decimal('99.500')),
+                    (12, Decimal('0.000'))})
+                _, latest = analog_routes._monthly_index_context()
+                self.assertEqual(latest, (2098, 7))
+            updated = self.client.get(path).get_data(as_text=True)
+            self.assertIn('id="year-2098"', updated)
+            self.assertIn('101.125', updated)
+            self.assertEqual(self.client.post(year_path, data={
+                'year': '2098', 'percent_1': '77'}).status_code, 409)
+            with app.app_context():
+                self.assertEqual(
+                    AnalogMonthlyIndex.query.filter_by(
+                        year=2098, month=1).one().percent, Decimal('101.125'))
+
+            with app.app_context():
+                viewer = User(username='indices-viewer', password_hash='unused',
+                              role='viewer')
+                db.session.add(viewer)
+                db.session.commit()
+                viewer_id = viewer.id
+                viewer_version = int(viewer.password_version or 1)
+            try:
+                self.login_values(viewer_id, viewer_version)
+                self.assertNotIn('action="/analog-search/monthly-indices/year"',
+                                 self.client.get(path).get_data(as_text=True))
+                self.assertEqual(self.client.post(year_path, data={
+                    'year': '2099', 'percent_1': '100'}).status_code, 403)
+            finally:
+                self.login_values(self.admin_id, self.admin_version)
+                with app.app_context():
+                    db.session.delete(db.session.get(User, viewer_id))
+                    db.session.commit()
+        finally:
+            with app.app_context():
+                AnalogMonthlyIndex.query.filter_by(year=2098).delete()
+                db.session.commit()
+
+    def test_clear_index_and_zero_do_not_reappear_or_zero_out_cost(self):
+        path = '/analog-search/monthly-indices'
+        with app.app_context():
+            seed_monthly_indices()
+            row = AnalogMonthlyIndex.query.filter_by(year=2026, month=7).one()
+            original_percent, original_source = row.percent, row.source
+        try:
+            cleared = self.client.post(path, data={
+                'year': '2026', 'month': '7', 'percent': ''},
+                follow_redirects=True)
+            self.assertEqual(cleared.status_code, 200)
+            self.assertIn('Индекс за 07.2026 очищен',
+                          cleared.get_data(as_text=True))
+            with app.app_context():
+                seed_monthly_indices()
+                indices, latest = analog_routes._monthly_index_context()
+                self.assertIsNone(indices[(2026, 7)])
+                self.assertEqual(latest, (2026, 6))
+                self.assertEqual(
+                    AnalogMonthlyIndex.query.filter_by(
+                        year=2026, month=7).one().percent, Decimal('0.000'))
+            self.assertIn('value="" placeholder="—"', self.client.get(
+                path).get_data(as_text=True))
+
+            zero = self.client.post(path, data={
+                'year': '2026', 'month': '7', 'percent': '0'},
+                follow_redirects=True)
+            self.assertEqual(zero.status_code, 200)
+            html = zero.get_data(as_text=True)
+            self.assertIn('Индекс за 07.2026 сохранён', html)
+            self.assertIn('value="0" placeholder="—"', html)
+            with app.app_context():
+                indices, latest = analog_routes._monthly_index_context()
+                self.assertEqual(indices[(2026, 7)], Decimal('0.000'))
+                self.assertEqual(latest, (2026, 6))
+                version = SimpleNamespace(
+                    total_cost=1000, price_year=2026,
+                    payload_json=json.dumps({'ssr': {
+                        'price_year': 2026, 'price_month': 7}}))
+                self.assertIsNone(indexed_cost(version, indices, (2026, 7)))
+        finally:
+            with app.app_context():
+                row = AnalogMonthlyIndex.query.filter_by(
+                    year=2026, month=7).one()
+                row.percent, row.source = original_percent, original_source
+                db.session.commit()
+
     @classmethod
     def setUpClass(cls):
         os.environ['INITIAL_ADMIN_PASSWORD'] = 'analog-admin-passphrase-2026'
@@ -557,9 +920,11 @@ class AnalogRoutesTest(unittest.TestCase):
             '/analog-search/simple',
             query_string={'view': 'search', 'q': 'Формат каталога'})
         search_html = search.get_data(as_text=True)
-        for heading in ('Наименование', 'Адрес', 'Тип', 'Вид работ',
-                        'Стоимость', 'Аналогичность'):
+        for heading in ('Наименование', 'Тип', 'Вид работ', 'Аналогичность'):
             self.assertIn(f'<th>{heading}</th>', search_html)
+        self.assertIn('<th>Стоимость, тыс. руб.</th>', search_html)
+        self.assertIn('<th>Пересчет на актальную стоимость</th>',
+                      search_html)
         self.assertIn('МВт/<strong>Гкал/ч</strong>', search_html)
         self.assertIn('<td>котельная</td>', search_html)
         self.assertIn('31/<strong>26,66</strong>', search_html)
@@ -870,6 +1235,85 @@ class AnalogRoutesTest(unittest.TestCase):
                           'climate_zone': 'IIВ'}).get_json()
         self.assertEqual(exact['total'], 1)
         self.assertEqual(exact['items'][0]['climate_zone'], 'IIВ')
+
+    def test_simple_climate_input_suggestions_and_combined_filters(self):
+        prefix = 'climate-ui-fixture-'
+        with app.app_context():
+            fixtures = [
+                (prefix + 'match-1', 'IIВ', 'котельная', 'строительство', 1000, False),
+                (prefix + 'match-2', 'IIВ', 'котельная', 'строительство', 1000, False),
+                (prefix + 'latin-duplicate', 'IIB', 'ЦТП', 'реконструкция', 1000, False),
+                (prefix + 'other-subzone', 'IIБ', 'котельная', 'строительство', 1000, False),
+                (prefix + 'wrong-power', 'IIВ', 'котельная', 'строительство', 1500, False),
+                (prefix + 'wrong-type', 'IIВ', 'ЦТП', 'строительство', 1000, False),
+                (prefix + 'wrong-work', 'IIВ', 'котельная', 'реконструкция', 1000, False),
+                (prefix + 'archived', 'архивный-район', 'котельная', 'строительство', 1000, True),
+            ]
+            db.session.add_all([
+                AnalogPassport(title=title, climate_zone=zone, object_type=kind,
+                               work_type=work, capacity_kw=power, archived=archived,
+                               created_by=self.admin_id)
+                for title, zone, kind, work, power, archived in fixtures])
+            db.session.commit()
+
+        path = '/analog-search/simple'
+        html = self.client.get(path).get_data(as_text=True)
+        self.assertRegex(
+            html, r'<input type="text" name="climate_zone" list="climate-zone-options"'
+                  r'\s+aria-label="Климатический район" placeholder="Климатический район"')
+        datalist = re.search(
+            r'<datalist id="climate-zone-options">(.*?)</datalist>', html, re.DOTALL)
+        self.assertIsNotNone(datalist)
+        options = re.findall(r'<option value="([^"]*)"', datalist.group(1))
+        self.assertTrue({
+            'IА', 'IБ', 'IВ', 'IГ', 'IД',
+            'IIА', 'IIБ', 'IIВ', 'IIГ',
+            'IIIА', 'IIIБ', 'IIIВ',
+            'IVА', 'IVБ', 'IVВ', 'IVГ',
+        }.issubset(options))
+        self.assertEqual(options.count('IIВ'), 1)
+        self.assertNotIn('IIB', options)
+        self.assertNotIn('архивный-район', options)
+        self.assertNotIn('', options)
+        self.assertNotIn('температура января', datalist.group(1))
+
+        params = {'view': 'search', 'q': prefix, 'object_type': 'котельная',
+                  'work_type': 'строительство', 'capacity_value': '1',
+                  'capacity_unit': 'mw', 'tolerance_percent': '0',
+                  'climate_zone': '  iiB  '}
+        response = self.client.get(path, query_string={**params, 'per_page': 1})
+        self.assertEqual(response.status_code, 200)
+        page = response.get_data(as_text=True)
+        self.assertIn('value="  iiB  "', page)
+        self.assertIn(prefix + 'match-1', page)
+        self.assertNotIn(prefix + 'match-2', page)
+        self.assertIn('climate_zone=++iiB++', page)  # pagination retains raw input
+        second = self.client.get(path, query_string={
+            **params, 'per_page': 1, 'page': 2}).get_data(as_text=True)
+        self.assertIn('value="  iiB  "', second)
+        self.assertIn(prefix + 'match-2', second)
+        self.assertNotIn(prefix + 'match-1', second)
+        self.assertEqual(self.client.get(path, query_string={
+            **params, 'format': 'json'}).get_json()['total'], 2)
+
+        for zone, count in (('IIВ', 6), ('IIB', 6), ('ii б', 1),
+                            ('неизвестный', 0), ('', 7)):
+            with self.subTest(zone=zone):
+                result = self.client.get(path, query_string={
+                    'q': prefix, 'climate_zone': zone, 'format': 'json'}).get_json()
+                self.assertEqual(result['total'], count)
+        for endpoint in (path, '/analog-search/api/search'):
+            # The legacy region mode remains unchanged; it does not include
+            # the Latin-spelled legacy record.
+            for extra, count in (({'climate_region': 'II'}, 6),
+                                 ({'climate_region': 'III',
+                                   'climate_zone': ' IIB '}, 6),
+                                 ({'climate_zone': 'IIБ'}, 1),
+                                 ({'climate_zone': 'unknown'}, 0)):
+                with self.subTest(endpoint=endpoint, extra=extra):
+                    result = self.client.get(endpoint, query_string={
+                        'q': prefix, 'format': 'json', **extra}).get_json()
+                    self.assertEqual(result['total'], count)
 
     def test_admin_can_remove_passport_from_analogs_table(self):
         with app.app_context():

@@ -1,5 +1,8 @@
 {% extends "modules.html" %}
 {% block title %}Поиск объектов-аналогов{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="{{ url_for('static', filename='analog_search.css', v='20260929-2') }}">
+{% endblock %}
 {% block header_actions %}
 <div class="header-actions">
   <a href="{{ url_for('modules_dashboard') }}">← Все модули</a>
@@ -7,8 +10,18 @@
 {% endblock %}
 {% block content %}
 {% set view = request.args.get('view', 'search') %}
-
-<h1>Поиск объектов-аналогов</h1>
+<div class="analog-page">
+<div class="analog-intro">
+  <div>
+    <span class="analog-kicker">Аналитика строительства / Объекты</span>
+    <h1>Поиск объектов-аналогов</h1>
+    <p>Сопоставление объектов, мощности и стоимости в актуальном уровне цен.</p>
+  </div>
+  <div class="analog-index">
+    <span class="analog-index-date">Индексы</span>
+    <a href="{{ url_for('analog.monthly_index_register') }}">Реестр индексов ↗</a>
+  </div>
+</div>
 
 <div class="tabs">
   <a href="{{ url_for('analog.simple_search', view='search') }}" class="tab {% if view == 'search' %}active{% endif %}">Поиск</a>
@@ -20,49 +33,67 @@
 {% endfor %}
 
 {% if view == 'search' %}
-<form method="get" class="search-row" id="search-form">
+<div class="analog-section-top">
+  <div><h2>Параметры сравнения</h2><p>Уточните характеристики, чтобы найти наиболее близкие объекты.</p></div>
+</div>
+<form method="get" class="search-row analog-filter-panel" id="search-form">
   <input type="hidden" name="view" value="search">
-  
-  <div class="input-group" style="width: 180px; flex-shrink: 0;">
-    <input type="text" name="capacity_value" inputmode="decimal"
-           value="{{ request.args.get('capacity_value','') }}" placeholder="Мощность">
-    <select name="capacity_unit" aria-label="Единица мощности">
-      <option value="gcal_h" {% if request.args.get('capacity_unit', 'gcal_h') == 'gcal_h' %}selected{% endif %}>Гкал/ч</option>
-      <option value="mw" {% if request.args.get('capacity_unit') == 'mw' %}selected{% endif %}>МВт</option>
-    </select>
-  </div>
-
-  <label class="input-group" style="align-items: center; flex-shrink: 0; background: #fff;"
-         title="Максимальное отклонение от заданной мощности в большую или меньшую сторону">
-    <span style="padding-left: 8px; font-size: 13px; white-space: nowrap;">Отклонение мощности:</span>
-    <input type="number" name="tolerance_percent" min="0" max="100" step="any"
-           value="{{ request.args.get('tolerance_percent') or '10' }}"
-           aria-label="Допустимое отклонение мощности, %" style="width: 58px; height: 100%;">
-    <span style="padding-right: 8px; font-size: 13px;">%</span>
+  <label class="analog-field"><span>Мощность объекта</span>
+    <span class="input-group">
+      <input type="text" name="capacity_value" inputmode="decimal"
+             value="{{ request.args.get('capacity_value','') }}" placeholder="Например, 1,2" aria-label="Мощность объекта">
+      <select name="capacity_unit" aria-label="Единица мощности">
+        <option value="gcal_h" {% if request.args.get('capacity_unit', 'gcal_h') == 'gcal_h' %}selected{% endif %}>Гкал/ч</option>
+        <option value="mw" {% if request.args.get('capacity_unit') == 'mw' %}selected{% endif %}>МВт</option>
+      </select>
+    </span>
   </label>
-
-  <select name="object_type" style="width: 140px; flex-shrink: 0;">
-    <option value="">Все типы</option>
-    {% for val in search_object_types %}
-      <option value="{{ val }}" {% if request.args.get('object_type') == val %}selected{% endif %}>{{ val }}</option>
-    {% endfor %}
-  </select>
-
-  <select name="work_type" style="width: 150px; flex-shrink: 0;">
-    <option value="">Все виды работ</option>
-    {% for val in work_types %}
-      <option value="{{ val }}" {% if request.args.get('work_type') == val %}selected{% endif %}>{{ val|capitalize }}</option>
-    {% endfor %}
-  </select>
-
-  <input name="q" value="{{ request.args.get('q','') }}" placeholder="Поиск по названию или адресу" style="flex: 1;">
-  
-  <button class="btn btn-primary" type="submit">Найти</button>
+  <label class="analog-field" title="Максимальное отклонение от заданной мощности в большую или меньшую сторону"><span>Допустимое отклонение</span>
+    <span class="analog-percent"><input type="number" name="tolerance_percent" min="0" max="100" step="any"
+           value="{{ request.args.get('tolerance_percent') or '10' }}"
+           aria-label="Допустимое отклонение мощности, %"><i>%</i></span>
+  </label>
+  <label class="analog-field"><span>Тип объекта</span>
+    <select name="object_type" aria-label="Тип объекта">
+      <option value="">Все типы</option>
+      {% for val in search_object_types %}
+        <option value="{{ val }}" {% if request.args.get('object_type') == val %}selected{% endif %}>{{ val }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="analog-field"><span>Вид работ</span>
+    <select name="work_type" aria-label="Вид работ">
+      <option value="">Все виды работ</option>
+      {% for val in work_types %}
+        <option value="{{ val }}" {% if request.args.get('work_type') == val %}selected{% endif %}>{{ val|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="analog-field"><span>Климатический район</span>
+    <input type="text" name="climate_zone" list="climate-zone-options"
+           aria-label="Климатический район" placeholder="Климатический район"
+           value="{{ request.args.get('climate_zone', '') }}">
+  </label>
+  <datalist id="climate-zone-options">
+    {% for zone in climate_zones %}<option value="{{ zone }}"></option>{% endfor %}
+  </datalist>
+  <label class="analog-field analog-field-query"><span>Название или адрес</span>
+    <input name="q" value="{{ request.args.get('q','') }}" placeholder="Введите название объекта или адрес">
+  </label>
+  <div class="analog-filter-actions">
+    <button class="btn btn-primary" type="submit">Найти аналоги</button>
+    <a class="analog-reset" href="{{ url_for('analog.simple_search', view='search') }}">Сбросить фильтры</a>
+  </div>
 </form>
 
-<div class="panel">
-  <div class="table-wrap">
-    <table>
+<div class="panel analog-table-panel">
+  <div class="analog-table-heading">
+    <div><h2>Результаты поиска</h2><p>Откройте строку, чтобы посмотреть паспорт объекта. Таблицу можно прокручивать по горизонтали.</p></div>
+    <span class="analog-count">{{ (good_rows|length) + (poor_rows|length) }} на странице</span>
+  </div>
+  <div class="analog-table-scroll">
+    <table aria-label="Результаты поиска объектов-аналогов">
+      <colgroup><col style="width: {{ '24%' if show_similarity else '30%' }}"><col style="width: 12%"><col style="width: 11%"><col style="width: 11%"><col style="width: 12%"><col style="width: {{ '16%' if show_similarity else '18%' }}"><col style="width: 6%">{% if show_similarity %}<col style="width: 8%">{% endif %}</colgroup>
       <thead>
         <tr>
           <th>Наименование</th>
@@ -70,126 +101,132 @@
           <th>Вид работ</th>
           <th>МВт/<strong>Гкал/ч</strong></th>
           <th>Стоимость, тыс. руб.</th>
-          <th>Аналогичность</th>
+          <th>Пересчет на актальную стоимость</th>
+          <th>Excel</th>
+          {% if show_similarity %}<th>Аналогичность</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% if good_rows %}
           {% for row in good_rows %}
-            <tr class="good" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
-              <td style="font-weight: 500;">{{ row.title }}</td>
+            <tr class="good" tabindex="0" onclick="if(!event.target.closest('a')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'" onkeydown="if(event.key==='Enter' && event.target===this) this.click()">
+              <td class="col-title">{{ row.title }}</td>
               <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
-              <td>
+              <td class="num">
                 {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
                   {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
                 {% else %}—{% endif %}
               </td>
               <td>{{ row.total_cost_display or '—' }}</td>
-              <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+              <td class="num" title="{{ 'Уровень цен: ' ~ row.price_period ~ '; коэффициент: ' ~ row.indexed_cost_factor if row.indexed_cost_factor else 'Недостаточно данных для полного помесячного пересчёта' }}">{{ row.indexed_cost_display or '—' }}</td>
+              <td><a class="excel-link" href="{{ url_for('analog.export_cost_estimate', passport_id=row.id) }}" onclick="event.stopPropagation()" download title="Выгрузить расчёт в Excel" aria-label="Выгрузить расчёт в Excel для {{ row.title }}">
+                <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h9l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg>
+              </a></td>
+              {% if show_similarity %}<td><span class="similarity">{{ '%.2f'|format(row.similarity_percent) }}%</span></td>{% endif %}
             </tr>
           {% endfor %}
         {% endif %}
         
         {% if poor_rows %}
           {% for row in poor_rows %}
-            <tr class="poor" onclick="window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
-              <td style="font-weight: 500;">{{ row.title }}</td>
+            <tr class="poor" tabindex="0" onclick="if(!event.target.closest('a')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'" onkeydown="if(event.key==='Enter' && event.target===this) this.click()">
+              <td class="col-title">{{ row.title }}</td>
               <td>{{ row.object_type or '—' }}</td>
               <td>{{ row.work_type or '—' }}</td>
-              <td>
+              <td class="num">
                 {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
                   {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
                 {% else %}—{% endif %}
               </td>
               <td>{{ row.total_cost_display or '—' }}</td>
-              <td>{{ '%.2f'|format(row.similarity_percent) }}%</td>
+              <td class="num" title="{{ 'Уровень цен: ' ~ row.price_period ~ '; коэффициент: ' ~ row.indexed_cost_factor if row.indexed_cost_factor else 'Недостаточно данных для полного помесячного пересчёта' }}">{{ row.indexed_cost_display or '—' }}</td>
+              <td><a class="excel-link" href="{{ url_for('analog.export_cost_estimate', passport_id=row.id) }}" onclick="event.stopPropagation()" download title="Выгрузить расчёт в Excel" aria-label="Выгрузить расчёт в Excel для {{ row.title }}">
+                <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h9l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg>
+              </a></td>
+              {% if show_similarity %}<td><span class="similarity">{{ '%.2f'|format(row.similarity_percent) }}%</span></td>{% endif %}
             </tr>
           {% endfor %}
         {% endif %}
 
         {% if not good_rows and not poor_rows %}
-          <tr><td colspan="6" style="text-align: center; padding: 32px; color: var(--mut);">Результаты не найдены. Укажите параметры для поиска.</td></tr>
+          <tr><td colspan="{{ 8 if show_similarity else 7 }}" class="analog-empty"><span class="analog-empty-mark">⌕</span><strong>Пока нет подходящих объектов</strong><span>Уточните или сбросьте параметры сравнения и повторите поиск.</span></td></tr>
         {% endif %}
       </tbody>
     </table>
   </div>
   
   {% if pagination and pagination.pages > 1 %}
-    <div style="padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 4px; flex-wrap: wrap;">
+    <nav class="analog-pagination" aria-label="Страницы результатов">
       {% for page in pagination.iter_pages() %}
         {% if page %}
           {% set params = request.args.to_dict(flat=True) %}
           {% set _ = params.update({'page': page}) %}
-          <a href="{{ url_for('analog.simple_search', **params) }}" class="btn {% if page == pagination.page %}btn-primary{% else %}btn-outline{% endif %}" style="padding: 0 10px;">{{ page }}</a>
+          <a href="{{ url_for('analog.simple_search', **params) }}" class="btn {% if page == pagination.page %}btn-primary{% else %}btn-outline{% endif %}" {% if page == pagination.page %}aria-current="page"{% endif %}>{{ page }}</a>
         {% else %}
-          <span style="padding: 4px 10px; color: var(--mut);">...</span>
+          <span aria-hidden="true" style="padding: 4px 8px; color: var(--mut);">…</span>
         {% endif %}
       {% endfor %}
-    </div>
+    </nav>
   {% endif %}
 </div>
 
 {% elif view == 'base' %}
 
-<div style="display: flex; gap: 12px; margin-bottom: 16px;">
-  <button class="btn btn-primary" onclick="document.getElementById('import-panel').toggleAttribute('hidden')">Добавить объект</button>
+<div class="analog-base-toolbar">
+  <div class="analog-section-top"><div><h2>Каталог объектов</h2><p>Паспорта, сметы и исходные данные в одном реестре.</p></div></div>
+  <button class="btn btn-primary" type="button" aria-controls="import-panel" aria-expanded="false" onclick="const panel=document.getElementById('import-panel'); panel.toggleAttribute('hidden'); this.setAttribute('aria-expanded', !panel.hidden)">+ Добавить объект</button>
 </div>
 
-<div id="import-panel" class="panel" hidden>
+<div id="import-panel" class="panel analog-import" hidden>
   <div class="panel-header">Импорт заключения и ССР</div>
   <div class="panel-body">
-    <form id="analog-import-form" method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
+    <p class="analog-import-description">Загрузите заключение в XML и сводный сметный расчёт. Перед созданием паспорта вы сможете проверить данные.</p>
+    <form id="analog-import-form" class="analog-import-form" method="post" action="{{ url_for('analog.import_preview') }}" enctype="multipart/form-data">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div style="display: grid; gap: 4px;">
-        <label style="font-size: 12px; font-weight: 500; color: var(--mut);">XML заключения</label>
-        <input type="file" name="conclusion" accept=".xml" required style="font-size: 13px;">
-      </div>
-      <div style="display: grid; gap: 4px;">
-        <label style="font-size: 12px; font-weight: 500; color: var(--mut);">ССР 3.01 (.gge)</label>
-        <input type="file" name="ssr" accept=".gge,.xml" required style="font-size: 13px;">
-      </div>
+      <label class="analog-field"><span>XML заключения</span><input type="file" name="conclusion" accept=".xml" required></label>
+      <label class="analog-field"><span>ССР 3.01 (.gge)</span><input type="file" name="ssr" accept=".gge,.xml" required></label>
       <button class="btn btn-primary" type="submit" id="analog-import-submit">Предварительный просмотр</button>
     </form>
     
-    <div id="analog-import-status" hidden style="margin-top:16px;">
-      <div id="analog-import-stage" style="font-size: 12px; margin-bottom: 4px; color: var(--mut);">Подготовка файлов...</div>
-      <div id="analog-import-progress" style="width: 100%; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden;">
-        <div id="analog-import-progress-bar" style="height: 100%; width: 0%; background: var(--blue); transition: width 0.2s;"></div>
+    <div id="analog-import-status" role="status" aria-live="polite" hidden>
+      <div id="analog-import-stage">Подготовка файлов...</div>
+      <div id="analog-import-progress">
+        <div id="analog-import-progress-bar"></div>
       </div>
     </div>
-    <div id="analog-import-error" class="alert error" hidden style="margin-top:16px; margin-bottom:0;"></div>
+    <div id="analog-import-error" class="alert error" role="alert" hidden style="margin-top:16px; margin-bottom:0;"></div>
   </div>
 </div>
 
 {% if current_user.is_admin %}
-<details style="margin-bottom: 20px;">
-  <summary>Ручное создание и системный импорт (Админ)</summary>
-  <div class="details-body" style="display: flex; gap: 32px; flex-wrap: wrap; background: #f8fafc; border-radius: 0 0 6px 6px;">
-    <form method="post" action="{{ url_for('analog.create_passport') }}" style="display: grid; gap: 8px; flex: 1; min-width: 300px;">
-      <div style="font-weight: 600; margin-bottom: 8px;">Создать пустой паспорт</div>
+<details class="analog-admin">
+  <summary>Ручное создание и системный импорт · Администратор</summary>
+  <div class="details-body">
+    <form method="post" action="{{ url_for('analog.create_passport') }}">
+      <h3>Создать пустой паспорт</h3>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input name="title" placeholder="Новый объект" required class="search-row" style="margin:0; padding:6px 8px; height:32px;">
-      <input name="address" placeholder="Адрес" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
-      <select id="create-object-type" name="object_type" class="search-row" style="margin:0; height:32px; padding: 0 8px;">
+      <input name="title" placeholder="Название объекта" aria-label="Название объекта" required>
+      <input name="address" placeholder="Адрес" aria-label="Адрес">
+      <select id="create-object-type" name="object_type" aria-label="Тип объекта">
         {% for val in object_types %}<option>{{ val }}</option>{% endfor %}
       </select>
-      <select name="work_type" class="search-row" style="margin:0; height:32px; padding: 0 8px;">
+      <select name="work_type" aria-label="Вид работ">
         {% for val in work_types %}<option>{{ val }}</option>{% endfor %}
       </select>
-      <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
-      <div class="create-network-fields" hidden style="display: grid; gap: 8px;">
-        <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
-        <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм" class="search-row" style="margin:0; padding:6px 8px; height:32px;">
+      <input name="capacity_kw" type="number" step="any" placeholder="Мощность, кВт" aria-label="Мощность, кВт">
+      <div class="create-network-fields" hidden>
+        <input name="network_length_m" type="number" step="any" placeholder="Длина сети, м" aria-label="Длина сети, м">
+        <input name="network_diameter_mm" type="number" step="any" placeholder="Диаметр сети, мм" aria-label="Диаметр сети, мм">
       </div>
-      <button class="btn btn-outline" type="submit" style="width: max-content; margin-top: 4px;">Создать паспорт</button>
+      <button class="btn btn-outline" type="submit">Создать паспорт</button>
     </form>
     
-    <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data" style="display: grid; gap: 8px; flex: 1; min-width: 300px; align-content: start;">
-      <div style="font-weight: 600; margin-bottom: 8px;">Импорт JSON v4</div>
+    <form method="post" action="{{ url_for('analog.migrate_json_v4') }}" enctype="multipart/form-data">
+      <h3>Импорт JSON v4</h3>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="file" name="file" accept=".json" required style="font-size: 13px;">
-      <button class="btn btn-outline" type="submit" style="width: max-content; margin-top: 4px;">Импортировать JSON</button>
+      <input type="file" name="file" accept=".json" required aria-label="Файл JSON v4">
+      <button class="btn btn-outline" type="submit">Импортировать JSON</button>
     </form>
   </div>
 </details>
@@ -209,51 +246,66 @@
 </script>
 {% endif %}
 
-<form method="get" class="search-row">
+<form method="get" class="search-row analog-catalog-search">
   <input type="hidden" name="view" value="base">
-  <input name="address" value="{{ request.args.get('address', '') }}" placeholder="Поиск по адресу" aria-label="Поиск по адресу" style="flex: 1;">
+  <label class="analog-field"><span>Поиск в каталоге по адресу</span><input name="address" value="{{ request.args.get('address', '') }}" placeholder="Введите адрес объекта" aria-label="Поиск по адресу"></label>
+  <span class="analog-search-hint">Фильтры по столбцам — в заголовке таблицы</span>
   <button class="btn btn-primary" type="submit">Найти</button>
 </form>
 
-<div class="panel table-wrap">
-  <table>
+<div class="panel analog-table-panel">
+  <div class="analog-table-heading">
+    <div><h2>Все объекты</h2><p>Отфильтруйте столбцы или откройте строку, чтобы посмотреть паспорт.</p></div>
+    <span class="analog-count">{{ (good_rows|length) + (poor_rows|length) }} в каталоге</span>
+  </div>
+  <div class="analog-table-scroll">
+  <table class="catalog-table" aria-label="Каталог объектов">
+    <colgroup><col style="width: 23%"><col style="width: 13%"><col style="width: 12%"><col style="width: 11%"><col style="width: 13%"><col style="width: 16%"><col style="width: 5%">{% if current_user.is_admin %}<col style="width: 7%">{% endif %}</colgroup>
     <thead>
       <tr>
-        <th>Наименование<br><input type="text" class="col-filter" data-col="0" placeholder="Фильтр..."></th>
-        <th>Тип<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..."></th>
-        <th>Вид работ<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..."></th>
-        <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..."></th>
-        <th>Стоимость, тыс. руб.<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..."></th>
-        {% if current_user.is_admin %}<th style="vertical-align: bottom; width: 80px;">Действия</th>{% endif %}
+        <th>Наименование<br><input type="text" class="col-filter" data-col="0" placeholder="Фильтр..." aria-label="Фильтр по наименованию"></th>
+        <th>Тип<br><input type="text" class="col-filter" data-col="1" placeholder="Фильтр..." aria-label="Фильтр по типу объекта"></th>
+        <th>Вид работ<br><input type="text" class="col-filter" data-col="2" placeholder="Фильтр..." aria-label="Фильтр по виду работ"></th>
+        <th>МВт/<strong>Гкал/ч</strong><br><input type="text" class="col-filter" data-col="3" placeholder="Фильтр..." aria-label="Фильтр по мощности"></th>
+        <th>Стоимость, тыс. руб.<br><input type="text" class="col-filter" data-col="4" placeholder="Фильтр..." aria-label="Фильтр по стоимости"></th>
+        <th>Пересчет на актальную стоимость<br><input type="text" class="col-filter" data-col="5" placeholder="Фильтр..." aria-label="Фильтр по стоимости в текущих ценах"></th>
+        <th>Excel</th>
+        {% if current_user.is_admin %}<th>Действия</th>{% endif %}
       </tr>
     </thead>
     <tbody id="catalog-tbody">
       {% for row in good_rows + poor_rows %}
-      <tr onclick="if(!event.target.closest('button')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'">
-        <td style="font-weight: 500;">{{ row.title }}</td>
-        <td>{{ row.object_type or '—' }}</td>
-        <td>{{ row.work_type or '—' }}</td>
-        <td>
+      <tr tabindex="0" onclick="if(!event.target.closest('button, a')) window.location='{{ url_for('analog.passport_detail', passport_id=row.id) }}'" onkeydown="if(event.key==='Enter' && event.target===this) this.click()">
+        <td class="col-title">{{ row.title }}</td>
+        <td class="secondary-cell">{{ row.object_type or '—' }}</td>
+        <td class="secondary-cell">{{ row.work_type or '—' }}</td>
+        <td class="num">
           {% if row.capacity_mw_display and row.capacity_gcal_h_display %}
             {{ row.capacity_mw_display }}/<strong>{{ row.capacity_gcal_h_display }}</strong>
           {% else %}—{% endif %}
         </td>
-        <td>{{ row.total_cost_display or '—' }}</td>
+        <td class="num">{{ row.total_cost_display or '—' }}</td>
+        <td class="num" title="{{ 'Уровень цен: ' ~ row.price_period ~ '; коэффициент: ' ~ row.indexed_cost_factor if row.indexed_cost_factor else 'Недостаточно данных для полного помесячного пересчёта' }}">{{ row.indexed_cost_display or '—' }}</td>
+        <td><a class="excel-link" href="{{ url_for('analog.export_cost_estimate', passport_id=row.id) }}" onclick="event.stopPropagation()" download title="Выгрузить расчёт в Excel" aria-label="Выгрузить расчёт в Excel для {{ row.title }}">
+          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h9l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg>
+        </a></td>
         {% if current_user.is_admin %}
         <td onclick="event.stopPropagation()">
           <form method="post" action="{{ url_for('analog.archive', passport_id=row.id) }}" onsubmit="return confirm('Удалить объект?')" style="margin:0;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-danger" type="submit" style="height:24px; font-size: 11px; padding: 0 8px;">Удалить</button>
+          <button class="btn btn-danger" type="submit" style="height:28px; font-size: 11px; padding: 0 8px;">Удалить</button>
           </form>
         </td>
         {% endif %}
       </tr>
       {% endfor %}
       {% if not good_rows and not poor_rows %}
-      <tr><td colspan="{{ 6 if current_user.is_admin else 5 }}" style="text-align: center; padding: 32px; color: var(--mut);">Объекты не найдены.</td></tr>
+      <tr><td colspan="{{ 8 if current_user.is_admin else 7 }}" class="analog-empty"><span class="analog-empty-mark">⌕</span><strong>В каталоге нет объектов</strong><span>Попробуйте другой адрес или добавьте первый объект.</span></td></tr>
       {% endif %}
     </tbody>
   </table>
+  </div>
+  <div id="analog-filter-empty" class="analog-filter-empty analog-empty" hidden><span class="analog-empty-mark">⌕</span><strong>Нет совпадений по столбцам</strong><span>Измените или очистите фильтры в заголовке таблицы.</span></div>
 </div>
 
 <script>
@@ -261,7 +313,11 @@
     inp.addEventListener('click', e => e.stopPropagation());
     inp.addEventListener('input', function() {
       const filters = Array.from(document.querySelectorAll('.col-filter')).map(i => ({ col: parseInt(i.dataset.col), val: i.value.toLowerCase() }));
+      let shown = 0;
+      let total = 0;
       document.querySelectorAll('#catalog-tbody tr').forEach(tr => {
+        if (tr.querySelector('.analog-empty')) return;
+        total++;
         let show = true;
         filters.forEach(f => {
           if (f.val) {
@@ -270,7 +326,10 @@
           }
         });
         tr.style.display = show ? '' : 'none';
+        if (show) shown++;
       });
+      const empty = document.getElementById('analog-filter-empty');
+      if (empty) empty.hidden = !total || shown > 0;
     });
   });
 
@@ -343,4 +402,5 @@
 </script>
 
 {% endif %}
+</div>
 {% endblock %}
