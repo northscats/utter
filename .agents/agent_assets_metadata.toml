@@ -386,3 +386,17 @@ mtime_ms = 1790705165508
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/e067c4f4-461e-47b3-b024-2125ac6962ff/46dcf5f2-8024-49d2-bf53-be4b7d3180a9"
 storage_version_token = "1790705182895902"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "0F0WwPi5fCNdJZw2ofUmR"
+uri = "file://exports/favicon.svg"
+type = "image"
+title = "Favicon сайта ГИС УЗТЭР"
+description = "SVG-иконка, которую сайт отдаёт по адресу /favicon.ico."
+logical_id = "8f41dca4-e290-410d-8321-4bd35359e647"
+content_hash = "sha256:bac75095e90f9d6ee8e76bf6ee5e307cc2bbbce2e8b641eca9ea61f46f2dd157"
+size = 180
+mtime_ms = 1790767876299
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/8f41dca4-e290-410d-8321-4bd35359e647/7c36eeef-c4cf-4d6a-be7a-b75168964b36"
+storage_version_token = "1790767886329179"
+content_type = "image/svg+xml"
