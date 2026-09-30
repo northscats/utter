@@ -35,6 +35,20 @@
 {% if current_user.is_admin %}
 <section class="max-panel">
   <h2>Настройка бота MAX</h2>
+  <p>Диагностика относится только к этому процессу сервера, не к другому домену.
+    Сохранённая конфигурация не подтверждает подключение. Регистрация webhook не подтверждает входящую доставку.</p>
+  <form id="max-diagnostic-form" method="post" action="{{ url_for('max_limits_diagnostics') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">Проверить без запуска и отправки сообщений</button>
+  </form>
+  <p>Проверка читает конфигурацию, готовность БД, CA, состояние локального worker и /me, группу, администраторов MAX.
+    Не читает /updates, не меняет webhook, очередь, права или курсор. Ошибки прошлых стадий сохраняются до успешного повторения этой стадии; при новом поколении запуска сбрасываются.</p>
+  <pre id="max-diagnostic-checks" style="white-space:pre-wrap" aria-live="polite"></pre>
+  <pre id="max-diagnostic-stages" style="white-space:pre-wrap" aria-live="polite">{% for row in bot_diagnostics.stages %}{{ row.stage_label }} — {{ row.state_label }}{% if row.retrying %} (повторная попытка; последняя ошибка сохранена){% endif %}
+{{ row.timestamp }} UTC · {{ row.stage }}: {{ row.state }}{% if row.error %} · {{ row.error_label }} ({{ row.error }}){% endif %}{% if row.http_code %} · HTTP {{ row.http_code }}{% endif %}
+{% if row.hint %}Что делать: {{ row.hint }}
+{% endif %}
+{% endfor %}</pre>
   <p>Старый токен из конфигурации проекта мог быть раскрыт. Перевыпустите его у MAX перед использованием. Сохранение не запускает бота.</p>
   <form method="post" action="{{ url_for('max_limits_credentials') }}" class="max-credentials" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -60,11 +74,11 @@
 <section id="max-connection-status" class="max-status {% if configured %}is-ready{% else %}is-unavailable{% endif %}" aria-live="polite">
   <div>
     {% if configured %}
-      <h2 id="max-connection-heading">Бот подключен</h2>
+      <h2 id="max-connection-heading">API MAX подтверждён</h2>
       <p id="max-connection-detail">Одобренных УИН: <strong>{{ subscriptions_count }}</strong> · Заявок на рассмотрении: <strong>{{ pending_count }}</strong></p>
     {% else %}
       <h2 id="max-connection-heading">{% if bot_state == 'connecting' %}Подключается{% elif bot_state == 'error' %}Ошибка подключения{% elif bot_state == 'stopped' %}Остановлен{% else %}Не настроен{% endif %}</h2>
-      <p id="max-connection-detail">{% if bot_state in ('connecting', 'error') %}MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.{% else %}Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.{% endif %}</p>
+      <p id="max-connection-detail">{% if bot_state in ('connecting', 'error') %}Рабочий цикл не подтверждён или прерван. Причина определяется по стадии диагностики; повторные попытки сохраняются.{% else %}Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.{% endif %}</p>
     {% endif %}
   </div>
 </section>
@@ -135,16 +149,20 @@
     send.disabled = true;
   });
   const readyDetail = 'Одобренных УИН: {{ subscriptions_count }} · Заявок на рассмотрении: {{ pending_count }}';
-  const waitingDetail = 'MAX ещё не подтвердил подключение. Проверьте новый токен, права бота в группе и публичный HTTPS webhook; при сбое подключение будет повторено.';
+  const waitingDetail = 'Рабочий цикл не подтверждён или прерван. Смотрите стадию диагностики; повторные попытки сохраняются.';
   const stoppedDetail = 'Для работы бота администратор должен сохранить новый токен и ID группы, затем запустить бота.';
   const hasDataset = {{ 'true' if dataset else 'false' }};
-  const titles = { connected: 'Бот подключен', connecting: 'Подключается',
+  const titles = { connected: 'API MAX подтверждён', connecting: 'Подключается',
                    error: 'Ошибка подключения', stopped: 'Остановлен', unconfigured: 'Не настроен' };
   async function updateStatus() {
     try {
       const response = await fetch('{{ url_for("max_limits_status") }}', { credentials: 'same-origin', cache: 'no-store' });
       if (!response.ok) return;
-      const { status } = await response.json();
+      const { status, diagnostics } = await response.json();
+      document.getElementById('max-diagnostic-stages').textContent =
+        diagnostics ? 'Стадии текущего поколения (локальный процесс):\n' +
+          formatStages(diagnostics.stages) + '\nВходящий webhook: ' +
+          (diagnostics.inbound_confirmed ? 'событие получено' : 'не подтверждён') : '';
       if (!Object.prototype.hasOwnProperty.call(titles, status)) return;
       const connected = status === 'connected';
       panel.classList.toggle('is-ready', connected);
@@ -157,6 +175,34 @@
       // Keep the last confirmed server-rendered state until the next check.
     }
   }
+  function formatStages(rows) {
+    return (rows || []).map(row => row.stage_label + ' — ' + row.state_label +
+      (row.retrying ? ' (повторная попытка; последняя ошибка сохранена)' : '') +
+      '\n' + row.timestamp + ' UTC · ' + row.stage + ': ' + row.state +
+      (row.error ? ' · ' + row.error_label + ' (' + row.error + ')' : '') +
+      (row.http_code ? ' · HTTP ' + row.http_code : '') +
+      (row.hint ? '\nЧто делать: ' + row.hint : '')).join('\n\n');
+  }
+  const diagnosticForm = document.getElementById('max-diagnostic-form');
+  diagnosticForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = diagnosticForm.querySelector('button');
+    const output = document.getElementById('max-diagnostic-checks');
+    button.disabled = true;
+    output.textContent = 'Проверка…';
+    try {
+      const response = await fetch(diagnosticForm.action, {
+        method: 'POST', body: new FormData(diagnosticForm), credentials: 'same-origin'
+      });
+      if (!response.ok) throw new Error('check failed');
+      output.textContent = 'Разовая проверка (не запускает worker):\n' +
+        formatStages((await response.json()).checks);
+    } catch (_) {
+      output.textContent = 'Не удалось выполнить проверку. Проверьте сессию и доступность сервера.';
+    } finally {
+      button.disabled = false;
+    }
+  });
   updateStatus();
   setInterval(() => { if (!document.hidden) updateStatus(); }, 5000);
 })();

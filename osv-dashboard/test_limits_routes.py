@@ -492,7 +492,11 @@ class LimitsRouteTests(unittest.TestCase):
         with patch('max_limits.status', return_value='connected'):
             response = self.client_admin.get('/limit-notifications/max/status')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json(), {'status': 'connected'})
+        payload = response.get_json()
+        self.assertEqual(payload['status'], 'connected')
+        self.assertEqual(payload['diagnostics']['scope'], 'current_process')
+        self.assertIsInstance(payload['diagnostics']['stages'], list)
+        self.assertTrue(response.cache_control.no_store)
         self.assertEqual(
             self.client(2).get('/limit-notifications/max/status').status_code, 403)
 

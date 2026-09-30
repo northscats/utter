@@ -385,21 +385,23 @@ def pending_moderation(api_call, token):
             buttons = [[('Одобрить', f'mod:{application.id}:approve'),
                         ('Не одобрить', f'mod:{application.id}:reject')]]
             try:
-                from max_limits import send_message
-                send_message(token, chat_id, text, buttons=buttons, chat=True,
-                             api_call=api_call)
-                application.sent_at = utcnow()
-                db.session.commit()
+                from max_limits import send_message, diagnostic_stage
+                with diagnostic_stage('moderation_send'):
+                    send_message(token, chat_id, text, buttons=buttons, chat=True,
+                                 api_call=api_call)
+                    application.sent_at = utcnow()
+                    db.session.commit()
             except Exception:
                 db.session.rollback()
                 break
     for profile in MaxLimitsProfile.query.filter(MaxLimitsProfile.notice != '').limit(10):
         try:
-            from max_limits import send_message
-            send_message(token, profile.user_id, profile.notice, api_call=api_call,
-                         buttons=MENU if approved_uins(profile.user_id) else REGISTER)
-            profile.notice = ''
-            db.session.commit()
+            from max_limits import send_message, diagnostic_stage
+            with diagnostic_stage('moderation_notice'):
+                send_message(token, profile.user_id, profile.notice, api_call=api_call,
+                             buttons=MENU if approved_uins(profile.user_id) else REGISTER)
+                profile.notice = ''
+                db.session.commit()
         except Exception:
             db.session.rollback()
             break

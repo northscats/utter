@@ -8178,7 +8178,7 @@ def limit_dashboard():
 def max_limits():
     """Persist the administrator-selected data source used by the bot."""
     from max_bot_config import read as read_bot_config
-    from max_limits import status as bot_status
+    from max_limits import status as bot_status, diagnostics
     from max_dataset_scope import selected_version, select_version
     from max_funding_year import choices as funding_year_choices, selection as funding_year_selection
     datasets = LimitDataset.query.order_by(
@@ -8218,6 +8218,7 @@ def max_limits():
         funding_year_selection=funding_year_selection(),
         configured=state == 'connected',
         bot_state=state,
+        bot_diagnostics=diagnostics() if current_user.is_admin else {},
         token_saved=bool(bot_settings.get('token')),
         bot_group_id=bot_settings.get('group_id'),
         subscriptions_count=MaxLimitsUin.query.filter_by(status='approved').count(),
@@ -8230,8 +8231,22 @@ def max_limits():
 def max_limits_status():
     if not current_user.is_admin:
         abort(403)
-    from max_limits import status as bot_status
-    return jsonify(status=bot_status())
+    from max_limits import status as bot_status, diagnostics
+    response = jsonify(status=bot_status(), diagnostics=diagnostics())
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@app.post('/limit-notifications/max/diagnostics')
+@login_required
+def max_limits_diagnostics():
+    if not current_user.is_admin:
+        abort(403)
+    from max_limits import diagnostic_check
+    g.skip_durable_backup = True
+    response = jsonify(checks=diagnostic_check(app))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @app.route('/limit-notifications/max/credentials', methods=['POST'])
@@ -8366,7 +8381,7 @@ def max_limits_user_delete(user_id):
 def max_limits_webhook():
     """Accept only MAX events bearing the server-derived subscription secret."""
     import hmac
-    from max_limits import active_delivery, dispatch_update, webhook_secret
+    from max_limits import active_delivery, dispatch_update, webhook_secret, diagnostic_stage
     from max_bot_config import read as read_bot_config
     config = read_bot_config()
     token = config['token'] if config.get('enabled') else ''
@@ -8382,10 +8397,14 @@ def max_limits_webhook():
     update = request.get_json(silent=True)
     if not isinstance(update, dict):
         abort(400)
+    generation = config.get('generation')
+    with diagnostic_stage('webhook_event', generation):
+        pass
     try:
-        with active_delivery(token):
-            dispatch_update(token, update)
-        _schedule_durable_safety_backup('MAX limits webhook update')
+        with diagnostic_stage('webhook_dispatch', generation), active_delivery(token, generation):
+            dispatch_update(token, update, generation=generation)
+        with diagnostic_stage('webhook_backup', generation):
+            _schedule_durable_safety_backup('MAX limits webhook update')
     except Exception:
         db.session.rollback()
         app.logger.warning('MAX limits webhook update failed; MAX will retry')

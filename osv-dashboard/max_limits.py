@@ -6,14 +6,17 @@ import logging
 import os
 import re
 import ssl
+import socket
 import threading
 import time
 import contextlib
 import fcntl
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import aliased
@@ -39,6 +42,207 @@ _worker_generation = None
 _connected_token = None
 _connected_generation = None
 _last_error = False
+_diagnostic_lock = threading.RLock()
+_diagnostic_generation = None
+_diagnostic_stages = {}
+_diagnostic_local = threading.local()
+DIAGNOSTIC_STAGES = frozenset({
+    'config', 'readiness', 'ca', 'worker', 'identity', 'group', 'admins',
+    'cursor_read', 'polling', 'dispatch', 'cursor_save', 'outbox', 'outbox_send',
+    'moderation', 'moderation_send', 'moderation_notice', 'backup', 'webhook_registration', 'webhook_event',
+    'webhook_dispatch', 'webhook_backup', 'webhook_unregister',
+})
+STAGE_LABELS = dict(
+    config='Настройки', readiness='Готовность базы данных', ca='Сертификаты доверия',
+    worker='Фоновый обработчик', identity='Проверка бота (/me)',
+    group='Доступ к группе', admins='Права администратора',
+    cursor_read='Чтение позиции событий', polling='Получение событий',
+    dispatch='Обработка события', cursor_save='Сохранение позиции событий',
+    outbox='Обработка очереди', outbox_send='Отправка из очереди',
+    moderation='Обработка заявок', moderation_send='Отправка заявки',
+    moderation_notice='Уведомление о решении', backup='Планирование резервной копии',
+    webhook_registration='Регистрация webhook', webhook_event='Получение webhook',
+    webhook_dispatch='Обработка webhook', webhook_backup='Резервная копия после webhook',
+    webhook_unregister='Отключение webhook')
+STATE_LABELS = dict(running='Выполняется', ok='Успешно', error='Ошибка')
+ERROR_LABELS = dict(
+    configuration='Некорректные настройки', not_ready='Сервер ещё не готов',
+    worker_unavailable='Обработчик не найден в этом процессе',
+    invalid_response='Неожиданный формат данных', group_unavailable='Группа недоступна',
+    admin_required='Не подтверждены права администратора', api_rejected='MAX отклонил действие',
+    authorization='MAX не подтвердил авторизацию', forbidden='MAX запретил доступ',
+    rate_limit='Превышена частота запросов', http='Ошибка HTTP',
+    tls='Ошибка проверки TLS', dns='Ошибка поиска адреса сервера',
+    timeout='Превышено время ожидания', database='Ошибка базы данных',
+    network='Ошибка соединения или локального файла', operation='Ошибка операции')
+ERROR_HINTS = dict(
+    configuration='Проверьте наличие токена и ID группы, HTTPS-адрес webhook и префикс приложения. Не присылайте токен.',
+    tls='Попросите администратора проверить комплект CA, цепочку сертификатов и время сервера. Не отключайте проверку TLS.',
+    database='Попросите администратора проверить доступность БД и миграции MAX. Не удаляйте курсор или очередь.',
+    not_ready='Дождитесь готовности хранилища; если ошибка сохраняется, проверьте запуск сервера.',
+    forbidden='Проверьте ID группы, участие бота и его права администратора. Код 403 сам по себе не доказывает неверный токен.',
+    rate_limit='Дождитесь автоматической повторной попытки. Не запускайте частые проверки вручную.',
+    operation='Передайте администратору стадию, код ошибки, HTTP-код и время UTC. Не присылайте токен или содержимое сообщений.',
+    authorization='Проверьте действительность сохранённого токена у MAX. Не публикуйте его значение.',
+    admin_required='Проверьте, что бот добавлен администратором именно в указанную группу.',
+    worker_unavailable='Проверьте состояние запуска и число процессов сервера. Эта проверка сама не запускает бота.',
+    group_unavailable='Проверьте ID группы и участие бота в ней.')
+
+
+def _diagnostic_entry(stage, state, category, code):
+    return dict(stage=stage, state=state, error=category, http_code=code,
+                timestamp=datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z'),
+                stage_label=STAGE_LABELS[stage], state_label=STATE_LABELS[state],
+                error_label=ERROR_LABELS.get(category),
+                hint=ERROR_HINTS.get(category, ERROR_HINTS['operation']) if category else None,
+                retrying=False)
+
+
+class DiagnosticFailure(RuntimeError):
+    """Only fixed local classifications, never externally supplied messages."""
+    def __init__(self, category):
+        self.category = category if category in {
+            'configuration', 'not_ready', 'worker_unavailable',
+            'invalid_response', 'group_unavailable', 'admin_required',
+            'api_rejected', 'database',
+        } else 'operation'
+        super().__init__(self.category)
+
+
+def safe_error(exc):
+    """Classify by types only. Never inspect exception text, URLs or bodies."""
+    if isinstance(exc, DiagnosticFailure):
+        return exc.category, None
+    if isinstance(exc, HTTPError):
+        code = exc.code if type(exc.code) is int and 100 <= exc.code <= 599 else None
+        return ('authorization' if code == 401 else 'forbidden' if code == 403
+                else 'rate_limit' if code == 429 else 'http', code)
+    if isinstance(exc, URLError) and isinstance(exc.reason, BaseException):
+        return safe_error(exc.reason)
+    if isinstance(exc, ssl.SSLError):
+        return 'tls', None
+    if isinstance(exc, socket.gaierror):
+        return 'dns', None
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return 'timeout', None
+    if isinstance(exc, SQLAlchemyError):
+        return 'database', None
+    if isinstance(exc, (ConnectionError, OSError, URLError)):
+        return 'network', None
+    if isinstance(exc, (ValueError, TypeError, KeyError)):
+        return 'invalid_response', None
+    return 'operation', None
+
+
+@contextlib.contextmanager
+def diagnostic_stage(stage, generation=None, results=None):
+    if stage not in DIAGNOSTIC_STAGES:
+        raise ValueError('Unknown diagnostic stage')
+    generation = generation if generation is not None else getattr(_diagnostic_local, 'generation', None)
+    def record(state, exc=None):
+        global _diagnostic_generation
+        category, code = safe_error(exc) if exc is not None else (None, None)
+        entry = _diagnostic_entry(stage, state, category, code)
+        def store(target):
+            previous = target.get(stage)
+            if state == 'running' and previous and previous['state'] == 'error':
+                # Keep the original failure and its timestamp while a retry is pending.
+                target[stage] = dict(previous, retrying=True)
+            else:
+                target[stage] = entry
+        if results is not None:
+            store(results)
+        else:
+            with bot_config.locked():
+                config = bot_config._read()
+                if generation is None or generation != config.get('generation') or not config.get('enabled'):
+                    return
+                with _diagnostic_lock:
+                    if _diagnostic_generation != generation:
+                        _diagnostic_stages.clear()
+                        _diagnostic_generation = generation
+                    store(_diagnostic_stages)
+        if state != 'running':
+            log = _logger.warning if state == 'error' else _logger.info
+            log('MAX stage=%s state=%s error=%s http_code=%s utc=%s',
+                stage, state, category or 'none', code, entry['timestamp'])
+    record('running')
+    try:
+        yield
+    except Exception as exc:
+        record('error', exc)
+        raise
+    else:
+        record('ok')
+
+
+def diagnostics():
+    config = bot_config.read()
+    with _diagnostic_lock:
+        stages = ([dict(row) for row in _diagnostic_stages.values()]
+                  if config.get('enabled') and config.get('generation') == _diagnostic_generation else [])
+    return dict(stages=stages, scope='current_process',
+                delivery='webhook' if os.environ.get('MAX_LIMITS_WEBHOOK_URL') else 'polling',
+                inbound_confirmed=any(r['stage'] == 'webhook_event' and r['state'] == 'ok' for r in stages))
+
+
+def _staged_call(stage, action, *args, **kwargs):
+    with diagnostic_stage(stage):
+        return action(*args, **kwargs)
+
+
+def diagnostic_check(application):
+    """Read-only probes; no worker, polling cursor, sends or subscription changes."""
+    results = {}
+    def check(stage, action):
+        try:
+            with diagnostic_stage(stage, results=results):
+                action()
+            return True
+        except Exception:
+            return False
+    config = {}
+    def configuration():
+        config.update(bot_config.read())
+        url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
+        if (not config.get('token') or not config.get('group_id')
+                or (requires_webhook() and not url) or (url and not valid_webhook_url(url))):
+            raise DiagnosticFailure('configuration')
+    def readiness():
+        if not application.config.get('DURABLE_STARTUP_READY'):
+            raise DiagnosticFailure('not_ready')
+        try:
+            db.session.execute(text('SELECT 1'))
+            inspector = inspect(db.session.connection())
+            for table in db.metadata.sorted_tables:
+                if not table.name.startswith('max_limits_'):
+                    continue
+                if not inspector.has_table(table.name):
+                    raise DiagnosticFailure('database')
+                present = {column['name'] for column in inspector.get_columns(table.name)}
+                if not set(table.columns.keys()).issubset(present):
+                    raise DiagnosticFailure('database')
+            db.session.get(MaxLimitsCursor, 1)
+        finally:
+            # This dedicated read-only request owns no changes; release the read
+            # transaction even after a database error (e.g. PostgreSQL abort).
+            db.session.rollback()
+    def ca():
+        ssl.create_default_context().load_verify_locations(cafile=str(TRUSTED_CA))
+    def worker():
+        if not (_worker_thread and _worker_thread.is_alive()
+                and _worker_generation == config.get('generation')):
+            raise DiagnosticFailure('worker_unavailable')
+    valid = check('config', configuration)
+    check('readiness', readiness)
+    trusted = check('ca', ca)
+    check('worker', worker)
+    if valid and trusted:
+        try:
+            _verify_group(config['token'], config['group_id'], results=results)
+        except Exception:
+            pass
+    return list(results.values())
 
 
 def status():
@@ -52,7 +256,7 @@ def status():
             and _connected_generation == config.get('generation')
             and _worker_thread and _worker_thread.is_alive()):
         return 'connected'
-    if _last_error:
+    if _last_error and _worker_generation == config.get('generation'):
         return 'error'
     return 'connecting'
 
@@ -91,20 +295,23 @@ def active_delivery(token, generation=None):
         yield
 
 
-def _verify_group(token, chat_id):
+def _verify_group(token, chat_id, results=None):
     """Confirm the configured group exists and this bot can moderate it."""
-    identity = max_api(token, 'GET', '/me', timeout=15)
-    username = identity.get('username') or ''
-    bot_id = identity.get('user_id')
-    if not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}', username) or type(bot_id) is not int:
-        raise RuntimeError('MAX identity unavailable')
-    chat = max_api(token, 'GET', f'/chats/{chat_id}', timeout=15)
-    if str(chat.get('chat_id')) != str(chat_id):
-        raise RuntimeError('MAX group unavailable')
-    admins = max_api(token, 'GET', f'/chats/{chat_id}/members/admins', timeout=15)
-    if not any(isinstance(member, dict) and member.get('user_id') == bot_id
-               for member in (admins.get('members') or [])):
-        raise RuntimeError('MAX bot is not a group administrator')
+    with diagnostic_stage('identity', results=results):
+        identity = max_api(token, 'GET', '/me', timeout=15)
+        username = identity.get('username') or ''
+        bot_id = identity.get('user_id')
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{2,100}', username) or type(bot_id) is not int:
+            raise DiagnosticFailure('invalid_response')
+    with diagnostic_stage('group', results=results):
+        chat = max_api(token, 'GET', f'/chats/{chat_id}', timeout=15)
+        if str(chat.get('chat_id')) != str(chat_id):
+            raise DiagnosticFailure('group_unavailable')
+    with diagnostic_stage('admins', results=results):
+        admins = max_api(token, 'GET', f'/chats/{chat_id}/members/admins', timeout=15)
+        if not any(isinstance(member, dict) and member.get('user_id') == bot_id
+                   for member in (admins.get('members') or [])):
+            raise DiagnosticFailure('admin_required')
     return username
 
 
@@ -572,7 +779,7 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
             continue
         try:
             from max_registration import MENU
-            with active_delivery(token, generation):
+            with diagnostic_stage('outbox_send', generation), active_delivery(token, generation):
                 send_message(token, item.user_id, message, api_call=api_call, buttons=MENU)
         except Exception:
             _logger.warning('MAX limits outbox send failed; retry scheduled')
@@ -598,6 +805,7 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
 
 def _worker_loop(application, token, generation):
     global _connected_token, _connected_generation, _last_error
+    _diagnostic_local.generation = generation
     backoff = 2
     identified = False
     while True:
@@ -609,48 +817,56 @@ def _worker_loop(application, token, generation):
                     username = _verify_group(token, bot_config.read()['group_id'])
                 changed = [False]
                 try:
-                    cursor = db.session.get(MaxLimitsCursor, 1)
+                    cursor = _staged_call('cursor_read', db.session.get, MaxLimitsCursor, 1)
                     params = {'timeout': 20, 'types': (
                         'bot_started,bot_stopped,dialog_removed,message_created,message_callback')}
                     if cursor and cursor.marker is not None:
                         params['marker'] = cursor.marker
-                    batch = max_api(token, 'GET', '/updates', params, timeout=30)
-                    updates = batch.get('updates', [])
-                    marker = batch.get('marker')
-                    if not isinstance(updates, list) or not isinstance(marker, (int, type(None))):
-                        raise RuntimeError('Invalid MAX update batch')
+                    with diagnostic_stage('polling'):
+                        batch = max_api(token, 'GET', '/updates', params, timeout=30)
+                        updates = batch.get('updates', [])
+                        marker = batch.get('marker')
+                        if not isinstance(updates, list) or not isinstance(marker, (int, type(None))):
+                            raise ValueError('Invalid MAX update batch')
                     if not identified:
                         _assert_active(token, generation)
                         _connected_token = token
                         _connected_generation = generation
                         _last_error = False
                         identified = True
-                        _logger.warning('MAX limits bot polling connected as @%s', username)
+                        _logger.info('MAX polling API verified; processing batch')
                     for update in updates:
                         if not _generation_active(token, generation):
                             break
-                        dispatch_update(token, update, generation=generation)
+                        _staged_call('dispatch', dispatch_update, token, update, generation=generation)
                         changed[0] = True
                     _assert_active(token, generation)
-                    if marker is not None and (cursor is None or cursor.marker != marker):
-                        if cursor is None:
-                            cursor = MaxLimitsCursor(id=1, marker=marker)
-                            db.session.add(cursor)
-                        else:
-                            cursor.marker = marker
-                        db.session.commit()
-                        changed[0] = True
-                    drain_outbox(on_state_change=lambda: changed.__setitem__(0, True),
+                    with diagnostic_stage('cursor_save'):
+                        if marker is not None and (cursor is None or cursor.marker != marker):
+                            if cursor is None:
+                                cursor = MaxLimitsCursor(id=1, marker=marker)
+                                db.session.add(cursor)
+                            else:
+                                cursor.marker = marker
+                            db.session.commit()
+                            changed[0] = True
+                    _staged_call('outbox', drain_outbox, on_state_change=lambda: changed.__setitem__(0, True),
                                  generation=generation)
                     from max_registration import pending_moderation
                     if _generation_active(token, generation):
                         with active_delivery(token, generation):
-                            pending_moderation(max_api, token)
+                            _staged_call('moderation', pending_moderation, max_api, token)
                     backoff = 2
                 finally:
                     if changed[0]:
-                        from app import _schedule_durable_safety_backup
-                        _schedule_durable_safety_backup('MAX limits polling batch')
+                        # A backup failure must not mask the original batch error.
+                        import sys
+                        primary = sys.exc_info()[0] is not None
+                        try:
+                            _schedule_max_backup('MAX limits polling batch')
+                        except Exception:
+                            if not primary:
+                                raise
         except Exception:
             _logger.warning('MAX limits polling failed; retrying with backoff')
             with application.app_context():
@@ -670,6 +886,7 @@ def _worker_loop(application, token, generation):
 
 def _webhook_outbox_loop(application, token, url, generation):
     """Register production webhook and deliver queued changes independently."""
+    _diagnostic_local.generation = generation
     if not valid_webhook_url(url):
         _logger.error('MAX webhook URL must be an HTTPS /limit-notifications/max/webhook endpoint')
         return
@@ -685,16 +902,17 @@ def _webhook_outbox_loop(application, token, url, generation):
                     secret = webhook_secret(token, application.secret_key)
                     username = _verify_group(token, bot_config.read()['group_id'])
                     _assert_active(token, generation)
-                    result = max_api(token, 'POST', '/subscriptions', payload={
-                        'url': url,
-                        'update_types': [
-                            'bot_started', 'bot_stopped', 'dialog_removed',
-                            'message_created', 'message_callback',
-                        ],
-                        'secret': secret,
-                    }, timeout=15)
-                    if result.get('success') is not True:
-                        raise RuntimeError('MAX webhook registration failed')
+                    with diagnostic_stage('webhook_registration'):
+                        result = max_api(token, 'POST', '/subscriptions', payload={
+                            'url': url,
+                            'update_types': [
+                                'bot_started', 'bot_stopped', 'dialog_removed',
+                                'message_created', 'message_callback',
+                            ],
+                            'secret': secret,
+                        }, timeout=15)
+                        if result.get('success') is not True:
+                            raise DiagnosticFailure('api_rejected')
                     try:
                         _assert_active(token, generation)
                     except RuntimeError:
@@ -704,14 +922,14 @@ def _webhook_outbox_loop(application, token, url, generation):
                     _connected_token = token
                     _connected_generation = generation
                     _last_error = False
-                    _logger.warning('MAX limits webhook connected as @%s', username)
-                drain_outbox(
+                    _logger.info('MAX webhook registered; inbound delivery not yet confirmed')
+                _staged_call('outbox', drain_outbox,
                     on_state_change=lambda: _schedule_max_backup('MAX limits delivery'),
                     generation=generation)
                 from max_registration import pending_moderation
                 if _generation_active(token, generation):
                     with active_delivery(token, generation):
-                        pending_moderation(max_api, token)
+                        _staged_call('moderation', pending_moderation, max_api, token)
                 backoff = 2
         except Exception:
             _logger.warning('MAX limits webhook or delivery failed; retrying with backoff')
@@ -734,7 +952,7 @@ def _webhook_outbox_loop(application, token, url, generation):
 
 def _schedule_max_backup(reason):
     from app import _schedule_durable_safety_backup
-    _schedule_durable_safety_backup(reason)
+    _staged_call('backup', _schedule_durable_safety_backup, reason)
 
 
 def _unregister_webhook(token, url):
@@ -744,8 +962,10 @@ def _unregister_webhook(token, url):
             if row.get('url') == url and row.get('subscription_id'):
                 max_api(token, 'DELETE',
                         f"/subscriptions/{row['subscription_id']}", timeout=5)
-    except Exception:
-        _logger.warning('MAX webhook unregister failed; local bot remains stopped')
+    except Exception as exc:
+        category, code = safe_error(exc)
+        _logger.warning('MAX stage=webhook_unregister state=error error=%s http_code=%s',
+                        category, code)
 
 
 def _generation_active(token, generation):
@@ -756,9 +976,11 @@ def _generation_active(token, generation):
 
 def _run_single_worker(application, token, webhook_url, generation):
     """One active consumer even if two server processes start at once."""
-    bot_config._directory()
-    path = bot_config.CONFIG.parent / 'max-bot-worker.lock'
-    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    _diagnostic_local.generation = generation
+    with diagnostic_stage('worker'):
+        bot_config._directory()
+        path = bot_config.CONFIG.parent / 'max-bot-worker.lock'
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         os.fchmod(fd, 0o600)
         while _generation_active(token, generation):
@@ -793,9 +1015,15 @@ def start_max_limits_worker(application):
                 and _worker_generation == config['generation']):
             return True
         webhook_url = os.environ.get('MAX_LIMITS_WEBHOOK_URL', '').strip()
+        _worker_generation = config['generation']
         if ((requires_webhook() and not webhook_url)
                 or (webhook_url and not valid_webhook_url(webhook_url))):
             _last_error = True
+            try:
+                with diagnostic_stage('config', config['generation']):
+                    raise DiagnosticFailure('configuration')
+            except RuntimeError:
+                pass
             _logger.error('MAX limits bot needs a valid HTTPS webhook in production')
             return False
         _last_error = False
