@@ -3642,7 +3642,6 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
     from key_indicators import build_key_indicators
     from key_indicators_service import load_company_source, build_period_passport
 
-    source, updated_at = load_company_source(company.id, UPLOADS)
     mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company.id)
     collection_accruals = [{
         'date': row.accrual_date.isoformat(),
@@ -3680,8 +3679,42 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         [mappings, cost_mappings, debtor_mappings, collection_accruals,
          collection_allocations, collection_norms],
         ensure_ascii=False, sort_keys=True, separators=(',', ':'),
-    ).encode('utf-8')).digest()
+    ).encode('utf-8')).hexdigest()
     cache_key = (company.id, period, endpoint, date_from)
+    source_revision = str(company.osv_source_revision or '')
+    daily_revision = db.session.query(
+        func.count(DailyRow.id), func.max(DailyRow.id),
+        func.max(DailyRow.uploaded_at),
+    ).filter(DailyRow.company_id == company.id).one()
+    daily_version = [
+        daily_revision[0], daily_revision[1],
+        daily_revision[2].isoformat() if daily_revision[2] else None,
+    ]
+    cache_dir = os.path.join(OUTPUT, str(company.id), 'key-indicators-cache')
+    cache_name = hashlib.sha256(json.dumps(
+        [period, endpoint, date_from], separators=(',', ':')
+    ).encode('utf-8')).hexdigest() + '.json'
+    cache_path = os.path.join(cache_dir, cache_name)
+
+    # Accepted uploads advance osv_source_revision. Serve the persisted
+    # snapshot without scanning or hashing every source workbook on page open.
+    # Legacy companies without a revision use the verified slow path once.
+    if source_revision:
+        try:
+            with open(cache_path, encoding='utf-8') as cache_file:
+                saved = app.json.load(cache_file)
+            if (saved.get('source_revision') == source_revision
+                    and saved.get('daily_version') == daily_version
+                    and saved.get('settings_signature') == settings_signature):
+                payload = saved.get('payload')
+                if isinstance(payload, dict):
+                    payload['company'] = {
+                        'id': company.id, 'name': company.name}
+                    return payload
+        except (OSError, ValueError, TypeError):
+            pass
+
+    source, updated_at = load_company_source(company.id, UPLOADS)
     with _key_indicator_payload_cache_lock:
         cached = _key_indicator_payload_cache.get(cache_key)
         if (cached is not None and cached[0] is source
@@ -3705,6 +3738,24 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         while len(_key_indicator_payload_cache) > \
                 _KEY_INDICATOR_PAYLOAD_CACHE_LIMIT:
             _key_indicator_payload_cache.popitem(last=False)
+    if source_revision:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            temporary_path = cache_path + f'.{uuid.uuid4().hex}.tmp'
+            with open(temporary_path, 'w', encoding='utf-8') as cache_file:
+                cache_file.write(app.json.dumps({
+                    'source_revision': source_revision,
+                    'daily_version': daily_version,
+                    'settings_signature': settings_signature,
+                    'payload': payload,
+                }, ensure_ascii=False, separators=(',', ':')))
+                cache_file.flush()
+                os.fsync(cache_file.fileno())
+            os.replace(temporary_path, cache_path)
+        except (OSError, TypeError, ValueError):
+            app.logger.warning(
+                'Could not persist key-indicator cache for company %s',
+                company.id, exc_info=True)
     return payload
 
 
