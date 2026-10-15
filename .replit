@@ -146,3 +146,15 @@ ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
 ONE_C_ENV = "production"
 ONE_C_PUBLIC_BASE_URL = "https://gisuzter.replit.app"
 ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 21844
+externalPort = 80
