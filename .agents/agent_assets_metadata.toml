@@ -400,3 +400,17 @@ mtime_ms = 1790767876299
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/8f41dca4-e290-410d-8321-4bd35359e647/7c36eeef-c4cf-4d6a-be7a-b75168964b36"
 storage_version_token = "1790767886329179"
 content_type = "image/svg+xml"
+
+[[outputs]]
+id = "raq0nhXfZRQ-nvvXBwku1"
+uri = "file://deliverables/information-interaction-scheme.docx"
+type = "word_document"
+title = "Схема информационного взаимодействия системы"
+description = "Редактируемая схема внешних систем, направлений обмена данными и хранилищ в формате Word."
+logical_id = "898cae46-3867-4ba0-a44d-204dd6533af3"
+content_hash = "sha256:fcec72535ec788c8b5a51cda14165521f77bc9bf61d2994384f88d643950dbcb"
+size = 39714
+mtime_ms = 1792062871368
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/898cae46-3867-4ba0-a44d-204dd6533af3/3b17179e-01cb-47d4-8794-bae1773f719f"
+storage_version_token = "1792062880091321"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
