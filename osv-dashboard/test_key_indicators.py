@@ -2,7 +2,9 @@
 import unittest
 from datetime import date, timedelta
 import time
+from unittest.mock import patch
 
+import key_indicators as indicators
 from key_indicators import (build_indicator_source, build_key_indicators,
                             revenue_analytic_key, _period_bounds,
                             _collection_components_from_rows,
@@ -3523,6 +3525,28 @@ class PeriodAggregateTests(unittest.TestCase):
             'top': top,
             'rows': rows,
         }
+
+    def test_negative_period_selection_is_memoized_for_the_source(self):
+        source = {'accounts': {}}
+        start, end = date(2026, 1, 1), date(2026, 12, 31)
+        with patch.object(
+                indicators, '_period_report_selection_uncached',
+                return_value=None) as select:
+            self.assertIsNone(indicators._period_report_selection(
+                source, '76', start, end))
+            self.assertIsNone(indicators._period_report_selection(
+                source, '76', start, end))
+        self.assertEqual(select.call_count, 1)
+
+    def test_report_scope_score_counts_unique_child_accounts(self):
+        report = {'rows': [
+            {'label': '76.1 контрагент'},
+            {'p1': '76.1 другой контрагент'},
+            {'path2': '76.20.4 вложенная аналитика'},
+            {'label': '176.3 посторонний счёт'},
+            {'label': '76. без субсчёта'},
+        ]}
+        self.assertEqual(indicators._report_scope_score(report, '76'), 2)
 
     def test_n_months_period_is_a_real_report_boundary(self):
         self.assertEqual(

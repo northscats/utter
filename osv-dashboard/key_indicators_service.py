@@ -555,6 +555,74 @@ def _path_signature(path):
     return path, stat.st_mtime_ns, stat.st_size, digest
 
 
+def company_source_revision(company_id, uploads_root):
+    """Fingerprint accepted source inputs without parsing workbook contents."""
+    upload_rows = Upload.query.filter_by(company_id=company_id).order_by(
+        Upload.uploaded_at.asc(), Upload.id.asc()).all()
+    uploads = [_upload_metadata(row) for row in upload_rows]
+    upload_revision = _upload_revision(uploads)
+    upload_dates = [
+        datetime.fromisoformat(item['uploaded_at'].replace('Z', '+00:00'))
+        for item in uploads if item.get('uploaded_at')
+    ]
+    accepted_before = max(upload_dates) if upload_dates else None
+    company_upload_root = os.path.join(
+        uploads_root, str(int(company_id)))
+    (
+        manifest_paths,
+        owned_batches,
+        _tampered_manifest_files,
+        manifest_candidates,
+    ) = _manifest_source_paths(uploads, company_upload_root)
+    has_legacy_uploads = any(
+        not isinstance(upload.get('source_manifest'), list)
+        and upload.get('source_manifest_status') in (None, 'absent')
+        for upload in uploads
+    )
+    fallback_paths = (
+        monthly_files(
+            uploads_root,
+            company_id,
+            accepted_before=accepted_before,
+            excluded_batches=owned_batches,
+        )
+        if uploads and has_legacy_uploads else []
+    )
+    paths = list(manifest_paths)
+    for path in fallback_paths:
+        if path not in paths:
+            paths.append(path)
+    # Avoid parsing control workbooks on cache lookup. Include every possible
+    # control snapshot in the cheap fingerprint; the selected control set is
+    # resolved from its contents only after an actual cache miss.
+    for control_root in (
+            os.path.join(_CONTROL_SNAPSHOT_ROOT, str(int(company_id))),
+            os.path.join(
+                uploads_root, str(int(company_id)), 'control_snapshots')):
+        if not os.path.isdir(control_root):
+            continue
+        for entry in os.scandir(control_root):
+            if (entry.is_file()
+                    and entry.name.lower().endswith(('.xls', '.xlsx'))
+                    and entry.path not in paths):
+                paths.append(entry.path)
+    signature_paths = list(manifest_candidates)
+    for path in paths:
+        if path not in signature_paths:
+            signature_paths.append(path)
+    file_signature = tuple(
+        _path_signature(path) for path in signature_paths)
+    daily_revision = db.session.query(
+        func.count(DailyRow.id), func.max(DailyRow.id),
+        func.max(DailyRow.uploaded_at),
+    ).filter(DailyRow.company_id == company_id).one()
+    revision = (file_signature, tuple(daily_revision), upload_revision)
+    return hashlib.sha256(json.dumps(
+        revision, ensure_ascii=False, sort_keys=True, default=str,
+        separators=(',', ':'),
+    ).encode('utf-8')).hexdigest()
+
+
 def _covered(day, reports):
     for report in reports:
         start, end = _period_bounds(report.get('period', ''))

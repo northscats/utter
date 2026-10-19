@@ -1638,6 +1638,12 @@
                         fallbackSelection = null) {
             this.invalidateAiReport('loading');
             this.showLoading();
+            const requestStartedAt = Date.now();
+            const diagnosticId = window.crypto && window.crypto.randomUUID
+                ? window.crypto.randomUUID()
+                : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+            const loginUrl = config && config.loginUrl || '/login';
+            let responseDiagnostic = null;
             if (window.KI_SourcePassport &&
                 typeof window.KI_SourcePassport.clear === 'function') {
                 // Never leave a previous company's or period's passport
@@ -1670,24 +1676,79 @@
                 ]);
                 const response = await fetch(url, { 
                     signal: abortController.signal, 
-                    headers: { 'Accept': 'application/json' }
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-KI-Request-ID': diagnosticId,
+                    }
                 });
 
+                const finalPath = (() => {
+                    try { return new URL(response.url, window.location.href).pathname; }
+                    catch (_) { return response.url || ''; }
+                })();
+                const contentType = (response.headers &&
+                    response.headers.get('content-type') || '').toLowerCase();
+                responseDiagnostic = {
+                    requestId: diagnosticId,
+                    status: response.status,
+                    contentType,
+                    redirected: Boolean(response.redirected),
+                    finalPath,
+                    durationMs: Date.now() - requestStartedAt,
+                };
+                if (response.redirected && /\/login(?:\/|$)/.test(finalPath)) {
+                    window.location.href = `${loginUrl}?next=` +
+                        encodeURIComponent(window.location.pathname);
+                    return;
+                }
                 if (response.status === 401) {
-                    window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+                    window.location.href = `${loginUrl}?next=` +
+                        encodeURIComponent(window.location.pathname);
                     return; 
                 }
                 if (response.status === 403) throw new Error("Нет доступа (403)");
 
                 const text = await response.text();
+                const isJson = contentType.includes('application/json') ||
+                    contentType.includes('+json');
+                if (!isJson) {
+                    if (response.status === 503) {
+                        throw new Error('Сервер временно занят или ещё запускается. Повторите запрос через несколько секунд.');
+                    }
+                    if (response.status === 502 || response.status === 504) {
+                        throw new Error(`Прокси не получил ответ от сервера (${response.status}). Повторите запрос.`);
+                    }
+                    if (response.status >= 500) {
+                        throw new Error(`Ошибка сервера (${response.status}). Повторите запрос позже.`);
+                    }
+                    if (response.ok) {
+                        throw new Error('Сервер вернул неготовый ответ. Повторите запрос через несколько секунд.');
+                    }
+                    throw new Error(`Сервер вернул ответ ${response.status} без данных JSON.`);
+                }
                 let data;
                 try {
                     data = JSON.parse(text);
                 } catch (e) {
-                    throw new Error("Срок сессии истек или получен некорректный формат ответа");
+                    if (response.status === 503) {
+                        throw new Error('Сервер временно занят или ещё запускается. Повторите запрос через несколько секунд.');
+                    }
+                    if (response.status === 502 || response.status === 504) {
+                        throw new Error(`Прокси не получил ответ от сервера (${response.status}). Повторите запрос.`);
+                    }
+                    throw new Error(`Сервер вернул повреждённый ответ JSON (${response.status}). Повторите запрос.`);
                 }
 
                 const responseError = data && (data.error || data.message);
+                if (response.status === 503 && data.code === 'startup_failed') {
+                    throw new Error(responseError ||
+                        'Сервер не завершил запуск. Данные временно недоступны.');
+                }
+                if (response.status === 503 &&
+                        data.code === 'startup_in_progress') {
+                    throw new Error(responseError ||
+                        'Сервер ещё запускается. Повторите запрос через несколько секунд.');
+                }
                 const unavailablePeriod = data &&
                     (unavailablePeriodErrors.has(data.error) ||
                      unavailablePeriodErrors.has(data.message));
@@ -1740,6 +1801,13 @@
                     (companySwitchToken !== null &&
                      companySwitchToken !== state.companySwitchToken) ||
                     e.name === 'AbortError') return;
+                if (e.name === 'TypeError') {
+                    e = new Error('Не удалось связаться с сервером. Проверьте соединение и повторите запрос.');
+                }
+                if (responseDiagnostic && window.console &&
+                    typeof window.console.warn === 'function') {
+                    window.console.warn('Key-indicator request failed', responseDiagnostic);
+                }
                 if (state.companySwitching) {
                     this.invalidateAiReport('error', e.message);
                     this.showCompanySwitchError(companySwitchToken, e.message);

@@ -282,13 +282,245 @@ class KeyIndicatorRouteTests(unittest.TestCase):
     def url(self, company=None, data=False):
         return f'/company/{company or self.company}/key-indicators' + ('/data' if data else '')
 
+    def setUp(self):
+        with self.app.app_context():
+            for model in (
+                    app_module.KeyIndicatorResult,
+                    app_module.KeyIndicatorSourceSnapshot):
+                model.query.filter(
+                    model.company_id.in_((self.company, self.other))
+                ).delete(synchronize_session=False)
+            DailyRow.query.filter_by(company_id=self.company).delete()
+            Upload.query.filter_by(company_id=self.company).delete()
+            db.session.commit()
+
     def test_auth_and_company_boundaries_on_html_and_json(self):
         for data in (False, True):
-            self.assertEqual(self.client().get(self.url(data=data)).status_code, 302)
+            unauthenticated = self.client().get(self.url(data=data))
+            self.assertEqual(unauthenticated.status_code, 401 if data else 302)
+            if data:
+                self.assertEqual(
+                    unauthenticated.get_json()['code'],
+                    'authentication_required')
             for user in ('kpi_outsider', 'kpi_no_module'):
                 self.assertEqual(self.client(user).get(self.url(data=data)).status_code, 403)
             self.assertEqual(
                 self.client('kpi_allowed').get(self.url(self.other, data)).status_code, 403)
+
+    def test_startup_gate_returns_retryable_json_for_data_route(self):
+        was_ready = self.app.config.get('DURABLE_STARTUP_READY', True)
+        was_failed = self.app.config.get('DURABLE_STARTUP_FAILED', False)
+        self.app.config.update(
+            DURABLE_STARTUP_READY=False, DURABLE_STARTUP_FAILED=False)
+        try:
+            response = self.client('kpi_allowed').get(self.url(data=True))
+        finally:
+            self.app.config.update(
+                DURABLE_STARTUP_READY=was_ready,
+                DURABLE_STARTUP_FAILED=was_failed)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.mimetype, 'application/json')
+        self.assertEqual(response.get_json()['code'], 'startup_in_progress')
+        self.assertEqual(response.headers['Retry-After'], '5')
+        self.app.config.update(
+            DURABLE_STARTUP_READY=False, DURABLE_STARTUP_FAILED=True)
+        try:
+            failed = self.client('kpi_allowed').get(self.url(data=True))
+        finally:
+            self.app.config.update(
+                DURABLE_STARTUP_READY=was_ready,
+                DURABLE_STARTUP_FAILED=was_failed)
+        self.assertEqual(failed.status_code, 503)
+        self.assertEqual(failed.get_json()['code'], 'startup_failed')
+        self.assertNotIn('Retry-After', failed.headers)
+
+    def test_committed_input_changes_queue_a_durable_warm_and_resume(self):
+        previous_testing = self.app.config.get('TESTING', False)
+        self.app.config['TESTING'] = False
+        try:
+            with self.app.app_context(), patch.object(
+                    app_module, '_schedule_key_indicator_warm_company') as schedule:
+                db.session.add(Upload(
+                    company_id=self.company,
+                    uploaded_by=self.ids['kpi_admin'],
+                    period_label='Warm queue test',
+                ))
+                db.session.commit()
+                schedule.assert_called_once_with(self.company)
+                job = db.session.get(
+                    app_module.KeyIndicatorWarmJob, self.company)
+                self.assertIsNotNone(job)
+                self.assertEqual(job.request_version, 1)
+            with self.app.app_context(), patch.object(
+                    app_module, '_schedule_key_indicator_warm_company') as schedule:
+                app_module._resume_pending_key_indicator_warms()
+                schedule.assert_called_once_with(self.company)
+        finally:
+            self.app.config['TESTING'] = previous_testing
+            with self.app.app_context():
+                db.session.delete(db.session.get(
+                    app_module.KeyIndicatorWarmJob, self.company))
+                Upload.query.filter_by(
+                    company_id=self.company,
+                    period_label='Warm queue test').delete()
+                db.session.commit()
+
+    def test_operational_result_and_prepared_source_survive_session_restart(self):
+        from key_indicators import build_key_indicators
+
+        with self.app.app_context():
+            company = Company(
+                name='Durable KPI cache test',
+                created_by=self.ids['kpi_admin'])
+            db.session.add(company)
+            db.session.commit()
+            company_id = company.id
+
+        source = {'version': 1, 'accounts': {}, 'warnings': []}
+        built_payload = {'cards': [], 'period': {'kind': 'month'}}
+        with patch.object(
+                service, 'company_source_revision',
+                return_value='stable-source-fingerprint'), \
+                patch.object(
+                    service, 'load_company_source',
+                    return_value=(source, '2026-10-19T00:00:00+00:00')) as load_source, \
+                patch('key_indicators.build_key_indicators',
+                      return_value=copy.deepcopy(built_payload)) as calculate, \
+                patch.object(service, 'build_period_passport', return_value={}):
+            with self.app.app_context():
+                company = db.session.get(Company, company_id)
+                first = app_module._operational_key_indicators_payload(
+                    company, 'month', None, None)
+                self.assertEqual(first['company']['id'], company_id)
+                db.session.remove()
+                company = db.session.get(Company, company_id)
+                second = app_module._operational_key_indicators_payload(
+                    company, 'month', None, None)
+                self.assertEqual(second['period']['kind'], 'month')
+                self.assertEqual(load_source.call_count, 1)
+                self.assertEqual(calculate.call_count, 1)
+
+                # A different range gets a distinct result but reuses the
+                # durable prepared source rather than parsing workbooks again.
+                app_module._operational_key_indicators_payload(
+                    company, 'year', None, None)
+                self.assertEqual(load_source.call_count, 1)
+                self.assertEqual(calculate.call_count, 2)
+
+                db.session.add(RevenueAnalyticMapping(
+                    company_id=company_id,
+                    account='90.01',
+                    analytic_key='mapping-change',
+                    analytic_label='Категория',
+                    category='population',
+                ))
+                db.session.commit()
+                app_module._operational_key_indicators_payload(
+                    company, 'year', None, None)
+                self.assertEqual(load_source.call_count, 1)
+                self.assertEqual(calculate.call_count, 3)
+
+                db.session.add(Upload(
+                    company_id=company_id,
+                    uploaded_by=self.ids['kpi_admin'],
+                    period_label='Новая ревизия',
+                ))
+                db.session.commit()
+                db.session.expire(company)
+                app_module._operational_key_indicators_payload(
+                    company, 'year', None, None)
+                self.assertEqual(load_source.call_count, 2)
+                self.assertEqual(calculate.call_count, 4)
+
+        with self.app.app_context():
+            KeyIndicatorResult = app_module.KeyIndicatorResult
+            KeyIndicatorSourceSnapshot = app_module.KeyIndicatorSourceSnapshot
+            KeyIndicatorResult.query.filter_by(company_id=company_id).delete()
+            KeyIndicatorSourceSnapshot.query.filter_by(
+                company_id=company_id).delete()
+            RevenueAnalyticMapping.query.filter_by(
+                company_id=company_id).delete()
+            Upload.query.filter_by(company_id=company_id).delete()
+            db.session.delete(db.session.get(Company, company_id))
+            db.session.commit()
+
+    def test_failed_background_warm_remains_durable_for_retry(self):
+        with self.app.app_context():
+            db.session.add(app_module.KeyIndicatorWarmJob(
+                company_id=self.company))
+            db.session.commit()
+        with app_module._key_indicator_warm_lock:
+            app_module._key_indicator_warm_versions[self.company] = 1
+            app_module._key_indicator_warm_scheduled.add(self.company)
+        try:
+            with patch.object(
+                    app_module, '_operational_key_indicators_payload',
+                    side_effect=RuntimeError('test failure')):
+                app_module._run_key_indicator_warm(self.company)
+            with self.app.app_context():
+                job = db.session.get(
+                    app_module.KeyIndicatorWarmJob, self.company)
+                self.assertIsNotNone(job)
+                self.assertEqual(job.attempts, 1)
+                self.assertEqual(job.last_error_category, 'build_failed')
+        finally:
+            with app_module._key_indicator_warm_lock:
+                app_module._key_indicator_warm_versions.pop(self.company, None)
+                app_module._key_indicator_warm_scheduled.discard(self.company)
+            with self.app.app_context():
+                db.session.delete(db.session.get(
+                    app_module.KeyIndicatorWarmJob, self.company))
+                db.session.commit()
+
+    def test_background_warm_builds_the_default_screen_period(self):
+        with self.app.app_context():
+            db.session.add(app_module.KeyIndicatorWarmJob(
+                company_id=self.company))
+            db.session.commit()
+        with app_module._key_indicator_warm_lock:
+            app_module._key_indicator_warm_versions[self.company] = 1
+            app_module._key_indicator_warm_scheduled.add(self.company)
+        try:
+            with patch.object(
+                    app_module, '_operational_key_indicators_payload',
+                    return_value={}) as calculate:
+                app_module._run_key_indicator_warm(self.company)
+            calculate.assert_called_once_with(
+                unittest.mock.ANY, 'year', None, None)
+            with self.app.app_context():
+                self.assertIsNone(db.session.get(
+                    app_module.KeyIndicatorWarmJob, self.company))
+        finally:
+            with app_module._key_indicator_warm_lock:
+                app_module._key_indicator_warm_versions.pop(self.company, None)
+                app_module._key_indicator_warm_scheduled.discard(self.company)
+
+    def test_changed_source_during_calculation_is_not_published(self):
+        from key_indicators_service import SourceBusyError
+
+        source = {'accounts': {}, 'warnings': []}
+        with patch.object(
+                service, 'company_source_revision',
+                side_effect=['stable-fingerprint', 'stable-fingerprint',
+                             'changed-fingerprint']), \
+                patch.object(
+                    service, 'load_company_source',
+                    return_value=(source, None)), \
+                patch('key_indicators.build_key_indicators',
+                      return_value={'cards': []}), \
+                patch.object(service, 'build_period_passport', return_value={}):
+            with self.app.app_context():
+                company = db.session.get(Company, self.company)
+                with self.assertRaises(SourceBusyError):
+                    app_module._operational_key_indicators_payload(
+                        company, 'year', None, None)
+                self.assertEqual(
+                    app_module.KeyIndicatorResult.query.filter_by(
+                        company_id=self.company).count(), 0)
+        with self.app.app_context():
+            app_module.KeyIndicatorSourceSnapshot.query.filter_by(
+                company_id=self.company).delete()
+            db.session.commit()
 
     def test_page_and_safe_company_name(self):
         response = self.client('kpi_allowed').get(self.url())
@@ -868,7 +1100,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             response = self.client('kpi_admin').get(self.url(data=True))
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(len(payload['cards']), 11)
+        self.assertEqual(len(payload['cards']), 10)
         self.assertTrue(all(card['value'] is None for card in payload['cards']))
         self.assertIsNone(payload['updated_at'])
         passport = payload['source_passport']

@@ -20,9 +20,8 @@ import threading
 
 _limits_history_ready = threading.Event()
 _limits_parse_slots = threading.Semaphore(1)
-_key_indicator_payload_cache = OrderedDict()
-_key_indicator_payload_cache_lock = threading.RLock()
-_KEY_INDICATOR_PAYLOAD_CACHE_LIMIT = 16
+_KEY_INDICATOR_ALGORITHM_VERSION = '2026-10-19.1'
+_KEY_INDICATOR_RESULT_CACHE_LIMIT = 48
 
 import bcrypt
 from flask import (Flask, Response, abort, flash, g, has_request_context, jsonify,
@@ -33,8 +32,9 @@ from flask_login import (LoginManager, current_user, login_required,
 from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, event, func, inspect as sa_inspect, or_
 from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
+from sqlalchemy.orm import Session as SQLAlchemySession
 
 from jobs import create_job, get_job, finish_job, fail_job
 
@@ -45,6 +45,8 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                        CompanyDadataProfile, CompanyDadataSnapshot,
                        DadataDiagnosticEvent,
                        CompanyFinance, CompanyLicense, CompanyMembership,
+                       KeyIndicatorSourceSnapshot, KeyIndicatorResult,
+                       KeyIndicatorWarmJob,
                        CompanyOkved, DailyRow, DailyReconciliationAlert, EmailRule, HistoricalImport,
                        HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
                        HistoricalYearVersion, RatingProfile, RevenueAnalyticMapping,
@@ -338,6 +340,33 @@ db.init_app(app)
 csrf = CSRFProtect(app)
 
 
+@app.before_request
+def _start_key_indicator_http_diagnostic():
+    if request.path.endswith('/key-indicators/data'):
+        candidate = request.headers.get('X-KI-Request-ID', '')
+        g.ki_request_id = (
+            candidate if re.fullmatch(r'[a-fA-F0-9-]{16,64}', candidate)
+            else uuid.uuid4().hex)
+        g.ki_request_started = time.monotonic()
+
+
+@app.after_request
+def _finish_key_indicator_http_diagnostic(response):
+    if request.path.endswith('/key-indicators/data'):
+        request_id = getattr(g, 'ki_request_id', uuid.uuid4().hex)
+        elapsed_ms = round(
+            (time.monotonic() - getattr(g, 'ki_request_started', time.monotonic()))
+            * 1000)
+        response.headers['X-KI-Request-ID'] = request_id
+        app.logger.info(
+            'key-indicator http request=%s status=%d content_type=%s '
+            'duration_ms=%d redirected=%s',
+            request_id, response.status_code,
+            response.mimetype or 'unknown', elapsed_ms,
+            response.status_code in (301, 302, 303, 307, 308))
+    return response
+
+
 @app.after_request
 def _durable_mutation_safety_net(response):
     """Capture successful user mutations not covered by an explicit backup."""
@@ -396,10 +425,179 @@ _limits_recovery_lock = threading.Lock()
 _limits_startup_lock = threading.Lock()
 _limits_parse_threads = {}
 _limits_parse_threads_lock = threading.Lock()
+_key_indicator_warm_lock = threading.Lock()
+_key_indicator_warm_versions = {}
+_key_indicator_warm_scheduled = set()
+
+_KEY_INDICATOR_INPUT_MODELS = (
+    Upload, DailyRow, RevenueAnalyticMapping, CostAnalyticMapping,
+    DebtorAnalyticMapping, ConsumerCollectionAccrual,
+    ConsumerPaymentAllocation, ConsumerCollectionNorm,
+)
+
+
+@event.listens_for(SQLAlchemySession, 'before_flush')
+def _collect_key_indicator_warm_companies(session, _flush_context, _instances):
+    """Collect affected companies in every existing source/settings channel."""
+    if app.config.get('TESTING'):
+        return
+    affected = session.info.setdefault('_ki_warm_companies', set())
+    changed = set()
+    for item in (*session.new, *session.dirty, *session.deleted):
+        if isinstance(item, _KEY_INDICATOR_INPUT_MODELS):
+            company_id = getattr(item, 'company_id', None)
+            if company_id is not None:
+                changed.add(int(company_id))
+        elif (isinstance(item, Company) and item.id is not None
+              and sa_inspect(item).attrs.osv_source_revision.history.has_changes()):
+            revision = str(item.osv_source_revision or '')
+            if revision and not revision.startswith('legacy:'):
+                changed.add(int(item.id))
+    new_companies = changed - affected
+    affected.update(new_companies)
+    for company_id in new_companies:
+        job = session.get(KeyIndicatorWarmJob, company_id)
+        if job is None:
+            session.add(KeyIndicatorWarmJob(company_id=company_id))
+        else:
+            job.request_version += 1
+            job.requested_at = utcnow()
+            job.last_error_category = ''
+
+
+def _run_key_indicator_warm(company_id):
+    """Warm the default main-screen period; coalesce concurrent invalidations."""
+    from key_indicators_service import SourceBusyError
+
+    while True:
+        with _key_indicator_warm_lock:
+            generation = _key_indicator_warm_versions.get(company_id, 0)
+        success = False
+        retryable_failure = False
+        try:
+            with app.app_context():
+                try:
+                    job = db.session.get(KeyIndicatorWarmJob, company_id)
+                    if job is None:
+                        success = True
+                    else:
+                        job_version = job.request_version
+                        company = db.session.get(Company, company_id)
+                        if company is not None:
+                            _operational_key_indicators_payload(
+                                company, 'year', None, None)
+                        if company is None:
+                            db.session.delete(job)
+                            db.session.commit()
+                            success = True
+                        else:
+                            current_job = KeyIndicatorWarmJob.query.filter_by(
+                                company_id=company_id).with_for_update().one_or_none()
+                            if (current_job is not None
+                                    and current_job.request_version == job_version):
+                                db.session.delete(current_job)
+                                db.session.commit()
+                                success = True
+                            else:
+                                retryable_failure = True
+                finally:
+                    db.session.remove()
+        except SourceBusyError:
+            app.logger.info(
+                'key-indicator background warm company=%s outcome=retry',
+                company_id)
+            retryable_failure = True
+        except Exception:
+            app.logger.exception(
+                'key-indicator background warm company=%s outcome=failed',
+                company_id)
+            retryable_failure = True
+            with app.app_context():
+                try:
+                    job = db.session.get(KeyIndicatorWarmJob, company_id)
+                    if job is not None:
+                        job.attempts += 1
+                        job.last_error_category = 'build_failed'
+                        db.session.commit()
+                except Exception:
+                    db.session.rollback()
+                    app.logger.exception(
+                        'key-indicator warm failure status could not be saved '
+                        'for company=%s', company_id)
+                finally:
+                    db.session.remove()
+        with _key_indicator_warm_lock:
+            if generation != _key_indicator_warm_versions.get(company_id, 0):
+                continue
+            if success:
+                app.logger.info(
+                    'key-indicator background warm company=%s outcome=ready',
+                    company_id)
+            _key_indicator_warm_scheduled.discard(company_id)
+            if retryable_failure:
+                return
+            return
+
+
+def _schedule_key_indicator_warm_company(company_id):
+    if (not app.config.get('DURABLE_STARTUP_READY', True)
+            or app.config.get('DURABLE_STARTUP_FAILED', False)):
+        return
+    with _key_indicator_warm_lock:
+        _key_indicator_warm_versions[company_id] = (
+            _key_indicator_warm_versions.get(company_id, 0) + 1)
+        if company_id in _key_indicator_warm_scheduled:
+            return
+        _key_indicator_warm_scheduled.add(company_id)
+    threading.Thread(
+        target=_run_key_indicator_warm,
+        args=(company_id,),
+        name=f'key-indicator-warm-{company_id}',
+        daemon=True,
+    ).start()
+
+
+def _resume_pending_key_indicator_warms():
+    """Recover durable warm requests left queued by a process restart."""
+    if app.config.get('TESTING'):
+        return
+    with app.app_context():
+        pending = [
+            row.company_id for row in
+            KeyIndicatorWarmJob.query.order_by(
+                KeyIndicatorWarmJob.requested_at.asc()).all()
+        ]
+    for company_id in pending:
+        _schedule_key_indicator_warm_company(company_id)
+
+
+@event.listens_for(SQLAlchemySession, 'after_commit')
+def _schedule_key_indicator_warm(session):
+    company_ids = session.info.pop('_ki_warm_companies', set())
+    if not company_ids or app.config.get('TESTING'):
+        return
+    for company_id in company_ids:
+        _schedule_key_indicator_warm_company(company_id)
+
+
+@event.listens_for(SQLAlchemySession, 'after_rollback')
+def _discard_key_indicator_warm(session):
+    session.info.pop('_ki_warm_companies', None)
 
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = None
+
+
+@login_manager.unauthorized_handler
+def _key_indicators_unauthorized():
+    """Keep JSON callers out of the HTML login redirect flow."""
+    if request.path.endswith('/key-indicators/data'):
+        return jsonify(
+            error='Войдите снова, чтобы продолжить.',
+            code='authentication_required',
+        ), 401
+    return redirect(url_for('login', next=request.url))
 
 
 @login_manager.user_loader
@@ -465,7 +663,25 @@ def _durable_startup_http_gate():
     if app.config.get('DURABLE_STARTUP_READY', True):
         return None
     if app.config.get('DURABLE_STARTUP_FAILED', False):
+        if request.path.endswith('/key-indicators/data'):
+            response = jsonify(
+                error=('Сервер не завершил запуск. Данные ФХД временно '
+                       'недоступны; обратитесь к администратору.'),
+                code='startup_failed',
+            )
+            response.status_code = 503
+            response.headers['Cache-Control'] = 'no-store'
+            return response
         return None
+    if request.path.endswith('/key-indicators/data'):
+        response = jsonify(
+            error='Приложение запускается. Повторите запрос через несколько секунд.',
+            code='startup_in_progress',
+        )
+        response.status_code = 503
+        response.headers['Retry-After'] = '5'
+        response.headers['Cache-Control'] = 'no-store'
+        return response
     if request.method in ('GET', 'HEAD'):
         return Response(
             'Приложение запускается. Восстановление и проверка данных выполняются.',
@@ -507,6 +723,11 @@ def _enforce_password_lifecycle():
         # Do not bless a session created before the version binding existed:
         # it may be a stolen/restored cookie from before a password change.
         logout_user()
+        if request.path.endswith('/key-indicators/data'):
+            return jsonify(
+                error='Сессия устарела. Войдите снова.',
+                code='authentication_required',
+            ), 401
         flash('Сессия устарела. Войдите снова.')
         return redirect(url_for('login'))
     try:
@@ -515,6 +736,11 @@ def _enforce_password_lifecycle():
         version_matches = False
     if not version_matches:
         logout_user()
+        if request.path.endswith('/key-indicators/data'):
+            return jsonify(
+                error='Пароль был изменён. Войдите снова.',
+                code='authentication_required',
+            ), 401
         flash('Пароль был изменён. Войдите снова.')
         return redirect(url_for('login'))
 
@@ -3637,12 +3863,9 @@ def _key_indicator_mappings(company_id):
     )
 
 
-def _operational_key_indicators_payload(company, period, endpoint, date_from):
-    """Calculate the one authoritative period payload used by both views."""
-    from key_indicators import build_key_indicators
-    from key_indicators_service import load_company_source, build_period_passport
-
-    mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company.id)
+def _key_indicator_settings_snapshot(company_id):
+    """Return all settings that can change the operational result."""
+    mappings, cost_mappings, debtor_mappings = _key_indicator_mappings(company_id)
     collection_accruals = [{
         'date': row.accrual_date.isoformat(),
         'account': row.account,
@@ -3653,7 +3876,7 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         'source': row.source_name,
         'version': row.source_version,
     } for row in ConsumerCollectionAccrual.query.filter_by(
-        company_id=company.id).all()]
+        company_id=company_id).all()]
     collection_allocations = [{
         'date': row.payment_date.isoformat(),
         'payment_document': row.payment_document,
@@ -3663,7 +3886,7 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         'source': row.source_name,
         'version': row.source_version,
     } for row in ConsumerPaymentAllocation.query.filter_by(
-        company_id=company.id).all()]
+        company_id=company_id).all()]
     collection_norms = [{
         'category': row.category,
         'plan_percent': row.plan_percent,
@@ -3674,88 +3897,200 @@ def _operational_key_indicators_payload(company, period, endpoint, date_from):
         'source': row.source_name,
         'version': row.source_version,
     } for row in ConsumerCollectionNorm.query.filter_by(
-        company_id=company.id).all()]
-    settings_signature = hashlib.sha256(json.dumps(
+        company_id=company_id).all()]
+    signature = hashlib.sha256(json.dumps(
         [mappings, cost_mappings, debtor_mappings, collection_accruals,
          collection_allocations, collection_norms],
         ensure_ascii=False, sort_keys=True, separators=(',', ':'),
     ).encode('utf-8')).hexdigest()
-    cache_key = (company.id, period, endpoint, date_from)
-    source_revision = str(company.osv_source_revision or '')
-    daily_revision = db.session.query(
+    return {
+        'revenue_mappings': mappings,
+        'cost_mappings': cost_mappings,
+        'debtor_mappings': debtor_mappings,
+        'collection_accruals': collection_accruals,
+        'collection_allocations': collection_allocations,
+        'collection_norms': collection_norms,
+        'signature': signature,
+    }
+
+
+def _key_indicator_daily_version(company_id):
+    revision = db.session.query(
         func.count(DailyRow.id), func.max(DailyRow.id),
         func.max(DailyRow.uploaded_at),
-    ).filter(DailyRow.company_id == company.id).one()
-    daily_version = [
-        daily_revision[0], daily_revision[1],
-        daily_revision[2].isoformat() if daily_revision[2] else None,
+    ).filter(DailyRow.company_id == company_id).one()
+    return [
+        revision[0], revision[1],
+        revision[2].isoformat() if revision[2] else None,
     ]
-    cache_dir = os.path.join(OUTPUT, str(company.id), 'key-indicators-cache')
-    cache_name = hashlib.sha256(json.dumps(
-        [period, endpoint, date_from], separators=(',', ':')
-    ).encode('utf-8')).hexdigest() + '.json'
-    cache_path = os.path.join(cache_dir, cache_name)
 
-    # Accepted uploads advance osv_source_revision. Serve the persisted
-    # snapshot without scanning or hashing every source workbook on page open.
-    # Legacy companies without a revision use the verified slow path once.
-    if source_revision:
+
+def _key_indicator_cached_source(
+        company_id, source_revision, company_source_marker):
+    from key_indicators_service import (
+        company_source_revision, load_company_source,
+    )
+
+    saved = KeyIndicatorSourceSnapshot.query.filter_by(
+        company_id=company_id, source_revision=source_revision).one_or_none()
+    if saved:
         try:
-            with open(cache_path, encoding='utf-8') as cache_file:
-                saved = app.json.load(cache_file)
-            if (saved.get('source_revision') == source_revision
-                    and saved.get('daily_version') == daily_version
-                    and saved.get('settings_signature') == settings_signature):
-                payload = saved.get('payload')
-                if isinstance(payload, dict):
-                    payload['company'] = {
-                        'id': company.id, 'name': company.name}
-                    return payload
-        except (OSError, ValueError, TypeError):
-            pass
+            source = app.json.loads(saved.source_json)
+            if isinstance(source, dict):
+                return source, saved.source_updated_at, 'database'
+        except (TypeError, ValueError):
+            app.logger.warning(
+                'Invalid prepared key-indicator source snapshot for company %s',
+                company_id)
 
-    source, updated_at = load_company_source(company.id, UPLOADS)
-    with _key_indicator_payload_cache_lock:
-        cached = _key_indicator_payload_cache.get(cache_key)
-        if (cached is not None and cached[0] is source
-                and cached[1] == settings_signature):
-            _key_indicator_payload_cache.move_to_end(cache_key)
-            return cached[2]
+    source, updated_at = load_company_source(company_id, UPLOADS)
+    serialized = app.json.dumps(source, ensure_ascii=False, separators=(',', ':'))
+    with db.session.begin_nested():
+        current_revision = db.session.query(
+            Company.osv_source_revision).filter_by(
+                id=company_id).with_for_update().scalar()
+        current_revision = str(current_revision or f'legacy:{company_id}')
+        current_input_revision = company_source_revision(company_id, UPLOADS)
+        current_source_revision = hashlib.sha256(json.dumps([
+            current_revision, current_input_revision,
+        ], separators=(',', ':')).encode('utf-8')).hexdigest()
+        if (current_revision != company_source_marker
+                or current_source_revision != source_revision):
+            from key_indicators_service import SourceBusyError
+            raise SourceBusyError(
+                'Исходные данные изменились во время подготовки. Повторите запрос.')
+        row = KeyIndicatorSourceSnapshot.query.filter_by(
+            company_id=company_id, source_revision=source_revision
+        ).one_or_none()
+        if row is None:
+            row = KeyIndicatorSourceSnapshot(
+                company_id=company_id,
+                source_revision=source_revision,
+                source_json=serialized,
+                source_updated_at=updated_at,
+            )
+            db.session.add(row)
+        else:
+            row.source_json = serialized
+            row.source_updated_at = updated_at
+        KeyIndicatorSourceSnapshot.query.filter(
+            KeyIndicatorSourceSnapshot.company_id == company_id,
+            KeyIndicatorSourceSnapshot.source_revision != source_revision,
+        ).delete(synchronize_session=False)
+    db.session.commit()
+    return source, updated_at, 'assembled'
+
+
+def _operational_key_indicators_payload(company, period, endpoint, date_from):
+    """Read a durable result or build and atomically publish one revision."""
+    from key_indicators import build_key_indicators
+    from key_indicators_service import (
+        SourceBusyError, build_period_passport, company_source_revision,
+    )
+
+    started = time.monotonic()
+    company_source_marker = str(
+        company.osv_source_revision or f'legacy:{company.id}')
+    source_input_revision = company_source_revision(company.id, UPLOADS)
+    source_revision = hashlib.sha256(json.dumps([
+        company_source_marker, source_input_revision,
+    ], separators=(',', ':')).encode('utf-8')).hexdigest()
+    settings = _key_indicator_settings_snapshot(company.id)
+    daily_version = _key_indicator_daily_version(company.id)
+    cache_parts = [
+        company.id, source_revision, daily_version, settings['signature'],
+        _KEY_INDICATOR_ALGORITHM_VERSION, period, endpoint, date_from,
+    ]
+    cache_key = hashlib.sha256(json.dumps(
+        cache_parts, ensure_ascii=False, sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')).hexdigest()
+    saved = db.session.get(KeyIndicatorResult, cache_key)
+    if (saved and saved.source_revision == source_revision
+            and saved.settings_signature == settings['signature']
+            and saved.algorithm_version == _KEY_INDICATOR_ALGORITHM_VERSION):
+        try:
+            payload = app.json.loads(saved.payload_json)
+            if isinstance(payload, dict):
+                payload['company'] = {'id': company.id, 'name': company.name}
+                app.logger.info(
+                    'key-indicator cache company=%s result=hit total_ms=%d',
+                    company.id, round((time.monotonic() - started) * 1000))
+                return payload
+        except (TypeError, ValueError):
+            app.logger.warning(
+                'Invalid saved key-indicator result for company %s', company.id)
+
+    app.logger.info(
+        'key-indicator cache company=%s result=miss period=%s',
+        company.id, period)
+    source_started = time.monotonic()
+    source, updated_at, source_cache = _key_indicator_cached_source(
+        company.id, source_revision, company_source_marker)
+    source_ms = round((time.monotonic() - source_started) * 1000)
+    calculate_started = time.monotonic()
     payload = build_key_indicators(
         source, period=period, date=endpoint, date_from=date_from,
-        revenue_mappings=mappings, cost_mappings=cost_mappings,
-        debtor_mappings=debtor_mappings,
-        collection_accruals=collection_accruals,
-        collection_allocations=collection_allocations,
-        collection_norms=collection_norms)
+        revenue_mappings=settings['revenue_mappings'],
+        cost_mappings=settings['cost_mappings'],
+        debtor_mappings=settings['debtor_mappings'],
+        collection_accruals=settings['collection_accruals'],
+        collection_allocations=settings['collection_allocations'],
+        collection_norms=settings['collection_norms'])
     payload['company'] = {'id': company.id, 'name': company.name}
     payload['updated_at'] = updated_at
     payload['source_passport'] = build_period_passport(source, payload)
-    with _key_indicator_payload_cache_lock:
-        _key_indicator_payload_cache[cache_key] = (
-            source, settings_signature, payload)
-        _key_indicator_payload_cache.move_to_end(cache_key)
-        while len(_key_indicator_payload_cache) > \
-                _KEY_INDICATOR_PAYLOAD_CACHE_LIMIT:
-            _key_indicator_payload_cache.popitem(last=False)
-    if source_revision:
-        try:
-            os.makedirs(cache_dir, exist_ok=True)
-            temporary_path = cache_path + f'.{uuid.uuid4().hex}.tmp'
-            with open(temporary_path, 'w', encoding='utf-8') as cache_file:
-                cache_file.write(app.json.dumps({
-                    'source_revision': source_revision,
-                    'daily_version': daily_version,
-                    'settings_signature': settings_signature,
-                    'payload': payload,
-                }, ensure_ascii=False, separators=(',', ':')))
-                cache_file.flush()
-                os.fsync(cache_file.fileno())
-            os.replace(temporary_path, cache_path)
-        except (OSError, TypeError, ValueError):
-            app.logger.warning(
-                'Could not persist key-indicator cache for company %s',
-                company.id, exc_info=True)
+    calculate_ms = round((time.monotonic() - calculate_started) * 1000)
+    serialized_payload = app.json.dumps(
+        payload, ensure_ascii=False, separators=(',', ':'))
+
+    with db.session.begin_nested():
+        current_revision = db.session.query(
+            Company.osv_source_revision).filter_by(
+                id=company.id).with_for_update().scalar()
+        current_revision = str(current_revision or f'legacy:{company.id}')
+        current_input_revision = company_source_revision(company.id, UPLOADS)
+        current_source_revision = hashlib.sha256(json.dumps([
+            current_revision, current_input_revision,
+        ], separators=(',', ':')).encode('utf-8')).hexdigest()
+        current_settings = _key_indicator_settings_snapshot(company.id)
+        current_daily_version = _key_indicator_daily_version(company.id)
+        if (current_revision != company_source_marker
+                or current_source_revision != source_revision
+                or current_settings['signature'] != settings['signature']
+                or current_daily_version != daily_version):
+            raise SourceBusyError(
+                'Исходные данные или настройки изменились во время расчёта. '
+                'Повторите запрос.')
+        result = db.session.get(KeyIndicatorResult, cache_key)
+        if result is None:
+            result = KeyIndicatorResult(
+                cache_key=cache_key,
+                company_id=company.id,
+                source_revision=source_revision,
+                settings_signature=settings['signature'],
+                algorithm_version=_KEY_INDICATOR_ALGORITHM_VERSION,
+                payload_json=serialized_payload,
+            )
+            db.session.add(result)
+        else:
+            result.payload_json = serialized_payload
+            result.created_at = utcnow()
+        old_keys = [row.cache_key for row in
+                    KeyIndicatorResult.query.filter_by(
+                        company_id=company.id).order_by(
+                            KeyIndicatorResult.created_at.desc()
+                        ).offset(_KEY_INDICATOR_RESULT_CACHE_LIMIT).all()]
+        if old_keys:
+            KeyIndicatorResult.query.filter(
+                KeyIndicatorResult.cache_key.in_(old_keys)
+            ).delete(synchronize_session=False)
+    db.session.commit()
+    app.logger.info(
+        'key-indicator cache company=%s result=stored source=%s '
+        'source_ms=%d calculate_ms=%d total_ms=%d',
+        company.id, source_cache, source_ms, calculate_ms,
+        round((time.monotonic() - started) * 1000))
     return payload
 
 
@@ -7412,6 +7747,10 @@ def init_db(perform_durable=True):
                 "UPDATE companies SET internal_code = CAST(id AS VARCHAR(80)) "
                 "WHERE COALESCE(TRIM(internal_code), '') = ''"))
         for _company in Company.query.order_by(Company.id).all():
+            if not _company.osv_source_revision:
+                # Stable migration marker: the source fingerprint still checks
+                # accepted manifests/files, so legacy data needs no re-upload.
+                _company.osv_source_revision = f'legacy:{_company.id}'
             _classifications = _safe_json(_company.classifications_json, {})
             if not isinstance(_classifications, dict):
                 _classifications = {}
@@ -7807,6 +8146,7 @@ def _finish_durable_startup(restore=False):
             # blocked.  Its own gate exposes the recovery UI without hiding
             # every unrelated application route behind the startup message.
             app.config['DURABLE_STARTUP_READY'] = True
+            _resume_pending_key_indicator_warms()
             if (not app.config.get('TESTING')
                     and Setting.get('limits_history_ready') == 'ready'):
                 from max_limits import start_max_limits_worker

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Модели базы данных (PostgreSQL через Flask-SQLAlchemy)."""
 import json
+import uuid
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
@@ -495,6 +496,60 @@ class Upload(db.Model):
             return None
 
 
+class KeyIndicatorSourceSnapshot(db.Model):
+    """Подготовленный снимок источника ФХД, переживающий перезапуск."""
+    __tablename__ = 'key_indicator_source_snapshots'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'company_id', 'source_revision',
+            name='uq_ki_source_snapshot_company_revision'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    source_revision = db.Column(db.String(120), nullable=False)
+    source_json = db.Column(db.Text, nullable=False)
+    source_updated_at = db.Column(db.String(40), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+
+
+class KeyIndicatorResult(db.Model):
+    """Целостный ответ экрана ФХД для конкретной ревизии и диапазона."""
+    __tablename__ = 'key_indicator_results'
+    __table_args__ = (
+        db.Index('ix_key_indicator_results_company_created',
+                 'company_id', 'created_at'),
+    )
+
+    cache_key = db.Column(db.String(64), primary_key=True)
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    source_revision = db.Column(db.String(120), nullable=False)
+    settings_signature = db.Column(db.String(64), nullable=False)
+    algorithm_version = db.Column(db.String(40), nullable=False)
+    payload_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                           nullable=False)
+
+
+class KeyIndicatorWarmJob(db.Model):
+    """Durable request to regenerate the default screen after input changes."""
+    __tablename__ = 'key_indicator_warm_jobs'
+
+    company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id', ondelete='CASCADE'),
+        primary_key=True)
+    request_version = db.Column(db.Integer, nullable=False, default=1)
+    requested_at = db.Column(db.DateTime(timezone=True), default=utcnow,
+                             nullable=False)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    last_error_category = db.Column(db.String(32), nullable=False, default='')
+
+
 class OsvSourceCleanup(db.Model):
     """Долговечное намерение физически удалить исключённый исходник ОСВ."""
     __tablename__ = 'osv_source_cleanups'
@@ -515,12 +570,14 @@ class OsvSourceCleanup(db.Model):
 
 
 @event.listens_for(Upload, 'after_insert')
-def _advance_company_osv_source_revision(_mapper, connection, target):
-    """Coordinate aggregate publication with every committed Upload insert."""
+@event.listens_for(Upload, 'after_update')
+@event.listens_for(Upload, 'after_delete')
+def _advance_upload_osv_source_revision(_mapper, connection, target):
+    """Invalidate derived indicators for every accepted-upload mutation."""
     connection.execute(
         Company.__table__.update()
         .where(Company.id == target.company_id)
-        .values(osv_source_revision=f'upload:{target.id}'))
+        .values(osv_source_revision=f'upload:{target.id}:{uuid.uuid4().hex}'))
 
 class ConsumerCollectionAccrual(db.Model):
     """Документ начисления с аналитикой потребителя."""
@@ -1286,6 +1343,18 @@ class DailyRow(db.Model):
     # Existing rows predate provenance tracking and remain honestly unknown.
     source_type = db.Column(db.String(40), nullable=False, default='unknown')
     uploaded_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+
+@event.listens_for(DailyRow, 'after_insert')
+@event.listens_for(DailyRow, 'after_update')
+@event.listens_for(DailyRow, 'after_delete')
+def _advance_daily_osv_source_revision(_mapper, connection, target):
+    """Invalidate derived indicators when a daily observation changes."""
+    connection.execute(
+        Company.__table__.update()
+        .where(Company.id == target.company_id)
+        .values(osv_source_revision=f'daily:{target.id}:{uuid.uuid4().hex}'))
+
 
 class LimitDataset(db.Model):
     __tablename__ = 'limit_datasets'

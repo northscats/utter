@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const script = fs.readFileSync(`${__dirname}/static/key_indicators.js`, 'utf8');
 
-async function checkBootstrap(configuration) {
+async function checkBootstrap(configuration, responseOverride = null) {
   const nodes = new Map();
   const requests = [];
   const listeners = new Map();
@@ -66,8 +66,11 @@ async function checkBootstrap(configuration) {
     },
     fetch: async url => {
       requests.push(url);
-      return {
+      return responseOverride || {
         ok: true, status: 200,
+        url: 'http://localhost/company/11/key-indicators/data',
+        redirected: false,
+        headers: {get: () => 'application/json'},
         text: async () => JSON.stringify({
           cards: [], period: { kind: 'year', date: '2026-06-30' },
         }),
@@ -85,6 +88,18 @@ async function checkBootstrap(configuration) {
   await app.fetchData();
   assert.equal(loading, false, 'loading must clear even on configuration errors');
   if (configuration) {
+    if (responseOverride) {
+      assert.equal(renders, 0, 'non-JSON responses must not reach rendering');
+      if (responseOverride.status === 503 &&
+          responseOverride.headers.get() === 'application/json') {
+        assert.match(nodes.get('ki-error-text').textContent, /не завершил запуск/);
+      } else {
+        assert.match(nodes.get('ki-error-text').textContent, /неготовый ответ/);
+      }
+      assert.doesNotMatch(nodes.get('ki-error-text').textContent, /Срок сессии истек/);
+      assert.equal(nodes.get('ki-error').style.display, 'flex');
+      return;
+    }
     assert.equal(requests[0], '/company/11/key-indicators/data?period=year');
     assert.equal(renders, 1, 'valid configuration must reach rendering');
     stored.set('brain4sales:key-indicators:period-selection:11', JSON.stringify({
@@ -916,6 +931,9 @@ async function checkBootstrap(configuration) {
   if (configuration) {
     context.fetch = async () => ({
       ok: false, status: 422,
+      headers: {get: () => 'application/json'},
+      url: 'http://localhost/company/11/key-indicators/data',
+      redirected: false,
       text: async () => JSON.stringify({ error: 'Не удалось прочитать файл ОСВ: sample.xls' }),
     });
     await app.fetchData();
@@ -1186,6 +1204,27 @@ async function checkBootstrap(configuration) {
     'const KI_CONFIG = {dataUrl: "/company/11/key-indicators/data"};',
     '',
   ]) await checkBootstrap(configuration);
+  await checkBootstrap(
+    'window.KI_CONFIG = {dataUrl: "/company/11/key-indicators/data"};',
+    {
+      ok: true, status: 200,
+      url: 'http://localhost/company/11/key-indicators/data',
+      redirected: false,
+      headers: {get: () => 'text/html; charset=utf-8'},
+      text: async () => '<html>startup page</html>',
+    });
+  await checkBootstrap(
+    'window.KI_CONFIG = {dataUrl: "/company/11/key-indicators/data"};',
+    {
+      ok: false, status: 503,
+      url: 'http://localhost/company/11/key-indicators/data',
+      redirected: false,
+      headers: {get: () => 'application/json'},
+      text: async () => JSON.stringify({
+        error: 'Сервер не завершил запуск. Данные ФХД временно недоступны; обратитесь к администратору.',
+        code: 'startup_failed',
+      }),
+    });
   const home = fs.readFileSync(`${__dirname}/templates/home.html`, 'utf8');
   const opened = [];
   const navContext = vm.createContext({

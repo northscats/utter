@@ -481,26 +481,39 @@ def _report_bounds(report):
 
 def _report_scope_score(report, account):
     """Prefer a complete parent-account report over one narrow subaccount."""
-    prefix = re.escape(str(account))
+    prefix = f'{account}.'
     children = set()
     for row in report.get('rows') or []:
         for key in ('label', 'p0', 'p1', 'p2', 'p3',
                     'path1', 'path2', 'path3'):
-            match = re.match(rf'^({prefix}\.\d+)', str(row.get(key) or ''))
-            if match:
-                children.add(match.group(1))
+            value = str(row.get(key) or '')
+            if not value.startswith(prefix):
+                continue
+            end = len(prefix)
+            while end < len(value) and value[end].isdecimal():
+                end += 1
+            if end > len(prefix):
+                children.add(value[:end])
     return len(children)
 
 
-def _report_precedence(report, index, account=None):
+def _report_precedence(report, index, account=None, scope_cache=None):
     """Sort key where a later source revision wins an equal interval."""
-    scope = _report_scope_score(report, account) if account is not None else 0
+    scope_key = (index, str(account))
+    if account is None:
+        scope = 0
+    elif scope_cache is not None and scope_key in scope_cache:
+        scope = scope_cache[scope_key]
+    else:
+        scope = _report_scope_score(report, account)
+        if scope_cache is not None:
+            scope_cache[scope_key] = scope
     updated = str(report.get('source_updated_at') or '')
     complete = int(bool(report.get('complete_snapshot')))
     return complete, (updated if complete else ''), scope, updated, index
 
 
-def _period_report_selection(source, account, start, end):
+def _period_report_selection_uncached(source, account, start, end):
     """Select an exact report or a complete, disjoint report tiling.
 
     Reports are period totals and may not be prorated.  An exact report wins
@@ -530,10 +543,17 @@ def _period_report_selection(source, account, start, end):
         item for item in prepared
         if item[1] == start and item[2] == end
     ]
+    scope_cache = {}
+
+    def precedence(item):
+        index, _, _, report = item
+        return _report_precedence(
+            report, index, account, scope_cache=scope_cache)
+
     if exact:
         return [max(
             exact,
-            key=lambda item: _report_precedence(item[3], item[0], account),
+            key=precedence,
         )[3]]
 
     # Keep only the latest revision of each interval.  Different intervals
@@ -542,9 +562,7 @@ def _period_report_selection(source, account, start, end):
     for item in prepared:
         span = (item[1], item[2])
         previous = latest_by_span.get(span)
-        if previous is None or _report_precedence(
-                item[3], item[0], account) > _report_precedence(
-                    previous[3], previous[0], account):
+        if previous is None or precedence(item) > precedence(previous):
             latest_by_span[span] = item
     by_start = defaultdict(list)
     for item in latest_by_span.values():
@@ -552,7 +570,7 @@ def _period_report_selection(source, account, start, end):
     for candidates in by_start.values():
         candidates.sort(
             key=lambda item: (
-                item[2], _report_precedence(item[3], item[0], account)),
+                item[2], precedence(item)),
             reverse=True)
 
     memo = {}
@@ -575,6 +593,16 @@ def _period_report_selection(source, account, start, end):
 
     tiling = tile(start)
     return [item[3] for item in tiling] if tiling is not None else None
+
+
+def _period_report_selection(source, account, start, end):
+    """Memoize positive and negative report selection for this source."""
+    cache = source.setdefault('_period_report_selection_cache', {})
+    key = (str(account), start, end)
+    if key not in cache:
+        cache[key] = _period_report_selection_uncached(
+            source, str(account), start, end)
+    return cache[key]
 
 
 def _period_rows(source, account, start, end):

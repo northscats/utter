@@ -37,7 +37,10 @@ accesslog  = '-'
 errorlog   = '-'
 loglevel   = 'info'
 # No query strings, Referer, Authorization or request bodies in access logs.
-access_log_format = '%(h)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s'
+# The request ID and elapsed time let operators correlate KPI latency safely.
+access_log_format = (
+    '%(h)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s '
+    'duration_ms=%(M)s ki_request=%({x-ki-request-id}i)s')
 
 # ── Independent HTTP liveness watchdog ─────────────────────────────────────
 health_watchdog_interval = float(
