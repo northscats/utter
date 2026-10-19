@@ -414,3 +414,17 @@ mtime_ms = 1792062871368
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/898cae46-3867-4ba0-a44d-204dd6533af3/3b17179e-01cb-47d4-8794-bae1773f719f"
 storage_version_token = "1792062880091321"
 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+[[outputs]]
+id = "xHfKR4bZp3sveqDdSsomK"
+uri = "file://deliverables/functions_by_system_module.docx"
+type = "word_document"
+title = "Функции системы по модулям"
+description = "DOCX-таблица с перечнем модулей системы и их функций."
+logical_id = "130a822a-66f8-4155-a108-b88e7e95448d"
+content_hash = "sha256:537ef1665a34863dd5a8d27a92f572267aa1ea6c829e6d62a6aa4ed1dc650df7"
+size = 39054
+mtime_ms = 1792419710048
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:c6d24346-a722-4953-a398-017a6d668712/130a822a-66f8-4155-a108-b88e7e95448d/f89cfd12-8558-46c3-a304-a1f3fea49ad4"
+storage_version_token = "1792419722858399"
+content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
