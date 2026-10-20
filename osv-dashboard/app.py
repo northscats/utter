@@ -614,7 +614,7 @@ def _authenticated_home_url():
     if current_user.is_admin:
         return url_for('modules_dashboard')
     if current_user.has_module_access('ministry_cabinet'):
-        return url_for('ministry.dashboard')
+        return url_for('ministry.dashboard_desktop')
     return url_for('access_required')
 
 

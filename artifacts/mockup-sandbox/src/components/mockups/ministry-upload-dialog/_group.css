@@ -1,0 +1,196 @@
+.upload-dialog-preview {
+  --ink: #263747;
+  --muted: #66788a;
+  --paper: #edf1f6;
+  --line: #d8e0e9;
+  --blue: #315f9b;
+  --blue-dark: #244c80;
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+}
+.upload-dialog-preview *,
+.upload-dialog-preview *::before,
+.upload-dialog-preview *::after { box-sizing: border-box; }
+.upload-dialog-preview button,
+.upload-dialog-preview input,
+.upload-dialog-preview select { font: inherit; }
+.upload-dialog-preview .cabinet-backdrop { position: absolute; inset: 0; background: var(--paper); }
+.upload-dialog-preview .cabinet-topbar {
+  height: 62px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #193b63;
+  color: #f5f8fc;
+}
+.upload-dialog-preview .cabinet-brand { font-size: 13px; font-weight: 700; }
+.upload-dialog-preview .cabinet-user { color: #cedbed; font-size: 11px; }
+.upload-dialog-preview .cabinet-page { padding: 26px 32px; }
+.upload-dialog-preview .cabinet-heading {
+  width: 32%;
+  height: 14px;
+  margin-bottom: 18px;
+  border-radius: 5px;
+  background: #ccd7e3;
+}
+.upload-dialog-preview .cabinet-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.upload-dialog-preview .cabinet-panel {
+  height: 190px;
+  border: 1px solid #d8e0e9;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(35, 54, 75, .04);
+}
+.upload-dialog-preview .modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(27, 48, 75, .48);
+}
+.upload-dialog-preview .import-dialog {
+  width: min(740px, calc(100% - 28px));
+  max-height: calc(100% - 30px);
+  overflow: auto;
+  margin: auto;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 20px 65px rgba(22, 48, 47, .26);
+}
+.upload-dialog-preview .dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 17px;
+}
+.upload-dialog-preview .dialog-head h2 {
+  margin: 0;
+  color: #2d4a48;
+  font: 600 22px Georgia, serif;
+}
+.upload-dialog-preview .dialog-head p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+.upload-dialog-preview .icon-button {
+  display: grid;
+  flex: 0 0 34px;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: #516a86;
+  cursor: pointer;
+  font-size: 18px;
+}
+.upload-dialog-preview .upload-zone {
+  padding: 25px 18px;
+  border: 1px dashed #9bb1cb;
+  border-radius: 9px;
+  background: #f2f6fb;
+  text-align: center;
+}
+.upload-dialog-preview .upload-zone input { max-width: 100%; font-size: 12px; }
+.upload-dialog-preview .upload-zone p { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.upload-dialog-preview .field label {
+  display: block;
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.upload-dialog-preview .field select {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbd6e2;
+  border-radius: 5px;
+  background: #fff;
+  color: #2d4055;
+  font-size: 12px;
+}
+.upload-dialog-preview .provider-field { max-width: 260px; margin: 15px 0; }
+.upload-dialog-preview .button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid #ccd7e3;
+  border-radius: 6px;
+  background: #fff;
+  color: #2c4055;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.upload-dialog-preview .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+.upload-dialog-preview .live-message { min-height: 20px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+
+.upload-dialog-preview.aligned .import-dialog {
+  width: min(720px, calc(100% - 28px));
+  max-height: calc(100% - 32px);
+  padding: 0;
+  border-color: #d6dfe9;
+  border-radius: 10px;
+  box-shadow: 0 24px 72px rgba(24, 45, 73, .25);
+}
+.upload-dialog-preview.aligned .dialog-head {
+  align-items: center;
+  margin: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5ebf2;
+}
+.upload-dialog-preview.aligned .dialog-head h2 {
+  color: #29435f;
+  font: 600 18px/1.35 "Segoe UI", system-ui, sans-serif;
+}
+.upload-dialog-preview.aligned .dialog-head p { margin-top: 4px; color: #718195; }
+.upload-dialog-preview.aligned .icon-button { border-color: #d6dfe9; border-radius: 6px; }
+.upload-dialog-preview.aligned form { padding: 18px 20px 0; }
+.upload-dialog-preview.aligned .upload-zone {
+  padding: 18px;
+  border-color: #b7c8dc;
+  border-radius: 7px;
+  background: #f6f8fb;
+  text-align: left;
+}
+.upload-dialog-preview.aligned .upload-zone input { display: block; width: 100%; }
+.upload-dialog-preview.aligned .upload-zone p { margin-top: 9px; color: #718195; line-height: 1.45; }
+.upload-dialog-preview.aligned .provider-field { max-width: none; margin: 16px 0 0; }
+.upload-dialog-preview.aligned .field select { border-color: #cbd6e2; border-radius: 5px; }
+.upload-dialog-preview.aligned .import-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0 18px;
+}
+.upload-dialog-preview.aligned .button { min-height: 38px; border-radius: 6px; }
+.upload-dialog-preview.aligned .live-message { min-height: 0; margin: 0; padding: 0 20px; }
+.upload-dialog-preview.aligned .live-message:empty { display: none; }
+.upload-dialog-preview.aligned #preview-result-aligned { padding: 0 20px 20px; }
+.upload-dialog-preview.aligned #preview-result-aligned:empty { padding: 0; }
+
+@media (max-width: 600px) {
+  .upload-dialog-preview { min-height: 100vh; }
+  .upload-dialog-preview .modal-backdrop { padding: 12px; }
+  .upload-dialog-preview .import-dialog,
+  .upload-dialog-preview.aligned .import-dialog { width: 100%; max-height: calc(100% - 24px); }
+  .upload-dialog-preview.aligned .dialog-head { padding: 14px 16px; }
+  .upload-dialog-preview.aligned form { padding: 16px 16px 0; }
+  .upload-dialog-preview.aligned .live-message { padding: 0 16px; }
+  .upload-dialog-preview.aligned #preview-result-aligned { padding: 0 16px 16px; }
+}

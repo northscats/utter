@@ -7,8 +7,8 @@ MODULES = {
         'name': 'Кабинет Министерства',
         'description': 'Приём отчётов поставщиков ТЭР и проверяемая аналитика заявленной задолженности.',
         'icon': 'chart',
-        'endpoint': 'ministry.dashboard',
-        'exact_paths': ('/ministry',),
+        'endpoint': 'ministry.dashboard_desktop',
+        'exact_paths': ('/ministry/desktop', '/ministry'),
         'path_prefixes': ('/ministry/',),
     },
     'analytics': {

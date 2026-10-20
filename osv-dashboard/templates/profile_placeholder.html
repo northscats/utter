@@ -23,7 +23,7 @@
     {% if current_user.is_admin %}
       <a href="{{ url_for('modules_dashboard') }}">Вернуться к модулям</a>
     {% elif current_user.has_module_access('ministry_cabinet') %}
-      <a href="{{ url_for('ministry.dashboard') }}">Вернуться в кабинет Министерства</a>
+      <a href="{{ url_for('ministry.dashboard_desktop') }}">Вернуться в кабинет Министерства</a>
     {% else %}
       <a href="{{ url_for('access_required') }}">Рабочий кабинет</a>
     {% endif %}

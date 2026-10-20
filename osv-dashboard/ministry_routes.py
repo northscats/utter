@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 from functools import wraps
 
 from flask import (
-    Blueprint, abort, current_app, jsonify, render_template, request, send_file,
-    url_for,
+    Blueprint, abort, current_app, jsonify, redirect, render_template, request,
+    send_file, url_for,
 )
 from flask_login import current_user, login_required
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -393,6 +393,12 @@ def map_geometry():
 @ministry_bp.get('/ministry')
 @_cabinet_required
 def dashboard():
+    return redirect(url_for('ministry.dashboard_desktop'))
+
+
+@ministry_bp.get('/ministry/desktop')
+@_cabinet_required
+def dashboard_desktop():
     providers = Company.query.filter(
         Company.status != 'archived').order_by(Company.name).all()
     return render_template('ministry_dashboard.html', providers=providers)

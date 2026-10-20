@@ -278,6 +278,8 @@ for key in new_modules:
           client.get(MODULES[key]['exact_paths'][0]).status_code == 403)
 check('пользователь без назначения не открывает кабинет министерства',
       client.get('/ministry').status_code == 403)
+check('пользователь без назначения не открывает новый адрес кабинета',
+      client.get('/ministry/desktop').status_code == 403)
 
 # Одно назначение открывает только свой модуль.
 with app.app_context():
@@ -297,10 +299,14 @@ with app.app_context():
     ministry = db.session.get(User, ids['ministry'])
     supplier = db.session.get(User, ids['supplier'])
 login_as(client, ministry)
-ministry_page = client.get('/ministry')
+ministry_page = client.get('/ministry/desktop')
 check('назначение открывает кабинет Министерства',
       ministry_page.status_code == 200
       and 'Кабинет министерства' in ministry_page.get_data(as_text=True))
+check('старый адрес ведёт на рабочий стол',
+      client.get('/ministry').status_code == 302
+      and client.get('/ministry').headers['Location'].endswith(
+          '/ministry/desktop'))
 check('кабинет Ministry account does not show old module link',
       'href="/modules"' not in ministry_page.get_data(as_text=True))
 check('кабинет пользователя скрывает ссылку на настройки',

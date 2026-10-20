@@ -156,7 +156,8 @@ class MinistryCabinetTests(unittest.TestCase):
             },
             headers={'Referer': 'https://preview.example/password/change-required'},
         )
-        self.assertTrue(changed.headers['Location'].endswith('/ministry'))
+        self.assertTrue(
+            changed.headers['Location'].endswith('/ministry/desktop'))
         with app.app_context():
             ministry = db.session.get(User, self.ids['ministry'])
             ministry.password_hash = original_hash
@@ -189,6 +190,8 @@ class MinistryCabinetTests(unittest.TestCase):
 
         _login(self.client, supplier)
         self.assertEqual(self.client.get('/ministry').status_code, 403)
+        self.assertEqual(
+            self.client.get('/ministry/desktop').status_code, 403)
         self.assertEqual(self.client.get('/ministry/api/data').status_code, 403)
         self.assertEqual(self.client.get('/modules').status_code, 403)
 
@@ -197,7 +200,12 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(self.client.get('/home').status_code, 403)
 
         _login(self.client, ministry)
-        self.assertEqual(self.client.get('/ministry').status_code, 200)
+        self.assertEqual(
+            self.client.get('/ministry/desktop').status_code, 200)
+        legacy_dashboard = self.client.get('/ministry')
+        self.assertEqual(legacy_dashboard.status_code, 302)
+        self.assertTrue(
+            legacy_dashboard.headers['Location'].endswith('/ministry/desktop'))
         self.assertEqual(self.client.get('/modules').status_code, 403)
         self.assertEqual(self.client.get('/settings').status_code, 403)
         self.assertEqual(self.client.get('/directories/companies').status_code, 200)
@@ -274,9 +282,11 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(march['map']['geometryUrl'],
                          '/ministry/api/map-geometry')
         self.assertEqual(len(march['map']['municipalities']), 56)
-        dashboard_response = self.client.get('/ministry')
+        dashboard_response = self.client.get('/ministry/desktop')
         self.assertEqual(dashboard_response.status_code, 200)
         dashboard_html = dashboard_response.get_data(as_text=True)
+        self.assertEqual(dashboard_html.count('class="cabinet-nav-item"'), 5)
+        self.assertIn('href="/ministry/desktop"', dashboard_html)
         self.assertNotIn('class="page-head"', dashboard_html)
         self.assertNotIn('Долговые отчёты поставщиков', dashboard_html)
         self.assertNotIn('class="page-actions"', dashboard_html)
@@ -586,7 +596,8 @@ class MinistryCabinetTests(unittest.TestCase):
 
         _login(self.client, admin)
         self.assertEqual(self.client.get('/modules').status_code, 200)
-        self.assertEqual(self.client.get('/ministry').status_code, 200)
+        self.assertEqual(
+            self.client.get('/ministry/desktop').status_code, 200)
 
 
 if __name__ == '__main__':
