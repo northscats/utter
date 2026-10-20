@@ -322,14 +322,23 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="rows-caption"', dashboard_html)
         self.assertIn('aria-label="Строки отчётов"', table_panel)
         self.assertIn(
-            'position:sticky;top:0;z-index:6;height:52px;box-sizing:border-box;padding:8px 12px;background:#fff;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0',
+            '.table-stage{position:relative;display:flex;flex:1;flex-direction:column;gap:13px',
             dashboard_html,
         )
         self.assertIn(
-            'box-shadow:0 8px 0 #fff,0 9px 0 #d6dfe9',
+            '.table-header-scroll{height:52px;flex:0 0 52px;min-width:0;overflow:hidden',
+            dashboard_html,
+        )
+        self.assertIn(
+            '.table-header-table th{height:50px;box-sizing:border-box;padding:8px 12px;background:transparent;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0',
             dashboard_html,
         )
         self.assertIn('class="table-stage"', table_panel)
+        self.assertLess(
+            table_panel.index('id="table-header-scroll"'),
+            table_panel.index('id="table-scroll"'),
+        )
+        self.assertIn('id="table-scroll"', table_panel)
         self.assertIn('class="table-state-overlay" id="rows-status"', table_panel)
         self.assertIn('class="table-loading-spinner"', table_panel)
         self.assertLess(
@@ -337,7 +346,7 @@ class MinistryCabinetTests(unittest.TestCase):
             table_panel.index('id="rows-status"'),
         )
         self.assertIn(
-            '.table-state-overlay{position:absolute;inset:60px 0 0',
+            '.table-state-overlay{position:absolute;inset:65px 0 0',
             dashboard_html,
         )
         self.assertIn('id="org-filter-toggle"', table_panel)
@@ -381,6 +390,10 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn("Строки не найдены", dashboard_js)
         self.assertNotIn("Измените условия поиска или проверьте наличие отчётов", dashboard_js)
         self.assertIn("Измените фильтры и попробуйте снова.", dashboard_js)
+        self.assertIn(
+            'els.tableScroll.addEventListener("scroll", syncTableHeader',
+            dashboard_js,
+        )
         self.assertIn(".table-state-overlay.empty", dashboard_html)
         self.assertNotIn("renderImports(", dashboard_js)
         self.assertNotIn("importsStatus", dashboard_js)
