@@ -69,6 +69,7 @@
     .debt-filter-toggle.has-filter{color:#2f6094;border-color:#87a8ce;background:#eef5fd}
     .header-filter-popover{position:absolute;z-index:40;top:calc(100% + 8px);left:0;width:min(300px,calc(100vw - 30px));padding:12px;display:grid;gap:10px;white-space:normal;text-transform:none;letter-spacing:normal;text-align:left;font-size:12px;font-weight:400;color:#30445c;background:#fff;border:1px solid #cdd8e6;border-radius:8px;box-shadow:0 12px 30px rgba(30,54,83,.18)}
     .header-filter-popover.omcu-popover{width:min(340px,calc(100vw - 30px))}
+    .header-filter-popover.resource-popover{width:min(270px,calc(100vw - 30px))}
     .header-filter-popover.is-portaled{position:fixed;z-index:1000;right:auto;max-height:calc(100dvh - 24px);overflow-y:auto}
     .header-filter-popover[hidden]{display:none!important}
     .header-filter-popover.align-right{left:auto;right:0}
@@ -82,6 +83,13 @@
     .omcu-option:hover{background:#f2f6fb}
     .omcu-option input{width:14px;height:14px;margin:0;flex:0 0 14px;box-sizing:border-box}
     .omcu-option span{display:block;min-width:0;line-height:16px;white-space:nowrap}
+    .resource-action-row{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#667b92;font-size:10px;font-weight:700}
+    .resource-action-buttons{display:flex;align-items:center;gap:6px}
+    .resource-options{max-height:230px;overflow:auto;border:1px solid #e0e7ef;border-radius:5px;padding:4px}
+    .header-filter-popover label.resource-option{display:flex;align-items:center;gap:8px;margin:0;padding:6px 5px;border-radius:4px;color:#3d5065;font-size:11px;font-weight:400;line-height:16px;text-transform:none;letter-spacing:0;white-space:nowrap;cursor:pointer}
+    .resource-option:hover{background:#f2f6fb}
+    .resource-option input{width:14px;height:14px;margin:0;flex:0 0 14px;box-sizing:border-box}
+    .resource-option span{display:block;min-width:0;line-height:16px;white-space:nowrap}
     .omcu-search-row{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px;align-items:center;gap:6px}
     .header-filter-popover .omcu-icon-action{display:grid;place-items:center;width:30px;height:30px;min-height:30px;padding:0;border:1px solid #d0dbe8;border-radius:5px;background:#f5f8fc;color:#405a75}
     .header-filter-popover .omcu-icon-action svg{width:15px;height:15px}
@@ -150,8 +158,8 @@
     .detail-modal.is-fullscreen{width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
     @keyframes modal-enter{from{transform:translateY(8px) scale(.99);opacity:.65}to{transform:translateY(0) scale(1);opacity:1}}
     .detail-modal-head{flex:0 0 auto;background:#fff;border-bottom:1px solid #e5ebf2;padding:16px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:15px}
-    .detail-modal-head h2{font:600 20px "Segoe UI",system-ui,sans-serif;margin:0 0 5px;color:#29435f}
-    .detail-modal-head p{margin:0;color:#718195;font-size:11px}
+    .detail-modal-head h2{font:600 20px "Segoe UI",system-ui,sans-serif;margin:0 0 5px;color:#173f68}
+    .detail-modal-head p{margin:0;color:#52677d;font-size:11px}
     .icon-button{width:34px;height:34px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;color:#516963;font-size:18px}
     .detail-modal-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
     .detail-modal-actions .icon-button{display:grid;place-items:center;padding:0}
@@ -160,35 +168,35 @@
     .detail-workspace{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(0,1.1fr);align-items:start;gap:14px;min-width:0}
     .detail-column{display:grid;align-content:start;gap:14px;min-width:0}
     .detail-card{background:#fff;border:1px solid var(--line);border-radius:9px;padding:14px}
-    .detail-card h3{margin:0 0 11px;font-size:12px;color:#34514d}
+    .detail-card h3{margin:0 0 11px;font-size:12px;color:#173f68}
     .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .detail-pair dt{font-size:10px;color:#7b8983;margin-bottom:3px}
-    .detail-pair dd{margin:0;font-size:12px;color:#304944;overflow-wrap:anywhere}
+    .detail-pair dt{font-size:10px;color:#52677d;margin-bottom:3px}
+    .detail-pair dd{margin:0;font-size:12px;color:#20354c;overflow-wrap:anywhere}
     .provenance{border-left:3px solid var(--gold);background:#f8f3e9;padding:10px 12px;font-size:11px;color:#6e5a3e}
-    .detail-source-values summary{color:#304f72;font-size:12px;font-weight:650;cursor:pointer}
-    .detail-source-values ol{margin:12px 0 0;padding-left:28px;display:grid;gap:5px;font-size:11px;color:#536b84;overflow-wrap:anywhere}
+    .detail-source-values summary{color:#173f68;font-size:12px;font-weight:650;cursor:pointer}
+    .detail-source-values ol{margin:12px 0 0;padding-left:28px;display:grid;gap:5px;font-size:11px;color:#4c6279;overflow-wrap:anywhere}
     .dadata-row{display:flex;gap:8px;align-items:end}
     .dadata-row .field{flex:1}
     .debt-chart-card{min-width:0}
     .debt-chart-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
     .debt-chart-heading h3{margin-bottom:3px}
-    .debt-chart-heading p{margin:0;color:#718195;font-size:10px;line-height:1.4}
-    .debt-chart-series{display:grid;gap:4px;flex:0 0 min(48%,260px);color:#667b92;font-size:9px}
+    .debt-chart-heading p{margin:0;color:#52677d;font-size:10px;line-height:1.4}
+    .debt-chart-series{display:grid;gap:4px;flex:0 0 min(48%,260px);color:#455b73;font-size:9px}
     .debt-chart-series select{width:100%;min-width:0;min-height:32px;padding:5px 8px;border:1px solid #cbd6e2;border-radius:5px;background:#fff;color:#2d4055;font:inherit;font-size:11px}
     .debt-chart-viewport{min-height:220px;overflow:auto;border-radius:6px;background:#fbfcfe}
     .debt-chart-svg{display:block;max-width:none;height:300px}
     .debt-chart-grid line{stroke:#e5ebf2;stroke-width:1}
-    .debt-chart-grid text,.debt-chart-x-label{fill:#718195;font:11px "Segoe UI",system-ui,sans-serif}
-    .debt-chart-axis-title{fill:#61758b;font:11px "Segoe UI",system-ui,sans-serif}
+    .debt-chart-grid text,.debt-chart-x-label{fill:#52677d;font:11px "Segoe UI",system-ui,sans-serif}
+    .debt-chart-axis-title{fill:#455c73;font:11px "Segoe UI",system-ui,sans-serif}
     .debt-chart-line{fill:none;stroke:#315f9b;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
     .debt-chart-point{fill:#fff;stroke:#315f9b;stroke-width:2.5}
-    .debt-chart-empty{min-height:210px;display:grid;place-content:center;padding:18px;color:#718195;font-size:12px;line-height:1.5;text-align:center}
-    .debt-chart-note{margin:8px 0 0;color:#718195;font-size:10px;line-height:1.45}
-    .directory-profile-empty{margin:0;color:#718195;font-size:11px}
+    .debt-chart-empty{min-height:210px;display:grid;place-content:center;padding:18px;color:#52677d;font-size:12px;line-height:1.5;text-align:center}
+    .debt-chart-note{margin:8px 0 0;color:#52677d;font-size:10px;line-height:1.45}
+    .directory-profile-empty{margin:0;color:#52677d;font-size:11px}
     .timeline{display:grid;gap:0}
     .timeline-row{display:grid;grid-template-columns:80px 1fr auto;gap:9px;padding:9px 0;border-bottom:1px solid #edf1ed;font-size:11px}
     .timeline-row:last-child{border-bottom:0}
-    .timeline-date{font:10px var(--mono);color:#74847d}
+    .timeline-date{font:10px var(--mono);color:#52677d}
     .import-dialog{width:min(720px,calc(100% - 28px));max-height:calc(100dvh - 24px);overflow:auto;background:#fff;border:1px solid #d6dfe9;border-radius:10px;margin:auto;padding:0;box-shadow:0 24px 72px rgba(24,45,73,.25)}
     .import-dialog[hidden]{display:none}
     .dialog-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0;padding:16px 20px;border-bottom:1px solid #e5ebf2}
@@ -326,8 +334,16 @@
     .user-popover a:hover,.user-popover button:hover{background:#eaf1fa}
     .icon-button{color:#516a86}
     .detail-modal,.detail-modal-head,.import-dialog{background:#fff}
-    .detail-modal-head h2,.detail-card h3,.preview-stat strong{color:#304f72}
-    .detail-pair dt,.detail-pair dd,.timeline-date{color:#718195}
+    .detail-modal-head h2,.detail-card h3{color:#173f68}
+    .preview-stat strong{color:#304f72}
+    .detail-modal-head p,.detail-pair dt,.timeline-date,.debt-chart-heading p,.debt-chart-series,.debt-chart-empty,.debt-chart-note,.directory-profile-empty{color:#52677d}
+    .detail-pair dd{color:#20354c}
+    .detail-source-values summary{color:#173f68}
+    .detail-source-values ol,.detail-modal .subcell{color:#4c6279}
+    .detail-modal .empty-state{color:#52677d}
+    .detail-modal .empty-state strong{color:#173f68}
+    .detail-modal .debt-chart-grid text,.detail-modal .debt-chart-x-label{fill:#52677d}
+    .detail-modal .debt-chart-axis-title{fill:#455c73}
     .provenance{border-left-color:#527aa8;background:#edf3fa;color:#536b84}
     .timeline-row{border-bottom-color:#e7edf3}
     .upload-zone{border-color:#b7c8dc;background:#f6f8fb}
@@ -531,7 +547,28 @@
                     </div>
                   </div>
                 </th>
-                <th data-column="resource">Вид ресурса</th>
+                <th data-column="resource">
+                  <div class="header-filter-anchor">
+                    <button class="table-header-filter" type="button" id="resource-filter-toggle" aria-expanded="false" aria-controls="resource-filter-popover">
+                      Вид ресурса<span class="filter-count" id="resource-filter-count" hidden></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                    </button>
+                    <div class="header-filter-popover resource-popover" id="resource-filter-popover" hidden>
+                      <div class="resource-action-row">
+                        <span>Виды ресурса</span>
+                        <div class="resource-action-buttons">
+                          <button class="omcu-icon-action" type="button" id="resource-select-all" aria-label="Выбрать все виды ресурса" title="Выбрать все">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 4 1.3 1.3L5.5 3M7.5 4H14M2 9l1.3 1.3L5.5 8M7.5 9H14M2 14l1.3 1.3L5.5 13M7.5 14H14"/></svg>
+                          </button>
+                          <button class="omcu-icon-action" type="button" id="resource-clear" aria-label="Очистить выбор видов ресурса" title="Очистить выбор">
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><path d="m6 6 4 4m0-4-4 4"/></svg>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="resource-options" id="resource-options" role="group" aria-label="Выберите один или несколько видов ресурса"></div>
+                      <div class="header-filter-actions"><span id="resource-selection-label">Все ресурсы</span><button class="popover-action primary" type="button" id="resource-apply">Применить</button></div>
+                    </div>
+                  </div>
+                </th>
                 <th data-column="detail">Детализация потребителя</th>
                 <th data-column="periods" hidden>Периоды задолженности</th>
                 <th data-column="currentPeriodAccrual" hidden>Начислено за период</th>

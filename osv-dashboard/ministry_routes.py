@@ -127,14 +127,14 @@ def _parse_debt_bound(value, label):
     return parsed
 
 
-def _filter_rows(query, *, year, month, resource, districts, search,
+def _filter_rows(query, *, year, month, resources, districts, search,
                  min_debt=None, max_debt=None):
     if year and month:
         query = query.filter(
             UzterReportRow.report_year == year,
             UzterReportRow.report_month == month)
-    if resource and resource != 'all':
-        query = query.filter(UzterReportRow.resource_type == resource)
+    if resources:
+        query = query.filter(UzterReportRow.resource_type.in_(resources))
     if districts:
         observed = _available_territories()
         if districts == ['unassigned']:
@@ -409,7 +409,7 @@ def dashboard_desktop():
 def dashboard_data():
     latest = _latest_import_query()
     months = _month_choices()
-    resources = [
+    available_resources = [
         item[0] for item in latest.with_entities(
             UzterReportImport.resource_type).distinct()
         .order_by(UzterReportImport.resource_type).all()
@@ -421,8 +421,19 @@ def dashboard_data():
         selected_month = months[0]['value']
     period = _period_from_value(selected_month)
     year, month = period if period else (None, None)
-    resource = request.args.get('resource', 'all')[:120]
-    if resource != 'all' and resource not in resources:
+    requested_resources = list(dict.fromkeys(
+        value.strip()[:120] for value in request.args.getlist('resource')
+        if value and value.strip()
+    ))
+    if 'all' in requested_resources and any(
+        value != 'all' for value in requested_resources
+    ):
+        return _json_error(
+            'Нельзя сочетать все ресурсы с отдельными видами ресурса.', 400)
+    selected_resources = [
+        value for value in requested_resources if value != 'all'
+    ]
+    if any(value not in available_resources for value in selected_resources):
         return _json_error('Неизвестный вид ресурса.', 400)
     requested_districts = request.args.getlist('district')
     if not requested_districts:
@@ -457,7 +468,7 @@ def dashboard_data():
         direction = 'asc'
 
     query = _filter_rows(
-        _row_query(), year=year, month=month, resource=resource,
+        _row_query(), year=year, month=month, resources=selected_resources,
         districts=districts, search=search,
         min_debt=min_debt, max_debt=max_debt)
     data_rows = query.with_entities(func.count(UzterReportRow.id)).scalar() or 0
@@ -488,9 +499,9 @@ def dashboard_data():
         source_rows_query = source_rows_query.filter(
             UzterReportImport.report_year == year,
             UzterReportImport.report_month == month)
-    if resource != 'all':
+    if selected_resources:
         source_rows_query = source_rows_query.filter(
-            UzterReportImport.resource_type == resource)
+            UzterReportImport.resource_type.in_(selected_resources))
     period_imports = source_rows_query.all()
     source_rows = sum(item.row_count for item in period_imports)
     warning_count = sum(item.warning_count for item in period_imports)
@@ -550,10 +561,13 @@ def dashboard_data():
     return jsonify({
         'filters': {
             'months': months,
-            'resources': resources,
+            'resources': available_resources,
             'districts': district_options,
             'selected': {
-                'month': selected_month, 'resource': resource,
+                'month': selected_month,
+                'resource': selected_resources[0]
+                if len(selected_resources) == 1 else 'all',
+                'resources': selected_resources,
                 'district': districts[0] if len(districts) == 1 else 'all',
                 'districts': districts,
                 'q': search,

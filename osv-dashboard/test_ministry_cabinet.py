@@ -290,6 +290,39 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html.count(
                 'class="cabinet-nav-item" type="button" disabled'), 5)
         self.assertIn('href="/ministry/desktop"', dashboard_html)
+        with open(
+                os.path.join(os.path.dirname(__file__), 'static',
+                             'ministry_dashboard.js'),
+                encoding='utf-8') as script_file:
+            dashboard_script = script_file.read()
+        self.assertIn(
+            '<td data-column="district">${escapeHtml(display(row.district))}</td>',
+            dashboard_script,
+        )
+        self.assertIn(
+            '<td data-column="detail">${escapeHtml(display(row.detail))}</td>',
+            dashboard_script,
+        )
+        self.assertNotIn(
+            'data-column="district">${escapeHtml(display(row.territory))}',
+            dashboard_script,
+        )
+        self.assertNotIn(
+            '${row.status ? `<div class="subcell"><span class="badge ${statusClass}">',
+            dashboard_script,
+        )
+        self.assertIn(
+            '<td data-column="status">${row.status ? `<span class="badge ${statusClass}">',
+            dashboard_script,
+        )
+        self.assertNotIn(
+            'data-column="debt"><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div><div class="subcell">',
+            dashboard_script,
+        )
+        self.assertIn(
+            '<td data-column="periods">${row.periods == null ? "—" : escapeHtml(fmtNumber(row.periods))}</td>',
+            dashboard_script,
+        )
         self.assertNotIn('class="page-head"', dashboard_html)
         self.assertNotIn('Долговые отчёты поставщиков', dashboard_html)
         self.assertNotIn('class="page-actions"', dashboard_html)
@@ -411,6 +444,19 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('aria-label="Очистить выбор ОМСУ"', table_panel)
         self.assertNotIn('id="omcu-select-all">Выбрать все', table_panel)
         self.assertNotIn('id="omcu-clear">Очистить', table_panel)
+        self.assertIn('id="resource-filter-toggle"', table_panel)
+        self.assertIn('id="resource-filter-popover"', table_panel)
+        self.assertIn('id="resource-options"', table_panel)
+        self.assertIn('aria-label="Выбрать все виды ресурса"', table_panel)
+        self.assertIn('aria-label="Очистить выбор видов ресурса"', table_panel)
+        resource_header_start = table_panel.index(
+            '<th data-column="resource">')
+        resource_header_end = table_panel.index('</th>', resource_header_start)
+        self.assertNotIn(
+            '<input',
+            table_panel[resource_header_start:resource_header_end],
+        )
+        self.assertIn('resource-popover{width:min(270px', dashboard_html)
         self.assertIn('omcu-popover{width:min(340px', dashboard_html)
         self.assertIn(
             '.header-filter-popover label.omcu-option{display:flex;align-items:center;gap:8px;margin:0',
@@ -463,6 +509,15 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('class="detail-modal"', dashboard_html)
         self.assertNotIn('detail-drawer', dashboard_html)
         self.assertIn('width:80vw;height:80vh', dashboard_html)
+        self.assertIn(
+            '.detail-modal-head h2,.detail-card h3{color:#173f68}',
+            dashboard_html,
+        )
+        self.assertIn('.detail-pair dd{color:#20354c}', dashboard_html)
+        self.assertIn(
+            '.detail-modal .debt-chart-grid text,.detail-modal .debt-chart-x-label{fill:#52677d}',
+            dashboard_html,
+        )
         self.assertIn('id="debt-chart-series"', dashboard_js)
         self.assertIn('id="debt-chart-plot"', dashboard_js)
         self.assertIn('ministry_debt_chart.js', dashboard_html)
@@ -605,6 +660,47 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(self.client.get('/modules').status_code, 200)
         self.assertEqual(
             self.client.get('/ministry/desktop').status_code, 200)
+        heat_report = _workbook(
+            _enterprise('ООО Тепловой потребитель', '5555555555', 25),
+            debt_resource='Тепло',
+            report_month='02',
+        )
+        _, heat_import_response = self._preview_apply(
+            heat_report, 'Февраль-тепло.xlsx')
+        self.assertEqual(
+            heat_import_response.status_code, 200,
+            heat_import_response.get_data(as_text=True))
+        heat_rows = self.client.get(
+            '/ministry/api/data?month=2026-02&resource=Тепло'
+        ).get_json()
+        self.assertTrue(heat_rows['rows'])
+        self.assertEqual(
+            {row['resource'] for row in heat_rows['rows']}, {'Тепло'})
+        mixed_resources = self.client.get(
+            '/ministry/api/data?month=2026-02'
+            '&resource=Электроэнергия&resource=Тепло'
+        ).get_json()
+        self.assertEqual(
+            {row['resource'] for row in mixed_resources['rows']},
+            {'Электроэнергия', 'Тепло'},
+        )
+        self.assertEqual(
+            set(mixed_resources['filters']['selected']['resources']),
+            {'Электроэнергия', 'Тепло'},
+        )
+        self.assertEqual(
+            self.client.get(
+                '/ministry/api/data?month=2026-02&resource=Неизвестный'
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.get(
+                '/ministry/api/data?month=2026-02'
+                '&resource=all&resource=Тепло'
+            ).status_code,
+            400,
+        )
 
 
 if __name__ == '__main__':

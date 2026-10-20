@@ -8,13 +8,15 @@
     page: 1, perPage: 50, sort: "debt", direction: "desc",
     lastFocus: null, currentRow: null, detailRequestId: 0, previewToken: null, filters: null,
     mapData: null, mapGeometry: null, mapLoadPromise: null,
-    month: "", selectedDistricts: [], pendingDistricts: [], organizationQuery: "",
+    month: "", selectedDistricts: [], pendingDistricts: [],
+    selectedResources: [], pendingResources: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
     leftMode: "overview", importHistory: [], visibleColumns: null
   };
   const els = {
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
     districtSearch: $("#omcu-search"), districtOptions: $("#omcu-options"),
+    resourceOptions: $("#resource-options"),
     debtMin: $("#debt-min"), debtMax: $("#debt-max"),
     rows: $("#rows-body"), rowsStatus: $("#rows-status"),
     tableHeader: $("#table-header-scroll"), tableScroll: $("#table-scroll")
@@ -190,6 +192,10 @@
       direction: state.direction
     });
     state.selectedDistricts.forEach(name => params.append("district", name));
+    if (state.selectedResources.length) {
+      params.delete("resource");
+      state.selectedResources.forEach(name => params.append("resource", name));
+    }
     if (state.minDebt !== "") params.set("debt_min", state.minDebt);
     if (state.maxDebt !== "") params.set("debt_max", state.maxDebt);
     return params;
@@ -384,11 +390,11 @@
         const statusClass = /ошиб|предуп|не сопостав/i.test(row.status || "") ? "warn" : "";
         const rowKey = escapeHtml(row.id);
         return `<tr tabindex="0" role="button" aria-label="Открыть строку: ${escapeHtml(display(row.name, "Без названия"))}, ИНН ${escapeHtml(display(row.inn))}" data-row-index="${index}" data-row-id="${rowKey}">
-          <td data-column="organization"><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div>${row.status ? `<div class="subcell"><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></div>` : ""}</td>
+          <td data-column="organization"><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div></td>
           <td data-column="inn"><div class="mono">${escapeHtml(display(row.inn))}</div><div class="subcell">${escapeHtml(display(row.kpp))}</div></td>
-          <td data-column="district">${escapeHtml(display(row.territory))}${row.detail ? `<div class="subcell">${escapeHtml(row.detail)}</div>` : ""}</td>
+          <td data-column="district">${escapeHtml(display(row.district))}</td>
           <td data-column="period"><div>${escapeHtml(display(row.month))} ${escapeHtml(display(row.year, ""))}</div></td>
-          <td data-column="debt"><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div><div class="subcell">${escapeHtml(display(row.periods, "Периоды не указаны"))}</div></td>
+          <td data-column="debt"><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div></td>
           <td data-column="resource">${escapeHtml(display(row.resource))}</td>
           <td data-column="detail">${escapeHtml(display(row.detail))}</td>
           <td data-column="periods">${row.periods == null ? "—" : escapeHtml(fmtNumber(row.periods))}</td>
@@ -437,6 +443,11 @@
     setOptions(els.month, filters?.months || [], selected.month || state.month || "");
     if (!els.month.options.length) els.month.innerHTML = makeOption("", "Нет доступных периодов", "");
     state.month = selected.month || els.month.value || "";
+    state.selectedResources = Array.isArray(selected.resources)
+      ? selected.resources
+      : (selected.resource && selected.resource !== "all"
+        ? [selected.resource] : []);
+    state.pendingResources = [...state.selectedResources];
     state.selectedDistricts = Array.isArray(selected.districts)
       ? selected.districts
       : (selected.district && selected.district !== "all" ? [selected.district] : []);
@@ -448,8 +459,32 @@
     els.debtMax.value = state.maxDebt;
     state.pendingDistricts = [...state.selectedDistricts];
     renderDistrictOptions();
+    renderResourceOptions();
     updateHeaderFilterIndicators();
     syncMapSelection();
+  }
+  function renderResourceOptions() {
+    if (!els.resourceOptions) return;
+    const resources = (state.filters?.resources || [])
+      .map(value => String(value || "").trim())
+      .filter(Boolean);
+    const selected = new Set(state.pendingResources);
+    els.resourceOptions.innerHTML = resources.length
+      ? resources.map((name, index) => {
+        const id = `resource-option-${index}`;
+        return `<label class="resource-option" for="${id}"><input id="${id}" type="checkbox" data-resource-option value="${escapeHtml(name)}"${selected.has(name) ? " checked" : ""}><span>${escapeHtml(name)}</span></label>`;
+      }).join("")
+      : '<div class="empty-state">Нет доступных видов ресурса.</div>';
+    updateResourceSelectionLabel();
+  }
+  function updateResourceSelectionLabel() {
+    const label = $("#resource-selection-label");
+    if (!label) return;
+    const total = (state.filters?.resources || []).length;
+    const count = state.pendingResources.length;
+    label.textContent = !total || !count || count === total
+      ? "Все ресурсы"
+      : `${numberFormat.format(count)} из ${numberFormat.format(total)} выбрано`;
   }
   function renderDistrictOptions() {
     if (!els.districtOptions) return;
@@ -483,6 +518,14 @@
       count.textContent = state.selectedDistricts.length ? String(state.selectedDistricts.length) : "";
       count.hidden = !state.selectedDistricts.length;
     }
+    const resourceCount = $("#resource-filter-count");
+    if (resourceCount) {
+      resourceCount.textContent = state.selectedResources.length
+        ? String(state.selectedResources.length) : "";
+      resourceCount.hidden = !state.selectedResources.length;
+    }
+    $("#resource-filter-toggle")?.classList.toggle(
+      "has-filter", state.selectedResources.length > 0);
     $("#debt-filter-toggle")?.classList.toggle(
       "has-filter", state.minDebt !== "" || state.maxDebt !== "");
     $("#org-filter-toggle")?.classList.toggle(
@@ -546,6 +589,10 @@
       state.pendingDistricts = [...state.selectedDistricts];
       renderDistrictOptions();
       els.districtSearch.focus();
+    } else if (popoverId === "resource-filter-popover") {
+      state.pendingResources = [...state.selectedResources];
+      renderResourceOptions();
+      $("#resource-options input")?.focus();
     } else if (popoverId === "org-filter-popover") {
       els.organizationQuery.focus();
     } else if (popoverId === "debt-range-popover") {
@@ -952,6 +999,7 @@
     [
       ["org-filter-toggle", "org-filter-popover"],
       ["omcu-filter-toggle", "omcu-filter-popover"],
+      ["resource-filter-toggle", "resource-filter-popover"],
       ["period-filter-toggle", "period-filter-popover"],
       ["debt-filter-toggle", "debt-range-popover"]
     ].forEach(([toggleId, popoverId]) => {
@@ -993,6 +1041,28 @@
       state.page = 1;
       updateHeaderFilterIndicators();
       syncMapSelection();
+      closeHeaderFilterPopovers();
+      loadDashboard();
+    });
+    els.resourceOptions.addEventListener("change", event => {
+      if (!event.target.matches("[data-resource-option]")) return;
+      state.pendingResources = $$(
+        "[data-resource-option]:checked", els.resourceOptions,
+      ).map(input => input.value);
+      updateResourceSelectionLabel();
+    });
+    $("#resource-select-all").addEventListener("click", () => {
+      state.pendingResources = (state.filters?.resources || []).map(String);
+      renderResourceOptions();
+    });
+    $("#resource-clear").addEventListener("click", () => {
+      state.pendingResources = [];
+      renderResourceOptions();
+    });
+    $("#resource-apply").addEventListener("click", () => {
+      state.selectedResources = [...state.pendingResources];
+      state.page = 1;
+      updateHeaderFilterIndicators();
       closeHeaderFilterPopovers();
       loadDashboard();
     });
