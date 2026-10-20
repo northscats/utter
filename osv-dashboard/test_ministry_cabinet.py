@@ -358,7 +358,11 @@ class MinistryCabinetTests(unittest.TestCase):
         )
         self.assertIn('html,body{height:100%;overflow:hidden}', dashboard_html)
         self.assertIn(
-            'main{display:flex;flex-direction:column;height:calc(100dvh - 62px)',
+            'main{display:flex;flex-direction:column;max-width:none;height:calc(100dvh - 62px)',
+            dashboard_html,
+        )
+        self.assertIn(
+            'padding-left:10px;padding-right:10px;overflow:hidden',
             dashboard_html,
         )
         self.assertIn(
