@@ -491,6 +491,7 @@
   }
   async function loadDashboard() {
     els.rowsStatus.className = "status-line";
+    els.rowsStatus.hidden = false;
     els.rowsStatus.textContent = "Загружаем строки отчётов…";
     els.importsStatus.className = "status-line";
     els.importsStatus.textContent = "Загрузка журнала…";
@@ -502,11 +503,14 @@
       renderRows(data.rows || [], data.pagination);
       renderImports(data.imports || []);
       renderMap(data.map);
-      els.rowsStatus.textContent = data.rows?.length ? `Источник: ${numberFormat.format(data.rows.length)} строк на этой странице. Показаны реквизиты и происхождение из отчёта.` : "По заданным фильтрам нет строк.";
+      const hasRows = Boolean(data.rows?.length);
+      els.rowsStatus.hidden = hasRows;
+      els.rowsStatus.textContent = hasRows ? "" : "По заданным фильтрам нет строк.";
       els.importsStatus.textContent = data.imports?.length ? "Сведения о загрузках получены из журнала." : "Загрузки не зарегистрированы.";
       $("#chart-period").textContent = display(els.month.selectedOptions[0]?.textContent, "");
     } catch (error) {
       els.rowsStatus.className = "status-line error";
+      els.rowsStatus.hidden = false;
       els.rowsStatus.innerHTML = `Не удалось загрузить сведения: ${escapeHtml(error.message)} <button class="button" type="button" id="retry-data" style="min-height:28px;margin-left:8px">Повторить</button>`;
       $("#retry-data").addEventListener("click", loadDashboard);
       els.rows.innerHTML = "";

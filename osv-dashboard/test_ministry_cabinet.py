@@ -338,6 +338,8 @@ class MinistryCabinetTests(unittest.TestCase):
             'if (popover.parentElement !== document.body) document.body.append(popover);',
             dashboard_js,
         )
+        self.assertNotIn("Источник: ", dashboard_js)
+        self.assertIn("els.rowsStatus.hidden = hasRows;", dashboard_js)
         self.assertIn('id="period-filter-toggle"', table_panel)
         self.assertIn('id="period-filter"', table_panel)
         self.assertIn('id="debt-filter-toggle"', table_panel)
