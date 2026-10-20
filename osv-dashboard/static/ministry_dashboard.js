@@ -935,6 +935,14 @@
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   function init() {
+    const sourceFilters = new URLSearchParams(window.location.search);
+    state.month = sourceFilters.get("month") || "";
+    state.organizationQuery = sourceFilters.get("q") || "";
+    state.selectedDistricts = sourceFilters.getAll("district").filter(Boolean);
+    state.pendingDistricts = [...state.selectedDistricts];
+    state.selectedResources = sourceFilters.getAll("resource")
+      .filter(value => value && value !== "all");
+    state.pendingResources = [...state.selectedResources];
     state.visibleColumns = loadVisibleColumns();
     applyTableColumnVisibility();
     const syncTableHeader = () => {

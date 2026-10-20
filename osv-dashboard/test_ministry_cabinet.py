@@ -192,7 +192,11 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(self.client.get('/ministry').status_code, 403)
         self.assertEqual(
             self.client.get('/ministry/desktop').status_code, 403)
+        self.assertEqual(
+            self.client.get('/ministry/analytics').status_code, 403)
         self.assertEqual(self.client.get('/ministry/api/data').status_code, 403)
+        self.assertEqual(
+            self.client.get('/ministry/api/analytics').status_code, 403)
         self.assertEqual(self.client.get('/modules').status_code, 403)
 
         _login(self.client, directory_user)
@@ -202,6 +206,13 @@ class MinistryCabinetTests(unittest.TestCase):
         _login(self.client, ministry)
         self.assertEqual(
             self.client.get('/ministry/desktop').status_code, 200)
+        self.assertEqual(
+            self.client.get('/ministry/analytics').status_code, 200)
+        empty_analytics = self.client.get('/ministry/api/analytics')
+        self.assertEqual(empty_analytics.status_code, 200)
+        self.assertTrue(empty_analytics.get_json()['empty'])
+        self.assertEqual(
+            empty_analytics.get_json()['filters']['periods'], [])
         legacy_dashboard = self.client.get('/ministry')
         self.assertEqual(legacy_dashboard.status_code, 302)
         self.assertTrue(
@@ -235,6 +246,16 @@ class MinistryCabinetTests(unittest.TestCase):
         )
         _, response = self._preview_apply(march_corrected, 'Март-исправление.xlsx')
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        with app.app_context():
+            latest_march = UzterReportImport.query.filter_by(
+                provider_company_id=self.ids['company'],
+                report_year=2026, report_month=3,
+                resource_type='Электроэнергия',
+            ).order_by(UzterReportImport.id.desc()).first()
+            latest_march.warning_count = 1
+            latest_march.warnings_json = json.dumps(
+                ['Предупреждение тестовой загрузки'], ensure_ascii=False)
+            db.session.commit()
 
         with app.app_context():
             imports = UzterReportImport.query.order_by(
@@ -288,8 +309,46 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(dashboard_html.count('class="cabinet-nav-item"'), 6)
         self.assertEqual(
             dashboard_html.count(
-                'class="cabinet-nav-item" type="button" disabled'), 5)
+                'class="cabinet-nav-item" type="button" disabled'), 4)
         self.assertIn('href="/ministry/desktop"', dashboard_html)
+        self.assertIn('href="/ministry/analytics"', dashboard_html)
+        analytics_html = self.client.get(
+            '/ministry/analytics').get_data(as_text=True)
+        self.assertIn('aria-current="page"', analytics_html)
+        self.assertIn('href="/ministry/desktop"', analytics_html)
+        self.assertIn('id="distribution-chart"', analytics_html)
+        self.assertIn('id="timeline-chart"', analytics_html)
+        self.assertIn('а не подтверждённый областной итог', analytics_html)
+        february_analytics = self.client.get(
+            '/ministry/api/analytics?month=2026-02'
+            '&resource=Электроэнергия&supplier='
+            f'{self.ids["company"]}'
+        )
+        self.assertEqual(february_analytics.status_code, 200)
+        february_analytics = february_analytics.get_json()
+        self.assertEqual(february_analytics['quality']['rows'], 2)
+        self.assertEqual(february_analytics['quality']['debtRows'], 1)
+        self.assertEqual(february_analytics['quality']['missingDebt'], 1)
+        self.assertEqual(february_analytics['quality']['groupRows'], 1)
+        electricity = february_analytics['distribution'][0]
+        self.assertEqual(electricity['debt'], 0)
+        self.assertIn('/ministry/desktop?', electricity['sourceUrl'])
+        march_analytics = self.client.get(
+            '/ministry/api/analytics?month=2026-03'
+            '&resource=Электроэнергия&supplier='
+            f'{self.ids["company"]}'
+        ).get_json()
+        march_electricity = march_analytics['distribution'][0]
+        self.assertEqual(march_electricity['rows'], 1)
+        self.assertEqual(march_electricity['debt'], 12)
+        self.assertEqual(
+            march_analytics['quality']['warnings'][0]['message'],
+            'Предупреждение тестовой загрузки',
+        )
+        self.assertEqual(
+            self.client.get('/ministry/api/analytics?month=2026-13').status_code,
+            400,
+        )
         with open(
                 os.path.join(os.path.dirname(__file__), 'static',
                              'ministry_dashboard.js'),
@@ -662,6 +721,9 @@ class MinistryCabinetTests(unittest.TestCase):
             self.client.get('/ministry/desktop').status_code, 200)
         heat_report = _workbook(
             _enterprise('ООО Тепловой потребитель', '5555555555', 25),
+            _enterprise(
+                'Территория не сопоставлена', None, None,
+                territory='Условный округ'),
             debt_resource='Тепло',
             report_month='02',
         )
@@ -698,6 +760,32 @@ class MinistryCabinetTests(unittest.TestCase):
             self.client.get(
                 '/ministry/api/data?month=2026-02'
                 '&resource=all&resource=Тепло'
+            ).status_code,
+            400,
+        )
+        multi_resource_analytics = self.client.get(
+            '/ministry/api/analytics?month=2026-02'
+            '&resource=Электроэнергия&resource=Тепло'
+        ).get_json()
+        self.assertEqual(
+            set(item['resource'] for item in multi_resource_analytics['distribution']
+                if item['rows']),
+            {'Электроэнергия', 'Тепло'},
+        )
+        self.assertEqual(multi_resource_analytics['quality']['rows'], 4)
+        unassigned_analytics = self.client.get(
+            '/ministry/api/analytics?month=2026-02&resource=Тепло'
+            '&district=unassigned'
+        ).get_json()
+        self.assertEqual(unassigned_analytics['quality']['rows'], 1)
+        self.assertEqual(unassigned_analytics['quality']['unknownTerritories'], 1)
+        self.assertEqual(
+            unassigned_analytics['quality']['unknownTerritoryLabels'][0]['label'],
+            'Условный округ',
+        )
+        self.assertEqual(
+            self.client.get(
+                '/ministry/api/analytics?month=2026-02&supplier=999999'
             ).status_code,
             400,
         )

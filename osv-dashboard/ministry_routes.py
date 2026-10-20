@@ -9,6 +9,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
+from urllib.parse import urlencode
 
 from flask import (
     Blueprint, abort, current_app, jsonify, redirect, render_template, request,
@@ -402,6 +403,295 @@ def dashboard_desktop():
     providers = Company.query.filter(
         Company.status != 'archived').order_by(Company.name).all()
     return render_template('ministry_dashboard.html', providers=providers)
+
+
+@ministry_bp.get('/ministry/analytics')
+@_cabinet_required
+def analytics_page():
+    return render_template('ministry_analytics.html')
+
+
+@ministry_bp.get('/ministry/api/analytics')
+@_cabinet_required
+def analytics_data():
+    """Aggregate only the latest accepted supplier report versions."""
+    latest = _latest_import_query()
+    imports = latest.order_by(
+        UzterReportImport.report_year, UzterReportImport.report_month,
+        UzterReportImport.id).all()
+    periods = sorted({
+        _month_value(item.report_year, item.report_month) for item in imports
+    })
+    resources = sorted({item.resource_type for item in imports if item.resource_type})
+    suppliers_by_id = {}
+    for item in imports:
+        suppliers_by_id[item.provider_company_id] = (
+            item.provider.name if item.provider else '(организация удалена)')
+    suppliers = [
+        {'id': company_id, 'name': name}
+        for company_id, name in sorted(
+            suppliers_by_id.items(), key=lambda pair: pair[1].casefold())
+    ]
+    observed_territories = _available_territories()
+    district_options = [
+        {'name': name, 'label': f'{kind.capitalize()} {name}'}
+        for name, kind in MUNICIPALITIES
+        if any(municipality_for_territory(value) == name
+               for value in observed_territories)
+    ]
+    if any(municipality_for_territory(value) is None
+           for value in observed_territories):
+        district_options.append({
+            'name': 'unassigned', 'label': 'Не распределено / не распознано'})
+
+    selected_month = request.args.get('month', '')
+    if selected_month and (
+        not _period_from_value(selected_month) or selected_month not in periods
+    ):
+        return _json_error('Нет принятого отчёта за выбранный период.', 400)
+    if not selected_month and periods:
+        selected_month = periods[-1]
+
+    selected_resources = list(dict.fromkeys(
+        value.strip()[:120] for value in request.args.getlist('resource')
+        if value and value.strip() and value.strip() != 'all'
+    ))
+    if any(value not in resources for value in selected_resources):
+        return _json_error('Неизвестный вид ресурса.', 400)
+
+    raw_suppliers = request.args.getlist('supplier')
+    try:
+        selected_suppliers = list(dict.fromkeys(
+            int(value) for value in raw_suppliers if value.strip()))
+    except (TypeError, ValueError):
+        return _json_error('Некорректный поставщик.', 400)
+    available_supplier_ids = set(suppliers_by_id)
+    if any(value not in available_supplier_ids for value in selected_suppliers):
+        return _json_error('Неизвестный поставщик.', 400)
+
+    selected_districts = list(dict.fromkeys(
+        value.strip()[:120] for value in request.args.getlist('district')
+        if value and value.strip() and value.strip() != 'all'
+    ))
+    known_districts = {name for name, _kind in MUNICIPALITIES}
+    if ('unassigned' in selected_districts and len(selected_districts) > 1
+            or any(value != 'unassigned' and value not in known_districts
+                   for value in selected_districts)):
+        return _json_error('Неизвестная территория.', 400)
+
+    selected_period = _period_from_value(selected_month) if selected_month else None
+    base_query = _row_query()
+    if selected_resources:
+        base_query = base_query.filter(
+            UzterReportRow.resource_type.in_(selected_resources))
+    if selected_suppliers:
+        base_query = base_query.filter(
+            UzterReportImport.provider_company_id.in_(selected_suppliers))
+    all_rows = base_query.order_by(
+        UzterReportRow.report_year, UzterReportRow.report_month,
+        UzterReportImport.id, UzterReportRow.source_row_number).all()
+
+    def district_key(row):
+        return municipality_for_territory(row.territory) or 'unassigned'
+
+    def allowed_district(row):
+        return not selected_districts or district_key(row) in selected_districts
+
+    # Dashboard deep links use its existing source-row table and filter syntax.
+    def source_url(month, resource=None, district=None):
+        params = [('month', month), ('resource', resource or 'all')]
+        if district:
+            params.append(('district', district))
+        if len(selected_suppliers) == 1:
+            supplier_name = suppliers_by_id[selected_suppliers[0]]
+            if supplier_name and supplier_name != '(организация удалена)':
+                params.append(('q', supplier_name))
+        return url_for('ministry.dashboard_desktop') + '?' + urlencode(params)
+
+    period_rows = [
+        row for row in all_rows
+        if selected_period
+        and (row.report_year, row.report_month) == selected_period
+        and allowed_district(row)
+    ]
+
+    def aggregate_rows(rows, key_for):
+        buckets = {}
+        inn_counts = {}
+        for row in rows:
+            report = row.report_import
+            identity = (report.id, row.inn)
+            if row.inn:
+                inn_counts[identity] = inn_counts.get(identity, 0) + 1
+        for row in rows:
+            key = key_for(row)
+            item = buckets.setdefault(key, {
+                'rows': 0, 'debtCount': 0, 'debt': 0.0,
+                'missingDebt': 0, 'groupRows': 0, 'duplicateRows': 0,
+                'warningImports': set(), 'unknownTerritories': set(),
+            })
+            item['rows'] += 1
+            if row.debt_total is None:
+                item['missingDebt'] += 1
+            else:
+                item['debtCount'] += 1
+                item['debt'] += float(row.debt_total)
+            if row.is_group_row:
+                item['groupRows'] += 1
+            if row.inn and inn_counts.get((row.import_id, row.inn), 0) > 1:
+                item['duplicateRows'] += 1
+            if row.report_import.warning_count:
+                item['warningImports'].add(row.import_id)
+            if not municipality_for_territory(row.territory):
+                item['unknownTerritories'].add(row.territory or '(пустое значение)')
+        for item in buckets.values():
+            item['debt'] = item['debt'] if item['debtCount'] else None
+            item['warningImports'] = len(item['warningImports'])
+            item['unknownTerritories'] = len(item['unknownTerritories'])
+        return buckets
+
+    distribution_data = aggregate_rows(period_rows, lambda row: row.resource_type)
+    distribution = []
+    for resource in sorted(set(resources) | set(distribution_data)):
+        item = distribution_data.get(resource, {
+            'rows': 0, 'debtCount': 0, 'debt': None, 'missingDebt': 0,
+            'groupRows': 0, 'duplicateRows': 0, 'warningImports': 0,
+            'unknownTerritories': 0,
+        })
+        distribution.append({
+            'resource': resource,
+            **item,
+            'sourceUrl': source_url(selected_month, resource),
+        })
+
+    timeline_rows = [row for row in all_rows if allowed_district(row)]
+    timeline_data = aggregate_rows(
+        timeline_rows, lambda row: (
+            _month_value(row.report_year, row.report_month), district_key(row)))
+    districts_with_data = sorted({
+        district_key(row) for row in timeline_rows
+    }, key=lambda value: (value == 'unassigned', value.casefold()))
+    chosen_districts = selected_districts or districts_with_data[:8]
+    series = []
+    for district in chosen_districts:
+        points = []
+        for period in periods:
+            item = timeline_data.get((period, district))
+            if item is None:
+                points.append({
+                    'month': period, 'debt': None, 'rows': 0,
+                    'debtCount': 0, 'missingDebt': 0,
+                    'groupRows': 0, 'duplicateRows': 0,
+                    'sourceUrl': source_url(
+                        period, selected_resources[0]
+                        if len(selected_resources) == 1 else None, district),
+                })
+            else:
+                points.append({
+                    'month': period, 'debt': item['debt'],
+                    'rows': item['rows'], 'debtCount': item['debtCount'],
+                    'missingDebt': item['missingDebt'],
+                    'groupRows': item['groupRows'],
+                    'duplicateRows': item['duplicateRows'],
+                    'sourceUrl': source_url(
+                        period, selected_resources[0]
+                        if len(selected_resources) == 1 else None, district),
+                })
+        series.append({
+            'district': (
+                'Не распределено / не распознано'
+                if district == 'unassigned' else district),
+            'districtValue': district,
+            'points': points,
+        })
+
+    quality = aggregate_rows(period_rows, lambda _row: 'all').get('all', {
+        'rows': 0, 'debtCount': 0, 'debt': None, 'missingDebt': 0,
+        'groupRows': 0, 'duplicateRows': 0, 'warningImports': 0,
+        'unknownTerritories': 0,
+    })
+    unknown_labels = {}
+    for row in period_rows:
+        if municipality_for_territory(row.territory) is None:
+            label = row.territory or '(пустое значение)'
+            unknown_labels[label] = unknown_labels.get(label, 0) + 1
+    selected_imports = [
+        item for item in imports
+        if selected_period
+        and (item.report_year, item.report_month) == selected_period
+        and (not selected_resources or item.resource_type in selected_resources)
+        and (not selected_suppliers
+             or item.provider_company_id in selected_suppliers)
+    ]
+    warning_count = sum(item.warning_count for item in selected_imports)
+    source_warnings = []
+    for item in selected_imports:
+        for warning in _safe_json_array(item.warnings_json):
+            source_warnings.append({
+                'file': item.source_filename,
+                'supplier': (
+                    item.provider.name if item.provider
+                    else '(организация удалена)'),
+                'resource': item.resource_type,
+                'message': str(warning),
+            })
+    warning_limit = 100
+    comparison_note = (
+        'Для сравнения выберите не менее двух территорий.'
+        if len(chosen_districts) < 2 else
+        'Линии сопоставляют суммы заполненных строк; пропуски и неоднозначность не скрыты.'
+    )
+    return jsonify({
+        'filters': {
+            'periods': [
+                {'value': value, 'label': _month_choices_label(value)}
+                for value in reversed(periods)
+            ],
+            'resources': resources,
+            'suppliers': suppliers,
+            'districts': district_options,
+            'selected': {
+                'month': selected_month,
+                'resources': selected_resources,
+                'suppliers': selected_suppliers,
+                'districts': selected_districts,
+            },
+        },
+        'distribution': distribution,
+        'timeline': {
+            'periods': periods,
+            'series': series,
+            'comparisonNote': comparison_note,
+        },
+        'quality': {
+            'rows': quality['rows'],
+            'debtRows': quality['debtCount'],
+            'missingDebt': quality['missingDebt'],
+            'groupRows': quality['groupRows'],
+            'duplicateRows': quality['duplicateRows'],
+            'warningImports': warning_count,
+            'unknownTerritories': quality['unknownTerritories'],
+            'unknownTerritoryLabels': [
+                {'label': label, 'rows': count}
+                for label, count in sorted(
+                    unknown_labels.items(), key=lambda pair: pair[0].casefold()
+                )[:25]
+            ],
+            'unknownTerritoryLabelsOmitted': max(0, len(unknown_labels) - 25),
+            'imports': len(selected_imports),
+            'verifiedRegionalTotal': False,
+            'warnings': source_warnings[:warning_limit],
+            'warningsOmitted': max(0, len(source_warnings) - warning_limit),
+        },
+        'empty': not bool(period_rows),
+    })
+
+
+def _month_choices_label(value):
+    year, month = _period_from_value(value)
+    names = ('январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+             'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь')
+    return f'{names[month - 1]} {year}'
 
 
 @ministry_bp.get('/ministry/api/data')
