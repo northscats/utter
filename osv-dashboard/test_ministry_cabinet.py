@@ -373,6 +373,8 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn("class=\"table-loading-spinner\"", dashboard_js)
         self.assertNotIn("Строки не найдены", dashboard_js)
         self.assertNotIn("Измените условия поиска или проверьте наличие отчётов", dashboard_js)
+        self.assertIn("Измените фильтры и попробуйте снова.", dashboard_js)
+        self.assertIn(".table-state-overlay.empty", dashboard_html)
         self.assertNotIn("renderImports(", dashboard_js)
         self.assertNotIn("importsStatus", dashboard_js)
         self.assertIn('id="period-filter-toggle"', table_panel)

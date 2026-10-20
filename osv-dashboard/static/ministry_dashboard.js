@@ -453,9 +453,16 @@
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
       renderSummary(data.summary || {});
-      renderRows(data.rows || [], data.pagination);
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      renderRows(rows, data.pagination);
       renderMap(data.map);
-      els.rowsStatus.hidden = true;
+      if (rows.length) {
+        els.rowsStatus.hidden = true;
+      } else {
+        els.rowsStatus.className = "table-state-overlay empty";
+        els.rowsStatus.hidden = false;
+        els.rowsStatus.innerHTML = '<div class="table-empty-state"><strong>По выбранным фильтрам строк не найдено.</strong><span>Измените фильтры и попробуйте снова.</span></div>';
+      }
     } catch (error) {
       els.rowsStatus.className = "table-state-overlay error";
       els.rowsStatus.hidden = false;
