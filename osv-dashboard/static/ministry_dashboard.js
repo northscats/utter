@@ -595,14 +595,6 @@
     $("#map-mode-toggle").addEventListener("click", () => {
       setLeftMode(state.leftMode !== "map");
     });
-    $("#map-reset").addEventListener("click", () => {
-      const allOption = Array.from(els.district.options).find(option => option.value === "all");
-      if (!allOption) return;
-      els.district.value = "all";
-      state.page = 1;
-      syncMapSelection();
-      els.district.dispatchEvent(new Event("change", { bubbles: true }));
-    });
   }
   function setupWidgets() {
     const button = $("#widgets-toggle");

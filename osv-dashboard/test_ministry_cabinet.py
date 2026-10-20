@@ -278,6 +278,9 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="map-mode-label"', dashboard_html)
         self.assertNotIn('К показателям', dashboard_html)
         self.assertIn('id="map-panel"', dashboard_html)
+        self.assertNotIn('id="map-title"', dashboard_html)
+        self.assertNotIn('id="map-reset"', dashboard_html)
+        self.assertIn('id="filter-district"', dashboard_html)
         self.assertNotIn('id="map-note"', dashboard_html)
         self.assertNotIn('сведения об источнике и лицензии не указаны',
                          dashboard_html)
