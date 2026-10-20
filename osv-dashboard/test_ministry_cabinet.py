@@ -332,17 +332,24 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn(
-            '.table-panel{display:flex;flex-direction:column;height:100%;min-height:0;border-left-color:var(--paper);border-right-color:var(--paper)}',
+            '.table-panel{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;border-left-color:var(--paper);border-right-color:var(--paper)}',
             dashboard_html,
         )
         self.assertIn(
-            '.table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;padding:0 1px;background:#fff',
+            '.table-scroll{flex:1 1 0%;min-height:0;overflow:auto;max-height:none;padding:0 1px;background:#fff;overscroll-behavior:contain',
             dashboard_html,
         )
         self.assertIn(
-            '.table-header-scroll{height:52px;flex:0 0 52px;min-width:0;overflow:hidden',
+            '.table-header-scroll{position:relative;z-index:2;height:52px;flex:0 0 52px;min-width:0;overflow:hidden',
             dashboard_html,
         )
+        self.assertIn('html,body{height:100%;overflow:hidden}', dashboard_html)
+        self.assertIn(
+            'main{display:flex;flex-direction:column;height:calc(100dvh - 62px)',
+            dashboard_html,
+        )
+        self.assertIn('height:100%;grid-template-rows:minmax(0,1fr)', dashboard_html)
+        self.assertIn('.table-scroll{height:65vh;max-height:65vh;flex:0 0 auto}', dashboard_html)
         self.assertIn(
             '.table-header-table th{height:50px;box-sizing:border-box;padding:8px 12px;background:transparent;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0',
             dashboard_html,
@@ -381,7 +388,7 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="imports-status"', dashboard_html)
         self.assertNotIn('id="imports-list"', dashboard_html)
         self.assertIn(
-            '.table-scroll{flex:1;min-height:0;overflow:auto;max-height:none',
+            '.table-scroll{flex:1 1 0%;min-height:0;overflow:auto;max-height:none',
             dashboard_html,
         )
         self.assertIn(
