@@ -284,7 +284,13 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('Настроить вид', dashboard_html)
         self.assertNotIn('id="widget-menu"', dashboard_html)
         self.assertNotIn('data-widget-toggle', dashboard_html)
-        self.assertIn('id="summary-grid"', dashboard_html)
+        self.assertNotIn('id="summary-grid"', dashboard_html)
+        self.assertIn('id="data-tools-panel"', dashboard_html)
+        self.assertIn('id="open-import-history"', dashboard_html)
+        self.assertIn('id="open-column-settings"', dashboard_html)
+        self.assertIn('id="data-tools-backdrop"', dashboard_html)
+        self.assertIn('Детализация потребителя', dashboard_html)
+        self.assertNotIn('class="metric"', dashboard_html)
         self.assertNotIn('id="monthly-chart"', dashboard_html)
         self.assertNotIn('Динамика по месяцам', dashboard_html)
         self.assertIn('id="map-mode-toggle"', dashboard_html)
@@ -392,6 +398,10 @@ class MinistryCabinetTests(unittest.TestCase):
             'if (popover.parentElement !== document.body) document.body.append(popover);',
             dashboard_js,
         )
+        self.assertIn('function renderImportHistory()', dashboard_js)
+        self.assertIn('function renderColumnSettings()', dashboard_js)
+        self.assertIn('TABLE_COLUMN_STORAGE_KEY', dashboard_js)
+        self.assertNotIn('renderSummary(', dashboard_js)
         self.assertNotIn("Источник: ", dashboard_js)
         self.assertIn("els.rowsStatus.hidden = true;", dashboard_js)
         self.assertIn("class=\"table-loading-spinner\"", dashboard_js)
@@ -426,7 +436,7 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(len(re.findall(
             r'<th(?:\s|>)',
             dashboard_html[table_head_start:table_head_end],
-        )), 5)
+        )), 14)
         self.assertNotIn('id="map-note"', dashboard_html)
         self.assertNotIn('сведения об источнике и лицензии не указаны',
                          dashboard_html)

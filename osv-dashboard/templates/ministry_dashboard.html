@@ -315,6 +315,7 @@
     .badge.warn,.badge.good{background:#edf3fa;color:#4e6682}
     @media(max-width:1100px){
       .workspace{grid-template-columns:minmax(260px,.72fr) minmax(0,1.35fr)}
+      .data-tool-buttons{grid-template-columns:1fr}
     }
     @media(max-width:820px){
       .workspace{grid-template-columns:1fr}
@@ -363,7 +364,7 @@
         <div class="left-panel-header">
           <div>
             <h2 class="left-panel-heading">Обзор Московской области</h2>
-            <div class="left-panel-caption">Показатели и карта муниципалитетов</div>
+            <div class="left-panel-caption">Инструменты данных и карта муниципалитетов</div>
           </div>
           <div class="left-panel-actions">
             <button class="button map-mode-toggle" type="button" id="map-mode-toggle" aria-label="Показать карту" title="Показать карту" aria-pressed="false" aria-expanded="false" aria-controls="overview-view map-panel" disabled>
@@ -376,18 +377,24 @@
           </div>
         </div>
         <div class="left-overview" id="overview-view">
-    <section class="summary-grid" id="summary-grid" aria-label="Показатели за выбранный период" aria-live="polite">
-      <div class="metric"><div class="metric-label">Загрузок</div><div class="metric-value loading-value">—</div><div class="metric-note">за выбранный период</div></div>
-      <div class="metric"><div class="metric-label">Строк в источниках</div><div class="metric-value loading-value">—</div><div class="metric-note">как передано поставщиками</div></div>
-      <div class="metric"><div class="metric-label">Строк данных</div><div class="metric-value loading-value">—</div><div class="metric-note">учтено в выборке</div></div>
-      <div class="metric"><div class="metric-label">Совпавших долгов</div><div class="metric-value loading-value">—</div><div class="metric-note">значение из источника</div></div>
-      <div class="metric"><div class="metric-label">Сумма долга</div><div class="metric-value small loading-value">—</div><div class="metric-note">без пересчёта</div></div>
-      <div class="metric"><div class="metric-label">ИНН отсутствует</div><div class="metric-value loading-value">—</div><div class="metric-note">в строках данных</div></div>
-      <div class="metric"><div class="metric-label">Повторяющиеся ИНН</div><div class="metric-value loading-value">—</div><div class="metric-note">требуют проверки</div></div>
-      <div class="metric"><div class="metric-label">Групповых строк</div><div class="metric-value loading-value">—</div><div class="metric-note">помечено в источнике</div></div>
-      <div class="metric"><div class="metric-label">Покрытие</div><div class="metric-value loading-value">—</div><div class="metric-note">показатель API</div></div>
-      <div class="metric"><div class="metric-label">Предупреждения</div><div class="metric-value loading-value">—</div><div class="metric-note">по загруженным файлам</div></div>
-    </section>
+          <section class="data-tools-panel" id="data-tools-panel" aria-label="Инструменты работы с данными">
+            <div class="data-tools-panel-head">
+              <h3 class="data-tools-panel-title">Инструменты данных</h3>
+              <span class="data-tools-panel-caption">Журнал и отображение</span>
+            </div>
+            <div class="data-tool-buttons">
+              <button class="data-tool-button" type="button" id="open-import-history" aria-haspopup="dialog" aria-controls="data-tools-backdrop">
+                <span class="data-tool-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 1.5M3 4v3h3"/></svg></span>
+                <span><span class="data-tool-label">Хронология загрузок</span><span class="data-tool-description">Файлы, версии и предупреждения</span></span>
+                <span class="data-tool-count" id="import-history-count">—</span>
+              </button>
+              <button class="data-tool-button" type="button" id="open-column-settings" aria-haspopup="dialog" aria-controls="data-tools-backdrop">
+                <span class="data-tool-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14m5-14v14"/></svg></span>
+                <span><span class="data-tool-label">Столбцы таблицы</span><span class="data-tool-description">Показать дополнительные поля</span></span>
+                <span class="data-tool-count" id="visible-column-count">2</span>
+              </button>
+            </div>
+          </section>
         </div>
         <section class="panel" id="map-panel" aria-label="Карта муниципальных образований" hidden>
           <div id="map-content" class="map-stage" aria-live="polite"><div class="map-loading">Карта загрузится при открытии этого раздела.</div></div>
@@ -405,10 +412,13 @@
         <section class="panel table-panel" aria-label="Строки отчётов">
           <div class="table-stage">
             <div class="table-header-scroll" id="table-header-scroll">
-              <table class="records-table table-header-table" aria-label="Фильтры столбцов отчётов">
-                <colgroup><col style="width:34%"><col style="width:17%"><col style="width:17%"><col style="width:14%"><col style="width:18%"></colgroup>
+                <table class="records-table table-header-table" aria-label="Фильтры и столбцы отчётов">
+                <colgroup>
+                  <col data-column="organization" style="width:280px"><col data-column="inn" style="width:130px"><col data-column="district" style="width:150px"><col data-column="period" style="width:115px"><col data-column="debt" style="width:170px">
+                  <col data-column="resource" style="width:145px"><col data-column="detail" style="width:210px"><col data-column="periods" style="width:120px" hidden><col data-column="currentPeriodAccrual" style="width:165px" hidden><col data-column="yearToDateAccrual" style="width:175px" hidden><col data-column="status" style="width:170px" hidden><col data-column="owner" style="width:190px" hidden><col data-column="file" style="width:200px" hidden><col data-column="sourceRow" style="width:110px" hidden>
+                </colgroup>
               <thead><tr>
-                <th>
+                <th data-column="organization">
                   <div class="header-filter-anchor">
                     <button class="table-header-filter" type="button" id="org-filter-toggle" aria-expanded="false" aria-controls="org-filter-popover">
                       Организация<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
@@ -419,8 +429,8 @@
                     </div>
                   </div>
                 </th>
-                <th><button type="button" data-sort="inn">ИНН / КПП</button></th>
-                <th>
+                <th data-column="inn"><button type="button" data-sort="inn">ИНН / КПП</button></th>
+                <th data-column="district">
                   <div class="header-filter-anchor">
                     <button class="table-header-filter" type="button" id="omcu-filter-toggle" aria-expanded="false" aria-controls="omcu-filter-popover">
                       ОМСУ<span class="filter-count" id="omcu-filter-count" hidden></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
@@ -440,7 +450,7 @@
                     </div>
                   </div>
                 </th>
-                <th>
+                <th data-column="period">
                   <div class="header-filter-anchor">
                     <button class="table-header-filter" type="button" id="period-filter-toggle" aria-expanded="false" aria-controls="period-filter-popover">
                       Период<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
@@ -451,7 +461,7 @@
                     </div>
                   </div>
                 </th>
-                <th>
+                <th data-column="debt">
                   <div class="header-filter-anchor">
                     <div class="debt-header-controls">
                       <button type="button" data-sort="debt" id="debt-sort-toggle">Долг <span id="debt-sort-indicator" aria-hidden="true">↓</span></button>
@@ -469,12 +479,24 @@
                     </div>
                   </div>
                 </th>
+                <th data-column="resource">Вид ресурса</th>
+                <th data-column="detail">Детализация потребителя</th>
+                <th data-column="periods" hidden>Периоды задолженности</th>
+                <th data-column="currentPeriodAccrual" hidden>Начислено за период</th>
+                <th data-column="yearToDateAccrual" hidden>Начислено с начала года</th>
+                <th data-column="status" hidden>Статус строки</th>
+                <th data-column="owner" hidden>Поставщик</th>
+                <th data-column="file" hidden>Исходный файл</th>
+                <th data-column="sourceRow" hidden>Строка источника</th>
               </tr></thead>
               </table>
             </div>
             <div class="table-scroll" id="table-scroll">
-              <table class="records-table table-body-table" aria-label="Строки долговых отчётов: организация, ИНН и КПП, ОМСУ, период, долг">
-                <colgroup><col style="width:34%"><col style="width:17%"><col style="width:17%"><col style="width:14%"><col style="width:18%"></colgroup>
+              <table class="records-table table-body-table" aria-label="Строки отчётов с настраиваемыми столбцами">
+                <colgroup>
+                  <col data-column="organization" style="width:280px"><col data-column="inn" style="width:130px"><col data-column="district" style="width:150px"><col data-column="period" style="width:115px"><col data-column="debt" style="width:170px">
+                  <col data-column="resource" style="width:145px"><col data-column="detail" style="width:210px"><col data-column="periods" style="width:120px" hidden><col data-column="currentPeriodAccrual" style="width:165px" hidden><col data-column="yearToDateAccrual" style="width:175px" hidden><col data-column="status" style="width:170px" hidden><col data-column="owner" style="width:190px" hidden><col data-column="file" style="width:200px" hidden><col data-column="sourceRow" style="width:110px" hidden>
+                </colgroup>
                 <tbody id="rows-body"></tbody>
               </table>
             </div>
@@ -508,6 +530,15 @@
       </form>
       <div id="preview-message" class="live-message" role="status"></div>
       <div id="preview-result"></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="data-tools-backdrop" hidden>
+    <section class="data-tools-dialog" role="dialog" aria-modal="true" aria-labelledby="data-tools-title" tabindex="-1">
+      <div class="data-tools-head">
+        <div><h2 id="data-tools-title">Инструменты данных</h2><p id="data-tools-subtitle"></p></div>
+        <button class="icon-button" id="close-data-tools" type="button" aria-label="Закрыть инструменты">×</button>
+      </div>
+      <div class="data-tools-body" id="data-tools-content"></div>
     </section>
   </div>
   <script src="{{ url_for('static', filename='ministry_debt_chart.js') }}"></script>

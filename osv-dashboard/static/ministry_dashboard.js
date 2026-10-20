@@ -10,7 +10,7 @@
     mapData: null, mapGeometry: null, mapLoadPromise: null,
     month: "", selectedDistricts: [], pendingDistricts: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
-    leftMode: "overview"
+    leftMode: "overview", importHistory: [], visibleColumns: null
   };
   const els = {
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
@@ -21,6 +21,19 @@
   };
   const numberFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
   const moneyFormat = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const TABLE_OPTIONAL_COLUMNS = [
+    { key: "resource", label: "Вид ресурса", description: "Например, тепло или электроэнергия." },
+    { key: "detail", label: "Детализация потребителя", description: "Текст из одноимённого поля исходного отчёта." },
+    { key: "periods", label: "Периоды задолженности", description: "Срок просрочки, если он указан." },
+    { key: "currentPeriodAccrual", label: "Начислено за период", description: "Сумма начисления за отчётный период." },
+    { key: "yearToDateAccrual", label: "Начислено с начала года", description: "Сумма из исходного отчёта." },
+    { key: "status", label: "Статус строки", description: "Статус, переданный в отчёте." },
+    { key: "owner", label: "Поставщик данных", description: "Организация, загрузившая отчёт." },
+    { key: "file", label: "Исходный файл", description: "Имя книги с этой строкой." },
+    { key: "sourceRow", label: "Строка источника", description: "Номер строки и переход к карточке источника." }
+  ];
+  const DEFAULT_VISIBLE_COLUMNS = ["resource", "detail"];
+  const TABLE_COLUMN_STORAGE_KEY = "ministry-data-table-columns-v1";
 
   function escapeHtml(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({
@@ -44,6 +57,120 @@
     if (!value) return "—";
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? String(value) : new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  }
+  function loadVisibleColumns() {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(TABLE_COLUMN_STORAGE_KEY) || "null");
+      if (Array.isArray(stored)) {
+        const known = new Set(TABLE_OPTIONAL_COLUMNS.map(column => column.key));
+        return new Set(stored.filter(key => known.has(key)));
+      }
+    } catch (_) {
+      // Use the cabinet defaults if browser storage is unavailable or malformed.
+    }
+    return new Set(DEFAULT_VISIBLE_COLUMNS);
+  }
+  function applyTableColumnVisibility() {
+    const selected = state.visibleColumns || new Set(DEFAULT_VISIBLE_COLUMNS);
+    const optional = new Set(TABLE_OPTIONAL_COLUMNS.map(column => column.key));
+    $$("[data-column]").forEach(element => {
+      const key = element.dataset.column;
+      element.hidden = optional.has(key) && !selected.has(key);
+    });
+    const count = $("#visible-column-count");
+    if (count) count.textContent = String(selected.size);
+  }
+  function saveVisibleColumns() {
+    try {
+      window.localStorage.setItem(
+        TABLE_COLUMN_STORAGE_KEY,
+        JSON.stringify([...state.visibleColumns])
+      );
+      const status = $("#data-tool-save-status");
+      if (status) status.textContent = "Настройки сохранены в этом браузере.";
+    } catch (_) {
+      const status = $("#data-tool-save-status");
+      if (status) status.textContent = "Не удалось сохранить настройки в браузере.";
+    }
+  }
+  function renderColumnSettings() {
+    const content = $("#data-tools-content");
+    const visible = state.visibleColumns || new Set(DEFAULT_VISIBLE_COLUMNS);
+    content.innerHTML = `<p class="data-tool-note">Основные столбцы организации, ИНН/КПП, ОМСУ, периода и долга остаются на месте. Дополнительные поля можно включать по необходимости; изменения применяются сразу.</p>
+      <div class="column-settings-list">${TABLE_OPTIONAL_COLUMNS.map(column => `<label class="column-setting"><input type="checkbox" data-column-toggle="${escapeHtml(column.key)}"${visible.has(column.key) ? " checked" : ""}><span>${escapeHtml(column.label)}<small>${escapeHtml(column.description)}</small></span></label>`).join("")}</div>
+      <p class="data-tool-note">В текущей структуре отчёта сохраняется «Детализация потребителя»; отдельный числовой объём потребления не выделен.</p>
+      <div class="data-tool-footer"><span class="data-tool-save-status" id="data-tool-save-status">Настройки сохранены в этом браузере.</span><button class="button" type="button" id="reset-column-settings">По умолчанию</button></div>`;
+    $$("[data-column-toggle]", content).forEach(input => {
+      input.addEventListener("change", () => {
+        const key = input.dataset.columnToggle;
+        if (input.checked) state.visibleColumns.add(key);
+        else state.visibleColumns.delete(key);
+        applyTableColumnVisibility();
+        saveVisibleColumns();
+      });
+    });
+    $("#reset-column-settings").addEventListener("click", () => {
+      state.visibleColumns = new Set(DEFAULT_VISIBLE_COLUMNS);
+      applyTableColumnVisibility();
+      saveVisibleColumns();
+      renderColumnSettings();
+    });
+  }
+  function renderImportHistory() {
+    const list = $("#import-history-list");
+    if (!list) return;
+    const search = ($("#import-history-search").value || "").trim().toLocaleLowerCase("ru");
+    const imports = [...state.importHistory].sort((left, right) => {
+      const leftDate = Date.parse(left.createdAt || "") || 0;
+      const rightDate = Date.parse(right.createdAt || "") || 0;
+      return rightDate - leftDate || Number(right.id || 0) - Number(left.id || 0);
+    });
+    const filtered = imports.filter(item => [
+      item.file, item.owner, item.sourceSupplier, item.resource,
+      item.year, item.month, item.version
+    ].join(" ").toLocaleLowerCase("ru").includes(search));
+    const count = $("#import-history-result-count");
+    if (count) count.textContent = `Показано ${fmtNumber(filtered.length)} из ${fmtNumber(imports.length)}`;
+    list.innerHTML = filtered.length
+      ? filtered.map(item => {
+        const period = item.year && item.month
+          ? `${String(item.month).padStart(2, "0")}.${item.year}`
+          : "Период не указан";
+        const warnings = Number(item.warningCount || 0);
+        return `<li class="import-history-item">
+          <time class="import-history-date">${escapeHtml(formatDate(item.createdAt))}</time>
+          <div><span class="import-history-file">${escapeHtml(display(item.file, "Файл без имени"))}</span>
+            <div class="import-history-meta">${escapeHtml(display(item.owner))} · ${escapeHtml(period)} · ${escapeHtml(display(item.resource))}<br>Версия ${escapeHtml(display(item.version))} · строк в источнике: ${escapeHtml(fmtNumber(item.rowCount))} · строк данных: ${escapeHtml(fmtNumber(item.dataRowCount))}${item.uploader ? ` · загрузил: ${escapeHtml(item.uploader)}` : ""}</div>
+          </div>
+          <div class="import-history-badges">${item.isLatest ? '<span class="import-history-badge">Актуальная версия</span>' : ""}${warnings ? `<span class="import-history-badge">Предупреждений: ${escapeHtml(fmtNumber(warnings))}</span>` : ""}<a class="button" href="/ministry/import/${encodeURIComponent(item.id)}/file" download>Скачать</a></div>
+        </li>`;
+      }).join("")
+      : '<li class="empty-state">Загрузки по этому запросу не найдены.</li>';
+  }
+  function openDataTools(mode) {
+    state.lastFocus = document.activeElement;
+    const historyMode = mode === "history";
+    $("#data-tools-title").textContent = historyMode ? "Хронология загрузок" : "Настройка столбцов таблицы";
+    $("#data-tools-subtitle").textContent = historyMode
+      ? "Последние 100 принятых файлов — от новых к старым."
+      : "Выберите дополнительные поля, которые нужно видеть в таблице.";
+    const content = $("#data-tools-content");
+    if (historyMode) {
+      content.innerHTML = `<div class="import-history-toolbar"><input class="import-history-search" id="import-history-search" type="search" placeholder="Поиск по файлу, поставщику или ресурсу" aria-label="Поиск в истории загрузок"><span class="import-history-count" id="import-history-result-count"></span></div><ol class="import-history-list" id="import-history-list"></ol>`;
+      renderImportHistory();
+      $("#import-history-search").addEventListener("input", renderImportHistory);
+    } else {
+      renderColumnSettings();
+    }
+    $("#data-tools-backdrop").hidden = false;
+    document.body.style.overflow = "hidden";
+    const firstControl = historyMode ? $("#import-history-search") : $("[data-column-toggle]");
+    (firstControl || $(".data-tools-dialog")).focus();
+  }
+  function closeDataTools() {
+    $("#data-tools-backdrop").hidden = true;
+    document.body.style.overflow = "";
+    if (state.lastFocus && typeof state.lastFocus.focus === "function") state.lastFocus.focus();
   }
   function setMessage(element, message, type) {
     element.textContent = message;
@@ -77,29 +204,6 @@
     }
     if (!response.ok) throw new Error(payload.message || payload.error || `Ошибка запроса (${response.status})`);
     return payload;
-  }
-  function renderSummary(summary) {
-    const values = [
-      [summary.imports, "Загрузок", "за выбранный период"],
-      [summary.sourceRows, "Строк в источниках", "как передано поставщиками"],
-      [summary.dataRows, "Строк данных", "учтено в выборке"],
-      [summary.matchedDebts, "Совпавших долгов", "значение из источника"],
-      [fmtMoney(summary.debtTotal), "Сумма долга", "без пересчёта"],
-      [summary.missingInn, "ИНН отсутствует", "в строках данных"],
-      [summary.duplicateInn, "Повторяющиеся ИНН", "требуют проверки"],
-      [summary.groupRows, "Групповых строк", "помечено в источнике"],
-      [summary.coverage == null ? "—" : (typeof summary.coverage === "number" ? `${numberFormat.format(summary.coverage)}%` : summary.coverage), "Покрытие", "показатель API"],
-      [summary.warningCount, "Предупреждения", "по загруженным файлам"]
-    ];
-    const cards = $$("#summary-grid .metric");
-    values.forEach((item, index) => {
-      const card = cards[index];
-      if (!card) return;
-      $(".metric-value", card).textContent = item[0] === "—" ? "—" : fmtNumber(item[0]);
-      $(".metric-label", card).textContent = item[1];
-      $(".metric-note", card).textContent = item[2];
-      $(".metric-value", card).classList.toggle("small", index === 4);
-    });
   }
   function renderMap(map) {
     const content = $("#map-content");
@@ -280,11 +384,20 @@
         const statusClass = /ошиб|предуп|не сопостав/i.test(row.status || "") ? "warn" : "";
         const rowKey = escapeHtml(row.id);
         return `<tr tabindex="0" role="button" aria-label="Открыть строку: ${escapeHtml(display(row.name, "Без названия"))}, ИНН ${escapeHtml(display(row.inn))}" data-row-index="${index}" data-row-id="${rowKey}">
-          <td><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div>${row.status ? `<div class="subcell"><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></div>` : ""}</td>
-          <td><div class="mono">${escapeHtml(display(row.inn))}</div><div class="subcell">${escapeHtml(display(row.kpp))}</div></td>
-          <td>${escapeHtml(display(row.territory))}${row.detail ? `<div class="subcell">${escapeHtml(row.detail)}</div>` : ""}</td>
-          <td><div>${escapeHtml(display(row.month))} ${escapeHtml(display(row.year, ""))}</div></td>
-          <td><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div><div class="subcell">${escapeHtml(display(row.periods, "Периоды не указаны"))}</div></td>
+          <td data-column="organization"><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div>${row.status ? `<div class="subcell"><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></div>` : ""}</td>
+          <td data-column="inn"><div class="mono">${escapeHtml(display(row.inn))}</div><div class="subcell">${escapeHtml(display(row.kpp))}</div></td>
+          <td data-column="district">${escapeHtml(display(row.territory))}${row.detail ? `<div class="subcell">${escapeHtml(row.detail)}</div>` : ""}</td>
+          <td data-column="period"><div>${escapeHtml(display(row.month))} ${escapeHtml(display(row.year, ""))}</div></td>
+          <td data-column="debt"><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div><div class="subcell">${escapeHtml(display(row.periods, "Периоды не указаны"))}</div></td>
+          <td data-column="resource">${escapeHtml(display(row.resource))}</td>
+          <td data-column="detail">${escapeHtml(display(row.detail))}</td>
+          <td data-column="periods">${row.periods == null ? "—" : escapeHtml(fmtNumber(row.periods))}</td>
+          <td data-column="currentPeriodAccrual">${escapeHtml(fmtMoney(row.currentPeriodAccrual))}</td>
+          <td data-column="yearToDateAccrual">${escapeHtml(fmtMoney(row.yearToDateAccrual))}</td>
+          <td data-column="status">${row.status ? `<span class="badge ${statusClass}">${escapeHtml(row.status)}</span>` : "—"}</td>
+          <td data-column="owner">${escapeHtml(display(row.owner))}</td>
+          <td data-column="file">${escapeHtml(display(row.file))}</td>
+          <td data-column="sourceRow">${escapeHtml(display(row.sourceRow))}</td>
         </tr>`;
       }).join("");
       $$("#rows-body tr[data-row-index]").forEach(tr => {
@@ -295,6 +408,7 @@
         });
       });
     }
+    applyTableColumnVisibility();
     const page = pagination || {};
     const current = Number(page.page || state.page);
     const perPage = Number(page.perPage || state.perPage);
@@ -453,7 +567,8 @@
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
-      renderSummary(data.summary || {});
+      state.importHistory = Array.isArray(data.imports) ? data.imports : [];
+      $("#import-history-count").textContent = fmtNumber(state.importHistory.length);
       const rows = Array.isArray(data.rows) ? data.rows : [];
       renderRows(rows, data.pagination);
       renderMap(data.map);
@@ -761,6 +876,7 @@
     if (event.key === "Escape") {
       if (!$("#detail-backdrop").hidden) closeDetail();
       else if (!$("#import-backdrop").hidden) closeImport();
+      else if (!$("#data-tools-backdrop").hidden) closeDataTools();
     }
     if (event.key !== "Tab") return;
     const dialog = element;
@@ -772,6 +888,8 @@
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   function init() {
+    state.visibleColumns = loadVisibleColumns();
+    applyTableColumnVisibility();
     const syncTableHeader = () => {
       const scrollbarWidth = Math.max(
         0,
@@ -807,6 +925,7 @@
     document.addEventListener("keydown", event => {
       if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-modal"));
       else if (!$("#import-backdrop").hidden) trapDialogKeys(event, $(".import-dialog"));
+      else if (!$("#data-tools-backdrop").hidden) trapDialogKeys(event, $(".data-tools-dialog"));
       else if (event.key === "Escape" && $("#user-menu").classList.contains("open")) {
         $("#user-menu").classList.remove("open");
         $("#user-toggle").setAttribute("aria-expanded", "false");
@@ -821,6 +940,12 @@
     $("#close-detail").addEventListener("click", closeDetail);
     $("#detail-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeDetail(); });
     $("#open-import").addEventListener("click", openImport);
+    $("#open-import-history").addEventListener("click", () => openDataTools("history"));
+    $("#open-column-settings").addEventListener("click", () => openDataTools("columns"));
+    $("#close-data-tools").addEventListener("click", closeDataTools);
+    $("#data-tools-backdrop").addEventListener("click", event => {
+      if (event.target === event.currentTarget) closeDataTools();
+    });
     $("#close-import").addEventListener("click", closeImport);
     $("#import-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeImport(); });
     $("#preview-form").addEventListener("submit", submitPreview);
