@@ -291,6 +291,8 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="map-title"', dashboard_html)
         self.assertNotIn('id="map-reset"', dashboard_html)
         self.assertIn('id="filter-district"', dashboard_html)
+        self.assertEqual(dashboard_html.count('class="visually-hidden"'), 4)
+        self.assertIn('height:52px;min-height:52px', dashboard_html)
         table_start = dashboard_html.index(
             '<section class="panel table-panel"')
         rows_status = dashboard_html.index(

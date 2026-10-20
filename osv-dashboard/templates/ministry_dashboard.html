@@ -41,6 +41,7 @@
     .button svg{width:15px;height:15px}
     .filters{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(160px,.9fr) minmax(180px,1.15fr) minmax(240px,1.5fr);gap:10px;align-items:end;padding:14px;background:#f7f9f5;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}
     .field label{display:block;margin:0 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750}
+    .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
     .field input,.field select{height:38px;width:100%;border:1px solid #cbd7d1;border-radius:6px;padding:0 10px;background:#fff;color:var(--ink);font-size:12px}
     .search-wrap{position:relative}.search-wrap svg{position:absolute;width:15px;height:15px;left:10px;top:12px;color:#70847d;pointer-events:none}.search-wrap input{padding-left:33px}
     .summary-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:17px}
@@ -210,7 +211,7 @@
     .map-legend-swatch.selected{background:#315f9b;border-color:#244c80}
     .map-source-note{font-size:10px;line-height:1.45;color:#7b8998}
     .left-overview[hidden],#map-panel[hidden]{display:none!important}
-    .filters{grid-template-columns:minmax(130px,.8fr) minmax(140px,.85fr) minmax(160px,1fr) minmax(190px,1.3fr);gap:9px;padding:12px;margin:0;background:#f7f9fc;border-color:#d8e1eb;border-radius:7px}
+    .filters{grid-template-columns:minmax(130px,.8fr) minmax(140px,.85fr) minmax(160px,1fr) minmax(190px,1.3fr);height:52px;min-height:52px;gap:8px;padding:6px 9px;align-items:center;margin:0;background:#f7f9fc;border-color:#d8e1eb;border-radius:7px}
     .field label{color:#667b92;font-size:9px}
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
     .search-wrap svg{color:#71869d}
@@ -249,7 +250,7 @@
     .badge.warn,.badge.good{background:#edf3fa;color:#4e6682}
     @media(max-width:1100px){
       .workspace{grid-template-columns:minmax(260px,.72fr) minmax(0,1.35fr)}
-      .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .filters{grid-template-columns:repeat(2,minmax(0,1fr));height:auto;min-height:52px;padding:8px 10px}
       .filters .search-field{grid-column:span 2}
     }
     @media(max-width:820px){
@@ -336,10 +337,10 @@
       </div>
       <aside class="right-column" aria-label="Журнал отчётов">
         <section class="filters" aria-label="Фильтры данных">
-          <div class="field"><label for="filter-month">Отчётный месяц</label><select id="filter-month"><option value="">Загрузка…</option></select></div>
-          <div class="field"><label for="filter-resource">Ресурс</label><select id="filter-resource"><option value="all">Все ресурсы</option></select></div>
-          <div class="field district-field"><label for="filter-district">Территория</label><select id="filter-district"><option value="all">Все территории</option></select></div>
-          <div class="field search-field"><label for="filter-query">Поиск по организации, ИНН, файлу</label><div class="search-wrap"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.8" cy="8.8" r="5.8"/><path d="m13.2 13.2 4 4"/></svg><input id="filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div></div>
+          <div class="field"><label class="visually-hidden" for="filter-month">Отчётный месяц</label><select id="filter-month"><option value="">Загрузка…</option></select></div>
+          <div class="field"><label class="visually-hidden" for="filter-resource">Ресурс</label><select id="filter-resource"><option value="all">Все ресурсы</option></select></div>
+          <div class="field district-field"><label class="visually-hidden" for="filter-district">Территория</label><select id="filter-district"><option value="all">Все территории</option></select></div>
+          <div class="field search-field"><label class="visually-hidden" for="filter-query">Поиск по организации, ИНН, файлу</label><div class="search-wrap"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.8" cy="8.8" r="5.8"/><path d="m13.2 13.2 4 4"/></svg><input id="filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div></div>
         </section>
         <section class="panel table-panel" aria-labelledby="records-title">
           <div class="panel-head">
