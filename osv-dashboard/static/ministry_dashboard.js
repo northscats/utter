@@ -5,14 +5,18 @@
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const csrfToken = $('meta[name="csrf-token"]')?.content || "";
   const state = {
-    page: 1, perPage: 50, sort: "debt", direction: "desc", debounce: null,
+    page: 1, perPage: 50, sort: "debt", direction: "desc",
     lastFocus: null, currentRow: null, previewToken: null, filters: null,
     mapData: null, mapGeometry: null, mapLoadPromise: null,
+    month: "", selectedDistricts: [], pendingDistricts: [], organizationQuery: "",
+    minDebt: "", maxDebt: "",
     leftMode: "overview"
   };
   const els = {
-    month: $("#filter-month"), resource: $("#filter-resource"), district: $("#filter-district"),
-    query: $("#filter-query"), rows: $("#rows-body"), rowsStatus: $("#rows-status"),
+    month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
+    districtSearch: $("#omcu-search"), districtOptions: $("#omcu-options"),
+    debtMin: $("#debt-min"), debtMax: $("#debt-max"),
+    rows: $("#rows-body"), rowsStatus: $("#rows-status"),
     imports: $("#imports-list"), importsStatus: $("#imports-status")
   };
   const numberFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
@@ -50,15 +54,17 @@
   }
   function getParams() {
     const params = new URLSearchParams({
-      month: els.month.value || "",
-      resource: els.resource.value || "all",
-      district: els.district.value || "all",
-      q: els.query.value.trim(),
+      month: state.month,
+      resource: "all",
+      q: state.organizationQuery,
       page: String(state.page),
       per_page: String(state.perPage),
       sort: state.sort,
       direction: state.direction
     });
+    state.selectedDistricts.forEach(name => params.append("district", name));
+    if (state.minDebt !== "") params.set("debt_min", state.minDebt);
+    if (state.maxDebt !== "") params.set("debt_max", state.maxDebt);
     return params;
   }
   async function requestJson(url, options = {}) {
@@ -263,58 +269,53 @@
     return state.mapLoadPromise;
   }
   function syncMapSelection() {
-    const selected = els.district?.value || "all";
+    const selected = state.selectedDistricts || [];
     const label = $("#map-selected");
     if (label) {
-      label.textContent = selected === "all"
+      label.textContent = !selected.length
         ? "Все территории"
-        : selected === "unassigned"
-          ? "Нераспределённые / неоднозначные"
-          : `Выбрано: ${selected}`;
+        : selected.length === 1
+          ? `Выбрано: ${selected[0]}`
+          : `Выбрано территорий: ${numberFormat.format(selected.length)}`;
     }
     $$(".map-area").forEach(path => {
-      const isSelected = selected !== "all" && selected !== "unassigned"
-        && path.dataset.territory === selected;
+      const isSelected = selected.includes(path.dataset.territory);
       path.classList.toggle("is-selected", isSelected);
       path.setAttribute("aria-pressed", String(isSelected));
     });
   }
   function selectMapTerritory(name) {
-    const optionExists = Array.from(els.district.options).some(option => option.value === name);
+    const optionExists = (state.filters?.districts || [])
+      .some(option => option.name === name);
     if (!optionExists) {
       $("#map-selected").textContent = `Территория «${name}» отсутствует в списке фильтров.`;
       return;
     }
-    els.district.value = name;
+    state.selectedDistricts = state.selectedDistricts.includes(name)
+      ? state.selectedDistricts.filter(value => value !== name)
+      : [...state.selectedDistricts, name];
+    state.pendingDistricts = [...state.selectedDistricts];
     state.page = 1;
     syncMapSelection();
-    els.district.dispatchEvent(new Event("change", { bubbles: true }));
+    renderDistrictOptions();
+    updateHeaderFilterIndicators();
+    loadDashboard();
   }
   function renderRows(rows, pagination) {
     const list = Array.isArray(rows) ? rows : [];
     els.rows.innerHTML = "";
     if (!list.length) {
-      els.rows.innerHTML = '<tr><td colspan="6"><div class="empty-state"><strong>Строки не найдены</strong>Измените условия поиска или проверьте наличие отчётов за выбранный месяц.</div></td></tr>';
+      els.rows.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Строки не найдены</strong>Измените условия поиска или проверьте наличие отчётов за выбранный месяц.</div></td></tr>';
     } else {
       els.rows.innerHTML = list.map((row, index) => {
         const statusClass = /ошиб|предуп|не сопостав/i.test(row.status || "") ? "warn" : "";
-        const comparison = row.comparison || {};
-        let compareText = "Нет доступного сравнения";
-        let compareClass = "";
-        if (comparison.available) {
-          compareText = `${fmtMoney(comparison.delta)} · ${display(comparison.previousMonth, "предыдущий период")}`;
-          compareClass = Number(comparison.delta) > 0 ? "warn" : "good";
-        } else if (comparison.reason) {
-          compareText = comparison.reason;
-        }
         const rowKey = escapeHtml(row.id);
         return `<tr tabindex="0" role="button" aria-label="Открыть строку: ${escapeHtml(display(row.name, "Без названия"))}, ИНН ${escapeHtml(display(row.inn))}" data-row-index="${index}" data-row-id="${rowKey}">
-          <td><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div></td>
+          <td><div class="company-cell">${escapeHtml(display(row.name, "Без названия"))}${row.isGroupRow ? ' <span class="tag">групповая строка</span>' : ""}</div><div class="subcell">${escapeHtml(display(row.owner, display(row.file)))}</div>${row.status ? `<div class="subcell"><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></div>` : ""}</td>
           <td><div class="mono">${escapeHtml(display(row.inn))}</div><div class="subcell">${escapeHtml(display(row.kpp))}</div></td>
           <td>${escapeHtml(display(row.territory))}${row.detail ? `<div class="subcell">${escapeHtml(row.detail)}</div>` : ""}</td>
-          <td><div>${escapeHtml(display(row.month))} ${escapeHtml(display(row.year, ""))}</div><div class="subcell">${escapeHtml(display(row.resource))} · стр. ${escapeHtml(display(row.sheet))} / №${escapeHtml(display(row.sourceRow))}</div></td>
+          <td><div>${escapeHtml(display(row.month))} ${escapeHtml(display(row.year, ""))}</div></td>
           <td><div class="amount">${escapeHtml(fmtMoney(row.debt))}</div><div class="subcell">${escapeHtml(display(row.periods, "Периоды не указаны"))}</div></td>
-          <td><span class="badge ${compareClass}"><i class="badge-dot"></i>${escapeHtml(compareText)}</span>${row.status ? `<div class="subcell"><span class="badge ${statusClass}">${escapeHtml(row.status)}</span></div>` : ""}</td>
         </tr>`;
       }).join("");
       $$("#rows-body tr[data-row-index]").forEach(tr => {
@@ -366,12 +367,93 @@
   function applyFilters(filters) {
     state.filters = filters || {};
     const selected = filters?.selected || {};
-    setOptions(els.month, filters?.months || [], selected.month || "");
-    setOptions(els.resource, filters?.resources || [], selected.resource || "all", "Все ресурсы");
-    setOptions(els.district, filters?.districts || [], selected.district || "all", "Все территории");
+    setOptions(els.month, filters?.months || [], selected.month || state.month || "");
     if (!els.month.options.length) els.month.innerHTML = makeOption("", "Нет доступных периодов", "");
-    if (!els.resource.options.length) els.resource.innerHTML = makeOption("all", "Все ресурсы", "all");
-    if (!els.district.options.length) els.district.innerHTML = makeOption("all", "Все территории", "all");
+    state.month = selected.month || els.month.value || "";
+    state.selectedDistricts = Array.isArray(selected.districts)
+      ? selected.districts
+      : (selected.district && selected.district !== "all" ? [selected.district] : []);
+    state.organizationQuery = selected.q ?? state.organizationQuery;
+    state.minDebt = selected.debtMin ?? "";
+    state.maxDebt = selected.debtMax ?? "";
+    els.organizationQuery.value = state.organizationQuery;
+    els.debtMin.value = state.minDebt;
+    els.debtMax.value = state.maxDebt;
+    state.pendingDistricts = [...state.selectedDistricts];
+    renderDistrictOptions();
+    updateHeaderFilterIndicators();
+    syncMapSelection();
+  }
+  function renderDistrictOptions() {
+    if (!els.districtOptions) return;
+    const search = (els.districtSearch.value || "").trim().toLocaleLowerCase("ru");
+    const selected = new Set(state.pendingDistricts);
+    const districts = (state.filters?.districts || []).filter(item => {
+      if (!item || item.name === "unassigned") return false;
+      return `${item.label || ""} ${item.name || ""}`.toLocaleLowerCase("ru").includes(search);
+    });
+    els.districtOptions.innerHTML = districts.length
+      ? districts.map((item, index) => {
+        const name = String(item.name || "");
+        const label = String(item.label || name);
+        const id = `omcu-option-${index}`;
+        return `<label class="omcu-option" for="${id}"><input id="${id}" type="checkbox" data-omcu-option value="${escapeHtml(name)}"${selected.has(name) ? " checked" : ""}><span>${escapeHtml(label)}</span></label>`;
+      }).join("")
+      : '<div class="empty-state">Совпадений не найдено.</div>';
+    updateOmcuSelectionLabel();
+  }
+  function updateOmcuSelectionLabel() {
+    const label = $("#omcu-selection-label");
+    if (!label) return;
+    const count = state.pendingDistricts.length;
+    label.textContent = count ? `${numberFormat.format(count)} из 56 выбрано` : "Все ОМСУ";
+  }
+  function updateHeaderFilterIndicators() {
+    const count = $("#omcu-filter-count");
+    if (count) {
+      count.textContent = state.selectedDistricts.length ? String(state.selectedDistricts.length) : "";
+      count.hidden = !state.selectedDistricts.length;
+    }
+    $("#debt-filter-toggle")?.classList.toggle(
+      "has-filter", state.minDebt !== "" || state.maxDebt !== "");
+    $("#org-filter-toggle")?.classList.toggle(
+      "has-filter", Boolean(state.organizationQuery));
+  }
+  function updateDebtSortIndicator() {
+    const indicator = $("#debt-sort-indicator");
+    if (indicator) {
+      indicator.textContent = state.direction === "asc" ? "↑" : "↓";
+      indicator.hidden = state.sort !== "debt";
+    }
+  }
+  function closeHeaderFilterPopovers() {
+    $$(".header-filter-popover").forEach(popover => {
+      popover.hidden = true;
+      const button = $(`[aria-controls="${popover.id}"]`);
+      button?.setAttribute("aria-expanded", "false");
+    });
+  }
+  function toggleHeaderFilter(toggleId, popoverId) {
+    const button = $(`#${toggleId}`);
+    const popover = $(`#${popoverId}`);
+    if (!button || !popover) return;
+    const shouldOpen = popover.hidden;
+    closeHeaderFilterPopovers();
+    if (!shouldOpen) return;
+    popover.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    if (popoverId === "omcu-filter-popover") {
+      state.pendingDistricts = [...state.selectedDistricts];
+      renderDistrictOptions();
+      els.districtSearch.focus();
+    } else if (popoverId === "org-filter-popover") {
+      els.organizationQuery.focus();
+    } else if (popoverId === "debt-range-popover") {
+      els.debtMin.value = state.minDebt;
+      els.debtMax.value = state.maxDebt;
+      $("#debt-range-error").hidden = true;
+      els.debtMin.focus();
+    }
   }
   async function loadDashboard() {
     els.rowsStatus.className = "status-line";
@@ -380,15 +462,7 @@
     els.importsStatus.textContent = "Загрузка журнала…";
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
-      if (data.filters) {
-        const previousMonth = els.month.value;
-        const previousResource = els.resource.value;
-        const previousDistrict = els.district.value;
-        applyFilters(data.filters);
-        if (previousMonth && [...els.month.options].some(option => option.value === previousMonth)) els.month.value = previousMonth;
-        if (previousResource && [...els.resource.options].some(option => option.value === previousResource)) els.resource.value = previousResource;
-        if (previousDistrict && [...els.district.options].some(option => option.value === previousDistrict)) els.district.value = previousDistrict;
-      }
+      if (data.filters) applyFilters(data.filters);
       renderSummary(data.summary || {});
       renderMonthly(data.monthly || []);
       renderRows(data.rows || [], data.pagination);
@@ -622,6 +696,9 @@
         menu.classList.remove("open");
         $("#user-toggle").setAttribute("aria-expanded", "false");
       }
+      if (!event.target.closest(".header-filter-anchor")) {
+        closeHeaderFilterPopovers();
+      }
     });
     document.addEventListener("keydown", event => {
       if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-drawer"));
@@ -630,6 +707,8 @@
         $("#user-menu").classList.remove("open");
         $("#user-toggle").setAttribute("aria-expanded", "false");
         $("#user-toggle").focus();
+      } else if (event.key === "Escape" && $$(".header-filter-popover:not([hidden])").length) {
+        closeHeaderFilterPopovers();
       }
     });
     $("#close-detail").addEventListener("click", closeDetail);
@@ -638,25 +717,111 @@
     $("#close-import").addEventListener("click", closeImport);
     $("#import-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeImport(); });
     $("#preview-form").addEventListener("submit", submitPreview);
-    [els.month, els.resource, els.district].forEach(select => select.addEventListener("change", () => { state.page = 1; loadDashboard(); }));
-    els.query.addEventListener("input", () => {
-      window.clearTimeout(state.debounce);
-      state.debounce = window.setTimeout(() => { state.page = 1; loadDashboard(); }, 320);
+    [
+      ["org-filter-toggle", "org-filter-popover"],
+      ["omcu-filter-toggle", "omcu-filter-popover"],
+      ["period-filter-toggle", "period-filter-popover"],
+      ["debt-filter-toggle", "debt-range-popover"]
+    ].forEach(([toggleId, popoverId]) => {
+      $(`#${toggleId}`).addEventListener("click", () => toggleHeaderFilter(toggleId, popoverId));
+    });
+    const applyOrganizationFilter = () => {
+      state.organizationQuery = els.organizationQuery.value.trim();
+      state.page = 1;
+      updateHeaderFilterIndicators();
+      closeHeaderFilterPopovers();
+      loadDashboard();
+    };
+    $("#org-filter-apply").addEventListener("click", applyOrganizationFilter);
+    $("#org-filter-clear").addEventListener("click", () => {
+      els.organizationQuery.value = "";
+      applyOrganizationFilter();
+    });
+    els.organizationQuery.addEventListener("keydown", event => {
+      if (event.key === "Enter") { event.preventDefault(); applyOrganizationFilter(); }
+    });
+    els.districtSearch.addEventListener("input", renderDistrictOptions);
+    els.districtOptions.addEventListener("change", event => {
+      if (!event.target.matches("[data-omcu-option]")) return;
+      state.pendingDistricts = $$("[data-omcu-option]:checked", els.districtOptions)
+        .map(input => input.value);
+      updateOmcuSelectionLabel();
+    });
+    $("#omcu-select-all").addEventListener("click", () => {
+      state.pendingDistricts = (state.filters?.districts || [])
+        .filter(item => item.name !== "unassigned").map(item => item.name);
+      renderDistrictOptions();
+    });
+    $("#omcu-clear").addEventListener("click", () => {
+      state.pendingDistricts = [];
+      renderDistrictOptions();
+    });
+    $("#omcu-apply").addEventListener("click", () => {
+      state.selectedDistricts = [...state.pendingDistricts];
+      state.page = 1;
+      updateHeaderFilterIndicators();
+      syncMapSelection();
+      closeHeaderFilterPopovers();
+      loadDashboard();
+    });
+    $("#period-filter-apply").addEventListener("click", () => {
+      state.month = els.month.value || "";
+      state.page = 1;
+      closeHeaderFilterPopovers();
+      loadDashboard();
+    });
+    const applyDebtRange = () => {
+      const min = els.debtMin.value.trim();
+      const max = els.debtMax.value.trim();
+      const error = $("#debt-range-error");
+      const minNumber = min === "" ? null : Number(min);
+      const maxNumber = max === "" ? null : Number(max);
+      if ((minNumber !== null && !Number.isFinite(minNumber))
+        || (maxNumber !== null && !Number.isFinite(maxNumber))) {
+        error.textContent = "Введите корректные числовые границы.";
+        error.hidden = false;
+        return;
+      }
+      if (minNumber !== null && maxNumber !== null && minNumber > maxNumber) {
+        error.textContent = "Минимум не может быть больше максимума.";
+        error.hidden = false;
+        return;
+      }
+      state.minDebt = min;
+      state.maxDebt = max;
+      state.page = 1;
+      updateHeaderFilterIndicators();
+      closeHeaderFilterPopovers();
+      loadDashboard();
+    };
+    $("#debt-filter-apply").addEventListener("click", applyDebtRange);
+    $("#debt-filter-clear").addEventListener("click", () => {
+      els.debtMin.value = "";
+      els.debtMax.value = "";
+      applyDebtRange();
     });
     $("#reset-filters").addEventListener("click", () => {
-      if (state.filters?.selected) {
-        els.month.value = state.filters.selected.month || els.month.options[0]?.value || "";
-      }
-      els.resource.value = "all";
-      els.district.value = "all";
-      els.query.value = "";
+      state.month = state.filters?.months?.[0]?.value || els.month.options[0]?.value || "";
+      els.month.value = state.month;
+      state.selectedDistricts = [];
+      state.pendingDistricts = [];
+      state.organizationQuery = "";
+      state.minDebt = "";
+      state.maxDebt = "";
+      els.organizationQuery.value = "";
+      els.debtMin.value = "";
+      els.debtMax.value = "";
       state.page = 1;
+      updateHeaderFilterIndicators();
+      syncMapSelection();
+      closeHeaderFilterPopovers();
       loadDashboard();
     });
     $$("[data-sort]").forEach(button => button.addEventListener("click", () => {
       const sort = button.dataset.sort;
       state.direction = state.sort === sort && state.direction === "asc" ? "desc" : "asc";
       state.sort = sort;
+      updateDebtSortIndicator();
       state.page = 1;
       loadDashboard();
     }));

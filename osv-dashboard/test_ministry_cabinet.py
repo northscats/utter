@@ -263,6 +263,11 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(march['rows'][0]['debt'], 12)
         self.assertTrue(march['rows'][0]['comparison']['available'])
         self.assertEqual(march['rows'][0]['comparison']['delta'], 12)
+        march_by_inn = self.client.get(
+            '/ministry/api/data?month=2026-03&resource=all&q=1234567890'
+        ).get_json()
+        self.assertEqual(march_by_inn['pagination']['total'], 1)
+        self.assertEqual(march_by_inn['rows'][0]['inn'], '1234567890')
         self.assertEqual(march['summary']['verifiedRegionalTotal'], False)
         self.assertTrue(march['map']['available'])
         self.assertEqual(march['map']['geometryUrl'],
@@ -290,18 +295,37 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('data-widget=', dashboard_html)
         self.assertNotIn('id="map-title"', dashboard_html)
         self.assertNotIn('id="map-reset"', dashboard_html)
-        self.assertIn('id="filter-district"', dashboard_html)
-        self.assertEqual(dashboard_html.count('class="visually-hidden"'), 4)
-        self.assertIn('height:52px;min-height:52px', dashboard_html)
+        self.assertNotIn('<section class="filters"', dashboard_html)
+        self.assertNotIn('id="filter-month"', dashboard_html)
+        self.assertNotIn('id="filter-resource"', dashboard_html)
+        self.assertNotIn('id="filter-query"', dashboard_html)
         table_start = dashboard_html.index(
             '<section class="panel table-panel"')
         rows_status = dashboard_html.index(
             '<div id="rows-status"', table_start)
         table_header = dashboard_html[table_start:rows_status]
+        table_panel = dashboard_html[
+            table_start:dashboard_html.index('</section>', table_start)]
         self.assertIn('id="open-import"', table_header)
         self.assertIn('id="reset-filters"', table_header)
         self.assertIn('aria-label="Загрузить отчёт"', table_header)
         self.assertNotIn('>Загрузить отчёт<', table_header)
+        self.assertIn('id="org-filter-toggle"', table_panel)
+        self.assertIn('id="organization-filter-query"', table_panel)
+        self.assertIn('id="omcu-filter-toggle"', table_panel)
+        self.assertIn('id="omcu-options"', table_panel)
+        self.assertIn('id="period-filter-toggle"', table_panel)
+        self.assertIn('id="period-filter"', table_panel)
+        self.assertIn('id="debt-filter-toggle"', table_panel)
+        self.assertIn('id="debt-min"', table_panel)
+        self.assertIn('id="debt-max"', table_panel)
+        self.assertNotIn('<th>Сопоставление</th>', table_panel)
+        table_head_start = dashboard_html.index('<thead><tr>', table_start)
+        table_head_end = dashboard_html.index('</tr></thead>', table_head_start)
+        self.assertEqual(len(re.findall(
+            r'<th(?:\s|>)',
+            dashboard_html[table_head_start:table_head_end],
+        )), 5)
         self.assertNotIn('id="map-note"', dashboard_html)
         self.assertNotIn('сведения об источнике и лицензии не указаны',
                          dashboard_html)
@@ -324,6 +348,31 @@ class MinistryCabinetTests(unittest.TestCase):
         ).get_json()['rows']
         self.assertEqual(len(district_rows), 1)
         self.assertEqual(district_rows[0]['district'], 'Балашиха')
+        multiple_district_rows = self.client.get(
+            '/ministry/api/data?month=2026-03&resource=all'
+            '&district=Балашиха&district=Домодедово'
+        ).get_json()
+        self.assertEqual(multiple_district_rows['pagination']['total'], 1)
+        self.assertEqual(
+            multiple_district_rows['filters']['selected']['districts'],
+            ['Балашиха', 'Домодедово'],
+        )
+        self.assertEqual(len(multiple_district_rows['filters']['districts']), 56)
+        debt_range = self.client.get(
+            '/ministry/api/data?month=2026-03&resource=all'
+            '&debt_min=11&debt_max=13'
+        ).get_json()
+        self.assertEqual(debt_range['pagination']['total'], 1)
+        self.assertEqual(debt_range['rows'][0]['debt'], 12)
+        debt_range_empty = self.client.get(
+            '/ministry/api/data?month=2026-03&resource=all&debt_min=13'
+        ).get_json()
+        self.assertEqual(debt_range_empty['pagination']['total'], 0)
+        invalid_debt_range = self.client.get(
+            '/ministry/api/data?month=2026-03&resource=all'
+            '&debt_min=20&debt_max=10'
+        )
+        self.assertEqual(invalid_debt_range.status_code, 400)
         self.assertEqual(self.client.get(
             '/ministry/api/data?month=2026-03&resource=all&district=unassigned'
         ).get_json()['rows'], [])

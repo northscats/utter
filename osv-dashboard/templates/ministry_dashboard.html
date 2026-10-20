@@ -39,9 +39,7 @@
     .button.primary:hover{background:var(--teal-dark)}
     .button:disabled{opacity:.55;cursor:not-allowed}
     .button svg{width:15px;height:15px}
-    .filters{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(160px,.9fr) minmax(180px,1.15fr) minmax(240px,1.5fr);gap:10px;align-items:end;padding:14px;background:#f7f9f5;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}
     .field label{display:block;margin:0 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750}
-    .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
     .field input,.field select{height:38px;width:100%;border:1px solid #cbd7d1;border-radius:6px;padding:0 10px;background:#fff;color:var(--ink);font-size:12px}
     .search-wrap{position:relative}.search-wrap svg{position:absolute;width:15px;height:15px;left:10px;top:12px;color:#70847d;pointer-events:none}.search-wrap input{padding-left:33px}
     .summary-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:17px}
@@ -76,6 +74,30 @@
     th{background:#f1f5f1;color:#536a68;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:10px 11px;border-bottom:1px solid var(--line);white-space:nowrap}
     th button{border:0;background:none;padding:0;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer}
     th button:hover{color:var(--teal)}
+    .header-filter-anchor{position:relative;display:inline-flex;align-items:center}
+    th .table-header-filter{display:inline-flex;align-items:center;gap:5px}
+    th .table-header-filter.has-filter{color:#315f93}
+    .table-header-filter svg{width:12px;height:12px;opacity:.7}
+    .debt-header-controls{display:flex;align-items:center;gap:8px}
+    th .debt-filter-toggle{width:25px;height:25px;display:grid;place-items:center;border:1px solid #d1dce8;border-radius:5px;background:#fff}
+    .debt-filter-toggle svg{width:13px;height:13px}
+    .debt-filter-toggle.has-filter{color:#2f6094;border-color:#87a8ce;background:#eef5fd}
+    .header-filter-popover{position:absolute;z-index:40;top:calc(100% + 8px);left:0;width:min(300px,calc(100vw - 30px));padding:12px;display:grid;gap:10px;white-space:normal;text-transform:none;letter-spacing:normal;text-align:left;font-size:12px;font-weight:400;color:#30445c;background:#fff;border:1px solid #cdd8e6;border-radius:8px;box-shadow:0 12px 30px rgba(30,54,83,.18)}
+    .header-filter-popover[hidden]{display:none!important}
+    .header-filter-popover.align-right{left:auto;right:0}
+    .header-filter-popover label{display:block;margin:0 0 5px;color:#667b92;font-size:10px;font-weight:700;text-transform:none;letter-spacing:0}
+    .header-filter-popover input:not([type=checkbox]),.header-filter-popover select{width:100%;height:36px;padding:0 9px;border:1px solid #cbd6e2;border-radius:5px;background:#fff;color:#2d4055;font:inherit;font-size:12px}
+    .header-filter-actions{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    th .popover-action{min-height:32px;padding:6px 9px;border:1px solid #d0dbe8;border-radius:5px;background:#f5f8fc;color:#405a75;font:inherit;font-size:11px;font-weight:600;text-transform:none;letter-spacing:0}
+    th .popover-action.primary{background:#315f93;border-color:#315f93;color:#fff}
+    .omcu-options{max-height:230px;overflow:auto;border:1px solid #e0e7ef;border-radius:5px;padding:4px}
+    .omcu-option{display:flex;align-items:flex-start;gap:8px;padding:6px 5px;border-radius:4px;color:#3d5065;font-size:11px;line-height:1.35;text-transform:none;letter-spacing:0;white-space:normal;cursor:pointer}
+    .omcu-option:hover{background:#f2f6fb}
+    .omcu-option input{margin:1px 0 0;flex:0 0 auto}
+    .omcu-actions{display:flex;justify-content:space-between;gap:8px}
+    .debt-range-inputs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .debt-range-error{margin:0;color:#a23e36;font-size:11px}
+    .filter-count{font:600 9px var(--mono);color:#315f93}
     td{padding:11px;border-bottom:1px solid #e9eeea;font-size:12px;vertical-align:top}
     tbody tr{cursor:pointer;transition:background .12s}
     tbody tr:hover td,tbody tr:focus td{background:#f0f6f2}
@@ -155,9 +177,9 @@
     .live-message.error{color:var(--red)}
     .live-message.success{color:var(--green)}
     .footer-note{margin-top:17px;color:#788880;font-size:10px;text-align:right}
-    @media(max-width:1100px){.summary-grid{grid-template-columns:repeat(3,1fr)}.filters{grid-template-columns:repeat(3,1fr)}.filters .search-field{grid-column:span 2}}
-    @media(max-width:820px){.workspace{grid-template-columns:1fr}.right-column{grid-template-columns:1fr}.filters{grid-template-columns:repeat(2,1fr)}.filters .search-field{grid-column:span 2}.map-unavailable{min-height:200px}}
-    @media(max-width:560px){.topbar{height:56px;padding:0 12px;gap:9px}.brand-sub,.brand-divider,.top-link{display:none}.user-name{display:none}.user-toggle{padding:4px 6px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{min-height:84px;padding:11px}.metric-value{font-size:21px}.filters{grid-template-columns:1fr 1fr;padding:11px}.filters .search-field{grid-column:1/-1}.filters .district-field{grid-column:1/-1}.right-column{grid-template-columns:1fr}.panel-head{padding:12px}.panel-body{padding:12px}.table-tools .source-note{display:none}.pagination{align-items:flex-start;flex-direction:column}.detail-grid{grid-template-columns:1fr 1fr}.drawer-head{padding:15px}.drawer-content{padding:13px}.preview-summary{grid-template-columns:1fr 1fr}.dialog-head h2{font-size:20px}}
+    @media(max-width:1100px){.summary-grid{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:820px){.workspace{grid-template-columns:1fr}.right-column{grid-template-columns:1fr}.map-unavailable{min-height:200px}}
+    @media(max-width:560px){.topbar{height:56px;padding:0 12px;gap:9px}.brand-sub,.brand-divider,.top-link{display:none}.user-name{display:none}.user-toggle{padding:4px 6px}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{min-height:84px;padding:11px}.metric-value{font-size:21px}.right-column{grid-template-columns:1fr}.panel-head{padding:12px}.panel-body{padding:12px}.table-tools .source-note{display:none}.pagination{align-items:flex-start;flex-direction:column}.detail-grid{grid-template-columns:1fr 1fr}.drawer-head{padding:15px}.drawer-content{padding:13px}.preview-summary{grid-template-columns:1fr 1fr}.dialog-head h2{font-size:20px}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
     /* Ministry workspace: a fixed two-pane review desk, with pane-local scrolling. */
     body{background:#edf1f6;color:#263747}
@@ -211,7 +233,6 @@
     .map-legend-swatch.selected{background:#315f9b;border-color:#244c80}
     .map-source-note{font-size:10px;line-height:1.45;color:#7b8998}
     .left-overview[hidden],#map-panel[hidden]{display:none!important}
-    .filters{grid-template-columns:minmax(130px,.8fr) minmax(140px,.85fr) minmax(160px,1fr) minmax(190px,1.3fr);height:52px;min-height:52px;gap:8px;padding:6px 9px;align-items:center;margin:0;background:#f7f9fc;border-color:#d8e1eb;border-radius:7px}
     .field label{color:#667b92;font-size:9px}
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
     .search-wrap svg{color:#71869d}
@@ -250,8 +271,6 @@
     .badge.warn,.badge.good{background:#edf3fa;color:#4e6682}
     @media(max-width:1100px){
       .workspace{grid-template-columns:minmax(260px,.72fr) minmax(0,1.35fr)}
-      .filters{grid-template-columns:repeat(2,minmax(0,1fr));height:auto;min-height:52px;padding:8px 10px}
-      .filters .search-field{grid-column:span 2}
     }
     @media(max-width:820px){
       .workspace{grid-template-columns:1fr}
@@ -263,8 +282,6 @@
     @media(max-width:560px){
       main{padding:16px 12px 28px}
       .summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .filters{grid-template-columns:1fr 1fr}
-      .filters .search-field,.filters .district-field{grid-column:1/-1}
       .table-scroll{max-height:58vh}
     }
   </style>
@@ -336,15 +353,9 @@
         </section>
       </div>
       <aside class="right-column" aria-label="Журнал отчётов">
-        <section class="filters" aria-label="Фильтры данных">
-          <div class="field"><label class="visually-hidden" for="filter-month">Отчётный месяц</label><select id="filter-month"><option value="">Загрузка…</option></select></div>
-          <div class="field"><label class="visually-hidden" for="filter-resource">Ресурс</label><select id="filter-resource"><option value="all">Все ресурсы</option></select></div>
-          <div class="field district-field"><label class="visually-hidden" for="filter-district">Территория</label><select id="filter-district"><option value="all">Все территории</option></select></div>
-          <div class="field search-field"><label class="visually-hidden" for="filter-query">Поиск по организации, ИНН, файлу</label><div class="search-wrap"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.8" cy="8.8" r="5.8"/><path d="m13.2 13.2 4 4"/></svg><input id="filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div></div>
-        </section>
         <section class="panel table-panel" aria-labelledby="records-title">
           <div class="panel-head">
-            <div><h2 class="panel-title" id="records-title">Строки отчётов</h2><div class="panel-caption" id="rows-caption">Детали, происхождение и доступные сравнения</div></div>
+            <div><h2 class="panel-title" id="records-title">Строки отчётов</h2><div class="panel-caption" id="rows-caption">Детали и происхождение отчётных строк</div></div>
             <div class="table-tools">
               <span class="source-note">Выберите строку, чтобы открыть источник</span>
               <div class="table-actions">
@@ -359,12 +370,60 @@
           <div class="table-scroll">
             <table aria-label="Строки долговых отчётов">
               <thead><tr>
-                <th><button type="button" data-sort="name">Организация</button></th>
+                <th>
+                  <div class="header-filter-anchor">
+                    <button class="table-header-filter" type="button" id="org-filter-toggle" aria-expanded="false" aria-controls="org-filter-popover">
+                      Организация<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                    </button>
+                    <div class="header-filter-popover" id="org-filter-popover" hidden>
+                      <div><label for="organization-filter-query">Поиск по названию или ИНН</label><input id="organization-filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div>
+                      <div class="header-filter-actions"><button class="popover-action" type="button" id="org-filter-clear">Очистить</button><button class="popover-action primary" type="button" id="org-filter-apply">Применить</button></div>
+                    </div>
+                  </div>
+                </th>
                 <th><button type="button" data-sort="inn">ИНН / КПП</button></th>
-                <th><button type="button" data-sort="territory">Территория</button></th>
-                <th>Период / источник</th>
-                <th><button type="button" data-sort="debt">Долг</button></th>
-                <th>Сопоставление</th>
+                <th>
+                  <div class="header-filter-anchor">
+                    <button class="table-header-filter" type="button" id="omcu-filter-toggle" aria-expanded="false" aria-controls="omcu-filter-popover">
+                      ОМСУ<span class="filter-count" id="omcu-filter-count" hidden></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                    </button>
+                    <div class="header-filter-popover" id="omcu-filter-popover" hidden>
+                      <div><label for="omcu-search">Поиск по ОМСУ</label><input id="omcu-search" type="search" placeholder="Начните вводить название" autocomplete="off"></div>
+                      <div class="omcu-actions"><button class="popover-action" type="button" id="omcu-select-all">Выбрать все</button><button class="popover-action" type="button" id="omcu-clear">Очистить</button></div>
+                      <div class="omcu-options" id="omcu-options" role="group" aria-label="Выберите одно или несколько ОМСУ"></div>
+                      <div class="header-filter-actions"><span id="omcu-selection-label">Все ОМСУ</span><button class="popover-action primary" type="button" id="omcu-apply">Применить</button></div>
+                    </div>
+                  </div>
+                </th>
+                <th>
+                  <div class="header-filter-anchor">
+                    <button class="table-header-filter" type="button" id="period-filter-toggle" aria-expanded="false" aria-controls="period-filter-popover">
+                      Период<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                    </button>
+                    <div class="header-filter-popover" id="period-filter-popover" hidden>
+                      <div><label for="period-filter">Отчётный месяц</label><select id="period-filter"><option value="">Загрузка…</option></select></div>
+                      <div class="header-filter-actions"><span></span><button class="popover-action primary" type="button" id="period-filter-apply">Применить</button></div>
+                    </div>
+                  </div>
+                </th>
+                <th>
+                  <div class="header-filter-anchor">
+                    <div class="debt-header-controls">
+                      <button type="button" data-sort="debt" id="debt-sort-toggle">Долг <span id="debt-sort-indicator" aria-hidden="true">↓</span></button>
+                      <button class="debt-filter-toggle" type="button" id="debt-filter-toggle" aria-label="Фильтр по диапазону долга" title="Фильтр по диапазону долга" aria-expanded="false" aria-controls="debt-range-popover">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 3h12L9.5 8.2v4.1l-3 1V8.2L2 3Z"/></svg>
+                      </button>
+                    </div>
+                    <div class="header-filter-popover align-right" id="debt-range-popover" hidden>
+                      <div class="debt-range-inputs">
+                        <div><label for="debt-min">От</label><input id="debt-min" type="number" step="any" inputmode="decimal" placeholder="Без минимума"></div>
+                        <div><label for="debt-max">До</label><input id="debt-max" type="number" step="any" inputmode="decimal" placeholder="Без максимума"></div>
+                      </div>
+                      <p class="debt-range-error" id="debt-range-error" role="alert" hidden></p>
+                      <div class="header-filter-actions"><button class="popover-action" type="button" id="debt-filter-clear">Сбросить</button><button class="popover-action primary" type="button" id="debt-filter-apply">Применить</button></div>
+                    </div>
+                  </div>
+                </th>
               </tr></thead>
               <tbody id="rows-body"></tbody>
             </table>

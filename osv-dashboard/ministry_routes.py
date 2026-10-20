@@ -2,6 +2,7 @@
 """Ministry cabinet routes, independent from the legacy ОСВ analytics."""
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -111,17 +112,32 @@ def _available_territories():
     return [row[0] for row in values if row[0]]
 
 
-def _filter_rows(query, *, year, month, resource, district, search):
+def _parse_debt_bound(value, label):
+    value = (value or '').strip()
+    if not value:
+        return None
+    if len(value) > 40:
+        raise ValueError(f'Граница «{label}» слишком длинная.')
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise ValueError(f'Граница «{label}» должна быть числом.') from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f'Граница «{label}» должна быть конечным числом.')
+    return parsed
+
+
+def _filter_rows(query, *, year, month, resource, districts, search,
+                 min_debt=None, max_debt=None):
     if year and month:
         query = query.filter(
             UzterReportRow.report_year == year,
             UzterReportRow.report_month == month)
     if resource and resource != 'all':
         query = query.filter(UzterReportRow.resource_type == resource)
-    if district and district != 'all':
+    if districts:
         observed = _available_territories()
-        aliases = territory_aliases_for(district, observed)
-        if district == 'unassigned':
+        if districts == ['unassigned']:
             assigned = [
                 value for value in observed
                 if municipality_for_territory(value) is not None
@@ -130,18 +146,22 @@ def _filter_rows(query, *, year, month, resource, district, search):
                 UzterReportRow.territory == '',
                 ~UzterReportRow.territory.in_(assigned) if assigned else True,
             ))
-        elif aliases:
-            query = query.filter(UzterReportRow.territory.in_(aliases))
         else:
-            query = query.filter(UzterReportRow.id == -1)
+            aliases = set()
+            for district in districts:
+                aliases.update(territory_aliases_for(district, observed))
+            query = query.filter(UzterReportRow.territory.in_(aliases)) \
+                if aliases else query.filter(UzterReportRow.id == -1)
     if search:
         query = query.filter(or_(
             UzterReportRow.debtor_name.contains(search, autoescape=True),
             UzterReportRow.inn.contains(search, autoescape=True),
-            UzterReportRow.territory.contains(search, autoescape=True),
-            UzterReportImport.source_filename.contains(search, autoescape=True),
             Company.name.contains(search, autoescape=True),
         ))
+    if min_debt is not None:
+        query = query.filter(UzterReportRow.debt_total >= min_debt)
+    if max_debt is not None:
+        query = query.filter(UzterReportRow.debt_total <= max_debt)
     return query
 
 
@@ -398,11 +418,29 @@ def dashboard_data():
     resource = request.args.get('resource', 'all')[:120]
     if resource != 'all' and resource not in resources:
         return _json_error('Неизвестный вид ресурса.', 400)
-    district = request.args.get('district', 'all')[:120]
+    requested_districts = request.args.getlist('district')
+    if not requested_districts:
+        requested_districts = request.args.getlist('districts')
+    districts = list(dict.fromkeys(
+        value.strip()[:120] for value in requested_districts
+        if value and value.strip() and value.strip() != 'all'
+    ))
     municipality_names = {name for name, _kind in MUNICIPALITIES}
-    if district not in ('all', 'unassigned') and district not in municipality_names:
+    if len(districts) > len(MUNICIPALITIES):
+        return _json_error('Выбрано слишком много территорий.', 400)
+    if ('unassigned' in districts and len(districts) > 1) or any(
+        value != 'unassigned' and value not in municipality_names
+        for value in districts
+    ):
         return _json_error('Неизвестная территория.', 400)
     search = request.args.get('q', '').strip()[:120]
+    try:
+        min_debt = _parse_debt_bound(request.args.get('debt_min'), 'От')
+        max_debt = _parse_debt_bound(request.args.get('debt_max'), 'До')
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    if min_debt is not None and max_debt is not None and min_debt > max_debt:
+        return _json_error('Минимум задолженности не может превышать максимум.', 400)
     page = min(max(request.args.get('page', 1, type=int) or 1, 1), 100_000)
     per_page = min(max(request.args.get('per_page', 50, type=int) or 50, 1), 100)
     sort = request.args.get('sort', 'name')
@@ -414,7 +452,8 @@ def dashboard_data():
 
     query = _filter_rows(
         _row_query(), year=year, month=month, resource=resource,
-        district=district, search=search)
+        districts=districts, search=search,
+        min_debt=min_debt, max_debt=max_debt)
     data_rows = query.with_entities(func.count(UzterReportRow.id)).scalar() or 0
     debt_row_count = query.filter(UzterReportRow.debt_total.isnot(None)).count()
     debt_sum = query.with_entities(func.sum(UzterReportRow.debt_total)).scalar()
@@ -496,7 +535,8 @@ def dashboard_data():
                for item in selected_imports]
     monthly_query = _filter_rows(
         _row_query().filter(UzterReportRow.debt_total.isnot(None)),
-        year=None, month=None, resource=resource, district=district, search=search)
+        year=None, month=None, resource=resource, districts=districts,
+        search=search, min_debt=min_debt, max_debt=max_debt)
     monthly_query = monthly_query.with_entities(
             UzterReportRow.report_year, UzterReportRow.report_month,
             func.sum(UzterReportRow.debt_total))
@@ -517,11 +557,6 @@ def dashboard_data():
             for value in observed_territories)}
         for name, kind in MUNICIPALITIES
     ]
-    district_options.insert(0, {
-        'name': 'unassigned', 'label': 'Нераспределённые / неоднозначные',
-        'type': 'не подтверждено',
-    })
-
     return jsonify({
         'filters': {
             'months': months,
@@ -529,7 +564,11 @@ def dashboard_data():
             'districts': district_options,
             'selected': {
                 'month': selected_month, 'resource': resource,
-                'district': district,
+                'district': districts[0] if len(districts) == 1 else 'all',
+                'districts': districts,
+                'q': search,
+                'debtMin': request.args.get('debt_min', '').strip(),
+                'debtMax': request.args.get('debt_max', '').strip(),
             },
         },
         'summary': {
