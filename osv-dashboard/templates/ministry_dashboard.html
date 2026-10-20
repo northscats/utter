@@ -58,13 +58,6 @@
     .panel-caption{font-size:11px;color:var(--muted);margin-top:2px}
     .panel-body{padding:15px 16px}
     .source-note{font-size:11px;color:var(--muted)}
-    .chart{height:122px;display:flex;align-items:end;gap:10px;padding:8px 5px 0;border-bottom:1px solid #dce5df}
-    .chart-item{flex:1;min-width:22px;display:flex;flex-direction:column;align-items:center;justify-content:end;height:100%;gap:6px}
-    .chart-bar{width:min(34px,72%);min-height:3px;background:#77a397;border-radius:4px 4px 0 0;position:relative;transition:height .25s ease}
-    .chart-item:last-child .chart-bar{background:var(--gold)}
-    .chart-value{font:10px var(--mono);color:#5e726d;white-space:nowrap}
-    .chart-label{font-size:9px;color:#6c7d77;white-space:nowrap}
-    .chart-empty{height:122px;display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12px}
     .table-panel .panel-head{align-items:flex-start}
     .table-tools{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}
     .table-actions{display:flex;align-items:center;gap:7px;flex-shrink:0}
@@ -201,9 +194,6 @@
     .metric-label{color:#687b90;font-size:9px;min-height:22px}
     .metric-value{font-family:var(--mono);font-size:19px;font-weight:650;color:#27476d;margin-top:5px}
     .metric-value.small{font-size:16px}.metric-note{color:#8290a0;font-size:9px}
-    .chart{height:116px;border-bottom-color:#dbe3ec}
-    .chart-bar,.chart-item:last-child .chart-bar{background:#7192ba;border-radius:3px 3px 0 0}
-    .chart-value{color:#61758b}.chart-label{color:#728399}
     .map-unavailable{min-height:190px;background:#f1f5fa;border-top:1px solid #e2e9f1}
     .map-icon{color:#496f9c;border-color:#b9c9dc;border-radius:8px}
     .map-message strong,.empty-state strong{font-family:"Segoe UI",system-ui,sans-serif;color:#304c6d}
@@ -333,10 +323,6 @@
       <div class="metric"><div class="metric-label">Покрытие</div><div class="metric-value loading-value">—</div><div class="metric-note">показатель API</div></div>
       <div class="metric"><div class="metric-label">Предупреждения</div><div class="metric-value loading-value">—</div><div class="metric-note">по загруженным файлам</div></div>
     </section>
-        <section class="panel" aria-labelledby="monthly-title">
-          <div class="panel-head"><div><h2 class="panel-title" id="monthly-title">Динамика по месяцам</h2><div class="panel-caption">Сумма строк из доступных отчётов; итог области не подтверждён</div></div><span class="source-note" id="chart-period"></span></div>
-          <div class="panel-body"><div class="chart" id="monthly-chart" aria-label="Столбчатая диаграмма долгов по месяцам"><div class="chart-empty">Загрузка данных…</div></div></div>
-        </section>
         </div>
         <section class="panel" id="map-panel" aria-label="Карта муниципальных образований" hidden>
           <div id="map-content" class="map-stage" aria-live="polite"><div class="map-loading">Карта загрузится при открытии этого раздела.</div></div>

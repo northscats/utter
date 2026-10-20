@@ -260,6 +260,7 @@ class MinistryCabinetTests(unittest.TestCase):
             '/ministry/api/data?month=2026-03&resource=all&q=Нулевой'
         ).get_json()
         self.assertEqual(march['summary']['dataRows'], 1)
+        self.assertNotIn('monthly', march)
         self.assertEqual(march['rows'][0]['debt'], 12)
         self.assertTrue(march['rows'][0]['comparison']['available'])
         self.assertEqual(march['rows'][0]['comparison']['delta'], 12)
@@ -284,7 +285,8 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="widget-menu"', dashboard_html)
         self.assertNotIn('data-widget-toggle', dashboard_html)
         self.assertIn('id="summary-grid"', dashboard_html)
-        self.assertIn('id="monthly-chart"', dashboard_html)
+        self.assertNotIn('id="monthly-chart"', dashboard_html)
+        self.assertNotIn('Динамика по месяцам', dashboard_html)
         self.assertIn('id="map-mode-toggle"', dashboard_html)
         self.assertIn('class="left-panel-header"', dashboard_html)
         self.assertIn('id="map-mode-icon"', dashboard_html)

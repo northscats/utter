@@ -100,35 +100,6 @@
       $(".metric-value", card).classList.toggle("small", index === 4);
     });
   }
-  function renderMonthly(monthly) {
-    const chart = $("#monthly-chart");
-    if (!Array.isArray(monthly) || !monthly.length) {
-      chart.innerHTML = '<div class="chart-empty">За выбранный период нет помесячных значений из источников.</div>';
-      return;
-    }
-    const max = Math.max(...monthly.map(item => Number(item.debt)).filter(Number.isFinite), 0);
-    if (max <= 0) {
-      chart.innerHTML = '<div class="chart-empty">Суммы для диаграммы не переданы.</div>';
-      return;
-    }
-    chart.innerHTML = monthly.map(item => {
-      const number = Number(item.debt);
-      const height = Number.isFinite(number) ? Math.max(3, number / max * 81) : 3;
-      const label = item.label || item.month || "—";
-      return `<div class="chart-item" title="${escapeHtml(label)}: ${escapeHtml(fmtMoney(item.debt))}">
-        <span class="chart-value">${escapeHtml(fmtCompact(item.debt))}</span>
-        <div class="chart-bar" style="height:${height}%"></div>
-        <span class="chart-label">${escapeHtml(label)}</span>
-      </div>`;
-    }).join("");
-  }
-  function fmtCompact(value) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return "—";
-    if (Math.abs(numeric) >= 1000000) return numberFormat.format(numeric / 1000000) + " млн";
-    if (Math.abs(numeric) >= 1000) return numberFormat.format(numeric / 1000) + " тыс.";
-    return numberFormat.format(numeric);
-  }
   function renderMap(map) {
     const content = $("#map-content");
     const toggle = $("#map-mode-toggle");
@@ -481,13 +452,11 @@
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
       renderSummary(data.summary || {});
-      renderMonthly(data.monthly || []);
       renderRows(data.rows || [], data.pagination);
       renderMap(data.map);
       const hasRows = Boolean(data.rows?.length);
       els.rowsStatus.hidden = hasRows;
       els.rowsStatus.textContent = hasRows ? "" : "По заданным фильтрам нет строк.";
-      $("#chart-period").textContent = display(els.month.selectedOptions[0]?.textContent, "");
     } catch (error) {
       els.rowsStatus.className = "status-line error";
       els.rowsStatus.hidden = false;

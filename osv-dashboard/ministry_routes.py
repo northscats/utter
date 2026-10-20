@@ -533,22 +533,6 @@ def dashboard_data():
     }
     history = [_import_payload(item, is_latest=item.id in latest_ids)
                for item in selected_imports]
-    monthly_query = _filter_rows(
-        _row_query().filter(UzterReportRow.debt_total.isnot(None)),
-        year=None, month=None, resource=resource, districts=districts,
-        search=search, min_debt=min_debt, max_debt=max_debt)
-    monthly_query = monthly_query.with_entities(
-            UzterReportRow.report_year, UzterReportRow.report_month,
-            func.sum(UzterReportRow.debt_total))
-    monthly_values = (
-        monthly_query.group_by(
-            UzterReportRow.report_year, UzterReportRow.report_month)
-        .order_by(UzterReportRow.report_year, UzterReportRow.report_month).all()
-    )
-    monthly = [
-        {'month': _month_value(y, m), 'label': f'{m:02d}.{y}', 'debt': float(value)}
-        for y, m, value in monthly_values[-24:]
-    ]
     observed_territories = _available_territories()
     district_options = [
         {'name': name, 'label': f'{kind.capitalize()} {name}',
@@ -584,7 +568,6 @@ def dashboard_data():
             'warningCount': warning_count,
             'verifiedRegionalTotal': False,
         },
-        'monthly': monthly,
         'rows': serialized_rows,
         'pagination': {
             'page': page, 'perPage': per_page, 'total': total,
