@@ -375,6 +375,17 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn('id="org-filter-toggle"', table_panel)
+        org_button_start = table_panel.index(
+            '<button class="table-header-filter org-search-trigger"')
+        org_button_end = table_panel.index('</button>', org_button_start)
+        org_button = table_panel[org_button_start:org_button_end]
+        self.assertIn('aria-label="Открыть поиск по организации"', org_button)
+        self.assertIn('class="org-search-square"', org_button)
+        self.assertIn('<circle cx="6.8" cy="6.8" r="4.5"/>', org_button)
+        self.assertIn(
+            'th .org-search-square{width:25px;height:25px;flex:0 0 25px;display:grid;place-items:center;border:1px solid #d1dce8;border-radius:5px;background:#fff',
+            dashboard_html,
+        )
         self.assertIn('id="organization-filter-query"', table_panel)
         self.assertNotIn('Выберите строку, чтобы открыть источник', table_panel)
         self.assertIn('id="omcu-filter-toggle"', table_panel)

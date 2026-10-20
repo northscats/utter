@@ -60,6 +60,9 @@
     th .table-header-filter{display:inline-flex;align-items:center;gap:5px}
     th .table-header-filter.has-filter{color:#315f93}
     .table-header-filter svg{width:12px;height:12px;opacity:.7}
+    th .org-search-square{width:25px;height:25px;flex:0 0 25px;display:grid;place-items:center;border:1px solid #d1dce8;border-radius:5px;background:#fff;color:#516a86}
+    th .org-search-square svg{width:13px;height:13px;opacity:1}
+    th .org-search-trigger.has-filter .org-search-square,th .org-search-trigger[aria-expanded="true"] .org-search-square{color:#2f6094;border-color:#87a8ce;background:#eef5fd}
     .debt-header-controls{display:flex;align-items:center;gap:8px}
     th .debt-filter-toggle{width:25px;height:25px;display:grid;place-items:center;border:1px solid #d1dce8;border-radius:5px;background:#fff}
     .debt-filter-toggle svg{width:13px;height:13px}
@@ -427,8 +430,8 @@
               <thead><tr>
                 <th data-column="organization">
                   <div class="header-filter-anchor">
-                    <button class="table-header-filter" type="button" id="org-filter-toggle" aria-expanded="false" aria-controls="org-filter-popover">
-                      Организация<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                    <button class="table-header-filter org-search-trigger" type="button" id="org-filter-toggle" aria-label="Открыть поиск по организации" title="Поиск по организации" aria-expanded="false" aria-controls="org-filter-popover">
+                      Организация<span class="org-search-square" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.5"/><path d="m10.2 10.2 3.2 3.2"/></svg></span>
                     </button>
                     <div class="header-filter-popover" id="org-filter-popover" hidden>
                       <div><label for="organization-filter-query">Поиск по названию или ИНН</label><input id="organization-filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div>
