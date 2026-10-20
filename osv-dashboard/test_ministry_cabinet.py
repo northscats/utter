@@ -322,7 +322,11 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="rows-caption"', dashboard_html)
         self.assertIn('aria-label="Строки отчётов"', table_panel)
         self.assertIn(
-            '.table-stage{position:relative;display:flex;flex:1;flex-direction:column;gap:13px',
+            '.table-stage{position:relative;display:flex;flex:1;flex-direction:column;gap:13px;min-height:0;overflow:hidden;background:var(--paper)',
+            dashboard_html,
+        )
+        self.assertIn(
+            '.table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;padding:0 1px;background:#fff',
             dashboard_html,
         )
         self.assertIn(
