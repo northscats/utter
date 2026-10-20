@@ -16,8 +16,7 @@
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
     districtSearch: $("#omcu-search"), districtOptions: $("#omcu-options"),
     debtMin: $("#debt-min"), debtMax: $("#debt-max"),
-    rows: $("#rows-body"), rowsStatus: $("#rows-status"),
-    imports: $("#imports-list"), importsStatus: $("#imports-status")
+    rows: $("#rows-body"), rowsStatus: $("#rows-status")
   };
   const numberFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
   const moneyFormat = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -339,21 +338,6 @@
     $("#page-next").disabled = !pages || current >= pages;
     $("#rows-caption").textContent = `${numberFormat.format(total)} строк · переход к исходной строке`;
   }
-  function renderImports(imports) {
-    const data = Array.isArray(imports) ? imports : [];
-    els.imports.innerHTML = "";
-    if (!data.length) {
-      els.imports.innerHTML = '<div class="empty-state"><strong>Загрузок пока нет</strong>После импорта исходные файлы появятся в журнале.</div>';
-      return;
-    }
-    els.imports.innerHTML = data.slice(0, 8).map(item => `<div class="import-item">
-      <div><a class="import-file" href="/ministry/import/${encodeURIComponent(item.id)}/file" title="${escapeHtml(display(item.file))}">${escapeHtml(display(item.file, "Файл без названия"))}</a>
-        <div class="import-meta">Владелец данных: ${escapeHtml(display(item.owner, "не указан"))} · загрузил: ${escapeHtml(display(item.uploader, "не указан"))}</div>
-        <div class="import-meta">${escapeHtml(display(item.month))} ${escapeHtml(display(item.year, ""))} · ${escapeHtml(display(item.resource))} · версия ${escapeHtml(display(item.version))}</div>
-        <div class="import-meta">${escapeHtml(formatDate(item.createdAt))}${Number(item.warningCount) ? ` · предупреждений: ${escapeHtml(item.warningCount)}` : ""}</div></div>
-      <div class="import-count">${escapeHtml(fmtNumber(item.rowCount))} строк</div>
-    </div>`).join("");
-  }
   function setOptions(select, values, selected, allLabel) {
     const options = [];
     if (allLabel) options.push(makeOption("all", allLabel, selected || "all"));
@@ -493,20 +477,16 @@
     els.rowsStatus.className = "status-line";
     els.rowsStatus.hidden = false;
     els.rowsStatus.textContent = "Загружаем строки отчётов…";
-    els.importsStatus.className = "status-line";
-    els.importsStatus.textContent = "Загрузка журнала…";
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
       renderSummary(data.summary || {});
       renderMonthly(data.monthly || []);
       renderRows(data.rows || [], data.pagination);
-      renderImports(data.imports || []);
       renderMap(data.map);
       const hasRows = Boolean(data.rows?.length);
       els.rowsStatus.hidden = hasRows;
       els.rowsStatus.textContent = hasRows ? "" : "По заданным фильтрам нет строк.";
-      els.importsStatus.textContent = data.imports?.length ? "Сведения о загрузках получены из журнала." : "Загрузки не зарегистрированы.";
       $("#chart-period").textContent = display(els.month.selectedOptions[0]?.textContent, "");
     } catch (error) {
       els.rowsStatus.className = "status-line error";
@@ -518,9 +498,6 @@
       $("#page-number").textContent = "—";
       $("#page-prev").disabled = true;
       $("#page-next").disabled = true;
-      els.importsStatus.className = "status-line error";
-      els.importsStatus.textContent = "Журнал загрузок недоступен.";
-      els.imports.innerHTML = "";
     }
   }
   function detailPair(label, value) {

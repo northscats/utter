@@ -312,6 +312,7 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('>Загрузить отчёт<', table_header)
         self.assertIn('id="org-filter-toggle"', table_panel)
         self.assertIn('id="organization-filter-query"', table_panel)
+        self.assertNotIn('Выберите строку, чтобы открыть источник', table_panel)
         self.assertIn('id="omcu-filter-toggle"', table_panel)
         self.assertIn('id="omcu-options"', table_panel)
         self.assertIn('aria-label="Выбрать все ОМСУ"', table_panel)
@@ -324,6 +325,12 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn('font-weight:400;line-height:16px;text-transform:none;letter-spacing:0;white-space:nowrap', dashboard_html)
+        self.assertNotIn('id="imports-status"', dashboard_html)
+        self.assertNotIn('id="imports-list"', dashboard_html)
+        self.assertIn(
+            '.table-scroll{flex:1;min-height:0;overflow:auto;max-height:none',
+            dashboard_html,
+        )
         self.assertIn(
             '.header-filter-popover.is-portaled{position:fixed;z-index:1000',
             dashboard_html,
@@ -340,6 +347,8 @@ class MinistryCabinetTests(unittest.TestCase):
         )
         self.assertNotIn("Источник: ", dashboard_js)
         self.assertIn("els.rowsStatus.hidden = hasRows;", dashboard_js)
+        self.assertNotIn("renderImports(", dashboard_js)
+        self.assertNotIn("importsStatus", dashboard_js)
         self.assertIn('id="period-filter-toggle"', table_panel)
         self.assertIn('id="period-filter"', table_panel)
         self.assertIn('id="debt-filter-toggle"', table_panel)

@@ -129,12 +129,6 @@
     .map-message strong{display:block;font:600 16px Georgia,serif;color:#35544f;margin-bottom:6px}
     .map-message p{font-size:11px;color:#6b7e76;margin:0}
     .map-attribution{font:10px var(--mono);color:#75867f;margin-top:9px}
-    .imports-list{display:grid}
-    .import-item{padding:11px 15px;border-bottom:1px solid #e9eeea;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
-    .import-item:last-child{border-bottom:0}
-    .import-file{font-size:11px;font-weight:700;color:#34514d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .import-meta{font-size:10px;color:#7a8984;margin-top:3px}
-    .import-count{font:11px var(--mono);color:#667972;white-space:nowrap}
     .empty-state{padding:29px 18px;text-align:center;color:var(--muted);font-size:12px}
     .empty-state strong{display:block;color:#38534e;margin-bottom:5px;font:600 16px Georgia,serif}
     .loading-line{height:11px;border-radius:4px;background:linear-gradient(90deg,#e7ede8 25%,#f3f6f2 45%,#e7ede8 65%);background-size:250% 100%;animation:shimmer 1.4s infinite;margin:8px 0}
@@ -197,7 +191,7 @@
     .workspace{grid-template-columns:minmax(310px,.78fr) minmax(0,1.52fr);gap:14px;align-items:start}
     .left-column,.right-column{gap:13px;min-width:0}
     .left-column{position:sticky;top:76px;max-height:calc(100dvh - 94px);overflow:auto;padding:0 2px 8px 0;scrollbar-color:#bfccda transparent;scrollbar-width:thin}
-    .right-column{min-height:calc(100dvh - 100px)}
+    .right-column{min-height:calc(100dvh - 100px);grid-template-rows:minmax(0,1fr)}
     .panel{border-color:#d6dfe9;border-radius:7px;box-shadow:0 2px 8px rgba(40,62,88,.04)}
     .panel-head{min-height:48px;padding:11px 14px;border-bottom-color:#e5ebf2}
     .panel-title{color:#29435f;font-size:13px}.panel-caption,.source-note{color:#718195}
@@ -242,10 +236,10 @@
     .field label{color:#667b92;font-size:9px}
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
     .search-wrap svg{color:#71869d}
-    .table-panel{display:flex;flex-direction:column;min-height:420px}
+    .table-panel{display:flex;flex-direction:column;height:100%;min-height:0}
     .table-panel .panel-head{flex:0 0 auto}
     .table-tools{color:#75869a}
-    .table-scroll{overflow:auto;max-height:min(56vh,620px);scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
+    .table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
     table{min-width:850px}
     th{background:#f1f5fa;color:#60748a;border-bottom-color:#d6dfe9}
     th button:hover{color:#315f9b}
@@ -259,8 +253,6 @@
     .pagination{border-top-color:#e1e8f0;background:#fbfcfe}
     .page-controls button{border-color:#d3dde8;color:#355779;border-radius:5px}
     .page-controls button:hover:not(:disabled){background:#eaf1fa;border-color:#afc2d8}
-    .imports-list{max-height:245px;overflow:auto}
-    .import-item{border-bottom-color:#e8edf3}.import-file{color:#355677}.import-meta{color:#7c8b9c}
     .status-line{border-bottom-color:#e5ebf2;color:#6d7f93}
     .footer-note{color:#8190a0}
     .loading-line{background:linear-gradient(90deg,#e8edf3 25%,#f5f7fa 45%,#e8edf3 65%)}
@@ -363,7 +355,6 @@
           <div class="panel-head">
             <div><h2 class="panel-title" id="records-title">Строки отчётов</h2><div class="panel-caption" id="rows-caption">Детали и происхождение отчётных строк</div></div>
             <div class="table-tools">
-              <span class="source-note">Выберите строку, чтобы открыть источник</span>
               <div class="table-actions">
                 <button class="button primary table-icon-button" type="button" id="open-import" aria-label="Загрузить отчёт" title="Загрузить отчёт">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4h12v-4"/></svg>
@@ -445,9 +436,6 @@
             <span id="pagination-label">Строки не загружены</span>
             <div class="page-controls"><button type="button" id="page-prev" aria-label="Предыдущая страница" disabled>‹</button><span id="page-number">—</span><button type="button" id="page-next" aria-label="Следующая страница" disabled>›</button></div>
           </div>
-        </section>
-        <section class="panel" aria-label="Журнал загрузок">
-          <div id="imports-status" class="status-line">Загрузка журнала…</div><div class="imports-list" id="imports-list"></div>
         </section>
       </aside>
     </div>
