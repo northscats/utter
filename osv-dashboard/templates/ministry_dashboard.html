@@ -227,7 +227,7 @@
     .table-panel{display:flex;flex-direction:column;height:100%;min-height:0}
     .table-stage{position:relative;display:flex;flex:1;min-height:0;overflow:hidden}
     .table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
-    .table-state-overlay{position:absolute;inset:44px 0 0;z-index:5;display:grid;place-content:center;justify-items:center;gap:12px;background:rgba(255,255,255,.9);color:#60748a;font-size:13px;text-align:center}
+    .table-state-overlay{position:absolute;inset:60px 0 0;z-index:5;display:grid;place-content:center;justify-items:center;gap:12px;background:rgba(255,255,255,.9);color:#60748a;font-size:13px;text-align:center}
     .table-state-overlay[hidden]{display:none!important}
     .table-state-overlay.empty{gap:6px;background:#fff;color:#6d7f93}
     .table-state-overlay.error{padding:18px;color:#8c3b33}
@@ -237,8 +237,10 @@
     .table-state-error{max-width:420px}
     .table-loading-spinner{width:34px;height:34px;border:3px solid #dce6f1;border-top-color:#315f9b;border-right-color:#315f9b;border-radius:50%;animation:table-spinner-turn .8s linear infinite}
     @keyframes table-spinner-turn{to{transform:rotate(360deg)}}
-    table{min-width:850px}
-    th{position:sticky;top:0;z-index:6;background:#f1f5fa;color:#60748a;border-bottom-color:#d6dfe9}
+    table{min-width:850px;border-collapse:separate;border-spacing:0}
+    th{position:sticky;top:0;z-index:6;height:52px;box-sizing:border-box;padding:8px 12px;background:#fff;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0;border-top:1px solid #d6dfe9;border-bottom:1px solid #d6dfe9;box-shadow:0 8px 0 #fff,0 9px 0 #d6dfe9}
+    th:first-child{border-left:1px solid #d6dfe9;border-radius:7px 0 0 7px}
+    th:last-child{border-right:1px solid #d6dfe9;border-radius:0 7px 7px 0}
     th button:hover{color:#315f9b}
     td{border-bottom-color:#e7edf3;color:#34485d}
     tbody tr:hover td,tbody tr:focus td{background:#f1f6fc}

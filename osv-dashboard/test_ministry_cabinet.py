@@ -321,7 +321,14 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="records-title"', dashboard_html)
         self.assertNotIn('id="rows-caption"', dashboard_html)
         self.assertIn('aria-label="Строки отчётов"', table_panel)
-        self.assertIn('position:sticky;top:0;z-index:6;background:#f1f5fa', dashboard_html)
+        self.assertIn(
+            'position:sticky;top:0;z-index:6;height:52px;box-sizing:border-box;padding:8px 12px;background:#fff;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0',
+            dashboard_html,
+        )
+        self.assertIn(
+            'box-shadow:0 8px 0 #fff,0 9px 0 #d6dfe9',
+            dashboard_html,
+        )
         self.assertIn('class="table-stage"', table_panel)
         self.assertIn('class="table-state-overlay" id="rows-status"', table_panel)
         self.assertIn('class="table-loading-spinner"', table_panel)
@@ -330,7 +337,7 @@ class MinistryCabinetTests(unittest.TestCase):
             table_panel.index('id="rows-status"'),
         )
         self.assertIn(
-            '.table-state-overlay{position:absolute;inset:44px 0 0',
+            '.table-state-overlay{position:absolute;inset:60px 0 0',
             dashboard_html,
         )
         self.assertIn('id="org-filter-toggle"', table_panel)
