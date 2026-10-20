@@ -318,9 +318,9 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('aria-label="Очистить выбор ОМСУ"', table_panel)
         self.assertNotIn('id="omcu-select-all">Выбрать все', table_panel)
         self.assertNotIn('id="omcu-clear">Очистить', table_panel)
-        self.assertIn('omcu-popover{width:min(270px', dashboard_html)
+        self.assertIn('omcu-popover{width:min(340px', dashboard_html)
         self.assertIn(
-            '.omcu-option{display:grid;grid-template-columns:14px minmax(0,1fr)',
+            '.omcu-option{display:flex;align-items:center;gap:8px',
             dashboard_html,
         )
         self.assertIn('id="period-filter-toggle"', table_panel)
