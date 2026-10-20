@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Нет рабочего кабинета — ГИС УЗТЭР</title>
+  <style>
+    body{font:16px/1.5 system-ui,sans-serif;background:#edf2ef;color:#20343d;margin:0}
+    main{max-width:620px;margin:12vh auto;padding:30px;background:#fbfcf9;border:1px solid #d5dfda;border-radius:12px}
+    h1{font:600 28px Georgia,serif;margin:0 0 12px}
+    p{color:#63777d}
+    a,button{font:inherit}
+    a{color:#176b69}
+    button{border:0;border-radius:6px;background:#176b69;color:#fff;padding:10px 14px;cursor:pointer}
+    form{margin-top:20px}
+  </style>
+</head>
+<body><main>
+  <h1>Нет назначенного рабочего кабинета</h1>
+  <p>Обратитесь к системному администратору, чтобы получить доступ. Ваши права не изменены.</p>
+  <form method="post" action="{{ url_for('logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">Безопасно выйти</button>
+  </form>
+</main></body>
+</html>

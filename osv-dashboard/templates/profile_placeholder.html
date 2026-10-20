@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Профиль — ГИС УЗТЭР</title>
+  <style>
+    body{font:15px/1.5 system-ui,sans-serif;background:#edf2ef;color:#20343d;margin:0}
+    main{max-width:680px;margin:8vh auto;padding:28px;background:#fbfcf9;border:1px solid #d5dfda;border-radius:12px}
+    h1{font:600 28px Georgia,serif;margin:0 0 18px}
+    .identity{display:flex;align-items:center;gap:14px;padding:16px;background:#f1f5f1;border-radius:9px}
+    .avatar{width:46px;height:46px;border-radius:50%;background:#d8b77e;display:grid;place-items:center;font-weight:800}
+    .muted{color:#63777d;font-size:13px}
+    nav{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+    a{color:#176b69}
+    button{font:inherit;border:0;background:transparent;color:#176b69;text-decoration:underline;cursor:pointer;padding:0}
+  </style>
+</head>
+<body><main>
+  <h1>Профиль</h1>
+  <div class="identity"><span class="avatar" aria-hidden="true">М</span><div><strong>{{ current_user.username }}</strong><div class="muted">Персональная страница профиля пока не настроена.</div></div></div>
+  <nav>
+    {% if current_user.is_admin %}
+      <a href="{{ url_for('modules_dashboard') }}">Вернуться к модулям</a>
+    {% elif current_user.has_module_access('ministry_cabinet') %}
+      <a href="{{ url_for('ministry.dashboard') }}">Вернуться в кабинет Министерства</a>
+    {% else %}
+      <a href="{{ url_for('access_required') }}">Рабочий кабинет</a>
+    {% endif %}
+    <a href="{{ url_for('profile_password') }}">Сменить пароль</a>
+    <form method="post" action="{{ url_for('logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">Выйти из системы</button>
+    </form>
+  </nav>
+</main></body>
+</html>

@@ -2,6 +2,15 @@
 """Единый расширяемый реестр пользовательских модулей."""
 
 MODULES = {
+    'ministry_cabinet': {
+        'key': 'ministry_cabinet',
+        'name': 'Кабинет Министерства',
+        'description': 'Приём отчётов поставщиков ТЭР и проверяемая аналитика заявленной задолженности.',
+        'icon': 'chart',
+        'endpoint': 'ministry.dashboard',
+        'exact_paths': ('/ministry',),
+        'path_prefixes': ('/ministry/',),
+    },
     'analytics': {
         'key': 'analytics',
         'name': 'Аналитика ФХД РСО',

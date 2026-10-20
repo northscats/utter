@@ -2024,3 +2024,92 @@ class MaxLimitsOutbox(db.Model):
     delivered_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
     cancelled_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class UzterReportImport(db.Model):
+    """Immutable version of one supplier-submitted monthly report."""
+    __tablename__ = 'uzter_report_imports'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'provider_company_id', 'file_sha256',
+            name='uq_uzter_import_provider_file'),
+        db.UniqueConstraint(
+            'provider_company_id', 'report_year', 'report_month',
+            'resource_type', 'version', name='uq_uzter_import_version'),
+        db.Index(
+            'ix_uzter_import_period_resource',
+            'report_year', 'report_month', 'resource_type'),
+        db.Index(
+            'ix_uzter_import_owner_period',
+            'provider_company_id', 'report_year', 'report_month',
+            'resource_type', 'version'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    provider_company_id = db.Column(
+        db.Integer, db.ForeignKey('companies.id'), nullable=False, index=True)
+    uploaded_by = db.Column(
+        db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    source_filename = db.Column(db.String(255), nullable=False, default='')
+    source_supplier_name = db.Column(db.String(255), nullable=False, default='')
+    source_supplier_inn = db.Column(db.String(20), nullable=False, default='')
+    stored_filename = db.Column(db.String(255), nullable=False, default='')
+    file_sha256 = db.Column(db.String(64), nullable=False, index=True)
+    report_year = db.Column(db.Integer, nullable=False)
+    report_month = db.Column(db.Integer, nullable=False)
+    resource_type = db.Column(db.String(120), nullable=False, default='')
+    version = db.Column(db.Integer, nullable=False, default=1)
+    status = db.Column(db.String(20), nullable=False, default='accepted', index=True)
+    row_count = db.Column(db.Integer, nullable=False, default=0)
+    data_row_count = db.Column(db.Integer, nullable=False, default=0)
+    warning_count = db.Column(db.Integer, nullable=False, default=0)
+    warnings_json = db.Column(db.Text, nullable=False, default='[]')
+    created_at = db.Column(
+        db.DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+
+    provider = db.relationship('Company', lazy=True)
+    uploader = db.relationship('User', lazy=True)
+    rows = db.relationship(
+        'UzterReportRow', backref='report_import', lazy=True,
+        cascade='all, delete-orphan', passive_deletes=True)
+
+
+class UzterReportRow(db.Model):
+    """Original source row plus explicitly parsed, non-destructive indexes."""
+    __tablename__ = 'uzter_report_rows'
+    __table_args__ = (
+        db.Index(
+            'ix_uzter_row_identity',
+            'inn', 'resource_type', 'report_year', 'report_month'),
+        db.Index(
+            'ix_uzter_row_territory_period',
+            'territory', 'report_year', 'report_month', 'resource_type'),
+        db.Index(
+            'ix_uzter_row_import_sheet',
+            'import_id', 'sheet_kind', 'source_row_number'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    import_id = db.Column(
+        db.Integer,
+        db.ForeignKey('uzter_report_imports.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    report_year = db.Column(db.Integer, nullable=False, index=True)
+    report_month = db.Column(db.Integer, nullable=False, index=True)
+    resource_type = db.Column(db.String(120), nullable=False, default='')
+    sheet_kind = db.Column(db.String(24), nullable=False, default='enterprise')
+    sheet_name = db.Column(db.String(255), nullable=False, default='')
+    source_row_number = db.Column(db.Integer, nullable=False)
+    inn = db.Column(db.String(20), nullable=False, default='', index=True)
+    kpp = db.Column(db.String(20), nullable=False, default='')
+    debtor_name = db.Column(db.Text, nullable=False, default='')
+    territory = db.Column(db.String(255), nullable=False, default='')
+    consumer_detail = db.Column(db.String(255), nullable=False, default='')
+    status_text = db.Column(db.String(255), nullable=False, default='')
+    debt_total = db.Column(db.Float, nullable=True)
+    overdue_periods = db.Column(db.Float, nullable=True)
+    current_period_accrual = db.Column(db.Float, nullable=True)
+    year_to_date_accrual = db.Column(db.Float, nullable=True)
+    source_values_json = db.Column(db.Text, nullable=False, default='[]')
+    is_group_row = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_data_row = db.Column(db.Boolean, nullable=False, default=False, index=True)

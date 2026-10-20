@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>Кабинет министерства — ГИС УЗТЭР</title>
+  <style>
+    :root{--ink:#20343d;--muted:#63777d;--paper:#edf2ef;--panel:#fbfcf9;--line:#d5dfda;--teal:#176b69;--teal-dark:#105450;--teal-soft:#e0eeea;--gold:#b67b2c;--gold-soft:#f5ead7;--red:#a74337;--red-soft:#f7e6e2;--green:#377452;--green-soft:#e5f1e8;--shadow:0 8px 24px rgba(35,64,61,.07);--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+    button,input,select{font:inherit}
+    button,a,select{ -webkit-tap-highlight-color:transparent}
+    a{color:inherit}
+    button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #b67b2c;outline-offset:2px}
+    .topbar{height:62px;background:#1d4145;color:#f5f5ec;display:flex;align-items:center;padding:0 clamp(16px,3vw,42px);gap:16px;position:sticky;top:0;z-index:20;box-shadow:0 3px 14px rgba(21,49,49,.16)}
+    .brand{display:flex;align-items:center;gap:11px;text-decoration:none;font-weight:700;letter-spacing:.01em;white-space:nowrap}
+    .brand-mark{width:31px;height:31px;border:1px solid #8eae9f;border-radius:8px;display:grid;place-items:center;color:#e4bc78;font:700 12px var(--mono)}
+    .brand-divider{height:25px;width:1px;background:#52716d}
+    .brand-sub{font-size:12px;color:#c6d6ce;font-weight:500}
+    .top-spacer{flex:1}
+    .top-link{color:#d4e0da;text-decoration:none;font-size:12px;padding:7px 9px;border-radius:6px}
+    .top-link:hover{background:rgba(255,255,255,.09);color:#fff}
+    .user-menu{position:relative}
+    .user-toggle{display:flex;align-items:center;gap:9px;background:transparent;border:1px solid #52716d;border-radius:8px;padding:5px 10px;color:#fff;cursor:pointer}
+    .avatar{width:29px;height:29px;border-radius:50%;background:#d8b77e;color:#253e3c;display:grid;place-items:center;font-size:11px;font-weight:800}
+    .user-name{font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .user-popover{display:none;position:absolute;right:0;top:calc(100% + 8px);min-width:220px;background:#fbfcf9;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:7px;box-shadow:var(--shadow)}
+    .user-menu.open .user-popover{display:block}
+    .user-popover a,.user-popover button{display:block;width:100%;text-align:left;padding:9px 10px;border:0;background:transparent;text-decoration:none;color:var(--ink);font-size:13px;border-radius:6px;cursor:pointer}
+    .user-popover a:hover,.user-popover button:hover{background:var(--teal-soft)}
+    .user-popover form{border-top:1px solid var(--line);margin-top:5px;padding-top:5px}
+    main{max-width:1600px;margin:0 auto;padding:28px clamp(14px,3vw,44px) 56px}
+    .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:21px}
+    .eyebrow{display:flex;align-items:center;gap:8px;color:var(--teal);font-size:11px;text-transform:uppercase;letter-spacing:.13em;font-weight:800;margin-bottom:7px}
+    .eyebrow:before{content:"";width:20px;height:2px;background:var(--gold)}
+    h1{font:600 clamp(25px,3vw,34px)/1.14 Georgia,"Times New Roman",serif;letter-spacing:-.025em;margin:0;color:#1f373b}
+    .intro{margin:7px 0 0;color:var(--muted);font-size:13px}
+    .page-actions{display:flex;align-items:center;gap:9px}
+    .button{min-height:38px;border-radius:7px;padding:0 14px;border:1px solid var(--line);background:#fbfcf9;color:var(--ink);font-weight:650;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;transition:background .16s,border-color .16s,transform .16s}
+    .button:hover{background:#f1f6f2;border-color:#9eb7ac}
+    .button:active{transform:translateY(1px)}
+    .button.primary{background:var(--teal);border-color:var(--teal);color:#fff}
+    .button.primary:hover{background:var(--teal-dark)}
+    .button:disabled{opacity:.55;cursor:not-allowed}
+    .button svg{width:15px;height:15px}
+    .notice{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;background:#e6efeb;border:1px solid #c8dad2;border-radius:9px;color:#375750;font-size:12px;margin-bottom:19px}
+    .notice[hidden]{display:none}
+    .notice strong{color:#23453f}
+    .notice-mark{flex:0 0 20px;height:20px;border:1px solid #89a99a;border-radius:50%;display:grid;place-items:center;font:700 11px Georgia;color:var(--teal)}
+    .filters{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(160px,.9fr) minmax(180px,1.15fr) minmax(240px,1.5fr) auto;gap:10px;align-items:end;padding:14px;background:#f7f9f5;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}
+    .field label{display:block;margin:0 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750}
+    .field input,.field select{height:38px;width:100%;border:1px solid #cbd7d1;border-radius:6px;padding:0 10px;background:#fff;color:var(--ink);font-size:12px}
+    .search-wrap{position:relative}.search-wrap svg{position:absolute;width:15px;height:15px;left:10px;top:12px;color:#70847d;pointer-events:none}.search-wrap input{padding-left:33px}
+    .filter-actions{display:flex;gap:7px}
+    .summary-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:17px}
+    .metric{min-height:93px;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:13px 14px;box-shadow:0 2px 7px rgba(35,64,61,.025);position:relative;overflow:hidden}
+    .metric:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#8ca99b}
+    .metric:nth-child(3n+2):before{background:var(--gold)}.metric:nth-child(3n):before{background:#5b8a86}
+    .metric-label{font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.045em;text-transform:uppercase;line-height:1.3;min-height:25px}
+    .metric-value{font:600 24px/1.1 Georgia,serif;color:#244347;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .metric-value.small{font-size:20px}
+    .metric-note{font-size:10px;color:#73847e;margin-top:5px}
+    .workspace{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:15px;align-items:start}
+    .left-column,.right-column{display:grid;gap:15px;min-width:0}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 3px 12px rgba(35,64,61,.035);overflow:hidden}
+    .panel-head{min-height:52px;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #e5ebe7}
+    .panel-title{margin:0;font-size:13px;font-weight:750;color:#29474a}
+    .panel-caption{font-size:11px;color:var(--muted);margin-top:2px}
+    .panel-body{padding:15px 16px}
+    .source-note{font-size:11px;color:var(--muted)}
+    .chart{height:122px;display:flex;align-items:end;gap:10px;padding:8px 5px 0;border-bottom:1px solid #dce5df}
+    .chart-item{flex:1;min-width:22px;display:flex;flex-direction:column;align-items:center;justify-content:end;height:100%;gap:6px}
+    .chart-bar{width:min(34px,72%);min-height:3px;background:#77a397;border-radius:4px 4px 0 0;position:relative;transition:height .25s ease}
+    .chart-item:last-child .chart-bar{background:var(--gold)}
+    .chart-value{font:10px var(--mono);color:#5e726d;white-space:nowrap}
+    .chart-label{font-size:9px;color:#6c7d77;white-space:nowrap}
+    .chart-empty{height:122px;display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12px}
+    .table-panel .panel-head{align-items:flex-start}
+    .table-tools{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}
+    .table-scroll{overflow:auto}
+    table{width:100%;border-collapse:collapse;min-width:850px;text-align:left}
+    th{background:#f1f5f1;color:#536a68;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:10px 11px;border-bottom:1px solid var(--line);white-space:nowrap}
+    th button{border:0;background:none;padding:0;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer}
+    th button:hover{color:var(--teal)}
+    td{padding:11px;border-bottom:1px solid #e9eeea;font-size:12px;vertical-align:top}
+    tbody tr{cursor:pointer;transition:background .12s}
+    tbody tr:hover td,tbody tr:focus td{background:#f0f6f2}
+    tbody tr:focus{outline:2px solid var(--gold);outline-offset:-2px}
+    tbody tr:last-child td{border-bottom:0}
+    .company-cell{font-weight:700;color:#28474a;max-width:250px}
+    .subcell{font-weight:400;color:#7a8984;font-size:10px;margin-top:3px}
+    .mono{font:11px var(--mono);color:#5c716a}
+    .amount{font:600 12px var(--mono);white-space:nowrap;color:#304d4c}
+    .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border-radius:5px;background:#edf2ee;color:#5d7068;font-size:10px;white-space:nowrap}
+    .badge.warn{background:var(--gold-soft);color:#815b27}.badge.good{background:var(--green-soft);color:#396847}.badge.bad{background:var(--red-soft);color:#93483f}
+    .badge-dot{width:5px;height:5px;border-radius:50%;background:currentColor}
+    .pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border-top:1px solid #e5ebe7;font-size:11px;color:var(--muted)}
+    .page-controls{display:flex;gap:6px;align-items:center}
+    .page-controls button{width:30px;height:30px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--ink);cursor:pointer}
+    .page-controls button:hover:not(:disabled){background:var(--teal-soft);border-color:#aac6b8}
+    .page-controls button:disabled{opacity:.4;cursor:not-allowed}
+    .map-unavailable{background:#eaf0ec;min-height:196px;display:grid;place-items:center;text-align:center;padding:22px;position:relative;overflow:hidden}
+    .map-unavailable:before,.map-unavailable:after{display:none}
+    .map-message{position:relative;z-index:1;max-width:265px}
+    .map-icon{width:38px;height:38px;border:1px solid #b5c8bd;border-radius:50%;display:grid;place-items:center;margin:0 auto 10px;color:var(--teal)}
+    .map-icon svg{width:19px;height:19px}
+    .map-message strong{display:block;font:600 16px Georgia,serif;color:#35544f;margin-bottom:6px}
+    .map-message p{font-size:11px;color:#6b7e76;margin:0}
+    .map-attribution{font:10px var(--mono);color:#75867f;margin-top:9px}
+    .imports-list{display:grid}
+    .import-item{padding:11px 15px;border-bottom:1px solid #e9eeea;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+    .import-item:last-child{border-bottom:0}
+    .import-file{font-size:11px;font-weight:700;color:#34514d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .import-meta{font-size:10px;color:#7a8984;margin-top:3px}
+    .import-count{font:11px var(--mono);color:#667972;white-space:nowrap}
+    .empty-state{padding:29px 18px;text-align:center;color:var(--muted);font-size:12px}
+    .empty-state strong{display:block;color:#38534e;margin-bottom:5px;font:600 16px Georgia,serif}
+    .loading-line{height:11px;border-radius:4px;background:linear-gradient(90deg,#e7ede8 25%,#f3f6f2 45%,#e7ede8 65%);background-size:250% 100%;animation:shimmer 1.4s infinite;margin:8px 0}
+    @keyframes shimmer{to{background-position:-250% 0}}
+    .widget-control{position:relative}
+    .widget-menu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:9;background:#fff;border:1px solid var(--line);box-shadow:var(--shadow);border-radius:8px;padding:9px 12px;min-width:205px}
+    .widget-control.open .widget-menu{display:grid;gap:9px}
+    .widget-menu label{display:flex;gap:8px;align-items:center;font-size:11px;color:#536b65;cursor:pointer}
+    .widget-menu input{accent-color:var(--teal)}
+    [data-widget][hidden]{display:none!important}
+    .status-line{padding:10px 14px;font-size:11px;color:var(--muted);border-bottom:1px solid #e8eeea}
+    .status-line.error{background:var(--red-soft);color:#8c3b33}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(25,49,49,.46);z-index:50;display:flex;justify-content:flex-end}
+    .modal-backdrop[hidden]{display:none}
+    .detail-drawer{width:min(620px,100%);height:100%;overflow-y:auto;background:#f7f9f5;box-shadow:-12px 0 40px rgba(26,53,50,.2);animation:slide-in .2s ease-out}
+    @keyframes slide-in{from{transform:translateX(16px);opacity:.6}to{transform:translateX(0);opacity:1}}
+    .drawer-head{position:sticky;top:0;background:#f7f9f5;border-bottom:1px solid var(--line);padding:18px 21px;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;z-index:2}
+    .drawer-head h2{font:600 22px Georgia,serif;margin:0 0 5px;color:#28474a}
+    .drawer-head p{margin:0;color:var(--muted);font-size:11px}
+    .icon-button{width:34px;height:34px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;color:#516963;font-size:18px}
+    .drawer-content{padding:18px 21px 40px;display:grid;gap:14px}
+    .detail-card{background:#fff;border:1px solid var(--line);border-radius:9px;padding:14px}
+    .detail-card h3{margin:0 0 11px;font-size:12px;color:#34514d}
+    .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .detail-pair dt{font-size:10px;color:#7b8983;margin-bottom:3px}
+    .detail-pair dd{margin:0;font-size:12px;color:#304944;overflow-wrap:anywhere}
+    .provenance{border-left:3px solid var(--gold);background:#f8f3e9;padding:10px 12px;font-size:11px;color:#6e5a3e}
+    .dadata-row{display:flex;gap:8px;align-items:end}
+    .dadata-row .field{flex:1}
+    .timeline{display:grid;gap:0}
+    .timeline-row{display:grid;grid-template-columns:80px 1fr auto;gap:9px;padding:9px 0;border-bottom:1px solid #edf1ed;font-size:11px}
+    .timeline-row:last-child{border-bottom:0}
+    .timeline-date{font:10px var(--mono);color:#74847d}
+    .import-dialog{width:min(740px,calc(100% - 28px));max-height:calc(100dvh - 30px);overflow:auto;background:#f8faf7;border:1px solid var(--line);border-radius:12px;margin:auto;padding:22px;box-shadow:0 20px 65px rgba(22,48,47,.26)}
+    .import-dialog[hidden]{display:none}
+    .dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:17px}
+    .dialog-head h2{font:600 22px Georgia,serif;margin:0;color:#2d4a48}
+    .dialog-head p{font-size:11px;color:var(--muted);margin:5px 0 0}
+    .upload-zone{border:1px dashed #9ab5a8;border-radius:9px;background:#eff5f0;padding:25px 18px;text-align:center}
+    .upload-zone input{max-width:100%;font-size:12px}
+    .upload-zone p{margin:8px 0 0;color:var(--muted);font-size:11px}
+    .provider-field{max-width:260px;margin:15px 0}
+    .preview-box{margin-top:16px;border:1px solid var(--line);border-radius:8px;background:#fff}
+    .preview-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:12px;border-bottom:1px solid var(--line)}
+    .preview-stat span{display:block;color:var(--muted);font-size:10px}
+    .preview-stat strong{display:block;color:#34514d;font:600 16px Georgia,serif;margin-top:3px}
+    .warning-list{margin:0;padding:10px 28px;color:#775b30;font-size:11px}
+    .preview-table{max-height:220px;overflow:auto}
+    .preview-table table{min-width:650px}
+    .preview-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px;border-top:1px solid var(--line)}
+    .live-message{min-height:20px;color:var(--muted);font-size:11px;margin-top:8px}
+    .live-message.error{color:var(--red)}
+    .live-message.success{color:var(--green)}
+    .footer-note{margin-top:17px;color:#788880;font-size:10px;text-align:right}
+    @media(max-width:1100px){.summary-grid{grid-template-columns:repeat(3,1fr)}.filters{grid-template-columns:repeat(3,1fr)}.filters .search-field{grid-column:span 2}}
+    @media(max-width:820px){.workspace{grid-template-columns:1fr}.right-column{grid-template-columns:1fr}.filters{grid-template-columns:repeat(2,1fr)}.filters .search-field{grid-column:span 2}.filter-actions{grid-column:span 2}.map-unavailable{min-height:200px}}
+    @media(max-width:560px){.topbar{height:56px;padding:0 12px;gap:9px}.brand-sub,.brand-divider,.top-link{display:none}.user-name{display:none}.user-toggle{padding:4px 6px}.page-head{align-items:flex-start;flex-direction:column}.page-actions{width:100%}.page-actions .button{flex:1}.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{min-height:84px;padding:11px}.metric-value{font-size:21px}.filters{grid-template-columns:1fr 1fr;padding:11px}.filters .search-field{grid-column:1/-1}.filters .district-field{grid-column:1/-1}.filter-actions{grid-column:1/-1}.filter-actions .button{flex:1}.right-column{grid-template-columns:1fr}.panel-head{padding:12px}.panel-body{padding:12px}.table-tools .source-note{display:none}.pagination{align-items:flex-start;flex-direction:column}.detail-grid{grid-template-columns:1fr 1fr}.drawer-head{padding:15px}.drawer-content{padding:13px}.preview-summary{grid-template-columns:1fr 1fr}.dialog-head h2{font-size:20px}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/ministry" aria-label="Кабинет министерства, главная">
+      <span class="brand-mark" aria-hidden="true">М</span><span>ГИС УЗТЭР</span><span class="brand-divider"></span><span class="brand-sub">Кабинет министерства</span>
+    </a>
+    <div class="top-spacer"></div>
+    {% if current_user.is_admin %}<a class="top-link" href="{{ url_for('modules_dashboard') }}">Модули</a>{% endif %}
+    <div class="user-menu" id="user-menu">
+      <button class="user-toggle" type="button" id="user-toggle" aria-haspopup="true" aria-expanded="false">
+        <span class="avatar" aria-hidden="true">М</span><span class="user-name">{{ current_user.username }}</span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+      </button>
+      <div class="user-popover" role="menu">
+        <a href="{{ url_for('profile_placeholder') }}" role="menuitem">Профиль</a>
+        {% if current_user.is_admin %}<a href="{{ url_for('settings') }}" role="menuitem">Настройки</a>{% endif %}
+        <a href="{{ url_for('profile_password') }}" role="menuitem">Сменить пароль</a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" role="menuitem">Выйти из системы</button>
+        </form>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div class="page-head">
+      <div>
+        <div class="eyebrow">Рабочая область · проверка источников</div>
+        <h1>Долговые отчёты поставщиков</h1>
+        <p class="intro">Сводка по формам поставщиков ТЭР с переходом к исходным строкам и файлам.</p>
+      </div>
+      <div class="page-actions">
+        <button class="button" type="button" id="widgets-toggle" aria-expanded="false" aria-controls="widget-menu">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4h5v5H3zM12 4h5v5h-5zM3 12h5v5H3zM12 12h5v5h-5z"/></svg>
+          Настроить вид
+        </button>
+        <button class="button primary" type="button" id="open-import">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4h12v-4"/></svg>
+          Загрузить отчёт
+        </button>
+      </div>
+    </div>
+    <div class="notice" role="note">
+      <span class="notice-mark" aria-hidden="true">i</span>
+      <span><strong>Только подтверждённые данные.</strong> Показатели берутся из строк переданных отчётов. Областной итог не подтверждён: состав и пересечения источников не сверены. Пустые значения не считаются нулём, границы не дорисовываются.</span>
+    </div>
+    <section class="filters" aria-label="Фильтры данных">
+      <div class="field"><label for="filter-month">Отчётный месяц</label><select id="filter-month"><option value="">Загрузка…</option></select></div>
+      <div class="field"><label for="filter-resource">Ресурс</label><select id="filter-resource"><option value="all">Все ресурсы</option></select></div>
+      <div class="field district-field"><label for="filter-district">Территория</label><select id="filter-district"><option value="all">Все территории</option></select></div>
+      <div class="field search-field"><label for="filter-query">Поиск по организации, ИНН, файлу</label><div class="search-wrap"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.8" cy="8.8" r="5.8"/><path d="m13.2 13.2 4 4"/></svg><input id="filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div></div>
+      <div class="filter-actions"><button class="button" type="button" id="reset-filters">Сбросить</button></div>
+    </section>
+    <section class="summary-grid" id="summary-grid" aria-label="Показатели за выбранный период" aria-live="polite">
+      <div class="metric"><div class="metric-label">Загрузок</div><div class="metric-value loading-value">—</div><div class="metric-note">за выбранный период</div></div>
+      <div class="metric"><div class="metric-label">Строк в источниках</div><div class="metric-value loading-value">—</div><div class="metric-note">как передано поставщиками</div></div>
+      <div class="metric"><div class="metric-label">Строк данных</div><div class="metric-value loading-value">—</div><div class="metric-note">учтено в выборке</div></div>
+      <div class="metric"><div class="metric-label">Совпавших долгов</div><div class="metric-value loading-value">—</div><div class="metric-note">значение из источника</div></div>
+      <div class="metric"><div class="metric-label">Сумма долга</div><div class="metric-value small loading-value">—</div><div class="metric-note">без пересчёта</div></div>
+      <div class="metric"><div class="metric-label">ИНН отсутствует</div><div class="metric-value loading-value">—</div><div class="metric-note">в строках данных</div></div>
+      <div class="metric" data-widget="quality"><div class="metric-label">Повторяющиеся ИНН</div><div class="metric-value loading-value">—</div><div class="metric-note">требуют проверки</div></div>
+      <div class="metric" data-widget="quality"><div class="metric-label">Групповых строк</div><div class="metric-value loading-value">—</div><div class="metric-note">помечено в источнике</div></div>
+      <div class="metric" data-widget="quality"><div class="metric-label">Покрытие</div><div class="metric-value loading-value">—</div><div class="metric-note">показатель API</div></div>
+      <div class="metric" data-widget="quality"><div class="metric-label">Предупреждения</div><div class="metric-value loading-value">—</div><div class="metric-note">по загруженным файлам</div></div>
+    </section>
+    <div class="workspace">
+      <div class="left-column">
+        <section class="panel" data-widget="monthly" aria-labelledby="monthly-title">
+          <div class="panel-head"><div><h2 class="panel-title" id="monthly-title">Динамика по месяцам</h2><div class="panel-caption">Сумма строк из доступных отчётов; итог области не подтверждён</div></div><span class="source-note" id="chart-period"></span></div>
+          <div class="panel-body"><div class="chart" id="monthly-chart" aria-label="Столбчатая диаграмма долгов по месяцам"><div class="chart-empty">Загрузка данных…</div></div></div>
+        </section>
+        <section class="panel" data-widget="map" aria-labelledby="map-title">
+          <div class="panel-head">
+            <div><h2 class="panel-title" id="map-title">Территориальный обзор</h2><div class="panel-caption">Карта отображается только при наличии проверенных границ</div></div>
+          </div>
+          <div id="map-content"><div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Геометрия недоступна</strong><p>Территориальные границы не показаны без подтверждённого набора геоданных.</p></div></div></div>
+          <div class="panel-body"><div class="source-note" id="map-note">Проверенные границы не переданы.</div></div>
+        </section>
+      </div>
+      <aside class="right-column" aria-label="Журнал отчётов">
+        <section class="panel table-panel" aria-labelledby="records-title">
+          <div class="panel-head">
+            <div><h2 class="panel-title" id="records-title">Строки отчётов</h2><div class="panel-caption" id="rows-caption">Детали, происхождение и доступные сравнения</div></div>
+            <div class="table-tools"><span class="source-note">Выберите строку, чтобы открыть источник</span></div>
+          </div>
+          <div id="rows-status" class="status-line" role="status">Загружаем строки отчётов…</div>
+          <div class="table-scroll">
+            <table aria-label="Строки долговых отчётов">
+              <thead><tr>
+                <th><button type="button" data-sort="name">Организация</button></th>
+                <th><button type="button" data-sort="inn">ИНН / КПП</button></th>
+                <th><button type="button" data-sort="territory">Территория</button></th>
+                <th>Период / источник</th>
+                <th><button type="button" data-sort="debt">Долг</button></th>
+                <th>Сопоставление</th>
+              </tr></thead>
+              <tbody id="rows-body"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <span id="pagination-label">Строки не загружены</span>
+            <div class="page-controls"><button type="button" id="page-prev" aria-label="Предыдущая страница" disabled>‹</button><span id="page-number">—</span><button type="button" id="page-next" aria-label="Следующая страница" disabled>›</button></div>
+          </div>
+        </section>
+        <section class="panel" aria-labelledby="imports-title">
+          <div class="panel-head"><div><h2 class="panel-title" id="imports-title">Последние загрузки</h2><div class="panel-caption">Файлы и версии как зарегистрированы</div></div></div>
+          <div id="imports-status" class="status-line">Загрузка журнала…</div><div class="imports-list" id="imports-list"></div>
+        </section>
+      </aside>
+    </div>
+    <div class="footer-note">Данные и происхождение определяются переданными файлами; отсутствующие значения не выводятся расчётным путём.</div>
+  </main>
+  <div class="widget-control" id="widget-control" style="position:fixed;right:16px;top:62px;z-index:25;pointer-events:none">
+    <div class="widget-menu" id="widget-menu" role="group" aria-label="Виджеты панели" style="pointer-events:auto">
+      <label><input type="checkbox" data-widget-toggle="quality" checked> Показатели качества данных</label>
+      <label><input type="checkbox" data-widget-toggle="monthly" checked> Динамика по месяцам</label>
+      <label><input type="checkbox" data-widget-toggle="map" checked> Территориальный обзор</label>
+    </div>
+  </div>
+  <div class="modal-backdrop" id="detail-backdrop" hidden>
+    <section class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
+      <div class="drawer-head"><div><h2 id="detail-title">Детали строки</h2><p id="detail-subtitle">Источник и реквизиты</p></div><button class="icon-button" id="close-detail" type="button" aria-label="Закрыть детали">×</button></div>
+      <div class="drawer-content" id="detail-content"><div class="empty-state">Загрузка сведений…</div></div>
+    </section>
+  </div>
+  <div class="modal-backdrop" id="import-backdrop" hidden>
+    <section class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" tabindex="-1">
+      <div class="dialog-head"><div><h2 id="import-title">Загрузить отчёт XLSX</h2><p>Сначала проверьте состав файла, затем отдельно подтвердите импорт.</p></div><button class="icon-button" id="close-import" type="button" aria-label="Закрыть окно загрузки">×</button></div>
+      <form id="preview-form">
+        <div class="upload-zone"><input type="file" id="report-file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required aria-label="Файл отчёта XLSX"><p>Поддерживается обычная незашифрованная книга XLSX.</p></div>
+        <div class="field provider-field"><label for="provider-id">Поставщик — владелец данных</label><select id="provider-id" name="provider_id" required><option value="">Выберите организацию</option>{% for provider in providers %}<option value="{{ provider.id }}">{{ provider.name }}{% if provider.inn %} · ИНН {{ provider.inn }}{% endif %}</option>{% endfor %}</select></div>
+        <button class="button primary" type="submit" id="preview-button">Проверить файл</button>
+      </form>
+      <div id="preview-message" class="live-message" role="status"></div>
+      <div id="preview-result"></div>
+    </section>
+  </div>
+  <script src="{{ url_for('static', filename='ministry_dashboard.js') }}"></script>
+</body>
+</html>

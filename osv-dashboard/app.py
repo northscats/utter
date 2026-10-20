@@ -67,6 +67,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                           MaxLimitsSubscription, MaxLimitsCursor,
                           MaxLimitsOutbox, MaxLimitsProfile, MaxLimitsUin,
                           MaxLimitsApplication,
+                           UzterReportImport, UzterReportRow,
                         db, utcnow)
 from directory_service import (accept_dadata, apply_normalized_to_company,
                                 clean_identifier, company_identity_key,
@@ -124,6 +125,7 @@ ANALYTICAL_ACCOUNT_NAMES = {
 
 _DURABLE_MODELS = (
     User, Company, Upload, OsvSourceCleanup, DailyRow, DailyReconciliationAlert,
+    UzterReportImport, UzterReportRow,
     HistoricalImport, HistoricalYearVersion,
     HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
     RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
@@ -386,6 +388,8 @@ from docs_routes import docs_bp
 app.register_blueprint(docs_bp)
 from analog_routes import analog_bp
 app.register_blueprint(analog_bp)
+from ministry_routes import ministry_bp
+app.register_blueprint(ministry_bp)
 
 # ---------------------------------------------------------------------------
 # Шифрование значений в БД (Fernet / AES-128-CBC)
@@ -605,6 +609,15 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
+def _authenticated_home_url():
+    """Route users to the first workspace they are explicitly allowed to use."""
+    if current_user.is_admin:
+        return url_for('modules_dashboard')
+    if current_user.has_module_access('ministry_cabinet'):
+        return url_for('ministry.dashboard')
+    return url_for('access_required')
+
+
 def _ensure_imap_thread() -> None:
     """Start the IMAP background thread once per process (idempotent)."""
     global _imap_thread, _imap_thread_started
@@ -779,6 +792,9 @@ def _enforce_module_access():
     if not current_user.is_authenticated:
         return None
     module_key = module_key_for_path(request.path)
+    if (module_key and module_key not in ('directories', 'ministry_cabinet')
+            and not current_user.is_admin):
+        abort(403, description='Старые бизнес-модули доступны только системным администраторам')
     if module_key and not current_user.has_module_access(module_key):
         abort(403, description='Нет доступа к этому модулю')
     company_match = re.match(r'^/(?:company|dashboard)/(\d+)(?:/|$)', request.path)
@@ -2280,7 +2296,9 @@ def login():
     # check additionally prevents login-CSRF. Other POST routes still use the
     # session-bound Flask-WTF protection.
     if current_user.is_authenticated:
-        return redirect(url_for('modules_dashboard'))
+        if current_user.password_change_required:
+            return redirect(url_for('password_change_required'))
+        return redirect(_authenticated_home_url())
     error = None
     username = ''
     if request.method == 'POST':
@@ -2305,7 +2323,7 @@ def login():
             log_event('login_ok', {'username': username})
             if user.password_change_required:
                 return redirect(url_for('password_change_required'))
-            return redirect(url_for('modules_dashboard'))
+            return redirect(_authenticated_home_url())
         log_event('login_fail', {'username': username})
         error = 'Неверный логин или пароль.'
     return render_template(
@@ -2336,7 +2354,7 @@ def password_change_required():
             _audit_in_transaction('password_changed', {'reason': 'forced'})
             db.session.commit()
             session['password_version'] = int(user.password_version or 1)
-            return redirect(url_for('modules_dashboard'))
+            return redirect(_authenticated_home_url())
     return render_template('password_change.html', error=error,
                            forced=True, username=user.username)
 
@@ -2367,7 +2385,7 @@ def profile_password():
             db.session.commit()
             session['password_version'] = int(current_user.password_version or 1)
             flash('Пароль изменён.')
-            return redirect(url_for('modules_dashboard'))
+            return redirect(_authenticated_home_url())
     return render_template('password_change.html', error=error,
                            forced=False, username=current_user.username)
 
@@ -2386,7 +2404,9 @@ def logout():
 @app.route('/')
 def landing():
     if current_user.is_authenticated:
-        return redirect(url_for('modules_dashboard'))
+        if current_user.password_change_required:
+            return redirect(url_for('password_change_required'))
+        return redirect(_authenticated_home_url())
     v09_label = Setting.get('landing_v09_label', 'Версия 0.9 alfa')
     v09_url   = Setting.get('landing_v09_url', '')
     return render_template('landing.html', second_url=None,
@@ -2413,7 +2433,7 @@ def favicon():
 # Каталог модулей
 # ---------------------------------------------------------------------------
 @app.route('/modules')
-@login_required
+@admin_required
 def modules_dashboard():
     modules = [
         dict(
@@ -2428,6 +2448,25 @@ def modules_dashboard():
         if current_user.has_module_access(module['key'])
     ]
     return render_template('modules.html', modules=modules)
+
+
+@app.route('/access-required')
+@login_required
+def access_required():
+    if current_user.password_change_required:
+        return redirect(url_for('password_change_required'))
+    if current_user.is_admin or current_user.has_module_access('ministry_cabinet'):
+        return redirect(_authenticated_home_url())
+    return render_template('access_required.html')
+
+
+@app.route('/profile')
+@login_required
+def profile_placeholder():
+    if current_user.password_change_required:
+        return redirect(url_for('password_change_required'))
+    return render_template('profile_placeholder.html')
+
 
 def _limit_dataset_or_404(dataset_id):
     return db.session.get(LimitDataset, dataset_id) or abort(404)
@@ -7504,6 +7543,13 @@ def init_db(perform_durable=True):
 
         _add_missing('daily_rows', [
             ('source_type', "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),
+        ])
+        _add_missing('uzter_report_imports', [
+            ('source_supplier_name', "VARCHAR(255) NOT NULL DEFAULT ''"),
+            ('source_supplier_inn', "VARCHAR(20) NOT NULL DEFAULT ''"),
+        ])
+        _add_missing('uzter_report_rows', [
+            ('is_group_row', 'BOOLEAN NOT NULL DEFAULT FALSE'),
         ])
 
         # Task 117 is additive for deployed installations which already have

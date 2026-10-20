@@ -9,11 +9,11 @@ import time
 
 _TMP = tempfile.mkdtemp(prefix='module_access_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
-os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
+os.environ['INITIAL_ADMIN_PASSWORD'] = 'Z8x!R4pQ-7tV3mN2'
 os.environ.setdefault(
     'ENCRYPTION_KEY',
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
-os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
+os.environ['INITIAL_ADMIN_PASSWORD'] = 'Z8x!R4pQ-7tV3mN2'
 os.environ.setdefault('REPLIT_DOMAINS', 'preview.example')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -44,18 +44,22 @@ with app.app_context():
     no_access = User(username='none', password_hash='unused', role='user')
     analytics = User(username='analytics', password_hash='unused', role='user')
     both = User(username='both', password_hash='unused', role='user')
-    db.session.add_all([no_access, analytics, both])
+    ministry = User(username='ministry', password_hash='unused', role='user')
+    supplier = User(username='supplier', password_hash='unused', role='user')
+    db.session.add_all([no_access, analytics, both, ministry, supplier])
     db.session.flush()
     db.session.add(UserModuleAccess(user_id=analytics.id, module_key='analytics'))
     db.session.add_all([
         UserModuleAccess(user_id=both.id, module_key='analytics'),
         UserModuleAccess(user_id=both.id, module_key='documents'),
+        UserModuleAccess(user_id=ministry.id, module_key='ministry_cabinet'),
     ])
     company = Company(
         name='Тестовое предприятие', created_by=admin.id, status='active')
     db.session.add(company)
     db.session.commit()
-    ids = {u.username: u.id for u in (admin, no_access, analytics, both)}
+    ids = {u.username: u.id for u in (
+        admin, no_access, analytics, both, ministry, supplier)}
     company_id = company.id
 
 client = app.test_client()
@@ -88,7 +92,7 @@ login_page = client.get('/login').get_data(as_text=True)
 login_token = re.search(
     r'name="login_csrf_token" value="([^"]+)"', login_page).group(1)
 cross_origin = client.post('/login', data={
-    'username': 'admin', 'password': 'test-admin-passphrase-2026',
+    'username': 'admin', 'password': 'Z8x!R4pQ-7tV3mN2',
     'login_csrf_token': login_token,
 }, headers={
     'Origin': 'https://evil.example',
@@ -102,7 +106,7 @@ login_token = re.search(
     r'name="login_csrf_token" value="([^"]+)"', login_page.get_data(as_text=True)
 ).group(1)
 r = client.post('/login', data={
-    'username': 'admin', 'password': 'test-admin-passphrase-2026',
+    'username': 'admin', 'password': 'Z8x!R4pQ-7tV3mN2',
     'login_csrf_token': login_token,
 }, base_url='https://preview.example',
    headers={'Origin': 'https://preview.example'})
@@ -115,13 +119,13 @@ if r.status_code == 302 and r.headers['Location'].endswith('/password/change-req
     r = client.post('/password/change-required',
                     base_url='https://preview.example', data={
         'csrf_token': forced_token,
-        'current_password': 'test-admin-passphrase-2026',
-        'new_password': 'test-admin-passphrase-updated-2026',
-        'new_password_repeat': 'test-admin-passphrase-updated-2026',
+        'current_password': 'Z8x!R4pQ-7tV3mN2',
+        'new_password': 'R9w!K3vH_8yF2pS6',
+        'new_password_repeat': 'R9w!K3vH_8yF2pS6',
     }, headers={
         'Referer': 'https://preview.example/password/change-required',
     })
-check('успешный вход ведёт в каталог модулей',
+check('успешный вход администратора ведёт в каталог модулей',
       r.status_code == 302 and r.headers['Location'].endswith('/modules'),
       '')
 app.config['WTF_CSRF_ENABLED'] = False
@@ -261,24 +265,53 @@ with app.app_context():
 login_as(client, no_access)
 r = client.get('/modules')
 check('пользователь без назначений видит пустое состояние',
-      r.status_code == 200 and 'Нет доступных модулей' in r.get_data(as_text=True))
+      r.status_code == 403)
+check('пользователь без рабочего кабинета видит просьбу назначить доступ',
+      client.get('/access-required').status_code == 200
+      and 'Нет назначенного рабочего кабинета' in
+      client.get('/access-required').get_data(as_text=True))
 check('прямой HTML URL аналитики закрыт', client.get('/home').status_code == 403)
 check('прямой API URL документов закрыт',
       client.get('/docs/packages').status_code == 403)
 for key in new_modules:
     check(f'неназначенный модуль закрыт: {key}',
           client.get(MODULES[key]['exact_paths'][0]).status_code == 403)
+check('пользователь без назначения не открывает кабинет министерства',
+      client.get('/ministry').status_code == 403)
 
 # Одно назначение открывает только свой модуль.
 with app.app_context():
     analytics = db.session.get(User, ids['analytics'])
 login_as(client, analytics)
 r = client.get('/modules')
-body = r.get_data(as_text=True)
-check('виден только назначенный модуль',
-      'Аналитика ФХД РСО' in body and 'Проверка документов' not in body)
-check('назначенная аналитика открывается', client.get('/home').status_code == 200)
+check('старый каталог закрыт даже при прежнем назначении аналитики',
+      r.status_code == 403)
+check('старый бизнес-модуль закрыт даже при прежнем назначении',
+      client.get('/home').status_code == 403)
 check('неназначенные документы закрыты', client.get('/docs/').status_code == 403)
+check('пользователь с прежним назначением аналитики не получает настройки',
+      client.get('/settings').status_code == 403)
+
+# Ministry access opens the new workspace only; it does not grant old modules.
+with app.app_context():
+    ministry = db.session.get(User, ids['ministry'])
+    supplier = db.session.get(User, ids['supplier'])
+login_as(client, ministry)
+ministry_page = client.get('/ministry')
+check('назначение открывает кабинет Министерства',
+      ministry_page.status_code == 200
+      and 'Кабинет министерства' in ministry_page.get_data(as_text=True))
+check('кабинет Ministry account does not show old module link',
+      'href="/modules"' not in ministry_page.get_data(as_text=True))
+check('кабинет пользователя скрывает ссылку на настройки',
+      'Настройки' not in ministry_page.get_data(as_text=True))
+check('старый модуль остаётся закрыт владельцу кабинета',
+      client.get('/home').status_code == 403)
+check('профиль-заглушка доступен уполномоченному пользователю',
+      client.get('/profile').status_code == 200)
+check('пользователь без назначений — supplier account — заблокирован',
+      (login_as(client, supplier) is None)
+      and client.get('/ministry').status_code == 403)
 
 # Администратор назначает и отзывает доступ отдельной операцией.
 with app.app_context():
