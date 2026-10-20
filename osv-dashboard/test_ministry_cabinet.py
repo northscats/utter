@@ -304,7 +304,7 @@ class MinistryCabinetTests(unittest.TestCase):
         table_start = dashboard_html.index(
             '<section class="panel table-panel"')
         rows_status = dashboard_html.index(
-            '<div id="rows-status"', table_start)
+            'id="rows-status"', table_start)
         table_header = dashboard_html[table_start:rows_status]
         table_panel = dashboard_html[
             table_start:dashboard_html.index('</section>', table_start)]
@@ -322,6 +322,17 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="rows-caption"', dashboard_html)
         self.assertIn('aria-label="Строки отчётов"', table_panel)
         self.assertIn('position:sticky;top:0;z-index:6;background:#f1f5fa', dashboard_html)
+        self.assertIn('class="table-stage"', table_panel)
+        self.assertIn('class="table-state-overlay" id="rows-status"', table_panel)
+        self.assertIn('class="table-loading-spinner"', table_panel)
+        self.assertLess(
+            table_panel.index('class="table-scroll"'),
+            table_panel.index('id="rows-status"'),
+        )
+        self.assertIn(
+            '.table-state-overlay{position:absolute;inset:44px 0 0',
+            dashboard_html,
+        )
         self.assertIn('id="org-filter-toggle"', table_panel)
         self.assertIn('id="organization-filter-query"', table_panel)
         self.assertNotIn('Выберите строку, чтобы открыть источник', table_panel)
@@ -358,7 +369,8 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_js,
         )
         self.assertNotIn("Источник: ", dashboard_js)
-        self.assertIn("els.rowsStatus.hidden = hasRows;", dashboard_js)
+        self.assertIn("els.rowsStatus.hidden = true;", dashboard_js)
+        self.assertIn("class=\"table-loading-spinner\"", dashboard_js)
         self.assertNotIn("renderImports(", dashboard_js)
         self.assertNotIn("importsStatus", dashboard_js)
         self.assertIn('id="period-filter-toggle"', table_panel)

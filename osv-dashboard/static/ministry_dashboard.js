@@ -444,22 +444,24 @@
     positionHeaderFilterPopover(button, popover);
   }
   async function loadDashboard() {
-    els.rowsStatus.className = "status-line";
+    els.rowsStatus.className = "table-state-overlay";
     els.rowsStatus.hidden = false;
-    els.rowsStatus.textContent = "Загружаем строки отчётов…";
+    els.rowsStatus.innerHTML = '<span class="table-loading-spinner" aria-hidden="true"></span><span>Загружаем строки отчётов…</span>';
+    $("#pagination-label").textContent = "Загружаем строки отчётов…";
+    $("#page-number").textContent = "—";
+    $("#page-prev").disabled = true;
+    $("#page-next").disabled = true;
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
       renderSummary(data.summary || {});
       renderRows(data.rows || [], data.pagination);
       renderMap(data.map);
-      const hasRows = Boolean(data.rows?.length);
-      els.rowsStatus.hidden = hasRows;
-      els.rowsStatus.textContent = hasRows ? "" : "По заданным фильтрам нет строк.";
+      els.rowsStatus.hidden = true;
     } catch (error) {
-      els.rowsStatus.className = "status-line error";
+      els.rowsStatus.className = "table-state-overlay error";
       els.rowsStatus.hidden = false;
-      els.rowsStatus.innerHTML = `Не удалось загрузить сведения: ${escapeHtml(error.message)} <button class="button" type="button" id="retry-data" style="min-height:28px;margin-left:8px">Повторить</button>`;
+      els.rowsStatus.innerHTML = `<div class="table-state-error">Не удалось загрузить сведения: ${escapeHtml(error.message)} <button class="button" type="button" id="retry-data" style="min-height:28px;margin-left:8px">Повторить</button></div>`;
       $("#retry-data").addEventListener("click", loadDashboard);
       els.rows.innerHTML = "";
       $("#pagination-label").textContent = "Данные недоступны";

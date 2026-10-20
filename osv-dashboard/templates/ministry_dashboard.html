@@ -225,7 +225,14 @@
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
     .search-wrap svg{color:#71869d}
     .table-panel{display:flex;flex-direction:column;height:100%;min-height:0}
+    .table-stage{position:relative;display:flex;flex:1;min-height:0;overflow:hidden}
     .table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
+    .table-state-overlay{position:absolute;inset:44px 0 0;z-index:5;display:grid;place-content:center;justify-items:center;gap:12px;background:rgba(255,255,255,.9);color:#60748a;font-size:13px;text-align:center}
+    .table-state-overlay[hidden]{display:none!important}
+    .table-state-overlay.error{padding:18px;color:#8c3b33}
+    .table-state-error{max-width:420px}
+    .table-loading-spinner{width:34px;height:34px;border:3px solid #dce6f1;border-top-color:#315f9b;border-right-color:#315f9b;border-radius:50%;animation:table-spinner-turn .8s linear infinite}
+    @keyframes table-spinner-turn{to{transform:rotate(360deg)}}
     table{min-width:850px}
     th{position:sticky;top:0;z-index:6;background:#f1f5fa;color:#60748a;border-bottom-color:#d6dfe9}
     th button:hover{color:#315f9b}
@@ -339,9 +346,9 @@
       </div>
       <aside class="right-column" aria-label="Журнал отчётов">
         <section class="panel table-panel" aria-label="Строки отчётов">
-          <div id="rows-status" class="status-line" role="status">Загружаем строки отчётов…</div>
-          <div class="table-scroll">
-            <table aria-label="Строки долговых отчётов">
+          <div class="table-stage">
+            <div class="table-scroll">
+              <table aria-label="Строки долговых отчётов">
               <thead><tr>
                 <th>
                   <div class="header-filter-anchor">
@@ -405,8 +412,13 @@
                   </div>
                 </th>
               </tr></thead>
-              <tbody id="rows-body"></tbody>
-            </table>
+                <tbody id="rows-body"></tbody>
+              </table>
+            </div>
+            <div class="table-state-overlay" id="rows-status" role="status" aria-live="polite">
+              <span class="table-loading-spinner" aria-hidden="true"></span>
+              <span>Загружаем строки отчётов…</span>
+            </div>
           </div>
           <div class="pagination">
             <span id="pagination-label">Строки не загружены</span>
