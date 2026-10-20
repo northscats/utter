@@ -435,6 +435,34 @@
       button?.setAttribute("aria-expanded", "false");
     });
   }
+  function positionHeaderFilterPopover(button, popover) {
+    const anchor = button.getBoundingClientRect();
+    const margin = 12;
+    const gap = 8;
+    const width = popover.getBoundingClientRect().width;
+    const desiredLeft = popover.classList.contains("align-right")
+      ? anchor.right - width
+      : anchor.left;
+    const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+    const left = Math.min(Math.max(margin, desiredLeft), maxLeft);
+    const height = popover.getBoundingClientRect().height;
+    const belowTop = anchor.bottom + gap;
+    const spaceBelow = window.innerHeight - belowTop - margin;
+    const spaceAbove = anchor.top - gap - margin;
+    const desiredTop = height <= spaceBelow || spaceBelow >= spaceAbove
+      ? belowTop
+      : anchor.top - height - gap;
+    const maxTop = Math.max(margin, window.innerHeight - height - margin);
+    const top = Math.min(Math.max(margin, desiredTop), maxTop);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+  }
+  function repositionOpenHeaderFilterPopover() {
+    const popover = $(".header-filter-popover:not([hidden])");
+    if (!popover) return;
+    const button = $(`[aria-controls="${popover.id}"]`);
+    if (button) positionHeaderFilterPopover(button, popover);
+  }
   function toggleHeaderFilter(toggleId, popoverId) {
     const button = $(`#${toggleId}`);
     const popover = $(`#${popoverId}`);
@@ -442,8 +470,11 @@
     const shouldOpen = popover.hidden;
     closeHeaderFilterPopovers();
     if (!shouldOpen) return;
+    if (popover.parentElement !== document.body) document.body.append(popover);
+    popover.classList.add("is-portaled");
     popover.hidden = false;
     button.setAttribute("aria-expanded", "true");
+    positionHeaderFilterPopover(button, popover);
     if (popoverId === "omcu-filter-popover") {
       state.pendingDistricts = [...state.selectedDistricts];
       renderDistrictOptions();
@@ -698,10 +729,16 @@
         menu.classList.remove("open");
         $("#user-toggle").setAttribute("aria-expanded", "false");
       }
-      if (!event.target.closest(".header-filter-anchor")) {
+      if (!event.target.closest(".header-filter-anchor, .header-filter-popover")) {
         closeHeaderFilterPopovers();
       }
     });
+    document.addEventListener("scroll", event => {
+      const popover = $(".header-filter-popover:not([hidden])");
+      if (!popover || popover.contains(event.target)) return;
+      repositionOpenHeaderFilterPopover();
+    }, true);
+    window.addEventListener("resize", repositionOpenHeaderFilterPopover);
     document.addEventListener("keydown", event => {
       if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-drawer"));
       else if (!$("#import-backdrop").hidden) trapDialogKeys(event, $(".import-dialog"));

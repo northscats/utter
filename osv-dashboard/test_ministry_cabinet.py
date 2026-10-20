@@ -324,6 +324,15 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn('font-weight:400;line-height:16px;text-transform:none;letter-spacing:0;white-space:nowrap', dashboard_html)
+        self.assertIn(
+            '.header-filter-popover.is-portaled{position:fixed;z-index:1000',
+            dashboard_html,
+        )
+        self.assertIn('.header-filter-popover .popover-action{', dashboard_html)
+        self.assertIn(
+            'if (popover.parentElement !== document.body) document.body.append(popover);',
+            dashboard_html,
+        )
         self.assertIn('id="period-filter-toggle"', table_panel)
         self.assertIn('id="period-filter"', table_panel)
         self.assertIn('id="debt-filter-toggle"', table_panel)
