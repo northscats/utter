@@ -200,10 +200,14 @@
     .map-message strong,.empty-state strong{font-family:"Segoe UI",system-ui,sans-serif;color:#304c6d}
     .map-message p{color:#65798e}.map-attribution{color:#7c8ca0}
     .left-overview{display:grid;gap:13px;min-width:0}
-    .map-switch-row{display:flex;justify-content:flex-end;align-items:center;min-height:34px}
-    .map-mode-toggle{min-height:33px;padding:0 11px;font-size:11px;color:#315f9b}
-    .map-mode-toggle svg{width:14px;height:14px}
-    .map-switch-row .map-mode-toggle:disabled{opacity:.55;cursor:not-allowed}
+    .left-panel-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:52px;padding:8px 12px;background:#fff;border:1px solid #d6dfe9;border-radius:7px;box-shadow:0 2px 8px rgba(40,62,88,.04)}
+    .left-panel-heading{margin:0;color:#29435f;font-size:13px;font-weight:650}
+    .left-panel-caption{margin-top:3px;color:#718195;font-size:10px}
+    .map-mode-toggle{display:grid;place-items:center;flex:0 0 35px;width:35px;height:35px;padding:0;color:#315f9b}
+    .map-mode-toggle svg{width:18px;height:18px}
+    .map-mode-toggle svg[hidden]{display:none}
+    .map-mode-toggle[aria-pressed="true"]{background:#e9f0f8;border-color:#aebfda;color:#294f82}
+    .left-panel-header .map-mode-toggle:disabled{opacity:.55;cursor:not-allowed}
     .map-panel-body{display:grid;gap:9px}
     .map-stage{min-height:350px;height:clamp(360px,52vh,520px);padding:8px;background:#f4f7fb;display:grid;place-items:center;overflow:hidden}
     .map-svg{display:block;width:100%;height:100%;max-width:100%;overflow:visible}
@@ -322,10 +326,14 @@
     </div>
     <div class="workspace">
       <div class="left-column">
-        <div class="map-switch-row">
-          <button class="button map-mode-toggle" type="button" id="map-mode-toggle" aria-expanded="false" aria-controls="map-panel" disabled>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m2.5 5 5-2 5 2 5-2v12l-5 2-5-2-5 2zM7.5 3v12m5-10v12"/></svg>
-            <span id="map-mode-label">На карту</span>
+        <div class="left-panel-header">
+          <div>
+            <h2 class="left-panel-heading">Обзор Московской области</h2>
+            <div class="left-panel-caption">Показатели и карта муниципалитетов</div>
+          </div>
+          <button class="button map-mode-toggle" type="button" id="map-mode-toggle" aria-label="Показать карту" title="Показать карту" aria-pressed="false" aria-expanded="false" aria-controls="overview-view map-panel" disabled>
+            <svg id="map-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 5-2 8 3 5-3v14l-5 3-8-3-5 3zM8 4v14m8-11v14"/></svg>
+            <svg id="overview-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"/></svg>
           </button>
         </div>
         <div class="left-overview" id="overview-view">
@@ -358,7 +366,6 @@
               <span class="map-legend-item"><i class="map-legend-swatch" aria-hidden="true"></i>Муниципальное образование</span>
               <span class="map-legend-item"><i class="map-legend-swatch selected" aria-hidden="true"></i>Выбранная территория</span>
             </div>
-            <div class="map-source-note" id="map-note">Геометрия из предоставленного файла; сведения об источнике и лицензии не указаны.</div>
             <div class="map-source-note">Процентные показатели появятся после согласования показателя, периода и источника данных.</div>
           </div>
         </section>

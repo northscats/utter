@@ -126,19 +126,16 @@
   }
   function renderMap(map) {
     const content = $("#map-content");
-    const note = $("#map-note");
     const toggle = $("#map-mode-toggle");
     state.mapData = map || null;
     if (!map || map.available !== true || !map.geometryUrl) {
       const message = map?.note || "Проверенная геометрия территориальных границ не передана.";
       content.innerHTML = `<div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Геометрия недоступна</strong><p>${escapeHtml(message)}</p></div></div>`;
-      note.textContent = map?.sourceNote || "Проверенная геометрия не передана.";
       toggle.disabled = true;
       if (state.leftMode === "map") setLeftMode(false);
       return;
     }
     toggle.disabled = !state.mapWidgetVisible;
-    note.textContent = `${map.source || "Источник геометрии не указан"}. ${map.sourceNote || ""}`.trim();
     if (state.mapGeometry && !$("#municipality-map")) renderMapGeometry(state.mapGeometry);
     syncMapSelection();
   }
@@ -147,8 +144,13 @@
     state.leftMode = showMap ? "map" : "overview";
     $("#overview-view").hidden = showMap;
     $("#map-panel").hidden = !showMap || !state.mapWidgetVisible;
-    $("#map-mode-toggle").setAttribute("aria-expanded", String(showMap));
-    $("#map-mode-label").textContent = showMap ? "К показателям" : "На карту";
+    const toggle = $("#map-mode-toggle");
+    toggle.setAttribute("aria-expanded", String(showMap));
+    toggle.setAttribute("aria-pressed", String(showMap));
+    toggle.setAttribute("aria-label", showMap ? "Показать показатели" : "Показать карту");
+    toggle.title = showMap ? "Показать показатели" : "Показать карту";
+    $("#map-mode-icon").hidden = showMap;
+    $("#overview-mode-icon").hidden = !showMap;
     if (showMap) loadMapGeometry();
   }
   function municipalityPolygons(geometry) {
