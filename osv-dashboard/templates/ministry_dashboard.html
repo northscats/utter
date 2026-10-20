@@ -225,9 +225,10 @@
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
     .search-wrap svg{color:#71869d}
     .table-panel{display:flex;flex-direction:column;height:100%;min-height:0}
-    .table-stage{position:relative;display:flex;flex:1;min-height:0;overflow:hidden}
-    .table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
-    .table-state-overlay{position:absolute;inset:60px 0 0;z-index:5;display:grid;place-content:center;justify-items:center;gap:12px;background:rgba(255,255,255,.9);color:#60748a;font-size:13px;text-align:center}
+    .table-stage{position:relative;display:flex;flex:1;flex-direction:column;gap:13px;min-height:0;overflow:hidden}
+    .table-header-scroll{height:52px;flex:0 0 52px;min-width:0;overflow:hidden;background:#fff;border:1px solid #d6dfe9;border-radius:7px;box-shadow:0 2px 8px rgba(40,62,88,.04)}
+    .table-scroll{flex:1;min-height:0;overflow:auto;max-height:none;padding:0 1px;scrollbar-color:#bdcad9 transparent;scrollbar-width:thin}
+    .table-state-overlay{position:absolute;inset:65px 0 0;z-index:5;display:grid;place-content:center;justify-items:center;gap:12px;background:rgba(255,255,255,.9);color:#60748a;font-size:13px;text-align:center}
     .table-state-overlay[hidden]{display:none!important}
     .table-state-overlay.empty{gap:6px;background:#fff;color:#6d7f93}
     .table-state-overlay.error{padding:18px;color:#8c3b33}
@@ -237,10 +238,9 @@
     .table-state-error{max-width:420px}
     .table-loading-spinner{width:34px;height:34px;border:3px solid #dce6f1;border-top-color:#315f9b;border-right-color:#315f9b;border-radius:50%;animation:table-spinner-turn .8s linear infinite}
     @keyframes table-spinner-turn{to{transform:rotate(360deg)}}
-    table{min-width:850px;border-collapse:separate;border-spacing:0}
-    th{position:sticky;top:0;z-index:6;height:52px;box-sizing:border-box;padding:8px 12px;background:#fff;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0;border-top:1px solid #d6dfe9;border-bottom:1px solid #d6dfe9;box-shadow:0 8px 0 #fff,0 9px 0 #d6dfe9}
-    th:first-child{border-left:1px solid #d6dfe9;border-radius:7px 0 0 7px}
-    th:last-child{border-right:1px solid #d6dfe9;border-radius:0 7px 7px 0}
+    .records-table{width:100%;min-width:850px;table-layout:fixed;border-collapse:collapse;border-spacing:0}
+    .table-header-table{height:50px}
+    .table-header-table th{height:50px;box-sizing:border-box;padding:8px 12px;background:transparent;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0;border:0;white-space:nowrap}
     th button:hover{color:#315f9b}
     td{border-bottom-color:#e7edf3;color:#34485d}
     tbody tr:hover td,tbody tr:focus td{background:#f1f6fc}
@@ -353,8 +353,9 @@
       <aside class="right-column" aria-label="Журнал отчётов">
         <section class="panel table-panel" aria-label="Строки отчётов">
           <div class="table-stage">
-            <div class="table-scroll">
-              <table aria-label="Строки долговых отчётов">
+            <div class="table-header-scroll" id="table-header-scroll">
+              <table class="records-table table-header-table" aria-label="Фильтры столбцов отчётов">
+                <colgroup><col style="width:34%"><col style="width:17%"><col style="width:17%"><col style="width:14%"><col style="width:18%"></colgroup>
               <thead><tr>
                 <th>
                   <div class="header-filter-anchor">
@@ -418,6 +419,11 @@
                   </div>
                 </th>
               </tr></thead>
+              </table>
+            </div>
+            <div class="table-scroll" id="table-scroll">
+              <table class="records-table table-body-table" aria-label="Строки долговых отчётов: организация, ИНН и КПП, ОМСУ, период, долг">
+                <colgroup><col style="width:34%"><col style="width:17%"><col style="width:17%"><col style="width:14%"><col style="width:18%"></colgroup>
                 <tbody id="rows-body"></tbody>
               </table>
             </div>

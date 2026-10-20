@@ -16,7 +16,8 @@
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
     districtSearch: $("#omcu-search"), districtOptions: $("#omcu-options"),
     debtMin: $("#debt-min"), debtMax: $("#debt-max"),
-    rows: $("#rows-body"), rowsStatus: $("#rows-status")
+    rows: $("#rows-body"), rowsStatus: $("#rows-status"),
+    tableHeader: $("#table-header-scroll"), tableScroll: $("#table-scroll")
   };
   const numberFormat = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 });
   const moneyFormat = new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -675,6 +676,17 @@
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
   function init() {
+    const syncTableHeader = () => {
+      const scrollbarWidth = Math.max(
+        0,
+        els.tableScroll.offsetWidth - els.tableScroll.clientWidth
+      );
+      els.tableHeader.style.paddingRight = `${scrollbarWidth}px`;
+      els.tableHeader.scrollLeft = els.tableScroll.scrollLeft;
+    };
+    els.tableScroll.addEventListener("scroll", syncTableHeader, { passive: true });
+    window.addEventListener("resize", syncTableHeader);
+    syncTableHeader();
     $("#user-toggle").addEventListener("click", () => {
       const menu = $("#user-menu");
       const open = menu.classList.toggle("open");
