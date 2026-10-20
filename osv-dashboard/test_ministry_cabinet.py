@@ -329,9 +329,14 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn('.header-filter-popover .popover-action{', dashboard_html)
+        with open(
+            os.path.join(os.path.dirname(__file__), "static", "ministry_dashboard.js"),
+            encoding="utf-8",
+        ) as script_file:
+            dashboard_js = script_file.read()
         self.assertIn(
             'if (popover.parentElement !== document.body) document.body.append(popover);',
-            dashboard_html,
+            dashboard_js,
         )
         self.assertIn('id="period-filter-toggle"', table_panel)
         self.assertIn('id="period-filter"', table_panel)

@@ -456,6 +456,7 @@
     const top = Math.min(Math.max(margin, desiredTop), maxTop);
     popover.style.left = `${left}px`;
     popover.style.top = `${top}px`;
+    popover.style.right = "auto";
   }
   function repositionOpenHeaderFilterPopover() {
     const popover = $(".header-filter-popover:not([hidden])");
@@ -474,7 +475,6 @@
     popover.classList.add("is-portaled");
     popover.hidden = false;
     button.setAttribute("aria-expanded", "true");
-    positionHeaderFilterPopover(button, popover);
     if (popoverId === "omcu-filter-popover") {
       state.pendingDistricts = [...state.selectedDistricts];
       renderDistrictOptions();
@@ -487,6 +487,7 @@
       $("#debt-range-error").hidden = true;
       els.debtMin.focus();
     }
+    positionHeaderFilterPopover(button, popover);
   }
   async function loadDashboard() {
     els.rowsStatus.className = "status-line";
