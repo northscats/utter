@@ -395,7 +395,9 @@
     els.districtOptions.innerHTML = districts.length
       ? districts.map((item, index) => {
         const name = String(item.name || "");
-        const label = String(item.label || name);
+        const label = String(item.label || name)
+          .replace(/^Городской округ\s+/i, "г.о. ")
+          .replace(/^Муниципальный округ\s+/i, "м.о. ");
         const id = `omcu-option-${index}`;
         return `<label class="omcu-option" for="${id}"><input id="${id}" type="checkbox" data-omcu-option value="${escapeHtml(name)}"${selected.has(name) ? " checked" : ""}><span>${escapeHtml(label)}</span></label>`;
       }).join("")
