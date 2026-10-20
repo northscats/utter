@@ -319,6 +319,10 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="omcu-select-all">Выбрать все', table_panel)
         self.assertNotIn('id="omcu-clear">Очистить', table_panel)
         self.assertIn('omcu-popover{width:min(270px', dashboard_html)
+        self.assertIn(
+            '.omcu-option{display:grid;grid-template-columns:14px minmax(0,1fr)',
+            dashboard_html,
+        )
         self.assertIn('id="period-filter-toggle"', table_panel)
         self.assertIn('id="period-filter"', table_panel)
         self.assertIn('id="debt-filter-toggle"', table_panel)

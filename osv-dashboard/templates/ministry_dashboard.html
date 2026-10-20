@@ -92,9 +92,10 @@
     th .popover-action{min-height:32px;padding:6px 9px;border:1px solid #d0dbe8;border-radius:5px;background:#f5f8fc;color:#405a75;font:inherit;font-size:11px;font-weight:600;text-transform:none;letter-spacing:0}
     th .popover-action.primary{background:#315f93;border-color:#315f93;color:#fff}
     .omcu-options{max-height:230px;overflow:auto;border:1px solid #e0e7ef;border-radius:5px;padding:4px}
-    .omcu-option{display:flex;align-items:flex-start;gap:8px;padding:6px 5px;border-radius:4px;color:#3d5065;font-size:11px;line-height:1.35;text-transform:none;letter-spacing:0;white-space:normal;cursor:pointer}
+    .omcu-option{display:grid;grid-template-columns:14px minmax(0,1fr);align-items:start;gap:8px;padding:6px 5px;border-radius:4px;color:#3d5065;font-size:11px;line-height:16px;text-transform:none;letter-spacing:0;white-space:normal;cursor:pointer}
     .omcu-option:hover{background:#f2f6fb}
-    .omcu-option input{margin:1px 0 0;flex:0 0 auto}
+    .omcu-option input{width:14px;height:14px;margin:1px 0 0;flex:0 0 14px;box-sizing:border-box}
+    .omcu-option span{display:block;min-width:0;line-height:16px}
     .omcu-search-row{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px;align-items:center;gap:6px}
     th .omcu-icon-action{display:grid;place-items:center;width:30px;height:30px;min-height:30px;padding:0;border:1px solid #d0dbe8;border-radius:5px;background:#f5f8fc;color:#405a75}
     th .omcu-icon-action svg{width:15px;height:15px}
