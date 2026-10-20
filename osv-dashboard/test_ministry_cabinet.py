@@ -285,7 +285,10 @@ class MinistryCabinetTests(unittest.TestCase):
         dashboard_response = self.client.get('/ministry/desktop')
         self.assertEqual(dashboard_response.status_code, 200)
         dashboard_html = dashboard_response.get_data(as_text=True)
-        self.assertEqual(dashboard_html.count('class="cabinet-nav-item"'), 5)
+        self.assertEqual(dashboard_html.count('class="cabinet-nav-item"'), 6)
+        self.assertEqual(
+            dashboard_html.count(
+                'class="cabinet-nav-item" type="button" disabled'), 5)
         self.assertIn('href="/ministry/desktop"', dashboard_html)
         self.assertNotIn('class="page-head"', dashboard_html)
         self.assertNotIn('Долговые отчёты поставщиков', dashboard_html)

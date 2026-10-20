@@ -234,6 +234,7 @@
      .cabinet-nav-item svg{width:18px;height:18px}
      .cabinet-nav-item:hover:not(:disabled){background:#f0f5fb;border-color:#d6e1ee;color:#315f9b}
      .cabinet-nav-item[aria-current="page"]{background:#315f9b;border-color:#315f9b;color:#fff}
+     .cabinet-nav-item[aria-current="page"]:hover{background:#244c80;border-color:#244c80;color:#fff}
      .cabinet-nav-item:disabled{background:#f7f9fc;border-color:#e4eaf1;color:#a4b1c1;cursor:not-allowed}
     .workspace{grid-template-columns:minmax(310px,.78fr) minmax(0,1.52fr);gap:14px;align-items:stretch}
      .workspace{height:100%;min-width:0;min-height:0}
@@ -367,7 +368,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/ministry/desktop" aria-label="Кабинет министерства, главная">
+    <a class="brand" href="{{ url_for('ministry.dashboard_desktop') }}" aria-label="Кабинет министерства, главная">
       <span class="brand-mark" aria-hidden="true">М</span><span>ГИС УЗТЭР</span><span class="brand-divider"></span><span class="brand-sub">Кабинет министерства</span>
     </a>
     <div class="top-spacer"></div>
@@ -405,6 +406,9 @@
         </button>
         <button class="cabinet-nav-item" type="button" disabled aria-label="Справочники — раздел появится позже" title="Справочники — скоро">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5z"/><path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H20M8 7h8M8 10h6"/></svg>
+        </button>
+        <button class="cabinet-nav-item" type="button" disabled aria-label="Отчёты — раздел появится позже" title="Отчёты — скоро">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h8l4 4V20H6z"/><path d="M14 3.5V8h4M9 12h6M9 15.5h6"/></svg>
         </button>
       </nav>
       <div class="workspace">
