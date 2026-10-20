@@ -127,12 +127,17 @@
     .status-line.error{background:var(--red-soft);color:#8c3b33}
     .modal-backdrop{position:fixed;inset:0;background:rgba(27,48,75,.48);z-index:50;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
     .modal-backdrop[hidden]{display:none}
+    .modal-backdrop.detail-fullscreen{padding:0}
     .detail-modal{display:flex;flex-direction:column;width:80vw;height:80vh;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);min-height:0;overflow:hidden;background:#fff;border:1px solid #d6dfe9;border-radius:10px;box-shadow:0 24px 72px rgba(24,45,73,.25);animation:modal-enter .18s ease-out}
+    .detail-modal.is-fullscreen{width:100vw;height:100vh;height:100dvh;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
     @keyframes modal-enter{from{transform:translateY(8px) scale(.99);opacity:.65}to{transform:translateY(0) scale(1);opacity:1}}
     .detail-modal-head{flex:0 0 auto;background:#fff;border-bottom:1px solid #e5ebf2;padding:16px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:15px}
     .detail-modal-head h2{font:600 20px "Segoe UI",system-ui,sans-serif;margin:0 0 5px;color:#29435f}
     .detail-modal-head p{margin:0;color:#718195;font-size:11px}
     .icon-button{width:34px;height:34px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;color:#516963;font-size:18px}
+    .detail-modal-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+    .detail-modal-actions .icon-button{display:grid;place-items:center;padding:0}
+    .detail-modal-actions svg{width:16px;height:16px}
     .detail-modal-content{flex:1;min-height:0;overflow:auto;padding:16px 18px 22px;display:grid;align-content:start;gap:14px}
     .detail-workspace{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(0,1.1fr);align-items:start;gap:14px;min-width:0}
     .detail-column{display:grid;align-content:start;gap:14px;min-width:0}
@@ -467,7 +472,7 @@
   </main>
   <div class="modal-backdrop" id="detail-backdrop" hidden>
     <section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
-      <div class="detail-modal-head"><div><h2 id="detail-title">Детали предприятия</h2><p id="detail-subtitle">Атрибуты и история задолженности</p></div><button class="icon-button" id="close-detail" type="button" aria-label="Закрыть детали">×</button></div>
+      <div class="detail-modal-head"><div><h2 id="detail-title">Детали предприятия</h2><p id="detail-subtitle">Атрибуты и история задолженности</p></div><div class="detail-modal-actions"><button class="icon-button" id="toggle-detail-fullscreen" type="button" aria-label="Развернуть модальное окно на весь экран" title="Развернуть на весь экран" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6M16 3h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m12 1v5h-5m5 0-6-6"/></svg></button><button class="icon-button" id="close-detail" type="button" aria-label="Закрыть детали">×</button></div></div>
       <div class="detail-modal-content" id="detail-content"><div class="empty-state">Загрузка сведений…</div></div>
     </section>
   </div>

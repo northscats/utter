@@ -417,6 +417,10 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('id="debt-chart-series"', dashboard_js)
         self.assertIn('id="debt-chart-plot"', dashboard_js)
         self.assertIn('ministry_debt_chart.js', dashboard_html)
+        self.assertIn('id="toggle-detail-fullscreen"', dashboard_html)
+        self.assertIn('.detail-modal.is-fullscreen', dashboard_html)
+        self.assertIn('.modal-backdrop.detail-fullscreen', dashboard_html)
+        self.assertIn('function setDetailFullscreen(expanded)', dashboard_js)
         table_head_start = dashboard_html.index('<thead><tr>', table_start)
         table_head_end = dashboard_html.index('</tr></thead>', table_head_start)
         self.assertEqual(len(re.findall(

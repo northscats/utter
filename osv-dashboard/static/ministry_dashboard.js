@@ -479,12 +479,30 @@
   function detailPair(label, value) {
     return `<div class="detail-pair"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(display(value))}</dd></div>`;
   }
+  function setDetailFullscreen(expanded) {
+    const backdrop = $("#detail-backdrop");
+    const modal = $(".detail-modal", backdrop);
+    const button = $("#toggle-detail-fullscreen");
+    if (!backdrop || !modal || !button) return;
+    const isExpanded = Boolean(expanded);
+    modal.classList.toggle("is-fullscreen", isExpanded);
+    backdrop.classList.toggle("detail-fullscreen", isExpanded);
+    button.setAttribute("aria-pressed", String(isExpanded));
+    button.setAttribute("aria-label", isExpanded
+      ? "Восстановить размер модального окна"
+      : "Развернуть модальное окно на весь экран");
+    button.title = isExpanded ? "Восстановить размер" : "Развернуть на весь экран";
+    button.innerHTML = isExpanded
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V3h5M3 3l7 7m11 6v5h-5m5 0-7-7M16 3h5v5m0-5-7 7M3 16v5h5m-5 0 7-7"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6M16 3h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m12 1v5h-5m5 0-6-6"/></svg>';
+  }
   function openDetails(row) {
     if (!row) return;
     state.currentRow = row;
     const requestId = ++state.detailRequestId;
     state.lastFocus = document.activeElement;
     const backdrop = $("#detail-backdrop");
+    setDetailFullscreen(false);
     backdrop.hidden = false;
     document.body.style.overflow = "hidden";
     $("#detail-title").textContent = display(row.name, "Детали предприятия");
@@ -638,6 +656,7 @@
   function closeDetail() {
     state.detailRequestId += 1;
     state.currentRow = null;
+    setDetailFullscreen(false);
     $("#detail-backdrop").hidden = true;
     document.body.style.overflow = "";
     if (state.lastFocus && typeof state.lastFocus.focus === "function") state.lastFocus.focus();
@@ -795,6 +814,9 @@
       } else if (event.key === "Escape" && $$(".header-filter-popover:not([hidden])").length) {
         closeHeaderFilterPopovers();
       }
+    });
+    $("#toggle-detail-fullscreen").addEventListener("click", () => {
+      setDetailFullscreen(!$(".detail-modal").classList.contains("is-fullscreen"));
     });
     $("#close-detail").addEventListener("click", closeDetail);
     $("#detail-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeDetail(); });
