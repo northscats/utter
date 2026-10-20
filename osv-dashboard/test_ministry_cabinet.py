@@ -308,10 +308,20 @@ class MinistryCabinetTests(unittest.TestCase):
         table_header = dashboard_html[table_start:rows_status]
         table_panel = dashboard_html[
             table_start:dashboard_html.index('</section>', table_start)]
-        self.assertIn('id="open-import"', table_header)
-        self.assertIn('id="reset-filters"', table_header)
-        self.assertIn('aria-label="Загрузить отчёт"', table_header)
-        self.assertNotIn('>Загрузить отчёт<', table_header)
+        left_header_start = dashboard_html.index(
+            '<div class="left-panel-header">')
+        left_header_end = dashboard_html.index(
+            '<div class="left-overview"', left_header_start)
+        left_header = dashboard_html[left_header_start:left_header_end]
+        self.assertIn('id="map-mode-toggle"', left_header)
+        self.assertIn('id="open-import"', left_header)
+        self.assertIn('aria-label="Загрузить отчёт"', left_header)
+        self.assertNotIn('id="open-import"', table_header)
+        self.assertNotIn('id="reset-filters"', dashboard_html)
+        self.assertNotIn('id="records-title"', dashboard_html)
+        self.assertNotIn('id="rows-caption"', dashboard_html)
+        self.assertIn('aria-label="Строки отчётов"', table_panel)
+        self.assertIn('position:sticky;top:0;z-index:6;background:#f1f5fa', dashboard_html)
         self.assertIn('id="org-filter-toggle"', table_panel)
         self.assertIn('id="organization-filter-query"', table_panel)
         self.assertNotIn('Выберите строку, чтобы открыть источник', table_panel)

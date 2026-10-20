@@ -307,7 +307,6 @@
     $("#page-number").textContent = pages ? `${current} / ${pages}` : "—";
     $("#page-prev").disabled = current <= 1;
     $("#page-next").disabled = !pages || current >= pages;
-    $("#rows-caption").textContent = `${numberFormat.format(total)} строк · переход к исходной строке`;
   }
   function setOptions(select, values, selected, allLabel) {
     const options = [];
@@ -789,23 +788,6 @@
       els.debtMin.value = "";
       els.debtMax.value = "";
       applyDebtRange();
-    });
-    $("#reset-filters").addEventListener("click", () => {
-      state.month = state.filters?.months?.[0]?.value || els.month.options[0]?.value || "";
-      els.month.value = state.month;
-      state.selectedDistricts = [];
-      state.pendingDistricts = [];
-      state.organizationQuery = "";
-      state.minDebt = "";
-      state.maxDebt = "";
-      els.organizationQuery.value = "";
-      els.debtMin.value = "";
-      els.debtMax.value = "";
-      state.page = 1;
-      updateHeaderFilterIndicators();
-      syncMapSelection();
-      closeHeaderFilterPopovers();
-      loadDashboard();
     });
     $$("[data-sort]").forEach(button => button.addEventListener("click", () => {
       const sort = button.dataset.sort;
