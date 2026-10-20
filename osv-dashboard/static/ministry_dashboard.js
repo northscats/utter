@@ -6,7 +6,7 @@
   const csrfToken = $('meta[name="csrf-token"]')?.content || "";
   const state = {
     page: 1, perPage: 50, sort: "debt", direction: "desc",
-    lastFocus: null, currentRow: null, previewToken: null, filters: null,
+    lastFocus: null, currentRow: null, detailRequestId: 0, previewToken: null, filters: null,
     mapData: null, mapGeometry: null, mapLoadPromise: null,
     month: "", selectedDistricts: [], pendingDistricts: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
@@ -482,56 +482,131 @@
   function openDetails(row) {
     if (!row) return;
     state.currentRow = row;
+    const requestId = ++state.detailRequestId;
     state.lastFocus = document.activeElement;
     const backdrop = $("#detail-backdrop");
-    const drawer = $(".detail-drawer", backdrop);
     backdrop.hidden = false;
     document.body.style.overflow = "hidden";
-    $("#detail-title").textContent = display(row.name, "Детали строки");
+    $("#detail-title").textContent = display(row.name, "Детали предприятия");
     $("#detail-subtitle").textContent = `${display(row.inn, "ИНН не указан")} · ${display(row.resource)} · ${display(row.month)} ${display(row.year, "")}`;
     const content = $("#detail-content");
-    content.innerHTML = `<section class="detail-card"><h3>Реквизиты и исходные значения</h3><dl class="detail-grid">
-      ${detailPair("ИНН", row.inn)}${detailPair("КПП", row.kpp)}${detailPair("Поставщик", row.owner)}
-      ${detailPair("Территория", row.territory)}${detailPair("Уточнение", row.detail)}${detailPair("Ресурс", row.resource)}
-      ${detailPair("Отчётный период", `${display(row.month)} ${display(row.year, "")}`)}${detailPair("Статус строки", row.status)}
-      ${detailPair("Долг из отчёта", fmtMoney(row.debt))}${detailPair("Периоды", row.periods)}
-      ${detailPair("Текущие начисления", fmtMoney(row.currentPeriodAccrual))}${detailPair("Счёт / лист", `${display(row.sheet)} / ${display(row.sourceRow)}`)}
-      ${detailPair("Исходный файл", row.file)}${detailPair("Версия файла", row.version)}
-       ${detailPair("Загрузил", row.uploader)}${detailPair("Идентификатор загрузки", row.id)}
-       </dl><p><a class="button" href="/ministry/import/${encodeURIComponent(row.importId)}/file">Скачать исходный XLSX</a></p></section>
-       <div class="provenance"><strong>Происхождение.</strong> Значения приведены из строки ${escapeHtml(display(row.sourceRow))} листа «${escapeHtml(display(row.sheet))}» файла «${escapeHtml(display(row.file))}». Автоматические итоги не добавляются.</div>
-       ${Array.isArray(row.sourceValues) && row.sourceValues.length ? `<section class="detail-card"><h3>Исходные значения строки по столбцам</h3><ol>${row.sourceValues.map((value, index) => `<li><span class="mono">${index + 1}.</span> ${escapeHtml(display(value, "(пусто)"))}</li>`).join("")}</ol></section>` : ""}
-      <section class="detail-card"><h3>Проверка реквизитов по открытым данным</h3>
-        <div class="dadata-row"><div class="field"><label for="lookup-inn">ИНН для поиска</label><input id="lookup-inn" value="${escapeHtml(row.inn || "")}" inputmode="numeric" aria-label="ИНН для поиска по справочнику"></div><button type="button" class="button" id="lookup-company"${row.inn ? "" : " disabled"}>Проверить ИНН</button></div>
-        <div id="lookup-result" class="live-message" role="status">Справочные данные не применяются автоматически к отчётной строке.</div>
-      </section>
-      <section class="detail-card"><h3>Доступная история по ИНН</h3><div id="debtor-history" class="timeline"><div class="empty-state">Загружаем историю…</div></div></section>`;
+    content.innerHTML = `<div class="detail-workspace">
+      <div class="detail-column">
+        <section class="detail-card"><h3>Атрибуты предприятия и строки отчёта</h3><dl class="detail-grid">
+          ${detailPair("ИНН", row.inn)}${detailPair("КПП", row.kpp)}
+          ${detailPair("Поставщик данных", row.owner)}${detailPair("Территория", row.territory)}
+          ${detailPair("ОМСУ", row.district)}${detailPair("Уточнение", row.detail)}
+          ${detailPair("Ресурс", row.resource)}${detailPair("Отчётный период", `${display(row.month)} ${display(row.year, "")}`)}
+          ${detailPair("Статус строки", row.status)}${detailPair("Долг из отчёта", fmtMoney(row.debt))}
+          ${detailPair("Периоды задолженности", row.periods)}${detailPair("Начислено за текущий период", fmtMoney(row.currentPeriodAccrual))}
+          ${detailPair("Начислено с начала года", fmtMoney(row.yearToDateAccrual))}${detailPair("Счёт / лист", `${display(row.sheet)} / ${display(row.sourceRow)}`)}
+          ${detailPair("Тип листа", row.sheetKind)}${detailPair("Тип строки", row.isGroupRow ? "Групповая строка" : "Строка предприятия")}
+          ${detailPair("Версия файла", row.version)}${detailPair("Исходный файл", row.file)}
+          ${detailPair("Загрузил", row.uploader)}${detailPair("Идентификатор строки", row.id)}
+          ${detailPair("Идентификатор загрузки", row.importId)}
+        </dl><p><a class="button" href="/ministry/import/${encodeURIComponent(row.importId)}/file">Скачать исходный XLSX</a></p>
+          <div class="provenance"><strong>Источник.</strong> Строка ${escapeHtml(display(row.sourceRow))} листа «${escapeHtml(display(row.sheet))}» файла «${escapeHtml(display(row.file))}».</div>
+        </section>
+        ${Array.isArray(row.sourceValues) && row.sourceValues.length ? `<details class="detail-card detail-source-values"><summary>Исходные значения строки по столбцам</summary><ol>${row.sourceValues.map((value, index) => `<li><span class="mono">${index + 1}.</span> ${escapeHtml(display(value, "(пусто)"))}</li>`).join("")}</ol></details>` : ""}
+        <section class="detail-card"><h3>Проверка реквизитов по открытым данным</h3>
+          <div class="dadata-row"><div class="field"><label for="lookup-inn">ИНН для поиска</label><input id="lookup-inn" value="${escapeHtml(row.inn || "")}" inputmode="numeric" aria-label="ИНН для поиска по справочнику"></div><button type="button" class="button" id="lookup-company"${row.inn ? "" : " disabled"}>Проверить ИНН</button></div>
+          <div id="lookup-result" class="live-message" role="status">Справочные данные показаны для проверки и не изменяют строку отчёта.</div>
+        </section>
+      </div>
+      <div class="detail-column">
+        <section class="detail-card debt-chart-card">
+          <div class="debt-chart-heading"><div><h3>График задолженности</h3><p>Значения по отчётным месяцам; повторные строки не суммируются.</p></div>
+            <label class="debt-chart-series" for="debt-chart-series">Поставщик и ресурс<select id="debt-chart-series" disabled><option>Загружаем историю…</option></select></label>
+          </div>
+          <div class="debt-chart-viewport" id="debt-chart-plot" role="status" aria-live="polite"><div class="debt-chart-empty">Загружаем историю задолженности…</div></div>
+          <p class="debt-chart-note" id="debt-chart-note">Значения не пересчитываются и не складываются между источниками.</p>
+        </section>
+        <section class="detail-card"><h3>Сведения из общего справочника</h3><div id="directory-profile"><div class="empty-state">Загружаем сведения…</div></div></section>
+        <section class="detail-card"><h3>История отчётов по ИНН</h3><div id="debtor-history"><div class="empty-state">Загружаем историю…</div></div></section>
+      </div>
+    </div>`;
     const innInput = $("#lookup-inn");
     $("#lookup-company").addEventListener("click", () => lookupInn(innInput.value));
     innInput.addEventListener("input", () => { $("#lookup-company").disabled = !innInput.value.trim(); });
-    drawer.focus();
-    loadDebtorHistory(row);
+    $(".detail-modal", backdrop).focus();
+    loadDebtorHistory(row, requestId);
   }
-  async function loadDebtorHistory(row) {
+  function renderDebtChart(history, row, hasMore = false) {
+    const plot = $("#debt-chart-plot");
+    const note = $("#debt-chart-note");
+    const select = $("#debt-chart-series");
+    const chart = window.MinistryDebtChart;
+    if (!chart) {
+      select.disabled = true;
+      plot.innerHTML = '<div class="debt-chart-empty">Не удалось подключить построение графика.</div>';
+      note.textContent = "Обновите страницу и попробуйте открыть карточку снова.";
+      return;
+    }
+    const seriesList = chart.buildSeries(history);
+    if (!seriesList.length) {
+      select.disabled = true;
+      select.innerHTML = '<option>Нет данных для построения</option>';
+      plot.innerHTML = '<div class="debt-chart-empty">Для графика нужны минимум два подтверждённых значения за разные отчётные месяцы по одному поставщику и ресурсу. Неоднозначные и повторные строки не объединяются.</div>';
+      note.textContent = hasMore
+        ? "Проверены первые 500 строк доступной истории; данных для двух отчётных месяцев в одной серии пока недостаточно."
+        : "В доступной истории пока нет серии из двух подтверждённых месячных значений.";
+      return;
+    }
+    select.innerHTML = seriesList.map((series, index) =>
+      `<option value="${index}">${escapeHtml(series.label)} · периодов: ${series.points.length}</option>`
+    ).join("");
+    const selectedIndex = seriesList.findIndex(series =>
+      series.ownerId === String(row.ownerId == null ? "" : row.ownerId)
+      && series.resource === String(row.resource || "Ресурс не указан")
+    );
+    select.value = String(selectedIndex >= 0 ? selectedIndex : 0);
+    select.disabled = seriesList.length < 2;
+    const renderSelectedSeries = () => {
+      const series = seriesList[Number(select.value)] || seriesList[0];
+      plot.innerHTML = chart.renderSvg(series);
+      const notes = [`Отчётных месяцев: ${series.points.length}`, series.excludedPeriods
+        ? `неоднозначных периодов исключено: ${series.excludedPeriods}` : ""].filter(Boolean);
+      if (hasMore) notes.push("история ограничена первыми 500 строками");
+      note.textContent = notes.join(" · ");
+    };
+    select.addEventListener("change", renderSelectedSeries);
+    renderSelectedSeries();
+  }
+  async function loadDebtorHistory(row, requestId) {
     const target = $("#debtor-history");
     if (!row.inn) {
       target.innerHTML = '<div class="empty-state">Для просмотра истории нужен ИНН в исходной строке.</div>';
+      $("#directory-profile").innerHTML = '<p class="directory-profile-empty">Карточка справочника не связана с этой строкой.</p>';
+      renderDebtChart([], row);
       return;
     }
     try {
       const data = await requestJson(`/ministry/api/debtors/${encodeURIComponent(row.inn)}`);
+      if (requestId !== state.detailRequestId || state.currentRow !== row) return;
       const company = data.company;
       const history = Array.isArray(data.history) ? data.history : [];
       const rows = Array.isArray(data.rows) ? data.rows : [];
-      const companyMarkup = company ? `<section class="detail-card"><h3>Справочные сведения о должнике</h3><dl class="detail-grid">
-        ${detailPair("Наименование", company.name)}${detailPair("ИНН", company.inn)}
+      const companyMarkup = company ? `<dl class="detail-grid">
+        ${detailPair("Наименование", company.fullName || company.name)}${detailPair("ИНН", company.inn)}
         ${detailPair("КПП", company.kpp)}${detailPair("Адрес", company.address)}
         ${detailPair("Источник справочника", company.source || company.provenance)}
-        ${detailPair("Снимок DaData", company.dadataSource ? `${company.dadataSource} · ${formatDate(company.dadataReceivedAt)}` : "Не запрашивался")}</dl></section>` : "";
-      const timeline = [...history, ...rows].map(item => `<div class="timeline-row"><span class="timeline-date">${escapeHtml(display(item.month, display(item.date)))}</span><span>${escapeHtml(display(item.name, display(item.resource, "Строка отчёта")))}<span class="subcell">${escapeHtml(display(item.file, display(item.owner)))}</span></span><span class="amount">${escapeHtml(fmtMoney(item.debt))}</span></div>`).join("");
-      target.innerHTML = companyMarkup + (timeline ? `<div class="timeline">${timeline}</div>` : '<div class="empty-state">История по этому ИНН не найдена среди доступных отчётов.</div>') + (data.hasMore ? '<p class="source-note">Для удобства просмотра показаны первые 500 исходных строк.</p>' : "");
+        ${detailPair("Снимок DaData", company.dadataSource ? `${company.dadataSource} · ${formatDate(company.dadataReceivedAt)}` : "Не запрашивался")}</dl>` : "";
+      $("#directory-profile").innerHTML = companyMarkup || '<p class="directory-profile-empty">Сведения о предприятии не найдены в общем справочнике.</p>';
+      const timeline = [...history, ...rows].map(item => {
+        const period = item.year && item.month
+          ? `${String(item.month).padStart(2, "0")}.${item.year}`
+          : display(item.month, display(item.date));
+        return `<div class="timeline-row"><span class="timeline-date">${escapeHtml(period)}</span><span>${escapeHtml(display(item.name, display(item.resource, "Строка отчёта")))}<span class="subcell">${escapeHtml(display(item.file, display(item.owner)))}</span>${item.reason ? `<span class="subcell">${escapeHtml(item.reason)}</span>` : ""}</span><span class="amount">${escapeHtml(fmtMoney(item.debt))}</span></div>`;
+      }).join("");
+      target.innerHTML = timeline
+        ? `<div class="timeline">${timeline}</div>${data.hasMore ? '<p class="source-note">История ограничена первыми 500 исходными строками.</p>' : ""}`
+        : '<div class="empty-state">История по этому ИНН не найдена среди доступных отчётов.</div>';
+      renderDebtChart(history, row, Boolean(data.hasMore));
     } catch (error) {
+      if (requestId !== state.detailRequestId || state.currentRow !== row) return;
+      $("#directory-profile").innerHTML = '<p class="directory-profile-empty">Не удалось загрузить сведения из справочника.</p>';
       target.innerHTML = `<div class="empty-state"><strong>История недоступна</strong>${escapeHtml(error.message)}</div>`;
+      renderDebtChart([], row);
     }
   }
   async function lookupInn(inn) {
@@ -561,6 +636,8 @@
     }
   }
   function closeDetail() {
+    state.detailRequestId += 1;
+    state.currentRow = null;
     $("#detail-backdrop").hidden = true;
     document.body.style.overflow = "";
     if (state.lastFocus && typeof state.lastFocus.focus === "function") state.lastFocus.focus();
@@ -668,7 +745,7 @@
     }
     if (event.key !== "Tab") return;
     const dialog = element;
-    const focusable = $$('button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href],[tabindex="0"]', dialog)
+    const focusable = $$('button:not([disabled]),input:not([disabled]),select:not([disabled]),a[href],summary,[tabindex="0"]', dialog)
       .filter(node => node.offsetParent !== null);
     if (!focusable.length) return;
     const first = focusable[0], last = focusable[focusable.length - 1];
@@ -709,7 +786,7 @@
     }, true);
     window.addEventListener("resize", repositionOpenHeaderFilterPopover);
     document.addEventListener("keydown", event => {
-      if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-drawer"));
+      if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-modal"));
       else if (!$("#import-backdrop").hidden) trapDialogKeys(event, $(".import-dialog"));
       else if (event.key === "Escape" && $("#user-menu").classList.contains("open")) {
         $("#user-menu").classList.remove("open");
