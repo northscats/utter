@@ -1,12 +1,66 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Новое предприятие — Справочники</title>
-<style>:root{--ink:#203246;--mut:#66788a;--paper:#f2f5f7;--line:#dce4ea;--blue:#176f93;--bad:#a92f25;--ok:#28794b}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui}.hd{height:58px;background:#25384a;color:#fff;display:flex;align-items:center;padding:0 24px;gap:18px}.hd a{color:#cbe1ec;text-decoration:none}main{max-width:900px;margin:auto;padding:30px 24px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:18px}h1{margin:0 0 20px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.full{grid-column:1/-1}label{display:block;font-size:12px;font-weight:700;margin-bottom:5px;color:#526577}input,textarea{width:100%;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font:inherit}textarea{min-height:75px}.btn{border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}.primary{background:var(--blue);color:#fff}.ghost{background:#edf2f5;color:var(--ink)}.error{background:#fbeae8;border:1px solid #efc4bf;color:var(--bad);padding:12px;border-radius:8px;margin-bottom:16px}.preview{border-left:4px solid var(--ok)}.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.fact{background:#f6f8fa;border-radius:8px;padding:10px}.fact span{display:block;color:var(--mut);font-size:11px}.hint{color:var(--mut);font-size:12px}@media(max-width:650px){.grid,.facts{grid-template-columns:1fr}.full{grid-column:auto}}</style></head><body>
-<header class="hd"><a href="{{ url_for('directory_companies') }}">← Предприятия</a><strong>Новое предприятие</strong></header><main><h1>Добавить предприятие</h1>{% if error %}<div class="error">{{ error }}</div>{% endif %}
-<div class="card"><h2>1. Найти точные реквизиты</h2><p class="hint">Поиск доступен только по ИНН и/или ОГРН. Название, адрес и ФИО не отправляются.</p><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="lookup"><div class="grid"><div><label>ИНН</label><input name="inn" value="{{ form.get('inn','') }}" inputmode="numeric" placeholder="10 или 12 цифр"></div><div><label>ОГРН / ОГРНИП</label><input name="ogrn" value="{{ form.get('ogrn','') }}" inputmode="numeric" placeholder="13 или 15 цифр"></div></div><button class="btn ghost" style="margin-top:14px" {% if not dadata_enabled %}disabled{% endif %}>Проверить реквизиты</button>{% if not dadata_enabled %}<span class="hint"> Интеграция выключена в настройках.</span>{% endif %}</form></div>
-{% if preview %}<div class="card preview"><h2>Найдена организация</h2><div class="facts"><div class="fact"><span>Наименование</span>{{ preview.full_name or preview.short_name }}</div><div class="fact"><span>ИНН / КПП</span>{{ preview.inn }} / {{ preview.kpp or '—' }}</div><div class="fact"><span>ОГРН</span>{{ preview.ogrn or '—' }}</div><div class="fact"><span>Статус</span>{{ preview.status or '—' }}</div><div class="fact"><span>Руководитель</span>{{ preview.director_name or '—' }}</div><div class="fact"><span>ОКВЭД</span>{{ preview.primary_okved or '—' }}</div></div><p class="hint">{{ preview.address or 'Адрес не предоставлен' }}</p></div>{% endif %}
-<div class="card"><h2>2. Подтвердить внутреннюю карточку</h2><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="create"><input type="hidden" name="confirm_dadata" value="{{ '1' if preview else '0' }}"><div class="grid">
- <div><label>Внутреннее отображаемое имя *</label><input required name="name" value="{{ preview.short_name if preview else form.get('name','') }}"></div><div><label>Внутренний код</label><input name="internal_code" value="{{ form.get('internal_code','') }}" placeholder="Заполнится системным ID автоматически"><div class="hint">Если оставить пустым, будет использован уникальный ID предприятия.</div></div>
-<div class="full"><label>Полное наименование</label><input name="full_name" value="{{ preview.full_name if preview else form.get('full_name','') }}"></div>
-<div><label>ИНН</label><input name="inn" value="{{ preview.inn if preview else form.get('inn','') }}"></div><div><label>КПП</label><input name="kpp" value="{{ preview.kpp if preview else form.get('kpp','') }}"></div><div><label>ОГРН</label><input name="ogrn" value="{{ preview.ogrn if preview else form.get('ogrn','') }}"></div>
-<div class="full"><label>Юридический адрес</label><input name="address" value="{{ preview.address if preview else form.get('address','') }}"></div><div class="full"><label>Примечание</label><textarea name="note">{{ form.get('note','') }}</textarea></div>
-<div class="full"><label><input style="width:auto" type="checkbox" name="is_rso" value="1" checked> Ресурсоснабжающая организация</label></div></div><button class="btn primary" style="margin-top:16px">Создать предприятие</button></form></div>
-</main></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Новое предприятие — Справочник</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_ui.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='company_directory.css') }}">
+</head>
+<body class="directory-page directory-new">
+  {% set topbar_variant = 'new' %}{% include 'ministry_topbar.html' %}
+  <main>
+    <h1>Добавить предприятие</h1>
+    {% if error %}<div class="directory-alert error" role="alert">{{ error }}</div>{% endif %}
+    <section class="directory-card">
+      <h2>1. Найти точные реквизиты</h2>
+      <p class="directory-hint">Поиск доступен только по ИНН и/или ОГРН. Название, адрес и ФИО не отправляются.</p>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="lookup">
+        <div class="directory-form-grid">
+          <div><label for="lookup-inn">ИНН</label><input id="lookup-inn" name="inn" value="{{ form.get('inn','') }}" inputmode="numeric" placeholder="10 или 12 цифр"></div>
+          <div><label for="lookup-ogrn">ОГРН / ОГРНИП</label><input id="lookup-ogrn" name="ogrn" value="{{ form.get('ogrn','') }}" inputmode="numeric" placeholder="13 или 15 цифр"></div>
+        </div>
+        <button class="btn" type="submit" style="margin-top:14px" {% if not dadata_enabled %}disabled{% endif %}>Проверить реквизиты</button>
+        {% if not dadata_enabled %}<span class="directory-hint">Интеграция выключена в настройках.</span>{% endif %}
+      </form>
+    </section>
+    {% if preview %}
+      <section class="directory-card directory-preview">
+        <h2>Найдена организация</h2>
+        <div class="directory-facts">
+          <div><span class="directory-fact-label">Наименование</span>{{ preview.full_name or preview.short_name }}</div>
+          <div><span class="directory-fact-label">ИНН / КПП</span>{{ preview.inn }} / {{ preview.kpp or '—' }}</div>
+          <div><span class="directory-fact-label">ОГРН</span>{{ preview.ogrn or '—' }}</div>
+          <div><span class="directory-fact-label">Статус</span>{{ preview.status or '—' }}</div>
+          <div><span class="directory-fact-label">Руководитель</span>{{ preview.director_name or '—' }}</div>
+          <div><span class="directory-fact-label">ОКВЭД</span>{{ preview.primary_okved or '—' }}</div>
+        </div>
+        <p class="directory-hint">{{ preview.address or 'Адрес не предоставлен' }}</p>
+      </section>
+    {% endif %}
+    <section class="directory-card">
+      <h2>2. Подтвердить внутреннюю карточку</h2>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="create">
+        <input type="hidden" name="confirm_dadata" value="{{ '1' if preview else '0' }}">
+        <div class="directory-form-grid">
+          <div><label for="company-name">Внутреннее отображаемое имя *</label><input id="company-name" required name="name" value="{{ preview.short_name if preview else form.get('name','') }}"></div>
+          <div><label for="internal-code">Внутренний код</label><input id="internal-code" name="internal_code" value="{{ form.get('internal_code','') }}" placeholder="Заполнится системным ID автоматически"><div class="directory-hint">Если оставить пустым, будет использован уникальный ID предприятия.</div></div>
+          <div class="full"><label for="full-name">Полное наименование</label><input id="full-name" name="full_name" value="{{ preview.full_name if preview else form.get('full_name','') }}"></div>
+          <div><label for="company-inn">ИНН</label><input id="company-inn" name="inn" value="{{ preview.inn if preview else form.get('inn','') }}"></div>
+          <div><label for="company-kpp">КПП</label><input id="company-kpp" name="kpp" value="{{ preview.kpp if preview else form.get('kpp','') }}"></div>
+          <div><label for="company-ogrn">ОГРН</label><input id="company-ogrn" name="ogrn" value="{{ preview.ogrn if preview else form.get('ogrn','') }}"></div>
+          <div class="full"><label for="company-address">Юридический адрес</label><input id="company-address" name="address" value="{{ preview.address if preview else form.get('address','') }}"></div>
+          <div class="full"><label for="company-note">Примечание</label><textarea id="company-note" name="note">{{ form.get('note','') }}</textarea></div>
+          <div class="full"><label class="directory-checkbox-label"><input type="checkbox" name="is_rso" value="1" checked> Ресурсоснабжающая организация</label></div>
+        </div>
+        <button class="btn primary" type="submit" style="margin-top:16px">Создать предприятие</button>
+      </form>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='ministry_topbar.js') }}"></script>
+</body>
+</html>

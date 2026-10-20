@@ -1,0 +1,39 @@
+{% set is_directory_header = topbar_variant in ['directory', 'company', 'new'] %}
+<header class="topbar">
+  {% if is_directory_header %}
+  <a class="brand" href="{{ url_for('directory_companies') }}" aria-label="Справочник предприятий, главная">
+    <span class="brand-mark" aria-hidden="true">М</span><span>ГИС УЗТЭР</span><span class="brand-divider"></span><span class="brand-sub">Справочник предприятий</span>
+  </a>
+  {% else %}
+  <a class="brand" href="{{ url_for('ministry.dashboard_desktop') }}" aria-label="Кабинет министерства, главная">
+    <span class="brand-mark" aria-hidden="true">М</span><span>ГИС УЗТЭР</span><span class="brand-divider"></span><span class="brand-sub">Кабинет министерства</span>
+  </a>
+  {% endif %}
+  <div class="top-spacer"></div>
+  {% if is_directory_header and topbar_variant != 'directory' %}
+  <a class="top-link directory-back-link" href="{{ url_for('directory_companies') }}">← Справочник</a>
+  {% endif %}
+  {% if is_directory_header %}
+  <a class="top-link modules-link" href="{{ url_for('modules_dashboard') }}">{{ '← Все модули' if topbar_variant == 'directory' else 'Модули' }}</a>
+  {% elif current_user.is_admin %}
+  <a class="top-link modules-link" href="{{ url_for('modules_dashboard') }}">Модули</a>
+  {% endif %}
+  <div class="user-menu" id="user-menu">
+    <button class="user-toggle" type="button" id="user-toggle" aria-haspopup="true" aria-expanded="false">
+      <span class="avatar" aria-hidden="true">М</span><span class="user-name">{{ current_user.username }}</span>
+      <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m1 1 4 4 4-4"/></svg>
+    </button>
+    <div class="user-popover" role="menu">
+      {% if not is_directory_header %}<a href="{{ url_for('profile_placeholder') }}" role="menuitem">Профиль</a>{% endif %}
+      {% if current_user.is_admin %}
+        {% if is_directory_header %}<a href="{{ url_for('users_list') }}" role="menuitem">Пользователи</a>{% endif %}
+        <a href="{{ url_for('settings') }}" role="menuitem">Настройки</a>
+      {% endif %}
+      {% if not is_directory_header %}<a href="{{ url_for('profile_password') }}" role="menuitem">Сменить пароль</a>{% endif %}
+      <form method="post" action="{{ url_for('logout') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" role="menuitem">{{ 'Выйти' if is_directory_header else 'Выйти из системы' }}</button>
+      </form>
+    </div>
+  </div>
+</header>

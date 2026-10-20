@@ -948,17 +948,7 @@
     els.tableScroll.addEventListener("scroll", syncTableHeader, { passive: true });
     window.addEventListener("resize", syncTableHeader);
     syncTableHeader();
-    $("#user-toggle").addEventListener("click", () => {
-      const menu = $("#user-menu");
-      const open = menu.classList.toggle("open");
-      $("#user-toggle").setAttribute("aria-expanded", String(open));
-    });
     document.addEventListener("click", event => {
-      const menu = $("#user-menu");
-      if (!menu.contains(event.target)) {
-        menu.classList.remove("open");
-        $("#user-toggle").setAttribute("aria-expanded", "false");
-      }
       if (!event.target.closest(".header-filter-anchor, .header-filter-popover")) {
         closeHeaderFilterPopovers();
       }
@@ -973,11 +963,7 @@
       if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-modal"));
       else if (!$("#import-backdrop").hidden) trapDialogKeys(event, $(".import-dialog"));
       else if (!$("#data-tools-backdrop").hidden) trapDialogKeys(event, $(".data-tools-dialog"));
-      else if (event.key === "Escape" && $("#user-menu").classList.contains("open")) {
-        $("#user-menu").classList.remove("open");
-        $("#user-toggle").setAttribute("aria-expanded", "false");
-        $("#user-toggle").focus();
-      } else if (event.key === "Escape" && $$(".header-filter-popover:not([hidden])").length) {
+      else if (event.key === "Escape" && $$(".header-filter-popover:not([hidden])").length) {
         closeHeaderFilterPopovers();
       }
     });

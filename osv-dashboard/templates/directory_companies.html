@@ -1,34 +1,115 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Справочник предприятий — ГИС УЗТЭР</title>
-<style>
-:root{--ink:#203246;--mut:#66788a;--paper:#f2f5f7;--panel:#fff;--line:#dce4ea;--blue:#176f93;--ok:#28794b;--warn:#b7750a}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
- .hd{height:46px;background:linear-gradient(to bottom,#3a4a5c,#2c3e50);color:#fff;display:flex;align-items:center;padding:0 16px;gap:12px;box-shadow:0 2px 4px rgba(0,0,0,.2)}.hd-logo{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;color:#fff;text-decoration:none;white-space:nowrap;margin-right:20px}.hd-logo-icon{width:28px;height:28px;background:#f39c12;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#2c3e50;font-weight:900;font-size:12px;flex-shrink:0}.hd-menu{display:flex;gap:3px;flex:1;align-items:center}.hd-menu-btn{background:transparent;color:#e8eef5;border:1px solid transparent;padding:5px 12px;font:600 12px 'Segoe UI',sans-serif;cursor:pointer;border-radius:3px;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap;text-decoration:none}.hd-menu-btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2)}.hd-right{display:flex;align-items:center;gap:10px;font-size:12px;margin-left:8px}.hd-uname{position:relative;color:#c8d8e4;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;user-select:none;border:1px solid #3a5060;transition:background .15s}.hd-uname:hover,.hd-uname.open{background:#253545}.hd-drop{display:none;position:absolute;right:0;top:calc(100% + 5px);background:#1b2733;border:1px solid #3a5060;border-radius:6px;min-width:140px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.45);overflow:hidden}.hd-uname.open .hd-drop{display:block}.hd-drop a{display:block;padding:9px 14px;color:#c8d8e4;font-size:12px;text-decoration:none;white-space:nowrap}.hd-drop a:hover{background:#253545;color:#fff}.hd-drop-sep{border-top:1px solid #3a5060;margin:3px 0}.sp{flex:1}
-main{max-width:1280px;margin:auto;padding:30px 24px}.top{display:flex;align-items:flex-start;gap:18px;margin-bottom:22px}.top h1{margin:0;font-size:27px}.sub{color:var(--mut);margin-top:4px}.btn{display:inline-block;border:0;border-radius:8px;padding:9px 16px;background:var(--blue);color:#fff;text-decoration:none;font-weight:700;cursor:pointer}
-.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}.stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 15px}.stat b{font-size:18px;margin-right:6px}
-.toolbar{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:10px;margin-bottom:14px}
-.toolbar input,.toolbar select{width:100%;border:1px solid var(--line);border-radius:7px;padding:9px 10px;font:inherit}
- .table{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}.row{display:grid;grid-template-columns:2.2fr 1fr 1fr minmax(88px,auto);gap:12px;align-items:center;padding:13px 16px;border-bottom:1px solid #edf1f4}.row:last-child{border:0}.head{background:#edf2f5;color:#526577;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em}.name{font-weight:750}.meta{font-size:12px;color:var(--mut)}.mono{font-family:ui-monospace,monospace}.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}.active{background:#e2f2e8;color:var(--ok)}.archived{background:#eceff1;color:#667}.fresh{color:var(--ok)}.stale{color:var(--warn)}.open{color:var(--blue);text-decoration:none;font-weight:700;display:inline-flex;align-items:center;justify-content:center;padding:5px;border-radius:7px}.open:hover,.open:focus-visible{background:#edf5f8}.open svg{width:21px;height:21px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.row-actions{display:flex;align-items:center;justify-content:flex-start;gap:4px;flex-wrap:wrap}.archive-action{border:0;background:transparent;color:var(--warn);cursor:pointer}.archive-action:hover,.archive-action:focus-visible{background:#fff4e5}.archive-action.restore{color:var(--blue)}.archive-action svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.delete-action{display:inline-flex;align-items:center;justify-content:center;border-radius:7px;padding:5px 7px;color:#a92f25;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap}.delete-action:hover,.delete-action:focus-visible{background:#fbeae8}
-.empty{text-align:center;background:#fff;border:1px solid var(--line);border-radius:12px;padding:55px;color:var(--mut)}.pagination{display:flex;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;margin-top:16px}.page-link,.page-current,.page-disabled{border:1px solid var(--line);border-radius:7px;padding:7px 11px;text-decoration:none;color:var(--blue);background:#fff}.page-current{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}.page-disabled{color:#9aa6b2;background:#f5f7f8}.page-summary{text-align:center;color:var(--mut);font-size:12px;margin-top:10px}
- @media(max-width:850px){.toolbar{grid-template-columns:1fr 1fr}.head{display:none}.row{grid-template-columns:1fr 1fr}.row>div:first-child{grid-column:1/-1}}@media(max-width:520px){.row{grid-template-columns:1fr}.row>div:first-child{grid-column:auto}.row-actions{grid-column:1/-1}}
-</style>
-</head><body>
-<header class="hd"><a class="hd-logo" href="{{ url_for('modules_dashboard') }}"><div class="hd-logo-icon">АР</div>ГИС УЗТЭР · Справочник предприятий</a><div class="hd-menu"><a class="hd-menu-btn" href="{{ url_for('modules_dashboard') }}">← Все модули</a></div><div class="hd-right"><div class="hd-uname" id="hd-uname" onclick="this.classList.toggle('open');event.stopPropagation()">{{ current_user.username }}<svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l3.5 3L8 1"/></svg><div class="hd-drop">{% if current_user.is_admin %}<a href="{{ url_for('users_list') }}">Пользователи</a><a href="{{ url_for('settings') }}">Настройки</a><div class="hd-drop-sep"></div>{% endif %}<form method="post" action="{{ url_for('logout') }}" style="margin:0"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" style="display:block;width:100%;text-align:left;padding:9px 14px;border:0;background:transparent;color:#c8d8e4;font:12px 'Segoe UI';cursor:pointer">Выйти</button></form></div></div></div></header>
-<main>
-<div class="top"><div><h1>Предприятия</h1><div class="sub">Единый системный справочник. Архивные записи доступны через фильтр статуса.</div></div><span class="sp"></span>{% if current_user.is_admin %}<a class="btn" href="{{ url_for('directory_company_new') }}">+ Добавить предприятие</a>{% endif %}</div>
-{% if deleted and cleanup_pending %}<div style="background:#fff4e5;border:1px solid #efcf9b;color:#8d5d0b;border-radius:9px;padding:10px 14px;margin-bottom:14px">Предприятие удалено из справочника. Очистка связанных файлов не завершена и будет автоматически повторена.</div>{% elif deleted %}<div style="background:#e2f2e8;border:1px solid #b8ddc6;color:#28794b;border-radius:9px;padding:10px 14px;margin-bottom:14px">Предприятие и связанные с ним данные полностью удалены.</div>{% endif %}
-{% if current_user.is_admin and osv_cleanup_pending %}<div style="background:#fff4e5;border:1px solid #efcf9b;color:#8d5d0b;border-radius:9px;padding:10px 14px;margin-bottom:14px">Не завершена очистка исходных файлов ОСВ: {{ osv_cleanup_pending }}. Система автоматически повторит удаление.</div>{% endif %}
-<div class="stats"><div class="stat"><b>{{ active_count }}</b> действующих</div><div class="stat"><b>{{ archived_count }}</b> архивных</div><div class="stat"><b>{{ total_count }}</b> доступно</div></div>
-<form class="toolbar" method="get"><input type="hidden" name="per_page" value="{{ pagination.per_page }}"><input name="q" value="{{ filters.q }}" placeholder="Название, ИНН, ОГРН, внутренний код"><select name="status" onchange="this.form.submit()"><option value="active" {% if filters.status == 'active' %}selected{% endif %}>Действующие</option><option value="archived" {% if filters.status == 'archived' %}selected{% endif %}>Архивные</option><option value="all" {% if filters.status == 'all' %}selected{% endif %}>Все статусы</option></select><select name="fill" onchange="this.form.submit()"><option value="">Любая заполненность</option><option value="full" {% if filters.fill == 'full' %}selected{% endif %}>Основные поля заполнены</option><option value="partial" {% if filters.fill == 'partial' %}selected{% endif %}>Нужно дополнить</option></select><select name="sort" onchange="this.form.submit()"><option value="name" {% if filters.sort == 'name' %}selected{% endif %}>По названию</option><option value="updated" {% if filters.sort == 'updated' %}selected{% endif %}>По обновлению</option></select><button class="btn" type="submit">Найти</button></form>
- {% if rows %}<div class="table" id="company-table"><div class="row head"><div>Предприятие</div><div>Реквизиты</div><div>Статус данных</div><div></div></div>
- {% for row in rows %}{% set c=row.company %}<div class="row company-row">
-<div><div class="name">{{ c.name }}</div><div class="meta">{{ c.full_name or 'Полное наименование не заполнено' }}{% if c.internal_code %} · код {{ c.internal_code }}{% endif %}</div></div>
-<div><div class="mono">ИНН {{ c.inn or '—' }}</div><div class="meta">КПП {{ c.kpp or '—' }} · ОГРН {{ c.ogrn or '—' }}</div></div>
-<div><span class="badge {{ 'archived' if c.is_archived else 'active' }}">{{ 'Архив' if c.is_archived else 'Действует' }}</span><div class="meta {{ 'fresh' if c.dadata_sync_status == 'success' else 'stale' }}">{{ 'Автоматические данные · ' ~ c.dadata_received_at.strftime('%d.%m.%Y') if c.dadata_received_at else 'Ручные данные' }}</div></div>
-  <div class="row-actions"><a class="open" href="{{ url_for('directory_company_profile', company_id=c.id) }}" aria-label="Открыть предприятие" title="Открыть предприятие"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg></a>{% if current_user.is_admin %}{% if c.is_archived %}<a class="delete-action" href="{{ url_for('directory_company_profile', company_id=c.id) }}#permanent-delete" aria-label="Перейти к полному удалению предприятия" title="Перейти к полному удалению предприятия">Удалить</a>{% endif %}<form method="post" action="{{ url_for('directory_company_archive', company_id=c.id) }}" onsubmit="return confirm('{{ 'Вернуть предприятие из архива?' if c.is_archived else 'Архивировать предприятие?' }}')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="archive" value="{{ '0' if c.is_archived else '1' }}"><button class="open archive-action {{ 'restore' if c.is_archived else '' }}" type="submit" aria-label="{{ 'Вернуть предприятие из архива' if c.is_archived else 'Архивировать предприятие' }}" title="{{ 'Вернуть предприятие из архива' if c.is_archived else 'Архивировать предприятие' }}"><svg viewBox="0 0 24 24" aria-hidden="true">{% if c.is_archived %}<path d="M4 7h16v13H4z"></path><path d="M3 4h18v3H3zM9 11l3 3 3-3M12 14V9"></path>{% else %}<path d="M4 7h16v13H4z"></path><path d="M3 4h18v3H3zM9 11h6"></path>{% endif %}</svg></button></form>{% endif %}</div></div>{% endfor %}</div>
-{% if pagination.total_pages > 1 %}<nav class="pagination" aria-label="Страницы предприятий">{% if pagination.has_prev %}<a class="page-link" href="{{ url_for('directory_companies', page=pagination.page-1, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">← Назад</a>{% else %}<span class="page-disabled">← Назад</span>{% endif %}{% for number in page_numbers %}{% if number == pagination.page %}<span class="page-current">{{ number }}</span>{% else %}<a class="page-link" href="{{ url_for('directory_companies', page=number, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">{{ number }}</a>{% endif %}{% endfor %}{% if pagination.has_next %}<a class="page-link" href="{{ url_for('directory_companies', page=pagination.page+1, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">Вперёд →</a>{% else %}<span class="page-disabled">Вперёд →</span>{% endif %}</nav>{% endif %}<div class="page-summary">Показано {{ pagination.start }}–{{ pagination.end }} из {{ pagination.total }}</div>{% else %}<div class="empty">{% if filters.q or filters.status or filters.fill %}По заданным условиям предприятия не найдены.<br><br><a class="btn" href="{{ url_for('directory_companies') }}">Сбросить фильтры</a>{% else %}Нет доступных предприятий.{% if current_user.is_admin %}<br><br><a class="btn" href="{{ url_for('directory_company_new') }}">Создать первое</a>{% endif %}{% endif %}</div>{% endif %}
-</main>
-</body></html>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Справочник предприятий — ГИС УЗТЭР</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_ui.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='company_directory.css') }}">
+</head>
+<body class="directory-page directory-list">
+  {% set topbar_variant = 'directory' %}{% include 'ministry_topbar.html' %}
+  <main>
+    <div class="directory-top">
+      <div>
+        <h1>Предприятия</h1>
+        <div class="directory-subtitle">Единый системный справочник. Архивные записи доступны через фильтр статуса.</div>
+      </div>
+      <span class="directory-spacer"></span>
+      {% if current_user.is_admin %}<a class="btn primary" href="{{ url_for('directory_company_new') }}">+ Добавить предприятие</a>{% endif %}
+    </div>
+    {% if deleted and cleanup_pending %}
+      <div class="directory-alert warning" role="status">Предприятие удалено из справочника. Очистка связанных файлов не завершена и будет автоматически повторена.</div>
+    {% elif deleted %}
+      <div class="directory-alert success" role="status">Предприятие и связанные с ним данные полностью удалены.</div>
+    {% endif %}
+    {% if current_user.is_admin and osv_cleanup_pending %}
+      <div class="directory-alert warning" role="status">Не завершена очистка исходных файлов ОСВ: {{ osv_cleanup_pending }}. Система автоматически повторит удаление.</div>
+    {% endif %}
+    <div class="directory-stats">
+      <div class="directory-stat"><b>{{ active_count }}</b> действующих</div>
+      <div class="directory-stat"><b>{{ archived_count }}</b> архивных</div>
+      <div class="directory-stat"><b>{{ total_count }}</b> доступно</div>
+    </div>
+    <form class="directory-toolbar" method="get">
+      <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+      <input class="search-field" name="q" value="{{ filters.q }}" placeholder="Название, ИНН, ОГРН, внутренний код" aria-label="Поиск предприятий">
+      <select name="status" aria-label="Статус предприятия" onchange="this.form.submit()">
+        <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Действующие</option>
+        <option value="archived" {% if filters.status == 'archived' %}selected{% endif %}>Архивные</option>
+        <option value="all" {% if filters.status == 'all' %}selected{% endif %}>Все статусы</option>
+      </select>
+      <select name="fill" aria-label="Заполненность карточки" onchange="this.form.submit()">
+        <option value="">Любая заполненность</option>
+        <option value="full" {% if filters.fill == 'full' %}selected{% endif %}>Основные поля заполнены</option>
+        <option value="partial" {% if filters.fill == 'partial' %}selected{% endif %}>Нужно дополнить</option>
+      </select>
+      <select name="sort" aria-label="Сортировка предприятий" onchange="this.form.submit()">
+        <option value="name" {% if filters.sort == 'name' %}selected{% endif %}>По названию</option>
+        <option value="updated" {% if filters.sort == 'updated' %}selected{% endif %}>По обновлению</option>
+      </select>
+      <button class="btn primary" type="submit">Найти</button>
+    </form>
+    {% if rows %}
+      <div class="directory-table" id="company-table">
+        <div class="directory-row directory-head">
+          <div>Предприятие</div><div>Реквизиты</div><div>Статус данных</div><div></div>
+        </div>
+        {% for row in rows %}
+          {% set c=row.company %}
+          <div class="directory-row company-row">
+            <div class="directory-company">
+              <div class="directory-name">{{ c.name }}</div>
+              <div class="directory-meta">{{ c.full_name or 'Полное наименование не заполнено' }}{% if c.internal_code %} · код {{ c.internal_code }}{% endif %}</div>
+            </div>
+            <div>
+              <div class="directory-mono">ИНН {{ c.inn or '—' }}</div>
+              <div class="directory-meta">КПП {{ c.kpp or '—' }} · ОГРН {{ c.ogrn or '—' }}</div>
+            </div>
+            <div>
+              <span class="directory-badge {{ 'archived' if c.is_archived else '' }}">{{ 'Архив' if c.is_archived else 'Действует' }}</span>
+              <div class="directory-meta {{ 'directory-fresh' if c.dadata_sync_status == 'success' else 'directory-stale' }}">{{ 'Автоматические данные · ' ~ c.dadata_received_at.strftime('%d.%m.%Y') if c.dadata_received_at else 'Ручные данные' }}</div>
+            </div>
+            <div class="directory-actions">
+              <a class="directory-icon-action" href="{{ url_for('directory_company_profile', company_id=c.id) }}" aria-label="Открыть предприятие" title="Открыть предприятие">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg>
+              </a>
+              {% if current_user.is_admin %}
+                {% if c.is_archived %}
+                  <a class="directory-delete-link" href="{{ url_for('directory_company_profile', company_id=c.id) }}#permanent-delete" aria-label="Перейти к полному удалению предприятия" title="Перейти к полному удалению предприятия">Удалить</a>
+                {% endif %}
+                <form method="post" action="{{ url_for('directory_company_archive', company_id=c.id) }}" onsubmit="return confirm('{{ 'Вернуть предприятие из архива?' if c.is_archived else 'Архивировать предприятие?' }}')">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="archive" value="{{ '0' if c.is_archived else '1' }}">
+                  <button class="directory-icon-action archive {{ 'restore' if c.is_archived else '' }}" type="submit" aria-label="{{ 'Вернуть предприятие из архива' if c.is_archived else 'Архивировать предприятие' }}" title="{{ 'Вернуть предприятие из архива' if c.is_archived else 'Архивировать предприятие' }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">{% if c.is_archived %}<path d="M4 7h16v13H4z"></path><path d="M3 4h18v3H3zM9 11l3 3 3-3M12 14V9"></path>{% else %}<path d="M4 7h16v13H4z"></path><path d="M3 4h18v3H3zM9 11h6"></path>{% endif %}</svg>
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% if pagination.total_pages > 1 %}
+        <nav class="directory-pagination" aria-label="Страницы предприятий">
+          {% if pagination.has_prev %}<a class="directory-page-link" href="{{ url_for('directory_companies', page=pagination.page-1, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">← Назад</a>{% else %}<span class="directory-page-disabled">← Назад</span>{% endif %}
+          {% for number in page_numbers %}
+            {% if number == pagination.page %}<span class="directory-page-current" aria-current="page">{{ number }}</span>{% else %}<a class="directory-page-link" href="{{ url_for('directory_companies', page=number, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">{{ number }}</a>{% endif %}
+          {% endfor %}
+          {% if pagination.has_next %}<a class="directory-page-link" href="{{ url_for('directory_companies', page=pagination.page+1, per_page=pagination.per_page, q=filters.q, status=filters.status, fill=filters.fill, sort=filters.sort) }}">Вперёд →</a>{% else %}<span class="directory-page-disabled">Вперёд →</span>{% endif %}
+        </nav>
+      {% endif %}
+      <div class="directory-page-summary">Показано {{ pagination.start }}–{{ pagination.end }} из {{ pagination.total }}</div>
+    {% else %}
+      <div class="directory-empty">
+        {% if filters.q or filters.status or filters.fill %}
+          По заданным условиям предприятия не найдены.<br><br><a class="btn" href="{{ url_for('directory_companies') }}">Сбросить фильтры</a>
+        {% else %}
+          Нет доступных предприятий.{% if current_user.is_admin %}<br><br><a class="btn primary" href="{{ url_for('directory_company_new') }}">Создать первое</a>{% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+  </main>
+  <script src="{{ url_for('static', filename='ministry_topbar.js') }}"></script>
+</body>
+</html>

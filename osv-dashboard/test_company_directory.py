@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 _TMP = tempfile.mkdtemp(prefix='company_directory_test_')
 os.environ['DATABASE_URL'] = f"sqlite:///{_TMP}/test.db"
-os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
+os.environ['INITIAL_ADMIN_PASSWORD'] = 'Z8x!R4pQ-7tV3mN2'
 os.environ['ENCRYPTION_KEY'] = (
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -101,6 +101,9 @@ party = {
 
 with app.app_context():
     admin = User.query.filter_by(role='admin').first()
+    # A fresh bootstrap requires a password change; route tests use an
+    # authenticated session directly, so clear that gate in the test fixture.
+    admin.password_change_required = False
     user = User(username='reader', password_hash='unused', role='user')
     db.session.add(user)
     db.session.flush()
@@ -191,6 +194,13 @@ with app.app_context():
 r = client.get(f'/directories/companies/{company_id}')
 body = r.get_data(as_text=True)
 directory_body = client.get('/directories/companies').get_data(as_text=True)
+check('карточка предприятия использует общие стили и шапку',
+      'class="topbar"' in body
+      and '← Справочник' in body
+      and 'href="/static/ministry_ui.css"' in body
+      and 'href="/static/company_directory.css"' in body
+      and 'class="user-menu" id="user-menu"' in body
+      and '<header class="hd">' not in body)
 check('в списке нет упоминания провайдера',
       'Автоматические данные' in directory_body
       and 'DaData ·' not in directory_body
@@ -207,10 +217,20 @@ check('из списка доступно архивирование предп�
       and 'name="archive"' in directory_body
       and 'name="csrf_token"' in directory_body)
 check('в справочнике используется общая шапка модулей',
-      '<div class="hd-logo-icon">АР</div>' in directory_body
-      and 'ГИС УЗТЭР · Справочник предприятий' in directory_body
+      '<span class="brand-mark" aria-hidden="true">М</span>' in directory_body
+      and '<span class="brand-sub">Справочник предприятий</span>' in directory_body
       and '← Все модули' in directory_body
-      and 'class="hd-uname"' in directory_body)
+      and 'class="user-menu" id="user-menu"' in directory_body
+      and 'ministry_ui.css' in directory_body
+      and 'company_directory.css' in directory_body
+      and 'ministry_topbar.js' in directory_body)
+new_page = client.get('/directories/companies/new')
+check('форма добавления использует общую шапку и стили',
+      new_page.status_code == 200
+      and 'Добавить предприятие' in new_page.get_data(as_text=True)
+      and 'class="topbar"' in new_page.get_data(as_text=True)
+      and 'ministry_ui.css' in new_page.get_data(as_text=True)
+      and 'company_directory.css' in new_page.get_data(as_text=True))
 with app.app_context():
     second_company = Company(
         name='Второе предприятие', created_by=admin_id, status='active')
@@ -230,8 +250,8 @@ search_page = client.get(
 check('список предприятий разбит на страницы на сервере',
       page_one.status_code == 200
       and page_two.status_code == 200
-      and page_one.get_data(as_text=True).count('class="row company-row"') == 1
-      and page_two.get_data(as_text=True).count('class="row company-row"') == 1
+       and page_one.get_data(as_text=True).count('class="directory-row company-row"') == 1
+       and page_two.get_data(as_text=True).count('class="directory-row company-row"') == 1
       and 'page=2' in page_one.get_data(as_text=True))
 check('поиск предприятий выполняется на сервере',
       search_page.status_code == 200
