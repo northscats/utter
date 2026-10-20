@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Official municipality names; intentionally no unverified boundary geometry."""
+"""Official municipality names and exact name matching for report territories."""
 import re
 
 

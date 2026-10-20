@@ -333,26 +333,41 @@ def _month_choices():
 
 def _map_payload():
     return {
-        'available': False,
-        'source': GEO_SOURCE['title'],
-        'sourceUrl': GEO_SOURCE['url'],
-        'sourceUpdated': GEO_SOURCE['updated'],
-        'sourceAccessed': GEO_SOURCE['accessed'],
-        'termsUrl': GEO_SOURCE['terms_url'],
+        'available': True,
+        'geometryUrl': url_for('ministry.map_geometry'),
+        'source': 'Файл границ МО 2026, предоставленный пользователем',
+        'sourceUrl': None,
+        'sourceUpdated': None,
+        'sourceAccessed': None,
+        'termsUrl': None,
         'sourceNote': (
-            'Официальная страница использована для наименований, не для геометрии. '
-            'Условия повторного использования векторных границ не подтверждены.'
+            'В файле не указаны источник и лицензия геометрии. '
+            'Официальный перечень используется только для подписей территорий.'
         ),
         'note': (
-            'Официальный источник подтверждает перечень муниципальных образований, '
-            'но проверенные векторные границы и условия их использования не найдены. '
-            'Карта не рисуется по приблизительным данным. Выбор из списка применяет '
-            'только точное совпадение с полем «Административная принадлежность» в отчёте.'
+            'Показаны полигоны из предоставленного файла. Выбор территории '
+            'фильтрует строки справа по точному совпадению с полем '
+            '«Административная принадлежность». Проценты не выводятся: '
+            'показатель и источник для них ещё не согласованы.'
         ),
         'municipalities': [
             {'name': name, 'type': kind} for name, kind in MUNICIPALITIES
         ],
     }
+
+
+@ministry_bp.get('/ministry/api/map-geometry')
+@_cabinet_required
+def map_geometry():
+    path = os.path.join(
+        current_app.static_folder, 'ministry_municipalities.geojson.gz')
+    if not os.path.isfile(path):
+        abort(404, description='Геометрия карты не подготовлена.')
+    response = send_file(path, mimetype='application/geo+json')
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Vary'] = 'Accept-Encoding'
+    response.headers['Cache-Control'] = 'private, max-age=86400'
+    return response
 
 
 @ministry_bp.get('/ministry')

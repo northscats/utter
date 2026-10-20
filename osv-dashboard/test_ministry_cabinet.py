@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Regression coverage for Ministry access and immutable XLSX report imports."""
 import io
+import gzip
+import json
 import os
 import re
 import sys
@@ -23,6 +25,7 @@ from database import (
     Company, CompanyMembership, User, UserModuleAccess, UzterReportImport,
     UzterReportRow, CompanyDadataSnapshot, Setting, db,
 )
+from ministry_geo import MUNICIPALITIES
 
 
 def _workbook(*rows, supplier='Поставщик Тест', debt_resource='Электроэнергия',
@@ -261,8 +264,29 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertTrue(march['rows'][0]['comparison']['available'])
         self.assertEqual(march['rows'][0]['comparison']['delta'], 12)
         self.assertEqual(march['summary']['verifiedRegionalTotal'], False)
-        self.assertFalse(march['map']['available'])
+        self.assertTrue(march['map']['available'])
+        self.assertEqual(march['map']['geometryUrl'],
+                         '/ministry/api/map-geometry')
         self.assertEqual(len(march['map']['municipalities']), 56)
+        dashboard_response = self.client.get('/ministry')
+        self.assertEqual(dashboard_response.status_code, 200)
+        dashboard_html = dashboard_response.get_data(as_text=True)
+        self.assertIn('id="map-mode-toggle"', dashboard_html)
+        self.assertIn('id="map-panel"', dashboard_html)
+        self.assertNotIn('class="notice"', dashboard_html)
+        self.assertNotIn('Только подтверждённые данные', dashboard_html)
+        geometry_response = self.client.get(march['map']['geometryUrl'])
+        self.assertEqual(geometry_response.status_code, 200)
+        self.assertEqual(geometry_response.headers.get('Content-Encoding'),
+                         'gzip')
+        geometry = json.loads(gzip.decompress(geometry_response.data))
+        geometry_response.close()
+        self.assertEqual(len(geometry['features']), 56)
+        self.assertEqual(
+            {feature['properties']['territory']
+             for feature in geometry['features']},
+            {name for name, _kind in MUNICIPALITIES},
+        )
         district_rows = self.client.get(
             '/ministry/api/data?month=2026-03&resource=all&district=Балашиха'
         ).get_json()['rows']

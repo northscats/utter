@@ -45,10 +45,6 @@
     .button.primary:hover{background:var(--teal-dark)}
     .button:disabled{opacity:.55;cursor:not-allowed}
     .button svg{width:15px;height:15px}
-    .notice{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;background:#e6efeb;border:1px solid #c8dad2;border-radius:9px;color:#375750;font-size:12px;margin-bottom:19px}
-    .notice[hidden]{display:none}
-    .notice strong{color:#23453f}
-    .notice-mark{flex:0 0 20px;height:20px;border:1px solid #89a99a;border-radius:50%;display:grid;place-items:center;font:700 11px Georgia;color:var(--teal)}
     .filters{display:grid;grid-template-columns:minmax(145px,.8fr) minmax(160px,.9fr) minmax(180px,1.15fr) minmax(240px,1.5fr) auto;gap:10px;align-items:end;padding:14px;background:#f7f9f5;border:1px solid var(--line);border-radius:10px;margin-bottom:15px}
     .field label{display:block;margin:0 0 5px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750}
     .field input,.field select{height:38px;width:100%;border:1px solid #cbd7d1;border-radius:6px;padding:0 10px;background:#fff;color:var(--ink);font-size:12px}
@@ -183,8 +179,6 @@
     .button:hover{background:#f0f5fb;border-color:#91a9c4}
     .button.primary{background:#315f9b;border-color:#315f9b}
     .button.primary:hover{background:#244c80}
-    .notice{background:#f3f7fc;border-color:#d3dfed;border-radius:7px;color:#445d78;margin-bottom:14px}
-    .notice strong{color:#27476d}.notice-mark{color:#315f9b;border-color:#a9bed8}
     .workspace{grid-template-columns:minmax(310px,.78fr) minmax(0,1.52fr);gap:14px;align-items:start}
     .left-column,.right-column{gap:13px;min-width:0}
     .left-column{position:sticky;top:76px;max-height:calc(100dvh - 94px);overflow:auto;padding:0 2px 8px 0;scrollbar-color:#bfccda transparent;scrollbar-width:thin}
@@ -205,6 +199,27 @@
     .map-icon{color:#496f9c;border-color:#b9c9dc;border-radius:8px}
     .map-message strong,.empty-state strong{font-family:"Segoe UI",system-ui,sans-serif;color:#304c6d}
     .map-message p{color:#65798e}.map-attribution{color:#7c8ca0}
+    .left-overview{display:grid;gap:13px;min-width:0}
+    .map-switch-row{display:flex;justify-content:flex-end;align-items:center;min-height:34px}
+    .map-mode-toggle{min-height:33px;padding:0 11px;font-size:11px;color:#315f9b}
+    .map-mode-toggle svg{width:14px;height:14px}
+    .map-switch-row .map-mode-toggle:disabled{opacity:.55;cursor:not-allowed}
+    .map-panel-body{display:grid;gap:9px}
+    .map-stage{min-height:350px;height:clamp(360px,52vh,520px);padding:8px;background:#f4f7fb;display:grid;place-items:center;overflow:hidden}
+    .map-svg{display:block;width:100%;height:100%;max-width:100%;overflow:visible}
+    .map-area{fill:#dce7f4;stroke:#fff;stroke-width:1.25;vector-effect:non-scaling-stroke;cursor:pointer;transition:fill .12s ease,stroke .12s ease}
+    .map-area:hover{fill:#a9c0dc}
+    .map-area.is-selected{fill:#315f9b;stroke:#244c80;stroke-width:1.7}
+    .map-area:focus-visible{fill:#8ba9cc;stroke:#183b63;stroke-width:3;outline:none}
+    .map-loading,.map-error{max-width:270px;padding:18px;text-align:center;color:#5c7088;font-size:12px}
+    .map-error strong{display:block;margin-bottom:5px;color:#8c3f38}
+    .map-selected{font-size:12px;color:#304d70;font-weight:650}
+    .map-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#718195;font-size:10px}
+    .map-legend-item{display:inline-flex;align-items:center;gap:6px}
+    .map-legend-swatch{width:12px;height:12px;border:1px solid #c4d2e2;border-radius:2px;background:#dce7f4}
+    .map-legend-swatch.selected{background:#315f9b;border-color:#244c80}
+    .map-source-note{font-size:10px;line-height:1.45;color:#7b8998}
+    .left-overview[hidden],#map-panel[hidden]{display:none!important}
     .filters{grid-template-columns:minmax(130px,.8fr) minmax(140px,.85fr) minmax(160px,1fr) minmax(190px,1.3fr) auto;gap:9px;padding:12px;margin:0;background:#f7f9fc;border-color:#d8e1eb;border-radius:7px}
     .field label{color:#667b92;font-size:9px}
     .field input,.field select{border-color:#cbd6e2;border-radius:5px;background:#fff;color:#2d4055}
@@ -305,12 +320,15 @@
         </button>
       </div>
     </div>
-    <div class="notice" role="note">
-      <span class="notice-mark" aria-hidden="true">i</span>
-      <span><strong>Только подтверждённые данные.</strong> Показатели берутся из строк переданных отчётов. Областной итог не подтверждён: состав и пересечения источников не сверены. Пустые значения не считаются нулём, границы не дорисовываются.</span>
-    </div>
     <div class="workspace">
       <div class="left-column">
+        <div class="map-switch-row">
+          <button class="button map-mode-toggle" type="button" id="map-mode-toggle" aria-expanded="false" aria-controls="map-panel" disabled>
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m2.5 5 5-2 5 2 5-2v12l-5 2-5-2-5 2zM7.5 3v12m5-10v12"/></svg>
+            <span id="map-mode-label">На карту</span>
+          </button>
+        </div>
+        <div class="left-overview" id="overview-view">
     <section class="summary-grid" id="summary-grid" aria-label="Показатели за выбранный период" aria-live="polite">
       <div class="metric"><div class="metric-label">Загрузок</div><div class="metric-value loading-value">—</div><div class="metric-note">за выбранный период</div></div>
       <div class="metric"><div class="metric-label">Строк в источниках</div><div class="metric-value loading-value">—</div><div class="metric-note">как передано поставщиками</div></div>
@@ -327,12 +345,22 @@
           <div class="panel-head"><div><h2 class="panel-title" id="monthly-title">Динамика по месяцам</h2><div class="panel-caption">Сумма строк из доступных отчётов; итог области не подтверждён</div></div><span class="source-note" id="chart-period"></span></div>
           <div class="panel-body"><div class="chart" id="monthly-chart" aria-label="Столбчатая диаграмма долгов по месяцам"><div class="chart-empty">Загрузка данных…</div></div></div>
         </section>
-        <section class="panel" data-widget="map" aria-labelledby="map-title">
+        </div>
+        <section class="panel" id="map-panel" data-widget="map" aria-labelledby="map-title" hidden>
           <div class="panel-head">
-            <div><h2 class="panel-title" id="map-title">Территориальный обзор</h2><div class="panel-caption">Карта отображается только при наличии проверенных границ</div></div>
+            <div><h2 class="panel-title" id="map-title">Муниципальные образования</h2><div class="panel-caption">56 полигонов · нажмите на территорию, чтобы отфильтровать строки</div></div>
+            <button class="button" type="button" id="map-reset" aria-label="Сбросить фильтр территории">Все территории</button>
           </div>
-          <div id="map-content"><div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Геометрия недоступна</strong><p>Территориальные границы не показаны без подтверждённого набора геоданных.</p></div></div></div>
-          <div class="panel-body"><div class="source-note" id="map-note">Проверенные границы не переданы.</div></div>
+          <div id="map-content" class="map-stage" aria-live="polite"><div class="map-loading">Карта загрузится при открытии этого раздела.</div></div>
+          <div class="panel-body map-panel-body">
+            <div class="map-selected" id="map-selected" role="status">Выберите территорию на карте.</div>
+            <div class="map-legend" aria-label="Обозначения карты">
+              <span class="map-legend-item"><i class="map-legend-swatch" aria-hidden="true"></i>Муниципальное образование</span>
+              <span class="map-legend-item"><i class="map-legend-swatch selected" aria-hidden="true"></i>Выбранная территория</span>
+            </div>
+            <div class="map-source-note" id="map-note">Геометрия из предоставленного файла; сведения об источнике и лицензии не указаны.</div>
+            <div class="map-source-note">Процентные показатели появятся после согласования показателя, периода и источника данных.</div>
+          </div>
         </section>
       </div>
       <aside class="right-column" aria-label="Журнал отчётов">

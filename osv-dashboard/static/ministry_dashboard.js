@@ -6,7 +6,9 @@
   const csrfToken = $('meta[name="csrf-token"]')?.content || "";
   const state = {
     page: 1, perPage: 50, sort: "debt", direction: "desc", debounce: null,
-    lastFocus: null, currentRow: null, previewToken: null, filters: null
+    lastFocus: null, currentRow: null, previewToken: null, filters: null,
+    mapData: null, mapGeometry: null, mapLoadPromise: null,
+    leftMode: "overview", mapWidgetVisible: true
   };
   const els = {
     month: $("#filter-month"), resource: $("#filter-resource"), district: $("#filter-district"),
@@ -125,20 +127,166 @@
   function renderMap(map) {
     const content = $("#map-content");
     const note = $("#map-note");
-    if (!map || map.available !== true) {
+    const toggle = $("#map-mode-toggle");
+    state.mapData = map || null;
+    if (!map || map.available !== true || !map.geometryUrl) {
       const message = map?.note || "Проверенная геометрия территориальных границ не передана.";
       content.innerHTML = `<div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Геометрия недоступна</strong><p>${escapeHtml(message)}</p></div></div>`;
-      const sourceAttribution = map.sourceUrl
-        ? `Источник перечня: <a href="${escapeHtml(map.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(map.source || "официальная страница")}</a>; обновлён ${escapeHtml(map.sourceUpdated || "дата не указана")}, проверен ${escapeHtml(map.sourceAccessed || "дата не указана")}.`
-        : "";
-      const termsAttribution = map.termsUrl
-        ? ` Условия портала: <a href="${escapeHtml(map.termsUrl)}" target="_blank" rel="noopener noreferrer">пользовательское соглашение</a>; разрешение на повторное использование геометрии не подтверждено.`
-        : "";
-      note.innerHTML = `${escapeHtml("Карта не построена: проверенные границы и условия их повторного использования не подтверждены.")} ${sourceAttribution}${termsAttribution}`;
+      note.textContent = map?.sourceNote || "Проверенная геометрия не передана.";
+      toggle.disabled = true;
+      if (state.leftMode === "map") setLeftMode(false);
       return;
     }
-    content.innerHTML = `<div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Источник геоданных доступен</strong><p>Визуализация границ не включена в этот интерфейс.</p><div class="map-attribution">${escapeHtml(map.source || "Источник указан сервером")}</div></div></div>`;
-    note.textContent = map.note || "Показан только статус источника; границы не визуализируются.";
+    toggle.disabled = !state.mapWidgetVisible;
+    note.textContent = `${map.source || "Источник геометрии не указан"}. ${map.sourceNote || ""}`.trim();
+    if (state.mapGeometry && !$("#municipality-map")) renderMapGeometry(state.mapGeometry);
+    syncMapSelection();
+  }
+  function setLeftMode(showMap) {
+    if (showMap && (!state.mapData?.available || !state.mapWidgetVisible)) return;
+    state.leftMode = showMap ? "map" : "overview";
+    $("#overview-view").hidden = showMap;
+    $("#map-panel").hidden = !showMap || !state.mapWidgetVisible;
+    $("#map-mode-toggle").setAttribute("aria-expanded", String(showMap));
+    $("#map-mode-label").textContent = showMap ? "К показателям" : "На карту";
+    if (showMap) loadMapGeometry();
+  }
+  function municipalityPolygons(geometry) {
+    if (geometry?.type === "Polygon") return [geometry.coordinates || []];
+    if (geometry?.type === "MultiPolygon") return geometry.coordinates || [];
+    return [];
+  }
+  function collectPositions(value, positions) {
+    if (!Array.isArray(value)) return;
+    if (value.length >= 2 && Number.isFinite(Number(value[0])) && Number.isFinite(Number(value[1]))) {
+      positions.push([Number(value[0]), Number(value[1])]);
+      return;
+    }
+    value.forEach(item => collectPositions(item, positions));
+  }
+  function mapPathData(feature, project) {
+    return municipalityPolygons(feature.geometry).map(polygon => polygon.map(ring => {
+      if (!Array.isArray(ring) || ring.length < 4) return "";
+      return ring.map((position, index) => {
+        const [x, y] = project(position);
+        return `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
+      }).join(" ") + " Z";
+    }).filter(Boolean).join(" ")).filter(Boolean).join(" ");
+  }
+  function renderMapGeometry(collection) {
+    const content = $("#map-content");
+    const features = Array.isArray(collection?.features) ? collection.features : [];
+    const positions = [];
+    features.forEach(feature => collectPositions(feature.geometry?.coordinates, positions));
+    if (!features.length || !positions.length) {
+      content.innerHTML = '<div class="map-error"><strong>Карта недоступна</strong>Файл не содержит полигонов для отображения.</div>';
+      return;
+    }
+
+    const width = 760, height = 700, padding = 18;
+    let minLatitude = Infinity, maxLatitude = -Infinity;
+    positions.forEach(([, latitude]) => {
+      minLatitude = Math.min(minLatitude, latitude);
+      maxLatitude = Math.max(maxLatitude, latitude);
+    });
+    const latitudeFactor = Math.cos(((minLatitude + maxLatitude) / 2) * Math.PI / 180);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    positions.forEach(([longitude, latitude]) => {
+      const x = longitude * latitudeFactor;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, latitude);
+      maxY = Math.max(maxY, latitude);
+    });
+    const scale = Math.min(
+      (width - padding * 2) / Math.max(maxX - minX, 0.000001),
+      (height - padding * 2) / Math.max(maxY - minY, 0.000001)
+    );
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const project = ([longitude, latitude]) => [
+      width / 2 + (longitude * latitudeFactor - centerX) * scale,
+      height / 2 - (latitude - centerY) * scale
+    ];
+    const paths = features.map(feature => {
+      const name = feature.properties?.territory;
+      const d = mapPathData(feature, project);
+      if (!name || !d) return "";
+      const safeName = escapeHtml(name);
+      return `<path class="map-area" data-territory="${safeName}" d="${d}" fill-rule="evenodd" clip-rule="evenodd" tabindex="0" role="button" aria-label="Выбрать ${safeName}"><title>${safeName}</title></path>`;
+    }).join("");
+    if (!paths) {
+      content.innerHTML = '<div class="map-error"><strong>Карта недоступна</strong>Геометрию не удалось отобразить.</div>';
+      return;
+    }
+    content.innerHTML = `<svg id="municipality-map" class="map-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="group" aria-label="Карта муниципальных образований Московской области">${paths}</svg>`;
+    $$(".map-area", content).forEach(path => {
+      const select = () => selectMapTerritory(path.dataset.territory);
+      path.addEventListener("click", select);
+      path.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      });
+    });
+    state.mapGeometry = collection;
+    syncMapSelection();
+  }
+  function loadMapGeometry() {
+    if (state.mapGeometry) {
+      syncMapSelection();
+      return Promise.resolve(true);
+    }
+    if (state.mapLoadPromise) return state.mapLoadPromise;
+    if (!state.mapData?.geometryUrl) return Promise.resolve(false);
+    const content = $("#map-content");
+    content.innerHTML = '<div class="map-loading">Загружаем векторные границы…</div>';
+    state.mapLoadPromise = fetch(state.mapData.geometryUrl, {
+      credentials: "same-origin",
+      headers: { Accept: "application/geo+json, application/json" }
+    }).then(async response => {
+      if (!response.ok) throw new Error(`Ошибка загрузки карты (${response.status})`);
+      const geometry = await response.json();
+      if (!Array.isArray(geometry.features) || geometry.features.length !== 56) {
+        throw new Error("В файле карты ожидались 56 территориальных полигонов.");
+      }
+      renderMapGeometry(geometry);
+      return true;
+    }).catch(error => {
+      content.innerHTML = `<div class="map-error"><strong>Не удалось загрузить карту</strong>${escapeHtml(error.message)}<br><button class="button" type="button" id="retry-map" style="margin-top:10px">Повторить</button></div>`;
+      $("#retry-map").addEventListener("click", loadMapGeometry);
+      return false;
+    }).finally(() => { state.mapLoadPromise = null; });
+    return state.mapLoadPromise;
+  }
+  function syncMapSelection() {
+    const selected = els.district?.value || "all";
+    const label = $("#map-selected");
+    if (label) {
+      label.textContent = selected === "all"
+        ? "Все территории"
+        : selected === "unassigned"
+          ? "Нераспределённые / неоднозначные"
+          : `Выбрано: ${selected}`;
+    }
+    $$(".map-area").forEach(path => {
+      const isSelected = selected !== "all" && selected !== "unassigned"
+        && path.dataset.territory === selected;
+      path.classList.toggle("is-selected", isSelected);
+      path.setAttribute("aria-pressed", String(isSelected));
+    });
+  }
+  function selectMapTerritory(name) {
+    const optionExists = Array.from(els.district.options).some(option => option.value === name);
+    if (!optionExists) {
+      $("#map-selected").textContent = `Территория «${name}» отсутствует в списке фильтров.`;
+      return;
+    }
+    els.district.value = name;
+    state.page = 1;
+    syncMapSelection();
+    els.district.dispatchEvent(new Event("change", { bubbles: true }));
   }
   function renderRows(rows, pagination) {
     const list = Array.isArray(rows) ? rows : [];
@@ -441,6 +589,19 @@
       button.textContent = "Подтвердить импорт";
     }
   }
+  function setupMapToggle() {
+    $("#map-mode-toggle").addEventListener("click", () => {
+      setLeftMode(state.leftMode !== "map");
+    });
+    $("#map-reset").addEventListener("click", () => {
+      const allOption = Array.from(els.district.options).find(option => option.value === "all");
+      if (!allOption) return;
+      els.district.value = "all";
+      state.page = 1;
+      syncMapSelection();
+      els.district.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
   function setupWidgets() {
     const button = $("#widgets-toggle");
     const control = $("#widget-control");
@@ -456,6 +617,13 @@
       });
     });
     function applyWidget(name, visible) {
+      if (name === "map") {
+        state.mapWidgetVisible = visible;
+        $("#map-mode-toggle").disabled = !visible || !state.mapData?.available;
+        if (!visible && state.leftMode === "map") setLeftMode(false);
+        $("#map-panel").hidden = state.leftMode !== "map" || !visible;
+        return;
+      }
       $$(`[data-widget="${name}"]`).forEach(element => { element.hidden = !visible; });
     }
     button.addEventListener("click", () => {
@@ -537,6 +705,7 @@
     }));
     $("#page-prev").addEventListener("click", () => { if (state.page > 1) { state.page--; loadDashboard(); } });
     $("#page-next").addEventListener("click", () => { state.page++; loadDashboard(); });
+    setupMapToggle();
     setupWidgets();
     loadDashboard();
   }
