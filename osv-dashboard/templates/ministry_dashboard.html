@@ -219,7 +219,7 @@
     .button.primary:hover{background:#244c80}
     .workspace{grid-template-columns:minmax(310px,.78fr) minmax(0,1.52fr);gap:14px;align-items:stretch}
     .left-column,.right-column{gap:13px;min-width:0}
-    .left-column{position:relative;top:auto;min-height:0;height:100%;max-height:none;overflow:auto;padding:0 2px 8px 0;scrollbar-color:#bfccda transparent;scrollbar-width:thin}
+    .left-column{align-self:start;position:relative;top:auto;min-height:0;height:auto;max-height:calc(100dvh - 94px);overflow:auto;padding:0 2px 8px 0;scrollbar-color:#bfccda transparent;scrollbar-width:thin}
     .right-column{min-height:0;height:100%;grid-template-rows:minmax(0,1fr)}
     .panel{border-color:#d6dfe9;border-radius:7px;box-shadow:0 2px 8px rgba(40,62,88,.04)}
     .panel-head{min-height:48px;padding:11px 14px;border-bottom-color:#e5ebf2}

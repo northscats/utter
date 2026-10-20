@@ -348,6 +348,10 @@ class MinistryCabinetTests(unittest.TestCase):
             'main{display:flex;flex-direction:column;height:calc(100dvh - 62px)',
             dashboard_html,
         )
+        self.assertIn(
+            '.left-column{align-self:start;position:relative;top:auto;min-height:0;height:auto;max-height:calc(100dvh - 94px);overflow:auto',
+            dashboard_html,
+        )
         self.assertIn('height:100%;grid-template-rows:minmax(0,1fr)', dashboard_html)
         self.assertIn('.table-scroll{height:65vh;max-height:65vh;flex:0 0 auto}', dashboard_html)
         self.assertIn(
