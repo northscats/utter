@@ -8,7 +8,7 @@
     page: 1, perPage: 50, sort: "debt", direction: "desc", debounce: null,
     lastFocus: null, currentRow: null, previewToken: null, filters: null,
     mapData: null, mapGeometry: null, mapLoadPromise: null,
-    leftMode: "overview", mapWidgetVisible: true
+    leftMode: "overview"
   };
   const els = {
     month: $("#filter-month"), resource: $("#filter-resource"), district: $("#filter-district"),
@@ -135,15 +135,15 @@
       if (state.leftMode === "map") setLeftMode(false);
       return;
     }
-    toggle.disabled = !state.mapWidgetVisible;
+    toggle.disabled = false;
     if (state.mapGeometry && !$("#municipality-map")) renderMapGeometry(state.mapGeometry);
     syncMapSelection();
   }
   function setLeftMode(showMap) {
-    if (showMap && (!state.mapData?.available || !state.mapWidgetVisible)) return;
+    if (showMap && !state.mapData?.available) return;
     state.leftMode = showMap ? "map" : "overview";
     $("#overview-view").hidden = showMap;
-    $("#map-panel").hidden = !showMap || !state.mapWidgetVisible;
+    $("#map-panel").hidden = !showMap;
     const toggle = $("#map-mode-toggle");
     toggle.setAttribute("aria-expanded", String(showMap));
     toggle.setAttribute("aria-pressed", String(showMap));
@@ -596,43 +596,6 @@
       setLeftMode(state.leftMode !== "map");
     });
   }
-  function setupWidgets() {
-    const button = $("#widgets-toggle");
-    const control = $("#widget-control");
-    const menu = $("#widget-menu");
-    const saved = (() => { try { return JSON.parse(localStorage.getItem("ministry-widgets") || "{}"); } catch (_) { return {}; } })();
-    $$("[data-widget-toggle]").forEach(check => {
-      const name = check.dataset.widgetToggle;
-      if (saved[name] === false) check.checked = false;
-      applyWidget(name, check.checked);
-      check.addEventListener("change", () => {
-        applyWidget(name, check.checked);
-        try { localStorage.setItem("ministry-widgets", JSON.stringify(Object.fromEntries($$("[data-widget-toggle]").map(input => [input.dataset.widgetToggle, input.checked])))); } catch (_) {}
-      });
-    });
-    function applyWidget(name, visible) {
-      if (name === "map") {
-        state.mapWidgetVisible = visible;
-        $("#map-mode-toggle").disabled = !visible || !state.mapData?.available;
-        if (!visible && state.leftMode === "map") setLeftMode(false);
-        $("#map-panel").hidden = state.leftMode !== "map" || !visible;
-        return;
-      }
-      $$(`[data-widget="${name}"]`).forEach(element => { element.hidden = !visible; });
-    }
-    button.addEventListener("click", () => {
-      const open = control.classList.toggle("open");
-      button.setAttribute("aria-expanded", String(open));
-      menu.style.display = open ? "grid" : "";
-    });
-    document.addEventListener("click", event => {
-      if (!control.contains(event.target) && !button.contains(event.target)) {
-        control.classList.remove("open");
-        button.setAttribute("aria-expanded", "false");
-        menu.style.display = "";
-      }
-    });
-  }
   function trapDialogKeys(event, element) {
     if (event.key === "Escape") {
       if (!$("#detail-backdrop").hidden) closeDetail();
@@ -700,7 +663,6 @@
     $("#page-prev").addEventListener("click", () => { if (state.page > 1) { state.page--; loadDashboard(); } });
     $("#page-next").addEventListener("click", () => { state.page++; loadDashboard(); });
     setupMapToggle();
-    setupWidgets();
     loadDashboard();
   }
   init();
