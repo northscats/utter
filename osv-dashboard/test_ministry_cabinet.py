@@ -371,6 +371,8 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn("Источник: ", dashboard_js)
         self.assertIn("els.rowsStatus.hidden = true;", dashboard_js)
         self.assertIn("class=\"table-loading-spinner\"", dashboard_js)
+        self.assertNotIn("Строки не найдены", dashboard_js)
+        self.assertNotIn("Измените условия поиска или проверьте наличие отчётов", dashboard_js)
         self.assertNotIn("renderImports(", dashboard_js)
         self.assertNotIn("importsStatus", dashboard_js)
         self.assertIn('id="period-filter-toggle"', table_panel)

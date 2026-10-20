@@ -274,9 +274,7 @@
   function renderRows(rows, pagination) {
     const list = Array.isArray(rows) ? rows : [];
     els.rows.innerHTML = "";
-    if (!list.length) {
-      els.rows.innerHTML = '<tr><td colspan="5"><div class="empty-state"><strong>Строки не найдены</strong>Измените условия поиска или проверьте наличие отчётов за выбранный месяц.</div></td></tr>';
-    } else {
+    if (list.length) {
       els.rows.innerHTML = list.map((row, index) => {
         const statusClass = /ошиб|предуп|не сопостав/i.test(row.status || "") ? "warn" : "";
         const rowKey = escapeHtml(row.id);
