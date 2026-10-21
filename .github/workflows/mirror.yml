@@ -22,15 +22,15 @@ jobs:
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
-          # 1. Отключаем проверку SSL
+          # 1. Отключаем проверку сертификата
           git config --global http.sslVerify false
 
-          # 2. Полностью отключаем хуки LFS в конфигурации раннера
+          # 2. Полностью отключаем хуки LFS
           git config --global lfs.allowincompletepush true
-          git config --global lfs.fetchexclude "*"
+          git config --global lfs.locksverify false
 
-          # 3. Привязываем удаленный репозиторий
+          # 3. Добавляем remote
           git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@185.11.49.226:2443/EmelianovMaM/uzter.git"
 
-          # 4. Флаг --no-verify отключает хук pre-push, вызывающий Git LFS upload
+          # 4. Флаг --no-verify игнорирует локальный pre-push хук LFS
           git push gitlab --no-verify --prune +refs/remotes/origin/*:refs/heads/* +refs/tags/*:refs/tags/* -o ci.skip
