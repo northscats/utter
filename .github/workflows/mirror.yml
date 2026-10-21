@@ -22,15 +22,32 @@ jobs:
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
-          # 1. Отключаем проверку сертификата
+          # 1. Отключаем проверку SSL-сертификата
           git config --global http.sslVerify false
 
-          # 2. Полностью отключаем хуки LFS
-          git config --global lfs.allowincompletepush true
-          git config --global lfs.locksverify false
+          # 2. ЖЕСТКО удаляем все хуки Git LFS, которые создал actions/checkout
+          git lfs uninstall || true
+          rm -rf .git/hooks/*
 
-          # 3. Добавляем remote
+          # 3. Задаем данные гита для возможного слияния
+          git config user.name "github-mirror-bot"
+          git config user.email "mirror@github.com"
+
+          # 4. Добавляем удаленный репозиторий GitLab
           git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@185.11.49.226:2443/EmelianovMaM/uzter.git"
 
-          # 4. Флаг --no-verify игнорирует локальный pre-push хук LFS
-          git push gitlab --no-verify --prune +refs/remotes/origin/*:refs/heads/* +refs/tags/*:refs/tags/* -o ci.skip
+          # 5. Проверяем, есть ли уже коммиты в ветке main на GitLab, которых нет в GitHub
+          git fetch gitlab || true
+
+          # 6. Пытаемся запушить БЕЗ force-push (чтобы GitLab не блокировал защищенную ветку main)
+          # Если в GitLab при создании репозитория был создан README.md (разная история), 
+          # скрипт автоматически объединит истории и отправит обычный коммит
+          if ! git push gitlab --no-verify refs/remotes/origin/main:refs/heads/main -o ci.skip; then
+            echo "Обычный push отклонен из-за разной истории коммитов. Объединяем с историей GitLab..."
+            git checkout -B main origin/main
+            git merge gitlab/main --allow-unrelated-histories --no-edit -X ours
+            git push gitlab --no-verify HEAD:refs/heads/main -o ci.skip
+          fi
+
+          # 7. Дополнительно отправляем все остальные ветки и теги (не защищенные)
+          git push gitlab --no-verify refs/remotes/origin/*:refs/heads/* refs/tags/*:refs/tags/* -o ci.skip || true
