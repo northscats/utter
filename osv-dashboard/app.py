@@ -63,7 +63,7 @@ from database import (AiProvider, AiSummary, OsvFileAiSummary, AuditLog, Company
                        AnalogNetworkAttribute, AnalogImport, AnalogMonthlyIndex,
                         LimitChange, LimitComparison,
                         LimitComparisonResolution, LimitDataset, LimitObject,
-                        LimitRowSnapshot, LimitVersion, LimitVersionTombstone,
+                         LimitRowSnapshot, LimitVersion,
                           MaxLimitsSubscription, MaxLimitsCursor,
                           MaxLimitsOutbox, MaxLimitsProfile, MaxLimitsUin,
                           MaxLimitsApplication,
@@ -122,167 +122,6 @@ ANALYTICAL_ACCOUNT_NAMES = {
     '90': 'Продажи',
     '91': 'Прочие доходы и расходы',
 }
-
-_DURABLE_MODELS = (
-    User, Company, Upload, OsvSourceCleanup, DailyRow, DailyReconciliationAlert,
-    UzterReportImport, UzterReportRow,
-    HistoricalImport, HistoricalYearVersion,
-    HistoricalMetricValue, HistoricalRawValue, HistoricalMapping,
-    RevenueAnalyticMapping, CostAnalyticMapping, DebtorAnalyticMapping,
-    ConsumerCollectionAccrual, ConsumerPaymentAllocation,
-    ConsumerCollectionNorm,
-    AnalogPassport, AnalogPassportVersion, AnalogSource,
-    AnalogOrganizationRole, AnalogTep, AnalogDocument, AnalogCostRow,
-    AnalogSSRChapter, AnalogSSRItem, AnalogDiagnostic,
-    AnalogSSRSignature, AnalogNetworkAttribute, AnalogImport,
-    AnalogMonthlyIndex,
-    LimitDataset, LimitVersion, LimitObject, LimitRowSnapshot, LimitComparison,
-    LimitVersionTombstone,
-    LimitComparisonResolution, LimitChange,
-    MaxLimitsSubscription, MaxLimitsCursor, MaxLimitsOutbox,
-    MaxLimitsProfile, MaxLimitsUin, MaxLimitsApplication,
-)
-def _durable_backup(reason, allow_removals=False, required=False,
-                    allowed_removed_tables=()):
-    """A backup failure must be visible, but cannot undo a committed upload."""
-    if has_request_context():
-        g.durable_backup_done = True
-    if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
-        return
-    from durable_data import backup
-    try:
-        result = backup(
-            db, UPLOADS, OUTPUT, _DURABLE_MODELS, reason,
-            allow_removals=allow_removals,
-            allowed_removed_tables=allowed_removed_tables)
-        if not result['promoted'] and result['shrink_rejected']:
-            message = (
-                f'{reason}: latest не обновлён из-за уменьшения таблиц: '
-                f'{", ".join(result["shrink_rejected"])}')
-            app.logger.error('durable backup rejected: %s', message)
-            Setting.set('durable_backup_error', message)
-            db.session.commit()
-        elif result.get('superseded'):
-            app.logger.info(
-                'durable backup superseded by a newer snapshot after %s',
-                reason)
-        app.logger.info('durable backup completed after %s: %s', reason, result)
-        return result
-    except Exception as exc:
-        app.logger.exception('durable backup failed after %s', reason)
-        try:
-            Setting.set('durable_backup_error', f'{reason}: {exc}')
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            app.logger.exception('could not record durable backup error')
-        if required:
-            raise
-        return None
-
-
-_durable_safety_lock = threading.Lock()
-_durable_safety_pending = []
-_durable_safety_thread = None
-
-
-def _run_durable_safety_backups():
-    """Serialize and coalesce safety-net snapshots outside HTTP workers."""
-    global _durable_safety_thread
-    while True:
-        with _durable_safety_lock:
-            reasons = list(dict.fromkeys(_durable_safety_pending))
-            _durable_safety_pending.clear()
-            if not reasons:
-                _durable_safety_thread = None
-                return
-        reason = '; '.join(reasons[:5])
-        if len(reasons) > 5:
-            reason += f'; ещё изменений: {len(reasons) - 5}'
-        with app.app_context():
-            _durable_backup(f'асинхронная страховка: {reason}')
-
-
-def _schedule_durable_safety_backup(reason):
-    """Queue one background snapshot without delaying the browser response."""
-    global _durable_safety_thread
-    if (app.config.get('TESTING')
-            and not app.config.get('DURABLE_BACKUP_ASYNC_TEST')):
-        _durable_backup(reason)
-        return
-    with _durable_safety_lock:
-        _durable_safety_pending.append(reason)
-        if _durable_safety_thread and _durable_safety_thread.is_alive():
-            return
-        _durable_safety_thread = threading.Thread(
-            target=_run_durable_safety_backups,
-            name='durable-safety-backup',
-            daemon=True,
-        )
-        _durable_safety_thread.start()
-
-
-def _durable_restore(after_database=None):
-    """Merge durable data after schema creation and report its status."""
-    if app.config.get('TESTING') and not os.environ.get('DURABLE_BACKUP_DIR'):
-        return True
-    from durable_data import restore
-    try:
-        # A long additive restore can lose its PostgreSQL connection after
-        # several minutes.  The restore uses checkpoint commits, so retrying
-        # from a fresh session is safe: already committed rows are skipped
-        # and the final pointer reconciliation runs again.
-        max_attempts = max(
-            1, int(os.environ.get('DURABLE_RESTORE_MAX_ATTEMPTS', '2')))
-        result = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                result = restore(
-                    db, UPLOADS, OUTPUT, _DURABLE_MODELS,
-                    after_database=after_database)
-                break
-            except Exception as exc:
-                db.session.rollback()
-                retryable = (
-                    isinstance(exc, (DBAPIError, OperationalError))
-                    or (
-                        exc.__class__.__name__ == 'OperationalError'
-                        and exc.__class__.__module__.startswith('psycopg2')
-                    )
-                )
-                if not retryable or attempt >= max_attempts:
-                    raise
-                db.session.remove()
-                db.engine.dispose()
-                app.logger.warning(
-                    'durable restore lost its database connection; '
-                    'retrying with a fresh session (%s/%s)',
-                    attempt + 1, max_attempts)
-                time.sleep(min(2.0, float(attempt)))
-        app.logger.info('durable restore completed: %s', result)
-        return True
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('durable restore failed')
-        try:
-            # Keep exception details in server logs only. This persisted value
-            # may be shown to an administrator and must not contain paths,
-            # credentials, or provider response bodies.
-            Setting.set('durable_restore_error', 'restore_failed')
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            app.logger.exception('could not record durable restore error')
-        return False
-
-
-def _database_can_serve_during_restore():
-    """Whether PostgreSQL already has enough identity data to serve routes."""
-    return (
-        db.session.query(User.id).limit(1).scalar() is not None
-        and db.session.query(Company.id).limit(1).scalar() is not None
-    )
-
 
 # Тот же набор из 20 аналитических счетов используется для оценки
 # комплектности загрузок и для блока покрытия данными.
@@ -369,16 +208,6 @@ def _finish_key_indicator_http_diagnostic(response):
     return response
 
 
-@app.after_request
-def _durable_mutation_safety_net(response):
-    """Capture successful user mutations not covered by an explicit backup."""
-    if (request.method in ('POST', 'PUT', 'PATCH', 'DELETE')
-            and response.status_code < 400
-             and not getattr(g, 'durable_backup_done', False)
-             and not getattr(g, 'skip_durable_backup', False)):
-        _schedule_durable_safety_backup(
-            f'http_{request.method.lower()}:{request.endpoint or "unknown"}')
-    return response
 _LOGIN_CSRF = URLSafeTimedSerializer(
     app.secret_key, salt='login-csrf-v1')
 
@@ -654,8 +483,6 @@ def _ensure_limits_recovery() -> None:
                     from limits_service import cleanup_purged_files, cleanup_temporary_versions
                     cleanup_purged_files()
                     cleanup_temporary_versions(int(os.environ.get('LIMITS_TEMP_TTL_HOURS', '72')))
-                    if Setting.get('limits_rotation_needs_backup') == '1':
-                        _schedule_limits_rotation_backup()
                 except Exception:
                     db.session.rollback()
                     app.logger.exception('limits periodic cleanup failed')
@@ -1726,7 +1553,6 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             attachment_committed = True
                             _sync_daily_reconciliation_alerts(company_id)
                             _schedule_osv_file_summaries(company_id)
-                            _durable_backup('IMAP ZIP ОСВ')
                             stats['files_processed'] += len(extracted_xls)
                         else:  # XLS / XLSX
                             is_daily = _is_daily_xls(path)
@@ -1806,7 +1632,6 @@ def _do_imap_sync(uploader_id: int) -> dict:
                             attachment_committed = True
                             _sync_daily_reconciliation_alerts(company_id)
                             _schedule_osv_file_summaries(company_id)
-                            _durable_backup('IMAP ОСВ')
                             stats['files_processed'] += 1
                     except Exception as exc:
                         db.session.rollback()
@@ -2045,8 +1870,6 @@ def _bg_upload_all(job_id: str, company_id: int, company_name: str,
             committed = True
             _sync_daily_reconciliation_alerts(company_id)
             _schedule_osv_file_summaries(company_id)
-            _durable_backup('ОСВ background upload')
-
             discrepancy = [a for a in audit_out if a.get('ok') == 'disc']
             log_event('file_upload',
                       {'company_id': company_id, 'files': total_files, 'period': period_lbl},
@@ -2096,8 +1919,6 @@ def _bg_company_new(job_id: str, company_id: int, final_dir: str,
             committed = True
             _sync_daily_reconciliation_alerts(company_id)
             _schedule_osv_file_summaries(company_id)
-            _durable_backup('первый ОСВ предприятия')
-
             log_event('company_created',
                       {'company_id': company_id, 'name': company_name},
                       user_id=uploader_id)
@@ -2616,7 +2437,6 @@ def company_new():
     final_paths = [os.path.join(final_dir, os.path.basename(p)) for p in tmp_paths]
 
     db.session.commit()  # commit company before starting thread
-    _durable_backup('создание предприятия с исходными ОСВ')
     log_event('company_new_started', {'name': org_name, 'company_id': company.id})
 
     # Запускаем обработку в фоне
@@ -2993,7 +2813,6 @@ def historical_preview_upload(company_id):
             'company_detail', company_id=company_id,
             historical_error=str(exc),
             _anchor='historical-analytics'))
-    _durable_backup('предпросмотр годовой отчётности')
     log_event('historical_import_previewed', {
         'company_id': company_id,
         'import_id': attempt.id,
@@ -3038,7 +2857,6 @@ def historical_confirm(company_id, import_id):
             'company_detail', company_id=company_id,
             historical_preview=import_id, historical_error=message,
             _anchor='historical-analytics'))
-    _durable_backup('активация годовой отчётности')
     log_event('historical_import_activated', {
         'company_id': company_id,
         'import_id': import_id,
@@ -3067,7 +2885,6 @@ def historical_cancel(company_id, import_id):
             'company_detail', company_id=company_id,
             historical_preview=import_id, historical_error=str(exc),
             _anchor='historical-analytics'))
-    _durable_backup('отмена годового предпросмотра', allow_removals=True)
     log_event('historical_import_cancelled', {
         'company_id': company_id, 'import_id': import_id})
     return redirect(url_for('company_detail', company_id=company_id))
@@ -3190,7 +3007,6 @@ def historical_version_activate(company_id, version_id):
             historical_error=(
                 'Версия была одновременно изменена другим пользователем. '
                 'Обновите страницу и повторите действие.')))
-    _durable_backup('переключение годовой версии')
     log_event('historical_version_activated', {
         'company_id': company_id,
         'year': version.year,
@@ -3776,7 +3592,6 @@ def consolidated_osv_confirm(company_id, preview_id):
             current_replacement['filename'] if current_replacement else None),
     }, user_id=current_user.id)
     _sync_daily_reconciliation_alerts(company_id)
-    _durable_backup('подтверждение сводной ОСВ')
     flash('Полная сводная ОСВ подтверждена как доверенный контрольный снимок.', 'success')
     return redirect(url_for('company_detail', company_id=company_id))
 
@@ -4521,9 +4336,6 @@ def key_indicator_revenue_mappings(company_id):
             row.category = category
             row.updated_by = current_user.id
     db.session.commit()
-    _durable_backup(
-        'сопоставление аналитик выручки',
-        allowed_removed_tables={'revenue_analytic_mappings'})
     saved = RevenueAnalyticMapping.query.filter_by(
         company_id=company_id).count()
     return jsonify(saved=saved)
@@ -4612,9 +4424,6 @@ def key_indicator_debtor_mappings(company_id):
             row.category = category
             row.updated_by = current_user.id
     db.session.commit()
-    _durable_backup(
-        'сопоставление аналитик дебиторской задолженности',
-        allowed_removed_tables={'debtor_analytic_mappings'})
     saved = DebtorAnalyticMapping.query.filter_by(company_id=company_id).count()
     return jsonify(saved=saved)
 
@@ -4737,11 +4546,6 @@ def key_indicator_collection_source(company_id):
     except IntegrityError:
         db.session.rollback()
         return jsonify(error='Источник содержит дублирующиеся строки'), 409
-    _durable_backup(
-        'источник собираемости по категориям',
-        allowed_removed_tables={
-            'consumer_collection_accruals', 'consumer_payment_allocations',
-            'consumer_collection_norms'})
     return jsonify(accruals=len(normalized_accruals),
                    allocations=len(normalized_allocations),
                    norms=len(normalized_norms))
@@ -4822,9 +4626,6 @@ def key_indicator_cost_mappings(company_id):
             row.target_account = target
             row.updated_by = current_user.id
     db.session.commit()
-    _durable_backup(
-        'сопоставление аналитик затрат',
-        allowed_removed_tables={'cost_analytic_mappings'})
     return jsonify(saved=CostAnalyticMapping.query.filter_by(
         company_id=company_id).count())
 @app.route('/company/<int:company_id>/key-indicators/annual-data')
@@ -5032,8 +4833,6 @@ def company_upload_zip(company_id):
         row.uploaded_at = utcnow()
         upserted += 1
     db.session.commit()
-    _durable_backup('суточные строки ZIP ОСВ')
-
     # Пересобираем дашборд (месячные данные + новые суточные)
     back_url = url_for('company_detail', company_id=company_id)
     dataset, audit = _rebuild_dashboard_with_daily(company_id,
@@ -5086,8 +4885,6 @@ def company_upload_zip(company_id):
     db.session.commit()
     _sync_daily_reconciliation_alerts(company_id)
     _schedule_osv_file_summaries(company_id)
-    _durable_backup('суточный ZIP ОСВ')
-
     audit_out += [{'file': f'{item["date"]} сч.{item["parsed"]["acc"]}',
                    'acc': item['parsed']['acc'], 'status': 'добавлен', 'ok': True}
                   for item in successes]
