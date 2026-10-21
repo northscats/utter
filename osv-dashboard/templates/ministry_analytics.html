@@ -75,8 +75,9 @@
     @media(max-width:650px){.topbar{height:56px;padding:0 12px;gap:9px}.brand-sub,.brand-divider,.top-link{display:none}.user-name{display:none}main{padding:14px 11px 25px}.shell{grid-template-columns:1fr;gap:10px}.cabinet-nav{width:100%;flex-direction:row;justify-content:space-between;overflow-x:auto}.page-heading{align-items:flex-start;flex-direction:column}h1{font-size:20px}.filters{grid-template-columns:1fr}.filter-actions{grid-column:auto}.quality-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.quality-details{grid-template-columns:1fr}.chart-body{padding:10px}.chart{min-width:400px}}
     @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition-duration:.01ms!important}}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_text_contrast.css') }}">
 </head>
-<body>
+<body class="ministry-high-contrast">
   <header class="topbar">
     <a class="brand" href="{{ url_for('ministry.dashboard_desktop') }}" aria-label="Кабинет министерства, рабочий стол">
       <span class="brand-mark" aria-hidden="true">М</span><span>ГИС УЗТЭР</span><span class="brand-divider"></span><span class="brand-sub">Кабинет министерства</span>

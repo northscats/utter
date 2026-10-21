@@ -1,0 +1,14 @@
+/* Keep cabinet text on white surfaces neutral black for stronger contrast. */
+.ministry-high-contrast main :is(h1, h2, h3, p, span, th, td, dt, dd, label, small, strong, a, li, em, summary):not(.button):not(.button *):not(.btn):not(.btn *):not(.cabinet-nav-item):not(.cabinet-nav-item *):not(.error):not(.error *):not(.success):not(.success *):not(.danger):not(.danger *):not(.badge.bad):not(.badge.bad *) {
+  color: #000 !important;
+}
+
+.ministry-high-contrast main input,
+.ministry-high-contrast main select,
+.ministry-high-contrast main textarea {
+  color: #000 !important;
+}
+
+.ministry-high-contrast main svg text {
+  fill: #000 !important;
+}

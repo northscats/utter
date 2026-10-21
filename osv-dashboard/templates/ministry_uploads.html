@@ -47,8 +47,9 @@
     @media(max-width:900px){.uploads-item{grid-template-columns:120px minmax(0,1fr)}.uploads-badges{grid-column:2;justify-content:flex-start}}
     @media(max-width:650px){main{padding:14px 11px 25px}.shell{grid-template-columns:1fr;gap:10px}.cabinet-nav{width:100%;flex-direction:row;justify-content:space-between;overflow-x:auto}.page-heading{margin:0 0 12px}h1{font-size:20px}.panel-head{align-items:flex-start;flex-direction:column}.uploads-total{text-align:left}.uploads-toolbar{align-items:stretch;flex-direction:column}.uploads-search{width:100%}.uploads-item{grid-template-columns:1fr;gap:8px}.uploads-badges{grid-column:auto;justify-content:flex-start}}
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_text_contrast.css') }}">
 </head>
-<body>
+<body class="ministry-high-contrast">
   {% set topbar_variant = 'ministry' %}
   {% include 'ministry_topbar.html' %}
   <main>

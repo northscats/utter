@@ -326,8 +326,9 @@
       .detail-modal{width:100%;height:100%;max-width:none;max-height:none;border-radius:8px}
     }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_text_contrast.css') }}">
 </head>
-<body>
+<body class="ministry-high-contrast">
   {% set topbar_variant = 'ministry' %}{% include 'ministry_topbar.html' %}
   <main>
     <div class="ministry-shell">
