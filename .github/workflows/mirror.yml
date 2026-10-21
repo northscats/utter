@@ -18,7 +18,7 @@ jobs:
 
       - name: Push to GitLab
         env:
-          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_TOKEN: ${{secrets.GITLAB_TOKEN }}
         run: |
           git config --global http.sslVerify false # если используется самоподписанный сертификат
           git remote add gitlab https://oauth2:${GITLAB_TOKEN}@185.11.49.226:2443/EmelianovMaM/uzter.git
