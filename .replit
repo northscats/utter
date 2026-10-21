@@ -134,18 +134,10 @@ packages = ["libreoffice", "tesseract", "poppler-utils"]
 [userenv]
 
 [userenv.shared]
-ENCRYPTION_KEY = "bDy8qWKNCy1e9xiTEkLnXQj3quVvmffN92WvHFHXC-o="
-INITIAL_ADMIN_PASSWORD = "admin123admin"
-OPERATOR_PASSWORD_RESET = "oper123oper"
 
 [userenv.development]
-ONE_C_ENV = "development"
-ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
 
 [userenv.production]
-ONE_C_ENV = "production"
-ONE_C_PUBLIC_BASE_URL = "https://gisuzter.replit.app"
-ONE_C_TRUSTED_PROXY_CIDRS = "127.0.0.1/32,::1/128"
 
 [[ports]]
 localPort = 8080
@@ -158,3 +150,6 @@ externalPort = 8081
 [[ports]]
 localPort = 21844
 externalPort = 80
+
+[objectStorage]
+defaultBucketID = "replit-objstore-67347711-09f0-444e-b2c6-53d22eb8f9ac"
