@@ -21,7 +21,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 
 from database import (
-    Company, CompanyDadataSnapshot, UzterReportImport, UzterReportRow, db, utcnow,
+    AuditLog, Company, CompanyDadataSnapshot, UzterReportImport,
+    UzterReportRow, db, utcnow,
 )
 from ministry_geo import (
     MUNICIPALITIES, SOURCE as GEO_SOURCE, municipality_for_territory,
@@ -218,6 +219,77 @@ def _safe_json_object(value):
     return result if isinstance(result, dict) else {}
 
 
+def _import_source_path(stored_filename):
+    if not re.fullmatch(r'[a-f0-9]{32}\.xlsx', str(stored_filename or '')):
+        return None
+    root = os.path.realpath(_source_directory())
+    path = os.path.realpath(os.path.join(root, stored_filename))
+    try:
+        if os.path.commonpath((root, path)) != root:
+            return None
+    except ValueError:
+        return None
+    return path
+
+
+def _finish_ministry_import_file_cleanup(audit):
+    details = _safe_json_object(audit.details)
+    try:
+        attempts = max(0, int(details.get('file_cleanup_attempts') or 0)) + 1
+    except (TypeError, ValueError):
+        attempts = 1
+    stored_filename = details.get('stored_filename')
+    path = _import_source_path(stored_filename)
+    cleanup_error = None
+    try:
+        if path is None:
+            raise ValueError('Некорректный идентификатор исходного файла.')
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError) as exc:
+        cleanup_error = f'{type(exc).__name__}: {exc}'[:500]
+
+    complete = cleanup_error is None
+    details['file_cleanup_status'] = 'complete' if complete else 'pending'
+    details['file_cleanup_attempts'] = attempts
+    if cleanup_error:
+        details['file_cleanup_error'] = cleanup_error
+    else:
+        details.pop('file_cleanup_error', None)
+    audit.action = (
+        'ministry_report_import_deleted'
+        if complete else 'ministry_import_delete_cleanup_pending'
+    )
+    audit.details = json.dumps(details, ensure_ascii=False, default=str)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception(
+            'could not finalize ministry report source cleanup')
+        return False
+    return complete
+
+
+def _retry_pending_ministry_import_file_cleanup(limit=20):
+    pending = (
+        AuditLog.query
+        .filter_by(action='ministry_import_delete_cleanup_pending')
+        .order_by(AuditLog.id.asc())
+        .limit(limit)
+        .all()
+    )
+    for audit in pending:
+        try:
+            _finish_ministry_import_file_cleanup(audit)
+        except Exception:
+            db.session.rollback()
+            current_app.logger.warning(
+                'could not retry ministry report source cleanup',
+                exc_info=True)
+
+
 def _row_base_payload(row, report):
     company = report.provider
     return {
@@ -245,7 +317,6 @@ def _row_base_payload(row, report):
         'yearToDateAccrual': row.year_to_date_accrual,
         'sourceRow': row.source_row_number,
         'isGroupRow': row.is_group_row,
-        'sourceValues': _safe_json_array(row.source_values_json),
         'importId': report.id,
     }
 
@@ -697,6 +768,7 @@ def _month_choices_label(value):
 @ministry_bp.get('/ministry/api/data')
 @_cabinet_required
 def dashboard_data():
+    _retry_pending_ministry_import_file_cleanup()
     latest = _latest_import_query()
     months = _month_choices()
     available_resources = [
@@ -884,6 +956,7 @@ def dashboard_data():
             'totalPages': total_pages,
         },
         'imports': history,
+        'permissions': {'canDeleteImports': bool(current_user.is_admin)},
         'map': _map_payload(),
     })
 
@@ -1241,6 +1314,69 @@ def import_source_file(import_id):
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         conditional=True,
     )
+
+
+@ministry_bp.post('/ministry/import/<int:import_id>/delete')
+@_cabinet_required
+def delete_report_import(import_id):
+    if not current_user.is_admin:
+        return _json_error('Удалять загрузки может только администратор.', 403)
+
+    report = (
+        UzterReportImport.query
+        .filter_by(id=import_id, status='accepted')
+        .with_for_update()
+        .first()
+    )
+    if report is None:
+        return _json_error('Загрузка не найдена или уже удалена.', 404)
+
+    source_filename = report.stored_filename or ''
+    details = {
+        'import_id': report.id,
+        'provider_company_id': report.provider_company_id,
+        'provider': report.provider.name if report.provider else '',
+        'file': report.source_filename,
+        'period': _month_value(report.report_year, report.report_month),
+        'resource': report.resource_type,
+        'version': report.version,
+        'stored_filename': source_filename,
+        'file_cleanup_status': 'pending',
+        'file_cleanup_attempts': 0,
+    }
+    deleted_rows = UzterReportRow.query.filter_by(
+        import_id=report.id).delete(synchronize_session=False)
+    details['deleted_rows'] = deleted_rows
+    audit = AuditLog(
+        user_id=current_user.id,
+        action='ministry_import_delete_cleanup_pending',
+        details=json.dumps(details, ensure_ascii=False, default=str),
+        ip=request.remote_addr,
+    )
+    db.session.add(audit)
+    db.session.delete(report)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('ministry report deletion failed')
+        return _json_error(
+            'Не удалось удалить загрузку. Данные не были изменены.', 500)
+
+    file_removed = _finish_ministry_import_file_cleanup(audit)
+    message = (
+        f'Загрузка удалена вместе с {deleted_rows} строками отчёта и исходным файлом.'
+        if file_removed else
+        'Данные загрузки удалены. Очистка исходного файла не завершилась; '
+        'система повторит её автоматически.'
+    )
+    return jsonify({
+        'ok': True,
+        'importId': import_id,
+        'deletedRows': deleted_rows,
+        'fileCleanupPending': not file_removed,
+        'message': message,
+    })
 
 
 @ministry_bp.post('/ministry/api/dadata/lookup')

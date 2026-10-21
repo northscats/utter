@@ -108,6 +108,8 @@
     .import-history-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
     .import-history-search{width:min(360px,100%);height:38px;border:1px solid #cbd6e2;border-radius:6px;padding:0 10px;background:#fff;color:#2d4055;font-size:12px}
     .import-history-count{font-size:10px;color:#718195;white-space:nowrap}
+    .import-history-status{margin:0 0 10px;padding:9px 11px;border:1px solid #d7e1ec;border-radius:6px;background:#edf3fa;color:#405c79;font-size:11px;line-height:1.45}
+    .import-history-status.error{border-color:#e8c7c9;background:#fbefef;color:#8a343c}
     .import-history-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
     .import-history-item{display:grid;grid-template-columns:138px minmax(0,1fr) auto;align-items:center;gap:14px;padding:12px;border:1px solid #e1e8f0;border-radius:7px;background:#fff}
     .import-history-date{font-size:11px;color:#63778e}
@@ -115,6 +117,8 @@
     .import-history-meta{margin-top:4px;color:#718195;font-size:10px;line-height:1.45}
     .import-history-badges{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
     .import-history-badge{padding:4px 7px;border-radius:5px;background:#edf3fa;color:#526c8b;font-size:9px;white-space:nowrap}
+    .import-history-delete{border-color:#dfc2c4;color:#913c44;background:#fff}
+    .import-history-delete:hover:not(:disabled){border-color:#bf8589;background:#fbefef;color:#7b2d35}
     .column-settings-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0}
     .column-setting{display:flex;align-items:flex-start;gap:9px;padding:10px;border:1px solid #e1e8f0;border-radius:6px;color:#344b65;font-size:12px;cursor:pointer}
     .column-setting:hover{background:#f7f9fc}
@@ -143,10 +147,6 @@
     .detail-pair dt{font-size:10px;color:#52677d;margin-bottom:3px}
     .detail-pair dd{margin:0;font-size:12px;color:#20354c;overflow-wrap:anywhere}
     .provenance{border-left:3px solid var(--gold);background:#f8f3e9;padding:10px 12px;font-size:11px;color:#6e5a3e}
-    .detail-source-values summary{color:#173f68;font-size:12px;font-weight:650;cursor:pointer}
-    .detail-source-values ol{margin:12px 0 0;padding-left:28px;display:grid;gap:5px;font-size:11px;color:#4c6279;overflow-wrap:anywhere}
-    .dadata-row{display:flex;gap:8px;align-items:end}
-    .dadata-row .field{flex:1}
     .debt-chart-card{min-width:0}
     .debt-chart-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
     .debt-chart-heading h3{margin-bottom:3px}
@@ -163,10 +163,6 @@
     .debt-chart-empty{min-height:210px;display:grid;place-content:center;padding:18px;color:#52677d;font-size:12px;line-height:1.5;text-align:center}
     .debt-chart-note{margin:8px 0 0;color:#52677d;font-size:10px;line-height:1.45}
     .directory-profile-empty{margin:0;color:#52677d;font-size:11px}
-    .timeline{display:grid;gap:0}
-    .timeline-row{display:grid;grid-template-columns:80px 1fr auto;gap:9px;padding:9px 0;border-bottom:1px solid #edf1ed;font-size:11px}
-    .timeline-row:last-child{border-bottom:0}
-    .timeline-date{font:10px var(--mono);color:#52677d}
     .import-dialog{width:min(720px,calc(100% - 28px));max-height:calc(100dvh - 24px);overflow:auto;background:#fff;border:1px solid #d6dfe9;border-radius:10px;margin:auto;padding:0;box-shadow:0 24px 72px rgba(24,45,73,.25)}
     .import-dialog[hidden]{display:none}
     .dialog-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0;padding:16px 20px;border-bottom:1px solid #e5ebf2}
@@ -302,16 +298,13 @@
     .detail-modal,.detail-modal-head,.import-dialog{background:#fff}
     .detail-modal-head h2,.detail-card h3{color:#173f68}
     .preview-stat strong{color:#304f72}
-    .detail-modal-head p,.detail-pair dt,.timeline-date,.debt-chart-heading p,.debt-chart-series,.debt-chart-empty,.debt-chart-note,.directory-profile-empty{color:#52677d}
+    .detail-modal-head p,.detail-pair dt,.debt-chart-heading p,.debt-chart-series,.debt-chart-empty,.debt-chart-note,.directory-profile-empty{color:#52677d}
     .detail-pair dd{color:#20354c}
-    .detail-source-values summary{color:#173f68}
-    .detail-source-values ol,.detail-modal .subcell{color:#4c6279}
     .detail-modal .empty-state{color:#52677d}
     .detail-modal .empty-state strong{color:#173f68}
     .detail-modal .debt-chart-grid text,.detail-modal .debt-chart-x-label{fill:#52677d}
     .detail-modal .debt-chart-axis-title{fill:#455c73}
     .provenance{border-left-color:#527aa8;background:#edf3fa;color:#536b84}
-    .timeline-row{border-bottom-color:#e7edf3}
     .upload-zone{border-color:#b7c8dc;background:#f6f8fb}
     .warning-list{color:#536b84}
     .badge.warn,.badge.good{background:#edf3fa;color:#4e6682}

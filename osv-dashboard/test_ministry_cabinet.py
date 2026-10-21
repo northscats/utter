@@ -22,10 +22,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import app as app_module
 from app import app, init_db
 from database import (
-    Company, CompanyMembership, User, UserModuleAccess, UzterReportImport,
-    UzterReportRow, CompanyDadataSnapshot, Setting, db,
+    AuditLog, Company, CompanyMembership, User, UserModuleAccess,
+    UzterReportImport, UzterReportRow, CompanyDadataSnapshot, Setting, db,
 )
 from ministry_geo import MUNICIPALITIES
+from ministry_routes import _source_directory
 
 
 def _workbook(*rows, supplier='Поставщик Тест', debt_resource='Электроэнергия',
@@ -275,6 +276,7 @@ class MinistryCabinetTests(unittest.TestCase):
         february_rows = self.client.get(
             '/ministry/api/data?month=2026-02&resource=all'
         ).get_json()['rows']
+        self.assertNotIn('sourceValues', february_rows[0])
         self.assertTrue(any(row['debt'] == 0 for row in february_rows))
         self.assertTrue(any(row['debt'] is None and not row['inn']
                             for row in february_rows))
@@ -538,6 +540,11 @@ class MinistryCabinetTests(unittest.TestCase):
             encoding="utf-8",
         ) as script_file:
             dashboard_js = script_file.read()
+        self.assertIn('data-delete-import', dashboard_js)
+        self.assertIn('Удалить загрузку', dashboard_js)
+        self.assertIn('window.confirm', dashboard_js)
+        self.assertIn('/ministry/import/${importId}/delete', dashboard_js)
+        self.assertIn('canDeleteImports', dashboard_js)
         self.assertIn(
             'if (popover.parentElement !== document.body) document.body.append(popover);',
             dashboard_js,
@@ -568,6 +575,12 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('class="detail-modal"', dashboard_html)
         self.assertNotIn('detail-drawer', dashboard_html)
         self.assertIn('width:80vw;height:80vh', dashboard_html)
+        self.assertNotIn('Исходные значения строки по столбцам', dashboard_js)
+        self.assertNotIn('Проверка реквизитов по открытым данным', dashboard_js)
+        self.assertNotIn('История отчётов по ИНН', dashboard_js)
+        self.assertNotIn('debtor-history', dashboard_js)
+        self.assertNotIn('lookup-company', dashboard_js)
+        self.assertIn('loadDebtChartData(row, requestId)', dashboard_js)
         self.assertIn(
             '.detail-modal-head h2,.detail-card h3{color:#173f68}',
             dashboard_html,
@@ -788,6 +801,64 @@ class MinistryCabinetTests(unittest.TestCase):
                 '/ministry/api/analytics?month=2026-02&supplier=999999'
             ).status_code,
             400,
+        )
+
+        heat_import_id = heat_import_response.get_json()['importId']
+        with app.app_context():
+            heat_import = db.session.get(UzterReportImport, heat_import_id)
+            stored_filename = heat_import.stored_filename
+            source_path = os.path.join(_source_directory(), stored_filename)
+            self.assertTrue(os.path.isfile(source_path))
+            self.assertGreater(
+                UzterReportRow.query.filter_by(
+                    import_id=heat_import_id).count(), 0)
+
+        _login(self.client, ministry)
+        ministry_data = self.client.get(
+            '/ministry/api/data?month=2026-02&resource=all'
+        ).get_json()
+        self.assertFalse(ministry_data['permissions']['canDeleteImports'])
+        denied_delete = self.client.post(
+            f'/ministry/import/{heat_import_id}/delete')
+        self.assertEqual(denied_delete.status_code, 403)
+
+        _login(self.client, admin)
+        admin_data = self.client.get(
+            '/ministry/api/data?month=2026-02&resource=all'
+        ).get_json()
+        self.assertTrue(admin_data['permissions']['canDeleteImports'])
+        delete_response = self.client.post(
+            f'/ministry/import/{heat_import_id}/delete')
+        self.assertEqual(
+            delete_response.status_code, 200,
+            delete_response.get_data(as_text=True))
+        deleted = delete_response.get_json()
+        self.assertEqual(deleted['deletedRows'], 2)
+        self.assertFalse(deleted['fileCleanupPending'])
+        self.assertIn('исходным файлом', deleted['message'])
+        with app.app_context():
+            self.assertIsNone(db.session.get(UzterReportImport, heat_import_id))
+            self.assertEqual(
+                UzterReportRow.query.filter_by(
+                    import_id=heat_import_id).count(), 0)
+            deletion_audit = AuditLog.query.filter_by(
+                action='ministry_report_import_deleted').order_by(
+                    AuditLog.id.desc()).first()
+            self.assertIsNotNone(deletion_audit)
+            self.assertEqual(
+                json.loads(deletion_audit.details)['file_cleanup_status'],
+                'complete')
+            self.assertFalse(os.path.exists(source_path))
+        remaining_history = self.client.get(
+            '/ministry/api/data?month=2026-02&resource=all'
+        ).get_json()['imports']
+        self.assertNotIn(
+            heat_import_id, {item['id'] for item in remaining_history})
+        self.assertEqual(
+            self.client.get(
+                f'/ministry/import/{heat_import_id}/file'
+            ).status_code,
+            404,
         )
 
 

@@ -11,7 +11,8 @@
     month: "", selectedDistricts: [], pendingDistricts: [],
     selectedResources: [], pendingResources: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
-    leftMode: "overview", importHistory: [], visibleColumns: null
+    leftMode: "overview", importHistory: [], canDeleteImports: false,
+    visibleColumns: null
   };
   const els = {
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
@@ -144,10 +145,49 @@
           <div><span class="import-history-file">${escapeHtml(display(item.file, "Файл без имени"))}</span>
             <div class="import-history-meta">${escapeHtml(display(item.owner))} · ${escapeHtml(period)} · ${escapeHtml(display(item.resource))}<br>Версия ${escapeHtml(display(item.version))} · строк в источнике: ${escapeHtml(fmtNumber(item.rowCount))} · строк данных: ${escapeHtml(fmtNumber(item.dataRowCount))}${item.uploader ? ` · загрузил: ${escapeHtml(item.uploader)}` : ""}</div>
           </div>
-          <div class="import-history-badges">${item.isLatest ? '<span class="import-history-badge">Актуальная версия</span>' : ""}${warnings ? `<span class="import-history-badge">Предупреждений: ${escapeHtml(fmtNumber(warnings))}</span>` : ""}<a class="button" href="/ministry/import/${encodeURIComponent(item.id)}/file" download>Скачать</a></div>
+          <div class="import-history-badges">${item.isLatest ? '<span class="import-history-badge">Актуальная версия</span>' : ""}${warnings ? `<span class="import-history-badge">Предупреждений: ${escapeHtml(fmtNumber(warnings))}</span>` : ""}<a class="button" href="/ministry/import/${encodeURIComponent(item.id)}/file" download>Скачать</a>${state.canDeleteImports ? `<button class="button import-history-delete" type="button" data-delete-import="${Number(item.id)}" aria-label="Удалить загрузку ${escapeHtml(display(item.file, "без имени"))}" title="Удалить загрузку">Удалить загрузку</button>` : ""}</div>
         </li>`;
       }).join("")
       : '<li class="empty-state">Загрузки по этому запросу не найдены.</li>';
+  }
+  async function deleteImportHistoryItem(importIdValue, button) {
+    const importId = Number(importIdValue);
+    const item = state.importHistory.find(entry => Number(entry.id) === importId);
+    if (!Number.isInteger(importId) || importId <= 0 || !item) return;
+    const currentVersionImpact = item.isLatest
+      ? "Эта версия сейчас актуальна. Если есть предыдущая версия, она станет актуальной; если её нет, данные этого отчёта исчезнут из кабинета."
+      : "Другие версии отчёта останутся без изменений.";
+    const confirmed = window.confirm(
+      `Удалить загрузку «${item.file || "Файл без имени"}»?\n\n`
+      + `Будут безвозвратно удалены ${fmtNumber(item.dataRowCount)} строк отчёта и исходный XLSX-файл.\n`
+      + `${currentVersionImpact}\n\nДействие нельзя отменить.`,
+    );
+    if (!confirmed) return;
+
+    const status = $("#import-history-action-status");
+    button.disabled = true;
+    status.hidden = false;
+    status.className = "import-history-status";
+    status.textContent = "Удаляем загрузку…";
+    try {
+      const result = await requestJson(
+        `/ministry/import/${importId}/delete`,
+        { method: "POST", headers: { "X-CSRFToken": csrfToken } },
+      );
+      state.importHistory = state.importHistory.filter(
+        entry => Number(entry.id) !== importId,
+      );
+      $("#import-history-count").textContent = fmtNumber(state.importHistory.length);
+      renderImportHistory();
+      status.className = `import-history-status${result.fileCleanupPending ? " warning" : " success"}`;
+      status.textContent = result.message || "Загрузка удалена.";
+      await loadDashboard();
+      renderImportHistory();
+    } catch (error) {
+      status.className = "import-history-status error";
+      status.textContent = `Не удалось удалить загрузку: ${error.message}`;
+      button.disabled = false;
+    }
   }
   function openDataTools(mode) {
     state.lastFocus = document.activeElement;
@@ -158,9 +198,13 @@
       : "Выберите дополнительные поля, которые нужно видеть в таблице.";
     const content = $("#data-tools-content");
     if (historyMode) {
-      content.innerHTML = `<div class="import-history-toolbar"><input class="import-history-search" id="import-history-search" type="search" placeholder="Поиск по файлу, поставщику или ресурсу" aria-label="Поиск в истории загрузок"><span class="import-history-count" id="import-history-result-count"></span></div><ol class="import-history-list" id="import-history-list"></ol>`;
+      content.innerHTML = `<div class="import-history-toolbar"><input class="import-history-search" id="import-history-search" type="search" placeholder="Поиск по файлу, поставщику или ресурсу" aria-label="Поиск в истории загрузок"><span class="import-history-count" id="import-history-result-count"></span></div><div class="import-history-status" id="import-history-action-status" role="status" hidden></div><ol class="import-history-list" id="import-history-list"></ol>`;
       renderImportHistory();
       $("#import-history-search").addEventListener("input", renderImportHistory);
+      $("#import-history-list").addEventListener("click", event => {
+        const button = event.target.closest("[data-delete-import]");
+        if (button) void deleteImportHistoryItem(button.dataset.deleteImport, button);
+      });
     } else {
       renderColumnSettings();
     }
@@ -614,8 +658,10 @@
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
+      state.canDeleteImports = Boolean(data.permissions?.canDeleteImports);
       state.importHistory = Array.isArray(data.imports) ? data.imports : [];
       $("#import-history-count").textContent = fmtNumber(state.importHistory.length);
+      if ($("#import-history-list")) renderImportHistory();
       const rows = Array.isArray(data.rows) ? data.rows : [];
       renderRows(rows, data.pagination);
       renderMap(data.map);
@@ -687,11 +733,6 @@
         </dl><p><a class="button" href="/ministry/import/${encodeURIComponent(row.importId)}/file">Скачать исходный XLSX</a></p>
           <div class="provenance"><strong>Источник.</strong> Строка ${escapeHtml(display(row.sourceRow))} листа «${escapeHtml(display(row.sheet))}» файла «${escapeHtml(display(row.file))}».</div>
         </section>
-        ${Array.isArray(row.sourceValues) && row.sourceValues.length ? `<details class="detail-card detail-source-values"><summary>Исходные значения строки по столбцам</summary><ol>${row.sourceValues.map((value, index) => `<li><span class="mono">${index + 1}.</span> ${escapeHtml(display(value, "(пусто)"))}</li>`).join("")}</ol></details>` : ""}
-        <section class="detail-card"><h3>Проверка реквизитов по открытым данным</h3>
-          <div class="dadata-row"><div class="field"><label for="lookup-inn">ИНН для поиска</label><input id="lookup-inn" value="${escapeHtml(row.inn || "")}" inputmode="numeric" aria-label="ИНН для поиска по справочнику"></div><button type="button" class="button" id="lookup-company"${row.inn ? "" : " disabled"}>Проверить ИНН</button></div>
-          <div id="lookup-result" class="live-message" role="status">Справочные данные показаны для проверки и не изменяют строку отчёта.</div>
-        </section>
       </div>
       <div class="detail-column">
         <section class="detail-card debt-chart-card">
@@ -702,14 +743,10 @@
           <p class="debt-chart-note" id="debt-chart-note">Значения не пересчитываются и не складываются между источниками.</p>
         </section>
         <section class="detail-card"><h3>Сведения из общего справочника</h3><div id="directory-profile"><div class="empty-state">Загружаем сведения…</div></div></section>
-        <section class="detail-card"><h3>История отчётов по ИНН</h3><div id="debtor-history"><div class="empty-state">Загружаем историю…</div></div></section>
       </div>
     </div>`;
-    const innInput = $("#lookup-inn");
-    $("#lookup-company").addEventListener("click", () => lookupInn(innInput.value));
-    innInput.addEventListener("input", () => { $("#lookup-company").disabled = !innInput.value.trim(); });
     $(".detail-modal", backdrop).focus();
-    loadDebtorHistory(row, requestId);
+    loadDebtChartData(row, requestId);
   }
   function renderDebtChart(history, row, hasMore = false) {
     const plot = $("#debt-chart-plot");
@@ -752,10 +789,8 @@
     select.addEventListener("change", renderSelectedSeries);
     renderSelectedSeries();
   }
-  async function loadDebtorHistory(row, requestId) {
-    const target = $("#debtor-history");
+  async function loadDebtChartData(row, requestId) {
     if (!row.inn) {
-      target.innerHTML = '<div class="empty-state">Для просмотра истории нужен ИНН в исходной строке.</div>';
       $("#directory-profile").innerHTML = '<p class="directory-profile-empty">Карточка справочника не связана с этой строкой.</p>';
       renderDebtChart([], row);
       return;
@@ -765,54 +800,17 @@
       if (requestId !== state.detailRequestId || state.currentRow !== row) return;
       const company = data.company;
       const history = Array.isArray(data.history) ? data.history : [];
-      const rows = Array.isArray(data.rows) ? data.rows : [];
       const companyMarkup = company ? `<dl class="detail-grid">
         ${detailPair("Наименование", company.fullName || company.name)}${detailPair("ИНН", company.inn)}
         ${detailPair("КПП", company.kpp)}${detailPair("Адрес", company.address)}
         ${detailPair("Источник справочника", company.source || company.provenance)}
         ${detailPair("Снимок DaData", company.dadataSource ? `${company.dadataSource} · ${formatDate(company.dadataReceivedAt)}` : "Не запрашивался")}</dl>` : "";
       $("#directory-profile").innerHTML = companyMarkup || '<p class="directory-profile-empty">Сведения о предприятии не найдены в общем справочнике.</p>';
-      const timeline = [...history, ...rows].map(item => {
-        const period = item.year && item.month
-          ? `${String(item.month).padStart(2, "0")}.${item.year}`
-          : display(item.month, display(item.date));
-        return `<div class="timeline-row"><span class="timeline-date">${escapeHtml(period)}</span><span>${escapeHtml(display(item.name, display(item.resource, "Строка отчёта")))}<span class="subcell">${escapeHtml(display(item.file, display(item.owner)))}</span>${item.reason ? `<span class="subcell">${escapeHtml(item.reason)}</span>` : ""}</span><span class="amount">${escapeHtml(fmtMoney(item.debt))}</span></div>`;
-      }).join("");
-      target.innerHTML = timeline
-        ? `<div class="timeline">${timeline}</div>${data.hasMore ? '<p class="source-note">История ограничена первыми 500 исходными строками.</p>' : ""}`
-        : '<div class="empty-state">История по этому ИНН не найдена среди доступных отчётов.</div>';
       renderDebtChart(history, row, Boolean(data.hasMore));
     } catch (error) {
       if (requestId !== state.detailRequestId || state.currentRow !== row) return;
       $("#directory-profile").innerHTML = '<p class="directory-profile-empty">Не удалось загрузить сведения из справочника.</p>';
-      target.innerHTML = `<div class="empty-state"><strong>История недоступна</strong>${escapeHtml(error.message)}</div>`;
       renderDebtChart([], row);
-    }
-  }
-  async function lookupInn(inn) {
-    const result = $("#lookup-result");
-    if (!inn.trim()) return;
-    result.className = "live-message";
-    result.textContent = "Выполняется поиск. Изменения не будут внесены в отчёт.";
-    try {
-      const data = await requestJson("/ministry/api/dadata/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
-        body: JSON.stringify({ inn: inn.trim() })
-      });
-      const snapshot = data.snapshot || {};
-      const company = snapshot.normalized || data.normalized || data.company || {};
-      const provenance = [
-        snapshot.source || data.provenance || "DaData",
-        snapshot.actualityDate ? `актуальность ${snapshot.actualityDate}` : "",
-        snapshot.receivedAt ? `получено ${formatDate(snapshot.receivedAt)}` : "",
-        data.message || ""
-      ].filter(Boolean).join(" · ");
-      result.className = "live-message";
-      result.innerHTML = `<span><strong>${escapeHtml(display(company.name, "Совпадение не найдено"))}</strong><br>ИНН: ${escapeHtml(display(company.inn, inn))}${company.kpp ? ` · КПП: ${escapeHtml(company.kpp)}` : ""}<br>Источник / совпадение: ${escapeHtml(typeof provenance === "string" ? provenance : JSON.stringify(provenance))}<br><em>Справочные данные показаны для проверки и не применены к отчёту.</em></span>`;
-    } catch (error) {
-      result.className = "live-message error";
-      result.textContent = `Не удалось выполнить поиск: ${error.message}`;
     }
   }
   function closeDetail() {
