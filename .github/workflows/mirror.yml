@@ -16,20 +16,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: false # Отключаем скачивание LFS файлов
+          lfs: false
 
       - name: Push to GitLab
         env:
           GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
         run: |
-          # 1. Отключаем проверку самоподписанного сертификата
+          # 1. Отключаем проверку SSL
           git config --global http.sslVerify false
 
-          # 2. Игнорируем отсутствие бинарников LFS при отправке
-          git config lfs.allowincompletepush true
+          # 2. Полностью отключаем хуки LFS в конфигурации раннера
+          git config --global lfs.allowincompletepush true
+          git config --global lfs.fetchexclude "*"
 
-          # 3. Добавляем удаленный репозиторий
+          # 3. Привязываем удаленный репозиторий
           git remote add gitlab "https://oauth2:${GITLAB_TOKEN}@185.11.49.226:2443/EmelianovMaM/uzter.git"
 
-          # 4. Отправляем только код, ветки и теги
-          git push gitlab --prune +refs/remotes/origin/*:refs/heads/* +refs/tags/*:refs/tags/* -o ci.skip
+          # 4. Флаг --no-verify отключает хук pre-push, вызывающий Git LFS upload
+          git push gitlab --no-verify --prune +refs/remotes/origin/*:refs/heads/* +refs/tags/*:refs/tags/* -o ci.skip
