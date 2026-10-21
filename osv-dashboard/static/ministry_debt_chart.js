@@ -68,11 +68,14 @@
     }).format(new Date(Date.UTC(year, month - 1, 1)));
   }
 
-  function renderSvg(series) {
+  function renderSvg(series, availableWidth) {
     const points = Array.isArray(series && series.points) ? series.points : [];
     if (points.length < 2) return "";
 
-    const width = Math.max(700, 120 + (points.length - 1) * 72);
+    const requestedWidth = Number(availableWidth);
+    const width = Number.isFinite(requestedWidth) && requestedWidth > 0
+      ? Math.max(280, Math.floor(requestedWidth))
+      : 700;
     const height = 300;
     const left = 82, right = 24, top = 26, bottom = 58;
     const plotWidth = width - left - right;
@@ -100,7 +103,8 @@
     const path = coordinates.map((point, index) =>
       `${index ? "L" : "M"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
     ).join(" ");
-    const labelStep = Math.max(1, Math.ceil(points.length / 12));
+    const maxLabels = Math.max(2, Math.floor(plotWidth / 58));
+    const labelStep = Math.max(1, Math.ceil(points.length / maxLabels));
     const xLabels = coordinates.map((point, index) => {
       if (index % labelStep !== 0 && index !== coordinates.length - 1) return "";
       return `<text class="debt-chart-x-label" x="${point.x}" y="${height - 20}" text-anchor="middle">${escapeHtml(formatMonth(point.month))}</text>`;
@@ -109,7 +113,7 @@
       `<circle class="debt-chart-point" cx="${point.x}" cy="${point.y}" r="4"><title>${escapeHtml(formatMonth(point.month))}: ${escapeHtml(new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(point.debt))} ₽</title></circle>`
     ).join("");
 
-    return `<svg class="debt-chart-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="График задолженности по периодам: ${escapeHtml(series.label)}">
+    return `<svg class="debt-chart-svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="График задолженности по периодам: ${escapeHtml(series.label)}">
       <text class="debt-chart-axis-title" x="18" y="${top + plotHeight / 2}" transform="rotate(-90 18 ${top + plotHeight / 2})" text-anchor="middle">Долг, ₽</text>
       ${grid}<path class="debt-chart-line" d="${path}"></path>${markers}${xLabels}
     </svg>`;

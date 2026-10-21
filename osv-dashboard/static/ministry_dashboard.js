@@ -13,6 +13,7 @@
     minDebt: "", maxDebt: "",
     leftMode: "overview", visibleColumns: null
   };
+  let debtChartResizeObserver = null;
   const els = {
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
     districtSearch: $("#omcu-search"), districtOptions: $("#omcu-options"),
@@ -664,6 +665,10 @@
     const note = $("#debt-chart-note");
     const select = $("#debt-chart-series");
     const chart = window.MinistryDebtChart;
+    if (debtChartResizeObserver) {
+      debtChartResizeObserver.disconnect();
+      debtChartResizeObserver = null;
+    }
     if (!chart) {
       select.disabled = true;
       plot.innerHTML = '<div class="debt-chart-empty">Не удалось подключить построение графика.</div>';
@@ -691,7 +696,8 @@
     select.disabled = seriesList.length < 2;
     const renderSelectedSeries = () => {
       const series = seriesList[Number(select.value)] || seriesList[0];
-      plot.innerHTML = chart.renderSvg(series);
+      const availableWidth = Math.floor(plot.getBoundingClientRect().width);
+      plot.innerHTML = chart.renderSvg(series, availableWidth);
       const notes = [`Отчётных месяцев: ${series.points.length}`, series.excludedPeriods
         ? `неоднозначных периодов исключено: ${series.excludedPeriods}` : ""].filter(Boolean);
       if (hasMore) notes.push("история ограничена первыми 500 строками");
@@ -699,6 +705,10 @@
     };
     select.addEventListener("change", renderSelectedSeries);
     renderSelectedSeries();
+    if (typeof ResizeObserver === "function") {
+      debtChartResizeObserver = new ResizeObserver(renderSelectedSeries);
+      debtChartResizeObserver.observe(plot);
+    }
   }
   async function loadDebtChartData(row, requestId) {
     if (!row.inn) {
@@ -727,6 +737,10 @@
   function closeDetail() {
     state.detailRequestId += 1;
     state.currentRow = null;
+    if (debtChartResizeObserver) {
+      debtChartResizeObserver.disconnect();
+      debtChartResizeObserver = null;
+    }
     setDetailFullscreen(false);
     $("#detail-backdrop").hidden = true;
     document.body.style.overflow = "";

@@ -17,6 +17,9 @@ const svg = renderSvg(series[0]);
 assert.match(svg, /<svg[^>]+role="img"/);
 assert.match(svg, /class="debt-chart-line"/);
 assert.equal((svg.match(/class="debt-chart-point"/g) || []).length, 2);
+assert.match(renderSvg(series[0], 360), /width="360"[^>]+viewBox="0 0 360 300"/);
+assert.match(renderSvg(series[0], 1280), /width="1280"[^>]+viewBox="0 0 1280 300"/);
+assert.match(svg, /preserveAspectRatio="none"/);
 
 assert.deepEqual(
   buildSeries([{ ...providerA, month: "2026-01", debt: 1250, reason: "" }]),
