@@ -1,0 +1,143 @@
+<section class="report-table-section" aria-labelledby="report-table-title">
+  <header class="report-table-heading">
+    <div>
+      <h2 id="report-table-title">Строки отчётов</h2>
+      <p>Принятые данные поставщиков ТЭР · фильтры и настройки столбцов сохраняются отдельно</p>
+    </div>
+  </header>
+  <section class="panel table-panel" aria-label="Строки отчётов">
+    <div class="table-stage">
+      <div class="table-header-scroll" id="table-header-scroll">
+        <table class="records-table table-header-table" aria-label="Фильтры и столбцы отчётов">
+          <colgroup>
+            <col data-column="organization" style="width:280px"><col data-column="inn" style="width:130px"><col data-column="district" style="width:150px"><col data-column="period" style="width:115px"><col data-column="debt" style="width:170px">
+            <col data-column="resource" style="width:145px"><col data-column="detail" style="width:210px"><col data-column="periods" style="width:120px" hidden><col data-column="currentPeriodAccrual" style="width:165px" hidden><col data-column="yearToDateAccrual" style="width:175px" hidden><col data-column="status" style="width:170px" hidden><col data-column="owner" style="width:190px" hidden><col data-column="file" style="width:200px" hidden><col data-column="sourceRow" style="width:110px" hidden>
+          </colgroup>
+          <thead><tr>
+            <th data-column="organization">
+              <div class="header-filter-anchor">
+                <button class="table-header-filter org-search-trigger" type="button" id="org-filter-toggle" aria-label="Открыть поиск по организации" title="Поиск по организации" aria-expanded="false" aria-controls="org-filter-popover">
+                  Организация<span class="org-search-square" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="6.8" cy="6.8" r="4.5"/><path d="m10.2 10.2 3.2 3.2"/></svg></span>
+                </button>
+                <div class="header-filter-popover" id="org-filter-popover" hidden>
+                  <div><label for="organization-filter-query">Поиск по названию или ИНН</label><input id="organization-filter-query" type="search" placeholder="Название или ИНН" autocomplete="off"></div>
+                  <div class="header-filter-actions"><button class="popover-action" type="button" id="org-filter-clear">Очистить</button><button class="popover-action primary" type="button" id="org-filter-apply">Применить</button></div>
+                </div>
+              </div>
+            </th>
+            <th data-column="inn"><button type="button" data-sort="inn">ИНН / КПП</button></th>
+            <th data-column="district">
+              <div class="header-filter-anchor">
+                <button class="table-header-filter" type="button" id="omcu-filter-toggle" aria-expanded="false" aria-controls="omcu-filter-popover">
+                  ОМСУ<span class="filter-count" id="omcu-filter-count" hidden></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                </button>
+                <div class="header-filter-popover omcu-popover" id="omcu-filter-popover" hidden>
+                  <div class="omcu-search-row">
+                    <input id="omcu-search" type="search" aria-label="Поиск по ОМСУ" placeholder="Поиск по ОМСУ" autocomplete="off">
+                    <button class="omcu-icon-action" type="button" id="omcu-select-all" aria-label="Выбрать все ОМСУ" title="Выбрать все ОМСУ">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 4 1.3 1.3L5.5 3M7.5 4H14M2 9l1.3 1.3L5.5 8M7.5 9H14M2 14l1.3 1.3L5.5 13M7.5 14H14"/></svg>
+                    </button>
+                    <button class="omcu-icon-action" type="button" id="omcu-clear" aria-label="Очистить выбор ОМСУ" title="Очистить выбор ОМСУ">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><path d="m6 6 4 4m0-4-4 4"/></svg>
+                    </button>
+                  </div>
+                  <div class="omcu-options" id="omcu-options" role="group" aria-label="Выберите одно или несколько ОМСУ"></div>
+                  <div class="header-filter-actions"><span id="omcu-selection-label">Все ОМСУ</span><button class="popover-action primary" type="button" id="omcu-apply">Применить</button></div>
+                </div>
+              </div>
+            </th>
+            <th data-column="period">
+              <div class="header-filter-anchor">
+                <button class="table-header-filter" type="button" id="period-filter-toggle" aria-expanded="false" aria-controls="period-filter-popover">
+                  Период<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                </button>
+                <div class="header-filter-popover" id="period-filter-popover" hidden>
+                  <div><label for="period-filter">Отчётный месяц</label><select id="period-filter"><option value="">Загрузка…</option></select></div>
+                  <div class="header-filter-actions"><span></span><button class="popover-action primary" type="button" id="period-filter-apply">Применить</button></div>
+                </div>
+              </div>
+            </th>
+            <th data-column="debt">
+              <div class="header-filter-anchor">
+                <div class="debt-header-controls">
+                  <button type="button" data-sort="debt" id="debt-sort-toggle">Долг <span id="debt-sort-indicator" aria-hidden="true">↓</span></button>
+                  <button class="debt-filter-toggle" type="button" id="debt-filter-toggle" aria-label="Фильтр по диапазону долга" title="Фильтр по диапазону долга" aria-expanded="false" aria-controls="debt-range-popover">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2 3h12L9.5 8.2v4.1l-3 1V8.2L2 3Z"/></svg>
+                  </button>
+                </div>
+                <div class="header-filter-popover align-right" id="debt-range-popover" hidden>
+                  <div class="debt-range-inputs">
+                    <div><label for="debt-min">От</label><input id="debt-min" type="number" step="any" inputmode="decimal" placeholder="Без минимума"></div>
+                    <div><label for="debt-max">До</label><input id="debt-max" type="number" step="any" inputmode="decimal" placeholder="Без максимума"></div>
+                  </div>
+                  <p class="debt-range-error" id="debt-range-error" role="alert" hidden></p>
+                  <div class="header-filter-actions"><button class="popover-action" type="button" id="debt-filter-clear">Сбросить</button><button class="popover-action primary" type="button" id="debt-filter-apply">Применить</button></div>
+                </div>
+              </div>
+            </th>
+            <th data-column="resource">
+              <div class="header-filter-anchor">
+                <button class="table-header-filter" type="button" id="resource-filter-toggle" aria-expanded="false" aria-controls="resource-filter-popover">
+                  Вид ресурса<span class="filter-count" id="resource-filter-count" hidden></span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 5 5 5-5"/></svg>
+                </button>
+                <div class="header-filter-popover resource-popover" id="resource-filter-popover" hidden>
+                  <div class="resource-action-row">
+                    <span>Виды ресурса</span>
+                    <div class="resource-action-buttons">
+                      <button class="omcu-icon-action" type="button" id="resource-select-all" aria-label="Выбрать все виды ресурса" title="Выбрать все">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 4 1.3 1.3L5.5 3M7.5 4H14M2 9l1.3 1.3L5.5 8M7.5 9H14M2 14l1.3 1.3L5.5 13M7.5 14H14"/></svg>
+                      </button>
+                      <button class="omcu-icon-action" type="button" id="resource-clear" aria-label="Очистить выбор видов ресурса" title="Очистить выбор">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.8"/><path d="m6 6 4 4m0-4-4 4"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="resource-options" id="resource-options" role="group" aria-label="Выберите один или несколько видов ресурса"></div>
+                  <div class="header-filter-actions"><span id="resource-selection-label">Все ресурсы</span><button class="popover-action primary" type="button" id="resource-apply">Применить</button></div>
+                </div>
+              </div>
+            </th>
+            <th data-column="detail">Детализация потребителя</th>
+            <th data-column="periods" hidden>Периоды задолженности</th>
+            <th data-column="currentPeriodAccrual" hidden>Начислено за период</th>
+            <th data-column="yearToDateAccrual" hidden>Начислено с начала года</th>
+            <th data-column="status" hidden>Статус строки</th>
+            <th data-column="owner" hidden>Поставщик</th>
+            <th data-column="file" hidden>Исходный файл</th>
+            <th data-column="sourceRow" hidden>Строка источника</th>
+          </tr></thead>
+        </table>
+      </div>
+      <div class="table-scroll" id="table-scroll">
+        <table class="records-table table-body-table" aria-label="Строки отчётов с настраиваемыми столбцами">
+          <colgroup>
+            <col data-column="organization" style="width:280px"><col data-column="inn" style="width:130px"><col data-column="district" style="width:150px"><col data-column="period" style="width:115px"><col data-column="debt" style="width:170px">
+            <col data-column="resource" style="width:145px"><col data-column="detail" style="width:210px"><col data-column="periods" style="width:120px" hidden><col data-column="currentPeriodAccrual" style="width:165px" hidden><col data-column="yearToDateAccrual" style="width:175px" hidden><col data-column="status" style="width:170px" hidden><col data-column="owner" style="width:190px" hidden><col data-column="file" style="width:200px" hidden><col data-column="sourceRow" style="width:110px" hidden>
+          </colgroup>
+          <tbody id="rows-body"></tbody>
+        </table>
+      </div>
+      <div class="table-state-overlay" id="rows-status" role="status" aria-live="polite">
+        <span class="table-loading-spinner" aria-hidden="true"></span>
+        <span>Загружаем строки отчётов…</span>
+      </div>
+    </div>
+    <div class="pagination">
+      <span id="pagination-label">Строки не загружены</span>
+      <div class="page-controls"><button type="button" id="page-prev" aria-label="Предыдущая страница" disabled>‹</button><span id="page-number">—</span><button type="button" id="page-next" aria-label="Следующая страница" disabled>›</button></div>
+    </div>
+  </section>
+</section>
+
+<div class="modal-backdrop" id="detail-backdrop" hidden>
+  <section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
+    <div class="detail-modal-head">
+      <div><h2 id="detail-title">Детали предприятия</h2><p id="detail-subtitle">Атрибуты и история задолженности</p></div>
+      <div class="detail-modal-actions">
+        <button class="icon-button" id="toggle-detail-fullscreen" type="button" aria-label="Развернуть модальное окно на весь экран" title="Развернуть на весь экран" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6M16 3h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m12 1v5h-5m5 0-6-6"/></svg></button>
+        <button class="icon-button" id="close-detail" type="button" aria-label="Закрыть детали">×</button>
+      </div>
+    </div>
+    <div class="detail-modal-content" id="detail-content"><div class="empty-state">Загрузка сведений…</div></div>
+  </section>
+</div>

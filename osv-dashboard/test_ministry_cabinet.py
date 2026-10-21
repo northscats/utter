@@ -305,6 +305,9 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(march['map']['geometryUrl'],
                          '/ministry/api/map-geometry')
         self.assertEqual(len(march['map']['municipalities']), 56)
+        map_response = self.client.get('/ministry/api/map')
+        self.assertEqual(map_response.status_code, 200)
+        self.assertEqual(len(map_response.get_json()['municipalities']), 56)
         dashboard_response = self.client.get('/ministry/desktop')
         self.assertEqual(dashboard_response.status_code, 200)
         dashboard_html = dashboard_response.get_data(as_text=True)
@@ -386,6 +389,10 @@ class MinistryCabinetTests(unittest.TestCase):
             '<td data-column="periods">${row.periods == null ? "—" : escapeHtml(fmtNumber(row.periods))}</td>',
             dashboard_script,
         )
+        self.assertIn(
+            'window.location.assign(`/ministry/analytics?${params.toString()}`)',
+            dashboard_script,
+        )
         self.assertNotIn('class="page-head"', dashboard_html)
         self.assertNotIn('Долговые отчёты поставщиков', dashboard_html)
         self.assertNotIn('class="page-actions"', dashboard_html)
@@ -394,7 +401,7 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="widget-menu"', dashboard_html)
         self.assertNotIn('data-widget-toggle', dashboard_html)
         self.assertNotIn('id="summary-grid"', dashboard_html)
-        self.assertIn('id="data-tools-panel"', dashboard_html)
+        self.assertNotIn('id="data-tools-panel"', dashboard_html)
         self.assertNotIn('id="open-import-history"', dashboard_html)
         self.assertNotIn('Хронология загрузок', dashboard_html)
         self.assertIn('id="open-column-settings"', dashboard_html)
@@ -406,14 +413,21 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('aria-current="page"', uploads_html)
         self.assertIn('id="uploads-search"', uploads_html)
         self.assertIn('id="uploads-list"', uploads_html)
-        self.assertIn('Детализация потребителя', dashboard_html)
+        self.assertNotIn('Детализация потребителя', dashboard_html)
+        self.assertIn('Детализация потребителя', analytics_html)
         self.assertNotIn('class="metric"', dashboard_html)
         self.assertNotIn('id="monthly-chart"', dashboard_html)
         self.assertNotIn('Динамика по месяцам', dashboard_html)
-        self.assertIn('id="map-mode-toggle"', dashboard_html)
+        self.assertNotIn('id="map-mode-toggle"', dashboard_html)
         self.assertIn('class="left-panel-header"', dashboard_html)
-        self.assertIn('id="map-mode-icon"', dashboard_html)
-        self.assertIn('id="overview-mode-icon"', dashboard_html)
+        self.assertIn('aria-label="Настройка столбцов таблицы"', dashboard_html)
+        self.assertIn('title="Настройка столбцов таблицы"', dashboard_html)
+        column_button_start = dashboard_html.index(
+            '<button class="icon-button table-icon-button"')
+        column_button_end = dashboard_html.index('</button>', column_button_start)
+        column_button = dashboard_html[column_button_start:column_button_end]
+        self.assertIn('<svg', column_button)
+        self.assertNotIn('>Настройка столбцов таблицы', column_button)
         self.assertNotIn('id="map-mode-label"', dashboard_html)
         self.assertNotIn('К показателям', dashboard_html)
         self.assertIn('id="map-panel"', dashboard_html)
@@ -424,19 +438,26 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('id="filter-month"', dashboard_html)
         self.assertNotIn('id="filter-resource"', dashboard_html)
         self.assertNotIn('id="filter-query"', dashboard_html)
-        table_start = dashboard_html.index(
+        self.assertNotIn('<section class="panel table-panel"', dashboard_html)
+        self.assertNotIn('id="rows-body"', dashboard_html)
+        self.assertNotIn('id="detail-backdrop"', dashboard_html)
+        self.assertIn('src="/static/ministry_dashboard.js"', analytics_html)
+        self.assertIn('href="/static/ministry_report_table.css"', analytics_html)
+        self.assertIn('id="rows-body"', analytics_html)
+        self.assertIn('id="detail-backdrop"', analytics_html)
+        table_start = analytics_html.index(
             '<section class="panel table-panel"')
-        rows_status = dashboard_html.index(
+        rows_status = analytics_html.index(
             'id="rows-status"', table_start)
-        table_header = dashboard_html[table_start:rows_status]
-        table_panel = dashboard_html[
-            table_start:dashboard_html.index('</section>', table_start)]
+        table_header = analytics_html[table_start:rows_status]
+        table_panel = analytics_html[
+            table_start:analytics_html.index('</section>', table_start)]
         left_header_start = dashboard_html.index(
             '<div class="left-panel-header">')
         left_header_end = dashboard_html.index(
-            '<div class="left-overview"', left_header_start)
+            '<section class="panel" id="map-panel"', left_header_start)
         left_header = dashboard_html[left_header_start:left_header_end]
-        self.assertIn('id="map-mode-toggle"', left_header)
+        self.assertIn('id="open-column-settings"', left_header)
         self.assertIn('id="open-import"', left_header)
         self.assertIn('aria-label="Загрузить отчёт"', left_header)
         self.assertNotIn('id="open-import"', table_header)
@@ -470,10 +491,9 @@ class MinistryCabinetTests(unittest.TestCase):
             dashboard_html,
         )
         self.assertIn(
-            '.left-column{align-self:start;position:relative;top:auto;min-height:0;height:auto;max-height:calc(100dvh - 94px);overflow:auto',
+            '.left-column{align-self:stretch;position:relative;top:auto;min-height:0;height:100%;max-height:none;overflow:visible;padding:0}',
             dashboard_html,
         )
-        self.assertIn('height:100%;grid-template-rows:minmax(0,1fr)', dashboard_html)
         self.assertIn('.table-scroll{height:65vh;max-height:65vh;flex:0 0 auto}', dashboard_html)
         self.assertIn(
             '.table-header-table th{height:50px;box-sizing:border-box;padding:8px 12px;background:transparent;color:#29435f;font-size:13px;font-weight:650;text-transform:none;letter-spacing:0',
@@ -589,7 +609,8 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertIn('id="debt-min"', table_panel)
         self.assertIn('id="debt-max"', table_panel)
         self.assertNotIn('<th>Сопоставление</th>', table_panel)
-        self.assertIn('class="detail-modal"', dashboard_html)
+        self.assertNotIn('class="detail-modal"', dashboard_html)
+        self.assertIn('class="detail-modal"', analytics_html)
         self.assertNotIn('detail-drawer', dashboard_html)
         self.assertIn('width:80vw;height:80vh', dashboard_html)
         self.assertNotIn('Исходные значения строки по столбцам', dashboard_js)
@@ -609,19 +630,19 @@ class MinistryCabinetTests(unittest.TestCase):
         )
         self.assertIn('id="debt-chart-series"', dashboard_js)
         self.assertIn('id="debt-chart-plot"', dashboard_js)
-        self.assertIn('ministry_debt_chart.js', dashboard_html)
+        self.assertIn('ministry_debt_chart.js', analytics_html)
         self.assertIn('.debt-chart-viewport{width:100%;min-width:0;min-height:220px;overflow:hidden', dashboard_html)
         self.assertIn('.debt-chart-svg{display:block;width:100%;max-width:100%;height:300px}', dashboard_html)
         self.assertIn('new ResizeObserver(renderSelectedSeries)', dashboard_js)
-        self.assertIn('id="toggle-detail-fullscreen"', dashboard_html)
+        self.assertIn('id="toggle-detail-fullscreen"', analytics_html)
         self.assertIn('.detail-modal.is-fullscreen', dashboard_html)
         self.assertIn('.modal-backdrop.detail-fullscreen', dashboard_html)
         self.assertIn('function setDetailFullscreen(expanded)', dashboard_js)
-        table_head_start = dashboard_html.index('<thead><tr>', table_start)
-        table_head_end = dashboard_html.index('</tr></thead>', table_head_start)
+        table_head_start = analytics_html.index('<thead><tr>', table_start)
+        table_head_end = analytics_html.index('</tr></thead>', table_head_start)
         self.assertEqual(len(re.findall(
             r'<th(?:\s|>)',
-            dashboard_html[table_head_start:table_head_end],
+            analytics_html[table_head_start:table_head_end],
         )), 14)
         self.assertNotIn('id="map-note"', dashboard_html)
         self.assertNotIn('сведения об источнике и лицензии не указаны',

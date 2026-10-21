@@ -448,6 +448,12 @@ def _map_payload():
     }
 
 
+@ministry_bp.get('/ministry/api/map')
+@_cabinet_required
+def map_payload():
+    return jsonify(_map_payload())
+
+
 @ministry_bp.get('/ministry/api/map-geometry')
 @_cabinet_required
 def map_geometry():
@@ -473,7 +479,11 @@ def dashboard():
 def dashboard_desktop():
     providers = Company.query.filter(
         Company.status != 'archived').order_by(Company.name).all()
-    return render_template('ministry_dashboard.html', providers=providers)
+    return render_template(
+        'ministry_dashboard.html',
+        providers=providers,
+        show_report_table=False,
+    )
 
 
 @ministry_bp.get('/ministry/analytics')

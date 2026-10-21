@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>Аналитика — Кабинет министерства</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_report_table.css') }}">
   <style>
     :root{--ink:#263747;--muted:#667b92;--paper:#edf1f6;--panel:#fff;--line:#d6dfe9;--blue:#315f9b;--blue-dark:#244c80;--blue-soft:#edf3fa;--red:#913d35}
     *{box-sizing:border-box}
@@ -140,9 +141,12 @@
           <p class="quality-note">Количество строк — не число уникальных организаций. Предупреждения импорта сохраняются в истории загрузок. Неизвестные или пустые территории включены в отдельную категорию, их исходные подписи не считаются сопоставленными с ОМСУ.</p>
           <div class="quality-details" id="quality-details"></div>
         </section>
+        {% include 'ministry_report_table.html' %}
       </section>
     </div>
   </main>
   <script src="{{ url_for('static', filename='ministry_analytics.js') }}"></script>
+  <script src="{{ url_for('static', filename='ministry_debt_chart.js') }}"></script>
+  <script src="{{ url_for('static', filename='ministry_dashboard.js') }}"></script>
 </body>
 </html>

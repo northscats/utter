@@ -11,7 +11,7 @@
     month: "", selectedDistricts: [], pendingDistricts: [],
     selectedResources: [], pendingResources: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
-    leftMode: "overview", visibleColumns: null
+    visibleColumns: null
   };
   let debtChartResizeObserver = null;
   const els = {
@@ -173,32 +173,25 @@
   }
   function renderMap(map) {
     const content = $("#map-content");
-    const toggle = $("#map-mode-toggle");
+    if (!content) return;
     state.mapData = map || null;
     if (!map || map.available !== true || !map.geometryUrl) {
       const message = map?.note || "Проверенная геометрия территориальных границ не передана.";
       content.innerHTML = `<div class="map-unavailable"><div class="map-message"><div class="map-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 6.5 8.5 4l7 2.5L21 4v13.5L15.5 20l-7-2.5L3 20zM8.5 4v13.5M15.5 6.5V20"/></svg></div><strong>Геометрия недоступна</strong><p>${escapeHtml(message)}</p></div></div>`;
-      toggle.disabled = true;
-      if (state.leftMode === "map") setLeftMode(false);
       return;
     }
-    toggle.disabled = false;
     if (state.mapGeometry && !$("#municipality-map")) renderMapGeometry(state.mapGeometry);
     syncMapSelection();
+    if (!state.mapGeometry) loadMapGeometry();
   }
-  function setLeftMode(showMap) {
-    if (showMap && !state.mapData?.available) return;
-    state.leftMode = showMap ? "map" : "overview";
-    $("#overview-view").hidden = showMap;
-    $("#map-panel").hidden = !showMap;
-    const toggle = $("#map-mode-toggle");
-    toggle.setAttribute("aria-expanded", String(showMap));
-    toggle.setAttribute("aria-pressed", String(showMap));
-    toggle.setAttribute("aria-label", showMap ? "Показать показатели" : "Показать карту");
-    toggle.title = showMap ? "Показать показатели" : "Показать карту";
-    $("#map-mode-icon").hidden = showMap;
-    $("#overview-mode-icon").hidden = !showMap;
-    if (showMap) loadMapGeometry();
+  async function loadMapConfiguration() {
+    const content = $("#map-content");
+    if (!content) return;
+    try {
+      renderMap(await requestJson("/ministry/api/map"));
+    } catch (error) {
+      content.innerHTML = `<div class="map-error"><strong>Не удалось открыть карту</strong>${escapeHtml(error.message)}</div>`;
+    }
   }
   function municipalityPolygons(geometry) {
     if (geometry?.type === "Polygon") return [geometry.coordinates || []];
@@ -326,21 +319,19 @@
     });
   }
   function selectMapTerritory(name) {
-    const optionExists = (state.filters?.districts || [])
+    const optionExists = (state.mapData?.municipalities || [])
       .some(option => option.name === name);
     if (!optionExists) {
-      $("#map-selected").textContent = `Территория «${name}» отсутствует в списке фильтров.`;
+      const label = $("#map-selected");
+      if (label) label.textContent = `Территория «${name}» отсутствует в списке фильтров.`;
       return;
     }
     state.selectedDistricts = state.selectedDistricts.includes(name)
       ? state.selectedDistricts.filter(value => value !== name)
       : [...state.selectedDistricts, name];
-    state.pendingDistricts = [...state.selectedDistricts];
-    state.page = 1;
-    syncMapSelection();
-    renderDistrictOptions();
-    updateHeaderFilterIndicators();
-    loadDashboard();
+    const params = new URLSearchParams();
+    state.selectedDistricts.forEach(value => params.append("district", value));
+    window.location.assign(`/ministry/analytics?${params.toString()}`);
   }
   function renderRows(rows, pagination) {
     const list = Array.isArray(rows) ? rows : [];
@@ -576,7 +567,7 @@
       if (data.filters) applyFilters(data.filters);
       const rows = Array.isArray(data.rows) ? data.rows : [];
       renderRows(rows, data.pagination);
-      renderMap(data.map);
+      if ($("#map-content")) renderMap(data.map);
       if (rows.length) {
         els.rowsStatus.hidden = true;
       } else {
@@ -829,7 +820,7 @@
       state.previewToken = null;
       $("#preview-result").innerHTML = "";
       $("#preview-form").reset();
-      await loadDashboard();
+      if (els.rows) await loadDashboard();
       window.setTimeout(closeImport, 900);
     } catch (error) {
       setMessage($("#preview-message"), `Импорт не выполнен: ${error.message}`, "error");
@@ -837,16 +828,14 @@
       button.textContent = "Подтвердить импорт";
     }
   }
-  function setupMapToggle() {
-    $("#map-mode-toggle").addEventListener("click", () => {
-      setLeftMode(state.leftMode !== "map");
-    });
-  }
   function trapDialogKeys(event, element) {
     if (event.key === "Escape") {
-      if (!$("#detail-backdrop").hidden) closeDetail();
-      else if (!$("#import-backdrop").hidden) closeImport();
-      else if (!$("#data-tools-backdrop").hidden) closeDataTools();
+      const detailBackdrop = $("#detail-backdrop");
+      const importBackdrop = $("#import-backdrop");
+      const toolsBackdrop = $("#data-tools-backdrop");
+      if (detailBackdrop && !detailBackdrop.hidden) closeDetail();
+      else if (importBackdrop && !importBackdrop.hidden) closeImport();
+      else if (toolsBackdrop && !toolsBackdrop.hidden) closeDataTools();
     }
     if (event.key !== "Tab") return;
     const dialog = element;
@@ -869,6 +858,7 @@
     state.visibleColumns = loadVisibleColumns();
     applyTableColumnVisibility();
     const syncTableHeader = () => {
+      if (!els.tableScroll || !els.tableHeader) return;
       const scrollbarWidth = Math.max(
         0,
         els.tableScroll.offsetWidth - els.tableScroll.clientWidth
@@ -876,9 +866,11 @@
       els.tableHeader.style.paddingRight = `${scrollbarWidth}px`;
       els.tableHeader.scrollLeft = els.tableScroll.scrollLeft;
     };
-    els.tableScroll.addEventListener("scroll", syncTableHeader, { passive: true });
-    window.addEventListener("resize", syncTableHeader);
-    syncTableHeader();
+    if (els.tableScroll && els.tableHeader) {
+      els.tableScroll.addEventListener("scroll", syncTableHeader, { passive: true });
+      window.addEventListener("resize", syncTableHeader);
+      syncTableHeader();
+    }
     document.addEventListener("click", event => {
       if (!event.target.closest(".header-filter-anchor, .header-filter-popover")) {
         closeHeaderFilterPopovers();
@@ -891,27 +883,46 @@
     }, true);
     window.addEventListener("resize", repositionOpenHeaderFilterPopover);
     document.addEventListener("keydown", event => {
-      if (!$("#detail-backdrop").hidden) trapDialogKeys(event, $(".detail-modal"));
-      else if (!$("#import-backdrop").hidden) trapDialogKeys(event, $(".import-dialog"));
-      else if (!$("#data-tools-backdrop").hidden) trapDialogKeys(event, $(".data-tools-dialog"));
+      const detailBackdrop = $("#detail-backdrop");
+      const importBackdrop = $("#import-backdrop");
+      const toolsBackdrop = $("#data-tools-backdrop");
+      if (detailBackdrop && !detailBackdrop.hidden) trapDialogKeys(event, $(".detail-modal"));
+      else if (importBackdrop && !importBackdrop.hidden) trapDialogKeys(event, $(".import-dialog"));
+      else if (toolsBackdrop && !toolsBackdrop.hidden) trapDialogKeys(event, $(".data-tools-dialog"));
       else if (event.key === "Escape" && $$(".header-filter-popover:not([hidden])").length) {
         closeHeaderFilterPopovers();
       }
     });
-    $("#toggle-detail-fullscreen").addEventListener("click", () => {
-      setDetailFullscreen(!$(".detail-modal").classList.contains("is-fullscreen"));
-    });
-    $("#close-detail").addEventListener("click", closeDetail);
-    $("#detail-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeDetail(); });
-    $("#open-import").addEventListener("click", openImport);
-    $("#open-column-settings").addEventListener("click", () => openDataTools());
-    $("#close-data-tools").addEventListener("click", closeDataTools);
-    $("#data-tools-backdrop").addEventListener("click", event => {
-      if (event.target === event.currentTarget) closeDataTools();
-    });
-    $("#close-import").addEventListener("click", closeImport);
-    $("#import-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeImport(); });
-    $("#preview-form").addEventListener("submit", submitPreview);
+    if ($("#toggle-detail-fullscreen")) {
+      $("#toggle-detail-fullscreen").addEventListener("click", () => {
+        setDetailFullscreen(!$(".detail-modal").classList.contains("is-fullscreen"));
+      });
+    }
+    if ($("#close-detail")) $("#close-detail").addEventListener("click", closeDetail);
+    if ($("#detail-backdrop")) {
+      $("#detail-backdrop").addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeDetail();
+      });
+    }
+    if ($("#open-import")) $("#open-import").addEventListener("click", openImport);
+    if ($("#open-column-settings")) {
+      $("#open-column-settings").addEventListener("click", () => openDataTools());
+    }
+    if ($("#close-data-tools")) $("#close-data-tools").addEventListener("click", closeDataTools);
+    if ($("#data-tools-backdrop")) {
+      $("#data-tools-backdrop").addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeDataTools();
+      });
+    }
+    if ($("#close-import")) $("#close-import").addEventListener("click", closeImport);
+    if ($("#import-backdrop")) {
+      $("#import-backdrop").addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeImport();
+      });
+    }
+    if ($("#preview-form")) $("#preview-form").addEventListener("submit", submitPreview);
+    if ($("#map-content")) loadMapConfiguration();
+    if (!els.rows) return;
     [
       ["org-filter-toggle", "org-filter-popover"],
       ["omcu-filter-toggle", "omcu-filter-popover"],
@@ -1028,7 +1039,6 @@
     }));
     $("#page-prev").addEventListener("click", () => { if (state.page > 1) { state.page--; loadDashboard(); } });
     $("#page-next").addEventListener("click", () => { state.page++; loadDashboard(); });
-    setupMapToggle();
     loadDashboard();
   }
   init();

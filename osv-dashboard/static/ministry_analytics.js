@@ -8,6 +8,7 @@
   });
   const colors = ["#315f9b", "#527aa8", "#7f9dbc", "#304f72", "#6a8c9e", "#758ab5", "#52786f", "#8a765a"];
   let currentPayload = null;
+  let useUrlFiltersOnNextLoad = true;
 
   function escapeHtml(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({
@@ -26,6 +27,10 @@
     return Array.from(select.selectedOptions).map(option => option.value);
   }
   function buildParams() {
+    if (useUrlFiltersOnNextLoad) {
+      useUrlFiltersOnNextLoad = false;
+      return new URLSearchParams(window.location.search);
+    }
     const params = new URLSearchParams();
     const period = $("#period").value;
     if (period) params.set("month", period);

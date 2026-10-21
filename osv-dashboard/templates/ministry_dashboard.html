@@ -192,11 +192,10 @@
      .cabinet-nav-item[aria-current="page"]{background:#315f9b;border-color:#315f9b;color:#fff}
      .cabinet-nav-item[aria-current="page"]:hover{background:#244c80;border-color:#244c80;color:#fff}
      .cabinet-nav-item:disabled{background:#f7f9fc;border-color:#e4eaf1;color:#a4b1c1;cursor:not-allowed}
-    .workspace{grid-template-columns:minmax(310px,.78fr) minmax(0,1.52fr);gap:14px;align-items:stretch}
+     .workspace{grid-template-columns:minmax(0,1fr);gap:14px;align-items:stretch}
      .workspace{height:100%;min-width:0;min-height:0}
     .left-column,.right-column{gap:13px;min-width:0}
-    .left-column{align-self:start;position:relative;top:auto;min-height:0;height:auto;max-height:calc(100dvh - 94px);overflow:auto;padding:0 2px 8px 0;scrollbar-color:#bfccda transparent;scrollbar-width:thin}
-    .right-column{min-height:0;height:100%;grid-template-rows:minmax(0,1fr)}
+     .left-column{align-self:stretch;position:relative;top:auto;min-height:0;height:100%;max-height:none;overflow:visible;padding:0}
     .panel{border-color:#d6dfe9;border-radius:7px;box-shadow:0 2px 8px rgba(40,62,88,.04)}
     .panel-head{min-height:48px;padding:11px 14px;border-bottom-color:#e5ebf2}
     .panel-title{color:#29435f;font-size:13px}.panel-caption,.source-note{color:#718195}
@@ -295,7 +294,7 @@
     .warning-list{color:#536b84}
     .badge.warn,.badge.good{background:#edf3fa;color:#4e6682}
     @media(max-width:1100px){
-      .workspace{grid-template-columns:minmax(260px,.72fr) minmax(0,1.35fr)}
+      .workspace{grid-template-columns:minmax(0,1fr)}
       .data-tool-buttons{grid-template-columns:1fr}
     }
     @media(min-width:821px){
@@ -357,45 +356,30 @@
         <div class="left-panel-header">
           <div>
             <h2 class="left-panel-heading">Обзор Московской области</h2>
-            <div class="left-panel-caption">Инструменты данных и карта муниципалитетов</div>
+            <div class="left-panel-caption">Карта муниципалитетов · выберите территорию, чтобы открыть аналитику</div>
           </div>
           <div class="left-panel-actions">
-            <button class="button map-mode-toggle" type="button" id="map-mode-toggle" aria-label="Показать карту" title="Показать карту" aria-pressed="false" aria-expanded="false" aria-controls="overview-view map-panel" disabled>
-              <svg id="map-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 6 5-2 8 3 5-3v14l-5 3-8-3-5 3zM8 4v14m8-11v14"/></svg>
-              <svg id="overview-mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"/></svg>
+            <button class="icon-button table-icon-button" type="button" id="open-column-settings" aria-label="Настройка столбцов таблицы" title="Настройка столбцов таблицы" aria-haspopup="dialog" aria-controls="data-tools-backdrop">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14m5-14v14"/></svg>
             </button>
             <button class="button primary table-icon-button" type="button" id="open-import" aria-label="Загрузить отчёт" title="Загрузить отчёт">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M10 13V3m0 0L6.5 6.5M10 3l3.5 3.5M4 12v4h12v-4"/></svg>
             </button>
           </div>
         </div>
-        <div class="left-overview" id="overview-view">
-          <section class="data-tools-panel" id="data-tools-panel" aria-label="Инструменты работы с данными">
-            <div class="data-tools-panel-head">
-              <h3 class="data-tools-panel-title">Инструменты данных</h3>
-              <span class="data-tools-panel-caption">Настройка отображения</span>
-            </div>
-            <div class="data-tool-buttons">
-              <button class="data-tool-button" type="button" id="open-column-settings" aria-haspopup="dialog" aria-controls="data-tools-backdrop">
-                <span class="data-tool-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M7.5 3v14m5-14v14"/></svg></span>
-                <span><span class="data-tool-label">Столбцы таблицы</span><span class="data-tool-description">Показать дополнительные поля</span></span>
-                <span class="data-tool-count" id="visible-column-count">2</span>
-              </button>
-            </div>
-          </section>
-        </div>
-        <section class="panel" id="map-panel" aria-label="Карта муниципальных образований" hidden>
+        <section class="panel" id="map-panel" aria-label="Карта муниципальных образований">
           <div id="map-content" class="map-stage" aria-live="polite"><div class="map-loading">Карта загрузится при открытии этого раздела.</div></div>
           <div class="panel-body map-panel-body">
-            <div class="map-selected" id="map-selected" role="status">Выберите территорию на карте.</div>
+            <div class="map-selected" id="map-selected" role="status">Все территории</div>
             <div class="map-legend" aria-label="Обозначения карты">
               <span class="map-legend-item"><i class="map-legend-swatch" aria-hidden="true"></i>Муниципальное образование</span>
               <span class="map-legend-item"><i class="map-legend-swatch selected" aria-hidden="true"></i>Выбранная территория</span>
             </div>
-            <div class="map-source-note">Процентные показатели появятся после согласования показателя, периода и источника данных.</div>
+            <div class="map-source-note">Выбор территории откроет страницу «Аналитика» с применённым фильтром. Процентные показатели не отображаются без согласованных показателя и источника.</div>
           </div>
         </section>
       </div>
+      {% if show_report_table %}
       <aside class="right-column" aria-label="Журнал отчётов">
         <section class="panel table-panel" aria-label="Строки отчётов">
           <div class="table-stage">
@@ -520,16 +504,19 @@
           </div>
         </section>
       </aside>
+      {% endif %}
     </div>
     </div>
     <div class="footer-note">Данные и происхождение определяются переданными файлами; отсутствующие значения не выводятся расчётным путём.</div>
   </main>
+  {% if show_report_table %}
   <div class="modal-backdrop" id="detail-backdrop" hidden>
     <section class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="detail-title" tabindex="-1">
       <div class="detail-modal-head"><div><h2 id="detail-title">Детали предприятия</h2><p id="detail-subtitle">Атрибуты и история задолженности</p></div><div class="detail-modal-actions"><button class="icon-button" id="toggle-detail-fullscreen" type="button" aria-label="Развернуть модальное окно на весь экран" title="Развернуть на весь экран" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H3v5M3 3l6 6M16 3h5v5m0-5-6 6M3 16v5h5m-5 0 6-6m12 1v5h-5m5 0-6-6"/></svg></button><button class="icon-button" id="close-detail" type="button" aria-label="Закрыть детали">×</button></div></div>
       <div class="detail-modal-content" id="detail-content"><div class="empty-state">Загрузка сведений…</div></div>
     </section>
   </div>
+  {% endif %}
   <div class="modal-backdrop" id="import-backdrop" hidden>
     <section class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-title" tabindex="-1">
       <div class="dialog-head"><div><h2 id="import-title">Загрузить отчёт XLSX</h2><p>Сначала проверьте состав файла, затем отдельно подтвердите импорт.</p></div><button class="icon-button" id="close-import" type="button" aria-label="Закрыть окно загрузки">×</button></div>
@@ -551,7 +538,6 @@
       <div class="data-tools-body" id="data-tools-content"></div>
     </section>
   </div>
-  <script src="{{ url_for('static', filename='ministry_debt_chart.js') }}"></script>
   <script src="{{ url_for('static', filename='ministry_topbar.js') }}"></script>
   <script src="{{ url_for('static', filename='ministry_dashboard.js') }}"></script>
 </body>
