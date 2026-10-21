@@ -42,7 +42,6 @@ _overload_suppressed = 0
 def _admin_api_auth_shape():
     """Не допускает HTML redirect со служебных административных API."""
     # These independent pilot models are outside the OSV safety snapshot.
-    g.skip_durable_backup = True
     if (request.path.startswith('/settings/1c/') and
             not current_user.is_authenticated):
         return _admin_error('Требуется вход администратора', 401)
@@ -413,7 +412,6 @@ def _render_snapshot(channel, offset, limit, column_offset, column_limit):
 
 @bp.post('/api/1c/push/<int:channel_id>')
 def push(channel_id):
-    g.skip_durable_backup = True
     if not _preauth_allowed():
         _sample_global_overload(request.content_length or 0)
         return _machine_error('Слишком много запросов', 429)

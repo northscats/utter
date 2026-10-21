@@ -114,7 +114,7 @@ def _read_startup_state(worker_pid):
 
 
 def _worker_is_starting(server, worker_pid):
-    """Return whether a worker is within its bounded restore window."""
+    """Return whether a worker is within its bounded startup window."""
     state = _read_startup_state(worker_pid)
     if not state or state.get('status') != 'starting':
         return False
@@ -325,20 +325,18 @@ def when_ready(server):
 def post_fork(server, worker):
     """Called in each worker process after forking from the master.
 
-    Start all database and App Storage work outside Gunicorn's post-fork path.
-    The worker can therefore answer /healthz while schema checks or recovery
-    are slow. Flask's startup gate keeps business routes closed until init_db
-    has established whether the live PostgreSQL database is safe to serve.
-    IMAP starts only after durable recovery ends.
+    Start database initialization outside Gunicorn's post-fork path so the
+    worker can answer /healthz while schema checks and business reconciliation
+    run. IMAP starts only after application startup completes.
     """
     import threading, time, sys
     sys.path.insert(0, os.path.dirname(__file__))
 
-    from app import app, init_db, _finish_durable_startup, _ensure_imap_thread
+    from app import app, init_db, _finish_application_startup, _ensure_imap_thread
 
     _write_startup_state(worker.pid, 'starting')
-    app.config['DURABLE_STARTUP_READY'] = False
-    app.config['DURABLE_STARTUP_FAILED'] = False
+    app.config['APPLICATION_STARTUP_READY'] = False
+    app.config['APPLICATION_STARTUP_FAILED'] = False
 
     def finish_startup():
         try:
@@ -346,9 +344,9 @@ def post_fork(server, worker):
                 schema_started_at = time.monotonic()
                 try:
                     server.log.info(
-                        f'[worker {worker.pid}] durable startup stage started: '
+                        f'[worker {worker.pid}] application startup schema started: '
                         f'schema (attempt {attempt + 1}/10)')
-                    init_db(perform_durable=False)
+                    init_db(complete_startup=False)
                     server.log.info(
                         f'[worker {worker.pid}] DB ready after '
                         f'{time.monotonic() - schema_started_at:.1f}s')
@@ -361,20 +359,17 @@ def post_fork(server, worker):
                     if attempt == 9:
                         raise
                     time.sleep(2)
-            deployed = os.environ.get('REPLIT_DEPLOYMENT', '').strip().lower()
-            restore = deployed in ('1', 'true')
-            if not _finish_durable_startup(restore=restore):
+            if not _finish_application_startup():
                 raise RuntimeError(
-                    'durable startup did not acquire its startup lock')
+                    'application startup did not acquire its startup lock')
             _write_startup_state(worker.pid, 'ready')
             _ensure_imap_thread()
             server.log.info(
-                f'[worker {worker.pid}] durable startup ready '
-                f'(restore={"enabled" if restore else "development-skip"}), '
+                f'[worker {worker.pid}] application startup ready; '
                 'IMAP thread started')
         except Exception:
-            app.config['DURABLE_STARTUP_READY'] = False
-            app.config['DURABLE_STARTUP_FAILED'] = True
+            app.config['APPLICATION_STARTUP_READY'] = False
+            app.config['APPLICATION_STARTUP_FAILED'] = True
             _write_startup_state(worker.pid, 'failed')
             server.log.exception(
                 f'[worker {worker.pid}] background startup failed')
@@ -386,6 +381,6 @@ def post_fork(server, worker):
 
     threading.Thread(
         target=finish_startup,
-        name='durable-startup',
+        name='application-startup',
         daemon=True,
     ).start()

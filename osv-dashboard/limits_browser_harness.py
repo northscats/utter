@@ -106,8 +106,6 @@ def main():
     for directory in (application.UPLOADS, application.OUTPUT, application.DOCS_STORAGE):
         Path(directory).mkdir(parents=True, exist_ok=True)
     max_bot_config.CONFIG = root / 'private' / 'max-bot.json'
-    application._schedule_durable_safety_backup = lambda *args, **kwargs: None
-    application._schedule_limits_rotation_backup = lambda *args, **kwargs: None
     application._ensure_imap_thread = lambda: None
     max_limits.start_max_limits_worker = lambda *args, **kwargs: False
     max_limits.stop_max_limits_worker = lambda *args, **kwargs: None

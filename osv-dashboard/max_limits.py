@@ -49,8 +49,8 @@ _diagnostic_local = threading.local()
 DIAGNOSTIC_STAGES = frozenset({
     'config', 'readiness', 'ca', 'worker', 'identity', 'group', 'admins',
     'cursor_read', 'polling', 'dispatch', 'cursor_save', 'outbox', 'outbox_send',
-    'moderation', 'moderation_send', 'moderation_notice', 'backup', 'webhook_registration', 'webhook_event',
-    'webhook_dispatch', 'webhook_backup', 'webhook_unregister',
+    'moderation', 'moderation_send', 'moderation_notice', 'webhook_registration', 'webhook_event',
+    'webhook_dispatch', 'webhook_unregister',
 })
 STAGE_LABELS = dict(
     config='Настройки', readiness='Готовность базы данных', ca='Сертификаты доверия',
@@ -60,9 +60,9 @@ STAGE_LABELS = dict(
     dispatch='Обработка события', cursor_save='Сохранение позиции событий',
     outbox='Обработка очереди', outbox_send='Отправка из очереди',
     moderation='Обработка заявок', moderation_send='Отправка заявки',
-    moderation_notice='Уведомление о решении', backup='Планирование резервной копии',
+    moderation_notice='Уведомление о решении',
     webhook_registration='Регистрация webhook', webhook_event='Получение webhook',
-    webhook_dispatch='Обработка webhook', webhook_backup='Резервная копия после webhook',
+    webhook_dispatch='Обработка webhook',
     webhook_unregister='Отключение webhook')
 STATE_LABELS = dict(running='Выполняется', ok='Успешно', error='Ошибка')
 ERROR_LABELS = dict(
@@ -209,7 +209,7 @@ def diagnostic_check(application):
                 or (requires_webhook() and not url) or (url and not valid_webhook_url(url))):
             raise DiagnosticFailure('configuration')
     def readiness():
-        if not application.config.get('DURABLE_STARTUP_READY'):
+        if not application.config.get('APPLICATION_STARTUP_READY'):
             raise DiagnosticFailure('not_ready')
         try:
             db.session.execute(text('SELECT 1'))
@@ -702,7 +702,7 @@ def _dispatch_update_active(token, update, api_call=None):
 
 
 @serialized
-def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None):
+def drain_outbox(api_call=None, limit=20, generation=None):
     api_call = api_call or max_api
     config = bot_config.read()
     if (not config.get('enabled') or not config.get('token')
@@ -719,8 +719,6 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
             {'cancelled_at': utcnow()}, synchronize_session=False)
     if cancelled:
         db.session.commit()
-        if on_state_change:
-            on_state_change()
     items = (MaxLimitsOutbox.query.filter(
         MaxLimitsOutbox.delivered_at.is_(None),
         MaxLimitsOutbox.cancelled_at.is_(None),
@@ -732,8 +730,6 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
         if (version is None or version.id != selected_version_id()):
             item.cancelled_at = utcnow()
             db.session.commit()
-            if on_state_change:
-                on_state_change()
             continue
         token = config['token']
         if not bot_config.active(token) or (generation is not None
@@ -774,8 +770,6 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
         if message is None:
             item.cancelled_at = utcnow()
             db.session.commit()
-            if on_state_change:
-                on_state_change()
             continue
         try:
             from max_registration import MENU
@@ -790,16 +784,12 @@ def drain_outbox(api_call=None, limit=20, on_state_change=None, generation=None)
                 delay = min(21600, 30 * (2 ** min(current.attempts - 1, 10)))
                 current.next_attempt_at = utcnow() + timedelta(seconds=delay)
                 db.session.commit()
-                if on_state_change:
-                    on_state_change()
             continue
         current = db.session.get(MaxLimitsOutbox, item.id)
         if current:
             current.delivered_at = utcnow()
             db.session.commit()
             sent += 1
-            if on_state_change:
-                on_state_change()
     return sent
 
 
@@ -815,58 +805,43 @@ def _worker_loop(application, token, generation):
             with application.app_context():
                 if not identified:
                     username = _verify_group(token, bot_config.read()['group_id'])
-                changed = [False]
-                try:
-                    cursor = _staged_call('cursor_read', db.session.get, MaxLimitsCursor, 1)
-                    params = {'timeout': 20, 'types': (
-                        'bot_started,bot_stopped,dialog_removed,message_created,message_callback')}
-                    if cursor and cursor.marker is not None:
-                        params['marker'] = cursor.marker
-                    with diagnostic_stage('polling'):
-                        batch = max_api(token, 'GET', '/updates', params, timeout=30)
-                        updates = batch.get('updates', [])
-                        marker = batch.get('marker')
-                        if not isinstance(updates, list) or not isinstance(marker, (int, type(None))):
-                            raise ValueError('Invalid MAX update batch')
-                    if not identified:
-                        _assert_active(token, generation)
-                        _connected_token = token
-                        _connected_generation = generation
-                        _last_error = False
-                        identified = True
-                        _logger.info('MAX polling API verified; processing batch')
-                    for update in updates:
-                        if not _generation_active(token, generation):
-                            break
-                        _staged_call('dispatch', dispatch_update, token, update, generation=generation)
-                        changed[0] = True
+                cursor = _staged_call('cursor_read', db.session.get, MaxLimitsCursor, 1)
+                params = {'timeout': 20, 'types': (
+                    'bot_started,bot_stopped,dialog_removed,message_created,message_callback')}
+                if cursor and cursor.marker is not None:
+                    params['marker'] = cursor.marker
+                with diagnostic_stage('polling'):
+                    batch = max_api(token, 'GET', '/updates', params, timeout=30)
+                    updates = batch.get('updates', [])
+                    marker = batch.get('marker')
+                    if not isinstance(updates, list) or not isinstance(marker, (int, type(None))):
+                        raise ValueError('Invalid MAX update batch')
+                if not identified:
                     _assert_active(token, generation)
-                    with diagnostic_stage('cursor_save'):
-                        if marker is not None and (cursor is None or cursor.marker != marker):
-                            if cursor is None:
-                                cursor = MaxLimitsCursor(id=1, marker=marker)
-                                db.session.add(cursor)
-                            else:
-                                cursor.marker = marker
-                            db.session.commit()
-                            changed[0] = True
-                    _staged_call('outbox', drain_outbox, on_state_change=lambda: changed.__setitem__(0, True),
-                                 generation=generation)
-                    from max_registration import pending_moderation
-                    if _generation_active(token, generation):
-                        with active_delivery(token, generation):
-                            _staged_call('moderation', pending_moderation, max_api, token)
-                    backoff = 2
-                finally:
-                    if changed[0]:
-                        # A backup failure must not mask the original batch error.
-                        import sys
-                        primary = sys.exc_info()[0] is not None
-                        try:
-                            _schedule_max_backup('MAX limits polling batch')
-                        except Exception:
-                            if not primary:
-                                raise
+                    _connected_token = token
+                    _connected_generation = generation
+                    _last_error = False
+                    identified = True
+                    _logger.info('MAX polling API verified; processing batch')
+                for update in updates:
+                    if not _generation_active(token, generation):
+                        break
+                    _staged_call('dispatch', dispatch_update, token, update, generation=generation)
+                _assert_active(token, generation)
+                with diagnostic_stage('cursor_save'):
+                    if marker is not None and (cursor is None or cursor.marker != marker):
+                        if cursor is None:
+                            cursor = MaxLimitsCursor(id=1, marker=marker)
+                            db.session.add(cursor)
+                        else:
+                            cursor.marker = marker
+                        db.session.commit()
+                _staged_call('outbox', drain_outbox, generation=generation)
+                from max_registration import pending_moderation
+                if _generation_active(token, generation):
+                    with active_delivery(token, generation):
+                        _staged_call('moderation', pending_moderation, max_api, token)
+                backoff = 2
         except Exception:
             _logger.warning('MAX limits polling failed; retrying with backoff')
             with application.app_context():
@@ -923,9 +898,7 @@ def _webhook_outbox_loop(application, token, url, generation):
                     _connected_generation = generation
                     _last_error = False
                     _logger.info('MAX webhook registered; inbound delivery not yet confirmed')
-                _staged_call('outbox', drain_outbox,
-                    on_state_change=lambda: _schedule_max_backup('MAX limits delivery'),
-                    generation=generation)
+                _staged_call('outbox', drain_outbox, generation=generation)
                 from max_registration import pending_moderation
                 if _generation_active(token, generation):
                     with active_delivery(token, generation):
@@ -948,11 +921,6 @@ def _webhook_outbox_loop(application, token, url, generation):
     if _connected_token == token and _connected_generation == generation:
         _connected_token = None
         _connected_generation = None
-
-
-def _schedule_max_backup(reason):
-    from app import _schedule_durable_safety_backup
-    _staged_call('backup', _schedule_durable_safety_backup, reason)
 
 
 def _unregister_webhook(token, url):
@@ -1003,7 +971,7 @@ def _run_single_worker(application, token, webhook_url, generation):
 
 def start_max_limits_worker(application):
     global _worker_thread, _worker_token, _worker_generation, _last_error
-    if application.config.get('TESTING') or not application.config.get('DURABLE_STARTUP_READY'):
+    if application.config.get('TESTING') or not application.config.get('APPLICATION_STARTUP_READY'):
         return False
     with _worker_lock:
         config = bot_config.read()

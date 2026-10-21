@@ -373,8 +373,8 @@ def _run_key_indicator_warm(company_id):
 
 
 def _schedule_key_indicator_warm_company(company_id):
-    if (not app.config.get('DURABLE_STARTUP_READY', True)
-            or app.config.get('DURABLE_STARTUP_FAILED', False)):
+    if (not app.config.get('APPLICATION_STARTUP_READY', True)
+            or app.config.get('APPLICATION_STARTUP_FAILED', False)):
         return
     with _key_indicator_warm_lock:
         _key_indicator_warm_versions[company_id] = (
@@ -460,7 +460,7 @@ def _ensure_imap_thread() -> None:
     _imap_thread.start()
 
 def _ensure_limits_recovery() -> None:
-    """Start consumers only after restore and history reconciliation."""
+    """Start consumers only after history reconciliation."""
     global _limits_recovery_started
     if app.config.get('TESTING') or not _limits_history_ready.is_set():
         return
@@ -489,20 +489,13 @@ def _ensure_limits_recovery() -> None:
 
     threading.Thread(target=work, name='limits-recovery', daemon=True).start()
 @app.before_request
-def _durable_startup_http_gate():
-    """Keep routing probes responsive while protected data is restored.
-
-    Production restores run in a background thread after Gunicorn starts
-    accepting connections.  Returning a lightweight response here prevents
-    proxy probes from occupying every HTTP thread while the database is being
-    reconciled.  Real routes are restored immediately after reconciliation;
-    a failed startup falls through to the normal recovery UI.
-    """
+def _application_startup_http_gate():
+    """Keep liveness probes responsive while schema and business state initialize."""
     if request.endpoint in ('healthz', 'healthz_watchdog_recovery', 'static'):
         return None
-    if app.config.get('DURABLE_STARTUP_READY', True):
+    if app.config.get('APPLICATION_STARTUP_READY', True):
         return None
-    if app.config.get('DURABLE_STARTUP_FAILED', False):
+    if app.config.get('APPLICATION_STARTUP_FAILED', False):
         if request.path.endswith('/key-indicators/data'):
             response = jsonify(
                 error=('Сервер не завершил запуск. Данные ФХД временно '
@@ -533,7 +526,7 @@ def _durable_startup_http_gate():
             },
         )
     return Response(
-        'Приложение запускается. Повторите запрос после завершения восстановления.',
+        'Приложение запускается. Повторите запрос после инициализации.',
         status=503,
         mimetype='text/plain',
         headers={'Retry-After': '5'},
@@ -3651,9 +3644,6 @@ def company_upload_all(company_id):
         daemon=True,
     ).start()
 
-    # Долговечные снимки делает сам worker после сохранения строк и итоговой
-    # загрузки. Не блокируем быстрый ответ браузеру общим after_request backup.
-    g.durable_backup_done = True
     return redirect(url_for('company_detail', company_id=company_id, job=job_id))
 
 
@@ -5430,46 +5420,9 @@ def coverage_data_delete(company_id):
     company.osv_source_revision = (
         f'delete:{mode}:{int(time.time())}')
     db.session.commit()
-    try:
-        backup_result = _durable_backup(
-            'удаление исходных ОСВ: ожидание файловой очистки',
-            allow_removals=True, required=True)
-        if (backup_result is not None
-                and not (backup_result.get('promoted')
-                         or backup_result.get('superseded'))):
-            raise RuntimeError('durable snapshot was not promoted')
-    except Exception:
-        app.logger.exception(
-            'Не удалось долговечно зафиксировать удаление исходных ОСВ')
-        return jsonify(
-            ok=False,
-            error=('Удаление исключено из аналитики, но долговечная фиксация '
-                   'очистки не завершена. Повторите операцию позже.'),
-            deleted_rows=deleted_rows,
-            deleted_files=0,
-            cleanup_pending=OsvSourceCleanup.query.filter_by(
-                company_id=company.id, status='pending').count(),
-        ), 503
     cleanup_result = _retry_pending_osv_source_cleanup(
         company_id=company.id, limit=max(len(cleanup_paths), 1))
     deleted_files = cleanup_result['completed']
-    if deleted_files:
-        try:
-            _durable_backup(
-                'удаление исходных ОСВ: очистка завершена',
-                allow_removals=True, required=True)
-        except Exception:
-            app.logger.exception(
-                'Не удалось долговечно зафиксировать завершение очистки ОСВ')
-            return jsonify(
-                ok=False,
-                error=('Файл удалён, но долговечная фиксация завершения '
-                       'очистки не удалась. Повтор безопасен.'),
-                deleted_rows=deleted_rows,
-                deleted_files=deleted_files,
-                cleanup_pending=OsvSourceCleanup.query.filter_by(
-                    company_id=company.id, status='pending').count(),
-            ), 503
     cleanup_pending = OsvSourceCleanup.query.filter_by(
         company_id=company.id, status='pending').count()
     log_event('coverage_data_deleted', {
@@ -5536,7 +5489,6 @@ def company_regen(company_id):
             f.write(html)
         _save_kpi_cache(dataset, out_dir)
         log_event('dashboard_regen', {'company_id': company_id})
-        _durable_backup('пересборка дашборда')
     return redirect(url_for('company_detail', company_id=company_id))
 
 
@@ -5652,11 +5604,7 @@ def _snapshot_changes(company, normalized):
 def directory_companies():
     if current_user.is_admin:
         _retry_pending_company_storage_cleanup()
-        cleanup_result = _retry_pending_osv_source_cleanup()
-        if cleanup_result['completed']:
-            _durable_backup(
-                'повтор очистки исходных ОСВ администратором',
-                allow_removals=True)
+        _retry_pending_osv_source_cleanup()
     q = request.args.get('q', '').strip()[:200]
     status_filter = request.args.get('status', 'active').strip()
     fill_filter = request.args.get('fill', '').strip()
@@ -6221,7 +6169,6 @@ def directory_company_delete(company_id):
     except Exception:
         db.session.rollback()
         storage_errors = storage_errors or ['audit_status_update_failed']
-    _durable_backup('полное удаление предприятия', allow_removals=True)
     return redirect(url_for(
         'directory_companies', deleted='1',
         cleanup='pending' if storage_errors else None))
@@ -7231,8 +7178,8 @@ def _ensure_user_password_columns():
             "WHERE password_change_required IS NULL"))
 
 
-def _ensure_initial_admin_after_restore():
-    """Create the bootstrap account only after durable recovery has settled."""
+def _ensure_initial_admin():
+    """Create the bootstrap account when the external database is empty."""
     if User.query.first():
         return False
     # Keep compatibility with the original Replit environment key while the
@@ -7284,13 +7231,8 @@ def _purge_retired_module_grants():
     return removed
 
 
-def init_db(perform_durable=True):
-    """Prepare the database, optionally including slow App Storage recovery.
-
-    Gunicorn runs the schema/migrations synchronously, then performs the
-    additive durable restore and startup snapshot in one background thread.
-    CLI and deployment entrypoints keep the safer all-in-one default.
-    """
+def init_db(complete_startup=True):
+    """Create or migrate the application schema in its authoritative database."""
     with app.app_context():
         db.create_all()
         from analog_monthly_indices import seed_monthly_indices
@@ -7299,15 +7241,10 @@ def init_db(perform_durable=True):
         migrate_max_limits_schema()
         _purge_retired_module_grants()
         # Limits tables are additive and may predate the current model set.
-        # Complete this migration before durable restore reads restored rows.
         from limits_schema import migrate_limits_schema
         migrate_limits_schema()
-        # User is part of the durable restore set; make its additive columns
-        # available before restore queries the model on an old database.
+        # Make password columns available before auth routes are served.
         _ensure_user_password_columns()
-        # Миграции must complete before durable restore so restored rows are
-        # read with the current schema. Bootstrap is deliberately later still:
-        # a restored original user always wins over an initial admin.
         # Миграция: новые колонки парсера документов и ИИ-провайдера.
         # Диалектобезопасно: колонки добавляются только если их нет
         # (инспекция схемы вместо IF NOT EXISTS — работает и на SQLite).
@@ -7865,148 +7802,56 @@ def init_db(perform_durable=True):
                 _conn3.commit()
         except Exception:
             pass
-        # A restored setting is not proof that this process has reconciled
-        # the history window. Keep consumers stopped until restore/reconcile.
+        # Keep limits consumers stopped until their persisted history is checked.
         _limits_history_ready.clear()
-        Setting.set('limits_history_ready', 'restoring')
+        Setting.set('limits_history_ready', 'reconciling')
         db.session.commit()
-        if not perform_durable:
-            # Gunicorn completes recovery and bootstrap in its background
-            # startup phase after this schema-only step.
-            # Tests intentionally call the schema-only path without starting
-            # Gunicorn's background thread. Keep normal route/auth assertions
-            # meaningful there; production remains gated until reconcile.
+        if not complete_startup:
             if app.config.get('TESTING'):
                 _limits_history_ready.set()
                 Setting.set('limits_history_ready', 'ready')
                 db.session.commit()
-                cleanup_result = _retry_pending_osv_source_cleanup()
-                if cleanup_result['completed']:
-                    _durable_backup(
-                        'повтор очистки исходных ОСВ после запуска',
-                        allow_removals=True)
-                app.config['DURABLE_STARTUP_READY'] = True
+                _retry_pending_osv_source_cleanup()
+                app.config['APPLICATION_STARTUP_READY'] = True
             else:
-                app.config['DURABLE_STARTUP_READY'] = False
-            app.config['DURABLE_STARTUP_FAILED'] = False
+                app.config['APPLICATION_STARTUP_READY'] = False
+            app.config['APPLICATION_STARTUP_FAILED'] = False
             return
-        _finish_durable_startup(restore=True)
+        _finish_application_startup()
 
-def _run_post_startup_backup(limit_cleanup):
-    """Persist a safety snapshot without extending deployment readiness."""
-    with app.app_context():
-        try:
-            app.logger.info('post-startup backup started')
-            from durable_data import has_snapshot
-            if Setting.get('limits_tombstones_external_pending') == '1':
-                try:
-                    from durable_data import backup_limit_tombstones
-                    backup_limit_tombstones(db)
-                    Setting.set('limits_tombstones_external_pending', '0')
-                    Setting.set('limits_tombstone_backup_error', '')
-                    db.session.commit()
-                except Exception as exc:
-                    db.session.rollback()
-                    Setting.set('limits_tombstone_backup_error', str(exc))
-                    db.session.commit()
-            result = _durable_backup(
-                'очистка лимитов после запуска' if limit_cleanup else
-                'первичный снимок после запуска',
-                required=not has_snapshot(),
-                allowed_removed_tables=(
-                    'limit_versions', 'limit_row_snapshots',
-                    'limit_comparisons', 'limit_comparison_resolutions',
-                    'limit_changes',
-                ) if limit_cleanup else ())
-            if limit_cleanup and result and result.get('promoted'):
-                Setting.set('limits_rotation_needs_backup', '0')
-                db.session.commit()
-            app.logger.info('post-startup backup completed')
-        except Exception:
-            db.session.rollback()
-            app.logger.exception(
-                'post-startup backup failed without closing application access')
-
-
-def _finish_durable_startup(restore=False):
-    """Complete startup once; persist a retryable, non-sensitive failure state."""
+def _finish_application_startup():
+    """Reconcile persisted business state and start runtime services."""
     if not _limits_startup_lock.acquire(blocking=False):
         return False
-    stage = 'restore'
+    stage = 'bootstrap'
     started_at = time.monotonic()
-    app.logger.info(
-        'durable startup started (restore=%s)', 'enabled' if restore else 'skip')
+    app.logger.info('application startup started')
     try:
         with app.app_context():
             _limits_history_ready.clear()
-            serve_live_database = (
-                restore and _database_can_serve_during_restore())
-            app.config['DURABLE_STARTUP_READY'] = serve_live_database
-            app.config['DURABLE_STARTUP_FAILED'] = False
-            Setting.set('limits_history_ready', 'restoring')
+            app.config['APPLICATION_STARTUP_READY'] = False
+            app.config['APPLICATION_STARTUP_FAILED'] = False
+            Setting.set('limits_history_ready', 'reconciling')
             Setting.set('limits_startup_error', '')
             db.session.commit()
-            if serve_live_database:
-                app.logger.warning(
-                    'durable restore continues in background while the '
-                    'populated PostgreSQL database serves application routes')
-            if restore:
-                app.logger.info('durable startup stage started: restore')
-                def database_restored():
-                    if not serve_live_database:
-                        return
-                    app.logger.info(
-                        'durable startup priority stage started: limits')
-                    _reconcile_limits_after_restore()
-                    if Setting.get('limits_history_ready') == 'ready':
-                        _ensure_limits_recovery()
-                    app.logger.info(
-                        'durable startup priority stage completed: limits')
-
-                if not _durable_restore(after_database=database_restored):
-                    raise RuntimeError(
-                        'Durable restore failed; bootstrap was not attempted')
-                _ensure_initial_admin_after_restore()
-                app.logger.info('durable startup stage completed: restore')
+            _ensure_initial_admin()
             stage = 'reconcile'
-            app.logger.info('durable startup stage started: reconcile')
-            from analog_monthly_indices import seed_monthly_indices
-            seed_monthly_indices()
+            app.logger.info('application startup stage started: reconcile')
             _import_bundled_mup_kgh_account55()
-            _reconcile_limits_after_restore()
-            cleanup_result = _retry_pending_osv_source_cleanup()
-            if cleanup_result['completed']:
-                _durable_backup(
-                    'повтор очистки исходных ОСВ после восстановления',
-                    allow_removals=True)
-            app.logger.info('durable startup stage completed: reconcile')
-            # Reconciliation, not the optional safety snapshot below, owns
-            # application readiness.  Open HTTP routes before the backup so
-            # deployment probes and users are not blocked by App Storage I/O.
+            _reconcile_limits_on_startup()
+            _retry_pending_osv_source_cleanup()
+            app.logger.info('application startup stage completed: reconcile')
             if Setting.get('limits_history_ready') == 'ready':
                 _ensure_limits_recovery()
-            # Global startup succeeded even when only the limits module is
-            # blocked.  Its own gate exposes the recovery UI without hiding
-            # every unrelated application route behind the startup message.
-            app.config['DURABLE_STARTUP_READY'] = True
+            app.config['APPLICATION_STARTUP_READY'] = True
             _resume_pending_key_indicator_warms()
             if (not app.config.get('TESTING')
                     and Setting.get('limits_history_ready') == 'ready'):
                 from max_limits import start_max_limits_worker
                 start_max_limits_worker(app)
-            if not app.config.get('TESTING'):
-                limit_cleanup = Setting.get('limits_rotation_needs_backup', '') == '1'
-                threading.Thread(
-                    target=_run_post_startup_backup,
-                    args=(limit_cleanup,),
-                    name='post-startup-backup',
-                    daemon=True,
-                ).start()
-            # Reconciliation owns ready/blocked. Backups do not gate access once
-            # the restored financial history has been checked successfully.
-            app.config['DURABLE_STARTUP_FAILED'] = False
+            app.config['APPLICATION_STARTUP_FAILED'] = False
             app.logger.info(
-                'durable startup completed in %.1fs',
+                'application startup completed in %.1fs',
                 time.monotonic() - started_at)
             return True
     except Exception:
@@ -8016,16 +7861,16 @@ def _finish_durable_startup(restore=False):
             Setting.set('limits_history_ready', 'error')
             Setting.set('limits_startup_error', stage)
             db.session.commit()
-            app.config['DURABLE_STARTUP_READY'] = False
-            app.config['DURABLE_STARTUP_FAILED'] = True
+            app.config['APPLICATION_STARTUP_READY'] = False
+            app.config['APPLICATION_STARTUP_FAILED'] = True
             app.logger.exception(
-                'durable startup failed at stage %s after %.1fs',
+                'application startup failed at stage %s after %.1fs',
                 stage, time.monotonic() - started_at)
         raise
     finally:
         _limits_startup_lock.release()
 
-def _reconcile_limits_after_restore():
+def _reconcile_limits_on_startup():
     from limits_service import (cleanup_purged_files, cleanup_temporary_versions,
                                 reconcile_history_window,
                                 rename_legacy_limits_dataset)
@@ -8432,7 +8277,6 @@ def max_limits():
             flash(str(exc), 'error')
             return redirect(url_for('max_limits'))
         db.session.commit()
-        _schedule_durable_safety_backup('MAX version selection')
         flash('Версия файла для бота сохранена.', 'success')
         return redirect(url_for('max_limits'))
     version = selected_version()
@@ -8477,7 +8321,6 @@ def max_limits_diagnostics():
     if not current_user.is_admin:
         abort(403)
     from max_limits import diagnostic_check
-    g.skip_durable_backup = True
     response = jsonify(checks=diagnostic_check(app))
     response.headers['Cache-Control'] = 'no-store'
     return response
@@ -8500,7 +8343,6 @@ def max_limits_credentials():
             # save already disables on change; invalidate the live connection.
             stop_max_limits_worker(old_token=old_token)
         flash('Реквизиты сохранены. Бот не запускается при сохранении.', 'success')
-    g.skip_durable_backup = True
     return redirect(url_for('max_limits'))
 
 
@@ -8524,7 +8366,6 @@ def max_limits_start():
                       'после восстановления сервера повторите запуск.', 'error')
         except ValueError:
             flash('Сначала сохраните корректный токен и ID группы.', 'error')
-    g.skip_durable_backup = True
     return redirect(url_for('max_limits'))
 
 
@@ -8535,7 +8376,6 @@ def max_limits_stop():
         abort(403)
     from max_limits import stop_max_limits_worker
     stop_max_limits_worker()
-    g.skip_durable_backup = True
     flash('Бот остановлен. Настройки и очередь сохранены.', 'success')
     return redirect(url_for('max_limits'))
 
@@ -8558,7 +8398,6 @@ def max_limits_funding_year():
         ).update({'cancelled_at': utcnow()}, synchronize_session=False)
         Setting.set(SETTING_KEY, requested)
         db.session.commit()
-        _schedule_durable_safety_backup('MAX funding year selection')
     flash('Годы финансирования, доступные пользователям бота, сохранены.', 'success')
     return redirect(url_for('max_limits'))
 
@@ -8570,9 +8409,6 @@ def max_limits_send_changes():
         abort(403)
     if request.form.get('confirm') != 'yes':
         abort(400)
-    # The queue mutation below schedules its own safety snapshot; avoid a
-    # second snapshot from the generic POST hook.
-    g.skip_durable_backup = True
     from max_limits import status as bot_status
     if bot_status() != 'connected':
         flash('Бот MAX не подключён. Рассылка не поставлена в очередь.', 'error')
@@ -8584,7 +8420,6 @@ def max_limits_send_changes():
         flash(str(exc), 'error')
         return redirect(url_for('max_limits'))
     if users:
-        _schedule_durable_safety_backup('MAX manual limits digest')
         flash(f'Рассылка изменений поставлена в очередь: {users} получателей, '
               f'{messages} сообщений.',
               'success')
@@ -8605,7 +8440,6 @@ def max_limits_user_delete(user_id):
     from max_user_registry import remove_user
     if not remove_user(user_id):
         abort(404)
-    _schedule_durable_safety_backup('MAX user access removed')
     flash('Пользователь удалён из реестра. Доступ и подписки отключены, ожидающие отправки отменены.', 'success')
     return redirect(url_for('max_limits'))
 
@@ -8637,8 +8471,6 @@ def max_limits_webhook():
     try:
         with diagnostic_stage('webhook_dispatch', generation), active_delivery(token, generation):
             dispatch_update(token, update, generation=generation)
-        with diagnostic_stage('webhook_backup', generation):
-            _schedule_durable_safety_backup('MAX limits webhook update')
     except Exception:
         db.session.rollback()
         app.logger.warning('MAX limits webhook update failed; MAX will retry')
@@ -8653,15 +8485,8 @@ def _limit_parse_in_background(version_id):
             with app.app_context():
                 try:
                     from limits_service import process_version
-                    # Only parsing/publication consumes the parser slot. Durable
-                    # backup may wait on remote storage and must not starve the
-                    # next upload. Keep rotation-safe promotion before the usual
-                    # safety snapshot, but perform both outside this semaphore.
                     with _limits_parse_slots:
                         process_version(version_id)
-                    if Setting.get('limits_rotation_needs_backup') == '1':
-                        _schedule_limits_rotation_backup(wait=True)
-                    _schedule_durable_safety_backup(f'limits_parse:{version_id}')
                 except Exception:
                     db.session.rollback()
                     app.logger.exception('limits parser failed for version %s', version_id)
@@ -8696,27 +8521,13 @@ def _limit_parse_in_background(version_id):
 @app.route('/limit-notifications/recovery', methods=['GET', 'POST'])
 @admin_required
 def limit_history_recovery():
-    """Minimal recovery controls: never expose pre-reconciliation financial data."""
-    status = Setting.get('limits_history_ready', 'restoring')
+    """Allow administrators to retry financial-history reconciliation."""
+    status = Setting.get('limits_history_ready', 'reconciling')
     if request.method == 'POST':
-        action = request.form.get('action', 'reconcile')
-        if action == 'retry_startup':
-            try:
-                started = _finish_durable_startup(restore=True)
-            except Exception:
-                app.logger.exception('administrator limits startup retry failed')
-                flash('Восстановление не завершено. Повторите попытку позже.', 'error')
-            else:
-                if not started:
-                    flash('Восстановление уже выполняется.', 'warning')
-                elif _limits_history_ready.is_set():
-                    flash('Восстановление и проверка истории завершены.', 'success')
-                    return redirect(url_for('limit_notifications'))
+        if status == 'reconciling':
+            flash('Проверка истории уже выполняется.', 'warning')
             return redirect(url_for('limit_history_recovery'))
-        if status == 'restoring':
-            flash('Восстановление уже выполняется.', 'warning')
-            return redirect(url_for('limit_history_recovery'))
-        _reconcile_limits_after_restore()
+        _reconcile_limits_on_startup()
         if _limits_history_ready.is_set():
             _ensure_limits_recovery()
             return redirect(url_for('limit_notifications'))
@@ -8729,41 +8540,6 @@ def limit_history_recovery():
 def _limit_json_filter(value):
     from limits_views import decode
     return decode(value, {})
-
-def _schedule_limits_rotation_backup(wait=False):
-    """Promote a removal-aware durable snapshot after 10-version rotation.
-
-    A regular safety snapshot intentionally rejects table shrinkage.  Without
-    this explicit path a later restore could reintroduce an intentionally
-    purged version. HTTP callers schedule background work; the parsing worker
-    waits for promotion before queuing its ordinary safety snapshot.
-    """
-    allowed = (
-        'limit_versions', 'limit_row_snapshots', 'limit_comparisons',
-        'limit_comparison_resolutions', 'limit_changes',
-    )
-    def work():
-        with app.app_context():
-            try:
-                from durable_data import backup_limit_tombstones
-                backup_limit_tombstones(db)
-                Setting.set('limits_tombstones_external_pending', '0')
-                Setting.set('limits_tombstone_backup_error', '')
-                db.session.commit()
-            except Exception as exc:
-                db.session.rollback()
-                app.logger.exception('limits tombstone sidecar backup failed')
-                Setting.set('limits_tombstone_backup_error', str(exc))
-                db.session.commit()
-            result = _durable_backup('очистка окна 10 версий лимитов',
-                                     allowed_removed_tables=allowed)
-            if result and result.get('promoted'):
-                Setting.set('limits_rotation_needs_backup', '0')
-                db.session.commit()
-    if wait:
-        work()
-    else:
-        threading.Thread(target=work, name='limits-rotation-backup', daemon=True).start()
 
 @app.route('/limit-notifications/versions/<int:version_id>/source.xlsx')
 @login_required
@@ -8785,10 +8561,6 @@ def limit_version_accept(version_id):
     version = _limit_version_or_404(version_id)
     try:
         accept_version(version.id, current_user.id)
-        # The acceptance may have rotated an old version.  Do not let the
-        # generic safety-net write a shrink-rejecting snapshot instead.
-        g.durable_backup_done = True
-        _schedule_limits_rotation_backup()
         log_event('limits_version_accepted', {'version_id': version.id})
         flash('Версия принята. Реестр объектов обновлён.', 'success')
     except LimitsError as exc:
@@ -9086,7 +8858,6 @@ def limit_version_delete(version_id):
                 raise LimitsError(blocked)
             purge_version(version_id)
             log_event('limits_version_deleted', {'version_id': version_id, 'dataset_id': dataset_id})
-            _schedule_limits_rotation_backup()
             flash('Загрузка удалена. Исходный Excel и связанная история версии очищены; '
                   'если файл временно недоступен, очистка будет повторена автоматически.', 'success')
         except LimitsError as exc:

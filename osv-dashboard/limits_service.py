@@ -17,7 +17,7 @@ from openpyxl import Workbook
 
 from database import (
     LimitChange, LimitComparison, LimitComparisonResolution, LimitDataset,
-    LimitObject, LimitRowSnapshot, LimitVersion, LimitVersionTombstone, Setting,
+    LimitObject, LimitRowSnapshot, LimitVersion, Setting,
     AuditLog, db, utcnow,
 )
 
@@ -508,7 +508,7 @@ def accept_version(version_id, user_id):
     protected = protected_version_ids()
     removable = [row for row in accepted if row.id not in protected]
     for row in removable[:max(0, len(accepted) + 1 - MAX_HISTORY)]:
-        _purge_version_data(row, manual=False)
+        _purge_version_data(row)
     _audit_version(version, 'limits_auto_accepted', accepted_by=user_id,
                    previous_version_id=version.previous_version_id)
     from max_limits import queue_accepted_changes
@@ -520,8 +520,8 @@ def accept_version(version_id, user_id):
 
 
 @_serialized
-def purge_version(version_id, manual=True):
-    """Delete an upload, restoring the remaining current snapshot atomically."""
+def purge_version(version_id):
+    """Delete an upload and select the remaining current business version."""
     version = db.session.get(LimitVersion, version_id)
     if not version:
         return False
@@ -537,16 +537,9 @@ def purge_version(version_id, manual=True):
             LimitVersion.status == 'accepted',
             LimitVersion.id != version.id).order_by(
                 LimitVersion.accepted_at.desc(), LimitVersion.id.desc())
-        previously_deleted = {
-            row.version_id for row in LimitVersionTombstone.query.filter_by(
-                dataset_id=dataset.id).all()
-        }
-        if previously_deleted:
-            fallback_query = fallback_query.filter(
-                ~LimitVersion.id.in_(previously_deleted))
         fallback = fallback_query.first()
         dataset.current_version_id = fallback.id if fallback else None
-    tombstone = _purge_version_data(version, manual=manual)
+    _purge_version_data(version)
     if was_current:
         from collections import defaultdict
         grouped = defaultdict(list)
@@ -570,34 +563,11 @@ def purge_version(version_id, manual=True):
             elif not fallback or obj.last_seen_version_id == version_id:
                 obj.last_seen_version_id = None
     db.session.commit()
-    if tombstone is not None:
-        _publish_manual_tombstone(tombstone)
     cleanup_purged_files()
     return True
 
 
-def _publish_manual_tombstone(tombstone):
-    """Publish only the tiny full-loss safeguard, never a full backup."""
-    try:
-        from durable_data import record_limit_tombstone
-        record_limit_tombstone(
-            tombstone.version_id, tombstone.dataset_id,
-            tombstone.source_path, tombstone.source_sha256)
-        from database import Setting
-        Setting.set('limits_tombstones_external_pending', '0')
-        Setting.set('limits_tombstone_backup_error', '')
-        db.session.commit()
-    except Exception as exc:
-        # The committed DB marker still protects additive restore.  The
-        # rotation worker retries this sidecar separately before its snapshot.
-        from database import Setting
-        db.session.rollback()
-        Setting.set('limits_tombstones_external_pending', '1')
-        Setting.set('limits_tombstone_backup_error', str(exc))
-        db.session.commit()
-
-
-def _purge_version_data(version, manual=False):
+def _purge_version_data(version):
     """Delete materialisations and record filesystem intent in caller transaction."""
     if version.id in protected_version_ids():
         raise LimitsError('Версия выбрана в MAX или нужна для её отчёта. Сначала смените источник MAX.')
@@ -619,27 +589,8 @@ def _purge_version_data(version, manual=False):
     if source_path and source_path not in pending_paths:
         pending_paths.append(source_path)
     Setting.set('limits_file_cleanup_pending', _dump(pending_paths))
-    Setting.set('limits_rotation_needs_backup', '1')
-    tombstone = None
-    if manual:
-        tombstone = LimitVersionTombstone.query.filter_by(
-            version_id=version.id).first()
-        if tombstone is None:
-            tombstone = LimitVersionTombstone(
-                version_id=version.id,
-                dataset_id=version.dataset_id,
-                source_path=source_path or '',
-                source_sha256=version.sha256 or '',
-            )
-            db.session.add(tombstone)
-        else:
-            tombstone.dataset_id = version.dataset_id
-            tombstone.source_path = source_path or ''
-            tombstone.source_sha256 = version.sha256 or ''
-        Setting.set('limits_tombstones_external_pending', '1')
     db.session.delete(version)
     db.session.flush()
-    return tombstone
 
 
 @_serialized
@@ -668,7 +619,7 @@ def cleanup_temporary_versions(hours=72):
         LimitVersion.status.in_(('error', 'rejected')),
         LimitVersion.uploaded_at < cutoff).all()
     for row in candidates:
-        _purge_version_data(row, manual=False)
+        _purge_version_data(row)
     if candidates:
         db.session.commit()
         cleanup_purged_files()
@@ -691,7 +642,7 @@ def reconcile_history_window():
                                for row in accepted)
                 break
             try:
-                purge_version(candidate.id, manual=False)
+                purge_version(candidate.id)
             except LimitsError:
                 blocked.append({'dataset_id': dataset.id, 'version_id': candidate.id})
                 break

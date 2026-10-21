@@ -5,5 +5,4 @@ pnpm install --frozen-lockfile
 uv sync --frozen --inexact
 python -m py_compile \
   osv-dashboard/app.py \
-  osv-dashboard/durable_data.py \
   osv-dashboard/historical_service.py
