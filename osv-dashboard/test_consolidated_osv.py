@@ -328,7 +328,6 @@ class ConsolidatedOsvConfirmationTests(unittest.TestCase):
                 'key_indicators_service._CONTROL_SNAPSHOT_ROOT',
                 self.legacy_controls),
             patch('key_indicators_service._UPLOADED_CONTROL_ROOT', self.controls),
-            patch.object(app_module, '_durable_backup'),
         ]
         for item in self.patches:
             item.start()

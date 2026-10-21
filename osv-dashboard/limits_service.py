@@ -37,7 +37,7 @@ def _processing_error_message(exc):
 
 @contextmanager
 def _process_lock():
-    """Hold a database-wide lock across the pipeline's durable checkpoints."""
+    """Hold a database-wide lock across the pipeline's business checkpoints."""
     if getattr(_lock_state, 'held', False):
         yield
         return

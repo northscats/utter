@@ -56,10 +56,6 @@ class FakeThread:
 
 
 app_module.threading.Thread = FakeThread
-backup_calls = []
-app_module._durable_backup = lambda *args, **kwargs: backup_calls.append(
-    (args, kwargs))
-
 with app.app_context():
     admin = User.query.filter_by(role='admin').first()
     admin.password_change_required = False
@@ -94,7 +90,6 @@ response = client.post(
     content_type='multipart/form-data')
 check('свежий токен принимает multipart-загрузку',
       response.status_code == 302 and 'job=' in response.headers['Location'])
-check('ответ не ждёт резервную копию', not backup_calls)
 
 page = client.get(f'/company/{company_id}').get_data(as_text=True)
 check('форма обновляет токен перед загрузкой',

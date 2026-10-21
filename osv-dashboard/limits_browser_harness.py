@@ -86,7 +86,7 @@ def main():
     os.environ['ENCRYPTION_KEY'] = Fernet.generate_key().decode()
     os.environ['SESSION_SECRET'] = secrets.token_hex(32)
     os.environ['SCRIPT_NAME'] = ''
-    for name in ('DURABLE_BACKUP_DIR', 'INITIAL_ADMIN_PASSWORD', 'ADMIN_INITIAL_PASSWORD',
+    for name in ('INITIAL_ADMIN_PASSWORD', 'ADMIN_INITIAL_PASSWORD',
                  'MAX_BOT_TOKEN', 'MAX_LIMITS_BOT_TOKEN', 'MAX_LIMITS_WEBHOOK_URL'):
         os.environ.pop(name, None)
 

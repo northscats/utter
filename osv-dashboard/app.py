@@ -33,7 +33,7 @@ from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from functools import wraps
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import and_, event, func, inspect as sa_inspect, or_
-from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SQLAlchemySession
 
 from jobs import create_job, get_job, finish_job, fail_job
@@ -517,7 +517,7 @@ def _application_startup_http_gate():
         return response
     if request.method in ('GET', 'HEAD'):
         return Response(
-            'Приложение запускается. Восстановление и проверка данных выполняются.',
+            'Приложение запускается. Выполняются инициализация и проверка данных.',
             status=200,
             mimetype='text/plain',
             headers={
@@ -7156,7 +7156,7 @@ def users_set_companies(user_id):
 # Инициализация БД и первого пользователя
 # ---------------------------------------------------------------------------
 def _ensure_user_password_columns():
-    """Install lifecycle columns before durable restore can query User rows."""
+    """Install lifecycle columns before authentication and bootstrap queries."""
     from sqlalchemy import inspect as _inspect_password, text as _text_password
     inspector = _inspect_password(db.engine)
     existing = {column['name'] for column in inspector.get_columns('users')}
@@ -8164,7 +8164,7 @@ def limit_dataset_create():
 def limit_notifications():
     if Setting.get('limits_history_ready', 'ready') != 'ready':
         return render_template('limits_unavailable.html',
-                               detail='Восстановление проверяет окно хранения версий.'), 503
+                               detail='Проверяется окно хранения версий.'), 503
     # Snapshot before reading versions: a worker can publish and exit while
     # this request is reading its earlier, committed review checkpoint.
     with _limits_parse_threads_lock:
@@ -8228,7 +8228,7 @@ def limit_dashboard():
     if Setting.get('limits_history_ready', 'ready') != 'ready':
         return render_template(
             'limits_unavailable.html',
-            detail='Восстановление проверяет окно хранения версий.'), 503
+            detail='Проверяется окно хранения версий.'), 503
     from limits_dashboard_data import dashboard_context
     datasets = LimitDataset.query.order_by(
         LimitDataset.created_at.desc(), LimitDataset.id.desc()).all()
@@ -8719,10 +8719,10 @@ def _limits_history_gate():
     if not current_user.is_authenticated:
         return
     if not _limits_history_ready.is_set() or Setting.get('limits_history_ready') != 'ready':
-        status = Setting.get('limits_history_ready', 'restoring')
+        status = Setting.get('limits_history_ready', 'reconciling')
         details = {
-            'restoring': 'Восстановление и проверка истории выполняются.',
-            'error': 'Восстановление не завершилось. Администратор может повторить запуск.',
+            'reconciling': 'Проверка истории выполняется.',
+            'error': 'Проверка истории не завершилась. Администратор может повторить её.',
             'blocked': 'Проверка истории обнаружила конфликт, требующий решения администратора.',
         }
         return render_template('limits_unavailable.html',

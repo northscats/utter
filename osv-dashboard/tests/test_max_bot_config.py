@@ -45,7 +45,7 @@ class MaxBotConfigTests(unittest.TestCase):
             max_bot_config.save('F' * 40, '-345')
             max_bot_config.set_enabled(True)
             app = Flask(__name__)
-            app.config['DURABLE_STARTUP_READY'] = True
+            app.config['APPLICATION_STARTUP_READY'] = True
             self.assertTrue(max_limits.requires_webhook())
             with patch.object(max_limits, '_worker_thread', None):
                 self.assertFalse(max_limits.start_max_limits_worker(app))
@@ -66,7 +66,7 @@ class MaxBotConfigTests(unittest.TestCase):
             with self.subTest(webhook=bool(webhook)), tempfile.TemporaryDirectory() as root:
                 token = 'F' * 40
                 app = Flask(__name__)
-                app.config['DURABLE_STARTUP_READY'] = True
+                app.config['APPLICATION_STARTUP_READY'] = True
                 with patch.object(max_bot_config, 'CONFIG', Path(root) / 'private' / 'max-bot.json'), \
                      patch.object(max_limits, '_worker_thread', None), \
                      patch.object(max_limits, '_worker_token', None), \

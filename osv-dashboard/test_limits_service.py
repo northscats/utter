@@ -49,22 +49,6 @@ class LimitsLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-        cls.fake_tombstone_sidecar = {}
-
-        def fake_record(version_id, dataset_id, source_path='', source_sha256=''):
-            cls.fake_tombstone_sidecar[int(version_id)] = {
-                'version_id': int(version_id),
-                'dataset_id': dataset_id,
-                'source_path': source_path,
-                'source_sha256': source_sha256,
-            }
-            return list(cls.fake_tombstone_sidecar.values())
-
-        cls._tombstone_transport = patch(
-            'durable_data.record_limit_tombstone',
-            side_effect=fake_record)
-        cls._tombstone_transport.start()
-        cls.addClassCleanup(cls._tombstone_transport.stop)
         init_db()
 
     def setUp(self):

@@ -1920,27 +1920,6 @@ class LimitVersion(db.Model):
     uploader = db.relationship('User', foreign_keys=[uploaded_by], lazy=True)
     accepter = db.relationship('User', foreign_keys=[accepted_by], lazy=True)
 
-class LimitVersionTombstone(db.Model):
-    """A durable deletion marker that intentionally outlives a version row.
-
-    This table has no foreign keys to the deleted version or dataset.  A
-    manual purge writes the marker in the same transaction as the purge so an
-    older additive backup cannot recreate the version while a replacement
-    snapshot is still being promoted.
-    """
-    __tablename__ = 'limit_version_tombstones'
-    __table_args__ = (
-        db.UniqueConstraint('version_id', name='uq_limit_version_tombstone_version'),
-    )
-
-    id = db.Column(db.Integer, primary_key=True)
-    version_id = db.Column(db.Integer, nullable=False, index=True)
-    dataset_id = db.Column(db.Integer, nullable=False, index=True)
-    source_path = db.Column(db.String(1000), nullable=False, default='')
-    source_sha256 = db.Column(db.String(64), nullable=False, default='')
-    deleted_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
-
-
 class MaxLimitsSubscription(db.Model):
     """One MAX user subscribed to one limits UIN."""
     __tablename__ = 'max_limits_subscriptions'

@@ -81,7 +81,7 @@ class MinistryCabinetTests(unittest.TestCase):
     def setUpClass(cls):
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False, DADATA_DISABLED=True)
         app.config['UPLOADS'] = os.path.join(_TMP, 'uploads')
-        init_db(perform_durable=False)
+        init_db(complete_startup=False)
         with app.app_context():
             admin = User.query.filter_by(role='admin').first()
             if admin is None:

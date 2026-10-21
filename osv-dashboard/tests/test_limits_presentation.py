@@ -101,7 +101,8 @@ class LimitsPresentationTests(unittest.TestCase):
             bot = render_template('limits_max_bot.html', dataset=self.dataset,
                                   selected_version=version, ready_versions=[version],
                                   users=SimpleNamespace(pages=1, items=[], total=0),
-                                  funding_year_choices=[], funding_year_selection=None)
+                                  funding_year_choices=[], funding_year_selection=None,
+                                  bot_diagnostics=SimpleNamespace(stages=[]))
             self.assertIn('value="29" selected>#3 · file-29.xlsx', bot)
             comparison = SimpleNamespace(
                 id=101, old_version_id=25, new_version_id=29, summary_json='{}',
@@ -207,8 +208,7 @@ class LimitsPresentationTests(unittest.TestCase):
                          LimitVersion=LimitVersion, Setting=Setting,
                          _limits_parse_slots=threading.Semaphore(1),
                          _limits_parse_threads={}, _limits_parse_threads_lock=threading.Lock(),
-                         _schedule_limits_rotation_backup=Mock(),
-                         _schedule_durable_safety_backup=Mock())
+                         )
         exec(compile(ast.Module(body=[node], type_ignores=[]), 'worker', 'exec'), namespace)
         return namespace
 

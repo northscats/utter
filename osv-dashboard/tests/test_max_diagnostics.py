@@ -49,7 +49,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(SQLALCHEMY_DATABASE_URI='sqlite://',
                                SQLALCHEMY_TRACK_MODIFICATIONS=False,
-                               DURABLE_STARTUP_READY=True)
+                               APPLICATION_STARTUP_READY=True)
         db.init_app(self.app)
         self.context = self.app.app_context()
         self.context.push()
@@ -141,13 +141,11 @@ class DiagnosticsTests(unittest.TestCase):
             active[0] = False
         def sleep(delay):
             self.assertIsNone(db.session.get(MaxLimitsCursor, 1))
-        backup = Mock()
         with patch.object(m, '_generation_active', side_effect=lambda *a: active[0]), \
                 patch.object(m, 'max_api', side_effect=self.transport), \
                 patch.object(m, 'dispatch_update', side_effect=dispatch), \
                 patch.object(m, 'drain_outbox'), \
-                patch.object(m.time, 'sleep', side_effect=sleep), \
-                patch.dict(sys.modules, {'app': types.SimpleNamespace(_schedule_durable_safety_backup=backup)}):
+                patch.object(m.time, 'sleep', side_effect=sleep):
             m._worker_loop(self.app, self.config['token'], self.generation)
         self.assertEqual(calls[0], 2)
         self.assertEqual(db.session.get(MaxLimitsCursor, 1).marker, 9)
@@ -155,7 +153,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(rows['dispatch']['state'], 'ok')
         self.assertEqual(rows['cursor_save']['state'], 'ok')
 
-    def test_backup_does_not_mask_dispatch_error(self):
+    def test_dispatch_error_does_not_advance_cursor(self):
         active = [True]
         def transport(token, method, path, *args, **kwargs):
             result = self.transport(token, method, path, *args, **kwargs)
@@ -165,16 +163,13 @@ class DiagnosticsTests(unittest.TestCase):
         dispatch = Mock(side_effect=[None, TimeoutError('SECRET dispatch')])
         def sleep(delay):
             active[0] = False
-        backup = Mock(side_effect=RuntimeError('SECRET backup'))
         with patch.object(m, '_generation_active', side_effect=lambda *a: active[0]), \
                 patch.object(m, 'max_api', side_effect=transport), \
                 patch.object(m, 'dispatch_update', dispatch), \
-                patch.object(m.time, 'sleep', side_effect=sleep), \
-                patch.dict(sys.modules, {'app': types.SimpleNamespace(_schedule_durable_safety_backup=backup)}):
+                patch.object(m.time, 'sleep', side_effect=sleep):
             m._worker_loop(self.app, self.config['token'], self.generation)
         rows = {r['stage']: r for r in m.diagnostics()['stages']}
         self.assertEqual(rows['dispatch']['error'], 'timeout')
-        self.assertEqual(rows['backup']['error'], 'operation')
         self.assertIsNone(db.session.get(MaxLimitsCursor, 1))
 
     def test_webhook_registration_retry_is_not_inbound_confirmation(self):
@@ -221,7 +216,7 @@ class DiagnosticsTests(unittest.TestCase):
             if path.endswith('/admins'):
                 return {'members': []}
             return self.transport(token, method, path, *args, **kwargs)
-        self.app.config['DURABLE_STARTUP_READY'] = False
+        self.app.config['APPLICATION_STARTUP_READY'] = False
         with patch.object(m, 'max_api', side_effect=transport):
             rows = m.diagnostic_check(self.app)
         self.assertEqual(rows[-1]['error'], 'admin_required')
@@ -241,19 +236,17 @@ class DiagnosticsTests(unittest.TestCase):
         user = User()
         manager.user_loader(lambda _: user)
         csrf = CSRFProtect(self.app)
-        backup = Mock()
         namespace = dict(__name__='isolated_max_routes', app=self.app, csrf=csrf, login_required=login_required,
                          current_user=current_user, abort=abort, jsonify=jsonify,
-                         g=g, request=request, os=os, db=db,
-                         _schedule_durable_safety_backup=backup)
+                         g=g, request=request, os=os, db=db)
         exec(compile(ast.Module(body=routes, type_ignores=[]), '<isolated-max-routes>', 'exec'), namespace)
         @self.app.get('/test-csrf')
         def test_csrf():
             return generate_csrf()
-        return user, backup
+        return user
 
     def test_routes_require_admin_csrf_and_status_does_not_probe(self):
-        user, backup = self.install_routes()
+        user = self.install_routes()
         client = self.app.test_client()
         with patch.object(m, 'max_api', side_effect=self.transport) as api:
             self.assertEqual(client.get('/limit-notifications/max/status').status_code, 401)
@@ -278,35 +271,24 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(response.headers['Cache-Control'], 'no-store')
             self.assertEqual([c.args[2] for c in api.call_args_list],
                              ['/me', '/chats/-123', '/chats/-123/members/admins'])
-        backup.assert_not_called()
 
-    def test_webhook_route_distinguishes_dispatch_and_backup_failures(self):
-        _, backup = self.install_routes()
+    def test_webhook_route_reports_dispatch_failures(self):
+        self.install_routes()
         client = self.app.test_client()
         headers = {'X-Max-Bot-Api-Secret': m.webhook_secret(self.config['token'], self.app.secret_key)}
         with patch.dict(os.environ, {'MAX_LIMITS_WEBHOOK_URL': 'https://example.org/limit-notifications/max/webhook'}), \
                 patch.object(m, 'dispatch_update', side_effect=TimeoutError('SECRET')):
             self.assertEqual(client.post('/limit-notifications/max/webhook',
                                         json={}, headers=headers).status_code, 503)
-        backup.assert_not_called()
         rows = {r['stage']: r for r in m.diagnostics()['stages']}
         self.assertEqual(rows['webhook_dispatch']['error'], 'timeout')
         self.assertTrue(m.diagnostics()['inbound_confirmed'])
-        backup.side_effect = RuntimeError('SECRET backup')
-        with patch.dict(os.environ, {'MAX_LIMITS_WEBHOOK_URL': 'https://example.org/limit-notifications/max/webhook'}), \
-                patch.object(m, 'dispatch_update'):
-            self.assertEqual(client.post('/limit-notifications/max/webhook',
-                                        json={}, headers=headers).status_code, 503)
-        rows = {r['stage']: r for r in m.diagnostics()['stages']}
-        self.assertEqual(rows['webhook_dispatch']['state'], 'ok')
-        self.assertEqual(rows['webhook_backup']['error'], 'operation')
-        backup.side_effect = None
         with patch.dict(os.environ, {'MAX_LIMITS_WEBHOOK_URL': 'https://example.org/limit-notifications/max/webhook'}), \
                 patch.object(m, 'dispatch_update'):
             self.assertEqual(client.post('/limit-notifications/max/webhook',
                                         json={}, headers=headers).status_code, 200)
         rows = {r['stage']: r for r in m.diagnostics()['stages']}
-        self.assertEqual(rows['webhook_backup']['state'], 'ok')
+        self.assertEqual(rows['webhook_dispatch']['state'], 'ok')
 
     def test_ui_escapes_diagnostic_values(self):
         root = Path(__file__).resolve().parents[1] / 'templates'
@@ -335,8 +317,6 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(retry['error'], 'timeout')
             self.assertEqual(retry['timestamp'], original['timestamp'])
             self.assertTrue(retry['retrying'])
-            with self.assertRaises(RuntimeError), m.diagnostic_stage('backup', self.generation):
-                raise RuntimeError('SECRET backup')
             self.assertEqual(m.diagnostics()['stages'][0]['error'], 'timeout')
         recovered = m.diagnostics()['stages'][0]
         self.assertEqual(recovered['state'], 'ok')

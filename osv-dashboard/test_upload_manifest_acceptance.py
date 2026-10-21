@@ -28,7 +28,6 @@ os.environ.setdefault(
     "ENCRYPTION_KEY",
     "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
 )
-os.environ.pop("DURABLE_BACKUP_DIR", None)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app as app_module
@@ -46,7 +45,7 @@ from jobs import create_job, get_job
 
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-init_db(perform_durable=False)
+init_db(complete_startup=False)
 
 app_module._ensure_imap_thread = lambda: None
 app_module.UPLOADS = os.path.join(_TMP, "uploads")
@@ -110,7 +109,16 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         with app.app_context():
-            cls.admin_id = User.query.filter_by(role="admin").first().id
+            admin = User.query.filter_by(role="admin").first()
+            if admin is None:
+                admin = User(
+                    username="manifest-admin",
+                    password_hash="unused",
+                    role="admin",
+                )
+                db.session.add(admin)
+                db.session.commit()
+            cls.admin_id = admin.id
 
     def setUp(self):
         with app.app_context():
@@ -184,7 +192,6 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
             patch.object(app_module, "_dataset_accounts", return_value=["51"]),
             patch.object(app_module, "_dataset_metrics_json", return_value="{}"),
             patch.object(app_module, "_dataset_closure_status", return_value=None),
-            patch.object(app_module, "_durable_backup"),
             patch.object(app_module, "log_event"),
             patch.object(app_module.traceback, "print_exc"),
         ]
@@ -225,6 +232,7 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
         with client.session_transaction() as session:
             session["_user_id"] = str(self.admin_id)
             session["_fresh"] = True
+            session["password_version"] = 1
         return client
 
     def _configure_imap(self):
@@ -276,7 +284,6 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
                          return_value="{}"),
             patch.object(app_module, "_dataset_closure_status",
                          return_value=None),
-            patch.object(app_module, "_durable_backup"),
             patch.object(app_module, "log_event"),
         ]
 
@@ -411,7 +418,6 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
                          return_value="{}"),
             patch.object(app_module, "_dataset_closure_status",
                          return_value=None),
-            patch.object(app_module, "_durable_backup"),
             patch.object(app_module, "log_event"),
         ]
         for active in patches:
@@ -499,7 +505,6 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
                          return_value="{}"),
             patch.object(app_module, "_dataset_closure_status",
                          return_value=None),
-            patch.object(app_module, "_durable_backup"),
             patch.object(app_module, "log_event"),
         ]
         for active in patches:
@@ -720,7 +725,6 @@ class UploadManifestAcceptanceTests(unittest.TestCase):
                          return_value="{}"),
             patch.object(app_module, "_dataset_closure_status",
                          return_value=None),
-            patch.object(app_module, "_durable_backup"),
             patch.object(app_module, "log_event"),
             patch.object(app_module.traceback, "print_exc"),
         ]

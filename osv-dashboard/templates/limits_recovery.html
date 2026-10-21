@@ -1,12 +1,12 @@
 {% extends "limits_base.html" %}
-{% block title %}Восстановление лимитов{% endblock %}
+{% block title %}Проверка истории лимитов{% endblock %}
 {% block limits_content %}
 <a href="{{ url_for('limit_notifications') }}">← Назад в модуль</a>
-<h1>Восстановление после сбоя</h1>
-{% if status == 'restoring' %}
-<p>Восстановление выполняется. Дождитесь проверки истории версий.</p>
+<h1>Проверка истории лимитов</h1>
+{% if status == 'reconciling' %}
+<p>Идёт проверка истории версий. Дождитесь её завершения.</p>
 {% elif status == 'error' %}
-<p>Восстановление данных не завершилось. Повторите запуск.</p>
+<p>Проверка истории не завершилась. Повторите проверку.</p>
 {% elif status == 'blocked' %}
 <p>Проверка истории обнаружила конфликт, требующий решения администратора.</p>
 <p>{{ blocked }}</p>
@@ -20,7 +20,7 @@
 <form method="post" action="{{ url_for('limit_history_recovery') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="action" value="retry_startup">
-  <button type="submit">Повторить восстановление</button>
+  <button type="submit">Повторить проверку</button>
 </form>
 {% endif %}
 {% endblock %}

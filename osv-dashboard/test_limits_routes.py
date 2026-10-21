@@ -10,9 +10,8 @@ from unittest.mock import patch
 
 _TEMP = tempfile.TemporaryDirectory(prefix='limits_routes_')
 os.environ['DATABASE_URL'] = 'sqlite:///' + _TEMP.name + '/routes.db'
-os.environ['INITIAL_ADMIN_PASSWORD'] = 'copper meadow river lantern 2026'
+os.environ['INITIAL_ADMIN_PASSWORD'] = 'bootstrap-secret-phrase-2026'
 os.environ.setdefault('ENCRYPTION_KEY', 'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
-os.environ.pop('DURABLE_BACKUP_DIR', None)
 
 from app import (app, init_db, _ensure_limits_recovery,
                  _limits_history_ready, _sync_daily_reconciliation_alerts)
@@ -29,10 +28,6 @@ class LimitsRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-        cls._tombstone_transport = patch('durable_data.record_limit_tombstone',
-                                         return_value=[])
-        cls._tombstone_transport.start()
-        cls.addClassCleanup(cls._tombstone_transport.stop)
         init_db()
 
     def setUp(self):
@@ -92,8 +87,7 @@ class LimitsRouteTests(unittest.TestCase):
             self.assertNotIn('Telegram', response.get_data(as_text=True))
 
     def test_max_version_selection_is_saved_admin_only_and_get_is_readonly(self):
-        with patch('app._schedule_durable_safety_backup'):
-            result = self.client_admin.post('/limit-notifications/max', data={'version_id': '1'})
+        result = self.client_admin.post('/limit-notifications/max', data={'version_id': '1'})
         self.assertEqual(result.status_code, 302)
         with app.app_context():
             self.assertEqual(Setting.get('max_limits_version_id'), '1')
@@ -270,24 +264,21 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertEqual(self.client(2).post(path, data={'funding_year': 'all'}).status_code, 403)
         self.assertEqual(self.client_admin.post(
             path, data={'funding_year': 'invalid'}).status_code, 400)
-        with patch('app._schedule_durable_safety_backup'):
-            self.assertEqual(self.client_admin.post(
-                path, data={'funding_year': '2025'}).status_code, 302)
+        self.assertEqual(self.client_admin.post(
+            path, data={'funding_year': '2025'}).status_code, 302)
         with app.app_context():
             self.assertEqual(Setting.get('max_limits_min_funding_year'), '2025')
         page = self.client_admin.get('/limit-notifications/max').get_data(as_text=True)
         self.assertIn('value="2025" selected', page)
-        with patch('app._schedule_durable_safety_backup'):
-            self.assertEqual(self.client_admin.post(
-                path, data={'funding_year': 'all'}).status_code, 302)
+        self.assertEqual(self.client_admin.post(
+            path, data={'funding_year': 'all'}).status_code, 302)
         with app.app_context():
             self.assertEqual(Setting.get('max_limits_min_funding_year'), 'all')
 
     def test_max_feedback_is_shown_on_bot_page_not_overview(self):
         path = '/limit-notifications/max/funding-year'
-        with patch('app._schedule_durable_safety_backup'):
-            response = self.client_admin.post(
-                path, data={'funding_year': 'all'}, follow_redirects=True)
+        response = self.client_admin.post(
+            path, data={'funding_year': 'all'}, follow_redirects=True)
         page = response.get_data(as_text=True)
         self.assertIn('Годы финансирования, доступные пользователям бота, сохранены.', page)
         self.assertNotIn('Годы финансирования, доступные пользователям бота, сохранены.',
@@ -336,9 +327,8 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertEqual(viewer.post(url, data={'confirm': 'yes'}).status_code, 403)
         self.assertEqual(self.client_admin.get(url).status_code, 405)
         self.assertEqual(self.client_admin.post(url).status_code, 400)
-        with patch('app._schedule_durable_safety_backup'):
-            self.assertEqual(self.client_admin.post(url, data={'confirm': 'yes'}).status_code, 302)
-            self.assertEqual(self.client_admin.post(url, data={'confirm': 'yes'}).status_code, 302)
+        self.assertEqual(self.client_admin.post(url, data={'confirm': 'yes'}).status_code, 302)
+        self.assertEqual(self.client_admin.post(url, data={'confirm': 'yes'}).status_code, 302)
         with app.app_context():
             profile = db.session.get(MaxLimitsProfile, 101)
             self.assertEqual((profile.step, profile.full_name, profile.phone, profile.notice),
@@ -400,13 +390,13 @@ class LimitsRouteTests(unittest.TestCase):
                 404, self.client_admin.get(
                     '/limit-notifications/dashboard?dataset=' + value).status_code)
 
-    def test_dashboard_respects_module_access_and_restore_gate(self):
+    def test_dashboard_respects_module_access_and_reconciliation_gate(self):
         self.assertEqual(200, self.client(2).get(
             '/limit-notifications/dashboard').status_code)
         self.assertNotEqual(200, self.client(3).get(
             '/limit-notifications/dashboard').status_code)
         with app.app_context():
-            Setting.set('limits_history_ready', 'restoring')
+            Setting.set('limits_history_ready', 'reconciling')
             db.session.commit()
         self.assertEqual(503, self.client_admin.get(
             '/limit-notifications/dashboard').status_code)
@@ -512,8 +502,7 @@ class LimitsRouteTests(unittest.TestCase):
 
     def test_connected_bot_can_queue_manual_digest_without_sending_in_test(self):
         with patch('max_limits.status', return_value='connected'), \
-             patch('max_digest.prepare_digest', return_value=(2, 2)) as prepare, \
-             patch('app._schedule_durable_safety_backup') as backup:
+             patch('max_digest.prepare_digest', return_value=(2, 2)) as prepare:
             response = self.client_admin.post(
                 '/limit-notifications/max/send-changes',
                 data={'confirm': 'yes', 'run_id': 'a' * 32}, follow_redirects=True)
@@ -521,7 +510,6 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertIn('2 получателей, 2 сообщений',
                       response.get_data(as_text=True))
         prepare.assert_called_once_with(run_id='a' * 32)
-        backup.assert_called_once()
 
     def test_max_new_operations_require_csrf(self):
         app.config['WTF_CSRF_ENABLED'] = True
@@ -548,9 +536,8 @@ class LimitsRouteTests(unittest.TestCase):
         self.assertIn('/versions/1/review', response.headers['Location'])
 
     def test_delete_current_version_keeps_registry_usable(self):
-        with patch('app._schedule_limits_rotation_backup'):
-            response = self.client_admin.post(
-                '/limit-notifications/versions/1/delete', data={'confirm': 'delete'})
+        response = self.client_admin.post(
+            '/limit-notifications/versions/1/delete', data={'confirm': 'delete'})
         self.assertEqual(302, response.status_code)
         with app.app_context():
             self.assertIsNone(db.session.get(LimitVersion, 1))
@@ -640,15 +627,13 @@ class LimitsRouteTests(unittest.TestCase):
         page = self.client_admin.get('/limit-notifications/versions/1/delete')
         self.assertEqual(200, page.status_code)
         self.assertIn('Загрузка ещё обрабатывается', page.get_data(as_text=True))
-        with patch('app._schedule_limits_rotation_backup') as backup:
-            response = self.client_admin.post(
-                '/limit-notifications/versions/1/delete', data={'confirm': 'delete'})
-            backup.assert_not_called()
+        response = self.client_admin.post(
+            '/limit-notifications/versions/1/delete', data={'confirm': 'delete'})
         self.assertEqual(302, response.status_code)
         with app.app_context():
             self.assertIsNotNone(db.session.get(LimitVersion, 1))
 
-    def test_restore_gate_hides_financial_data_until_ready(self):
+    def test_reconciliation_gate_hides_financial_data_until_ready(self):
         _limits_history_ready.clear()
         try:
             self.assertEqual(503, self.client_admin.get('/limit-notifications/objects/1').status_code)

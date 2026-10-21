@@ -1,4 +1,4 @@
-"""Isolated regression: slow durable rotation must not monopolize parsing."""
+"""Isolated regression: limits parser jobs remain serialized without snapshots."""
 import io
 import os
 from pathlib import Path
@@ -10,12 +10,11 @@ from unittest.mock import patch
 
 _TEMP = tempfile.TemporaryDirectory(prefix='limits_worker_progress_')
 os.environ['DATABASE_URL'] = 'sqlite:///' + _TEMP.name + '/progress.sqlite'
-os.environ['DURABLE_BACKUP_DIR'] = _TEMP.name + '/durable'
 os.environ.setdefault('ENCRYPTION_KEY', 'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
 
 import app as application
 import max_bot_config
-from database import db, User, LimitVersion, LimitDataset, LimitRowSnapshot, Setting
+from database import db, User, LimitVersion, LimitDataset, LimitRowSnapshot
 from limits_service import process_version, resolve_upload_dataset, stage_upload
 from werkzeug.datastructures import FileStorage
 
@@ -50,49 +49,43 @@ class LimitsWorkerProgressTests(unittest.TestCase):
     def tearDown(self):
         self.config_patch.stop()
 
-    def test_blocked_rotation_does_not_block_next_parser(self):
-        backup_entered = threading.Event()
-        release_backup = threading.Event()
+    def test_parser_jobs_are_serialized_without_backup_workers(self):
+        first_entered = threading.Event()
+        release_first = threading.Event()
         second_parsed = threading.Event()
         workers = []
+        calls = [0]
 
-        def slow_backup(*args, **kwargs):
-            backup_entered.set()
-            if not release_backup.wait(10):
-                raise TimeoutError('test backup was not released')
-
-        # Use the actual service pipeline, including all existing MAX/service
-        # locks. Only the parser and expensive external backup are substituted.
-        def process(identifier):
-            result = process_version(identifier)
-            if identifier == self.ids[1]:
+        def controlled_parse(*_args, **_kwargs):
+            calls[0] += 1
+            if calls[0] == 1:
+                first_entered.set()
+                if not release_first.wait(10):
+                    raise TimeoutError('first parser was not released')
+            else:
                 second_parsed.set()
-            return result
+            return self.snapshot
 
-        with application.app.app_context():
-            Setting.set('limits_rotation_needs_backup', '1')
-            db.session.commit()
-        with patch.object(application, '_limits_parse_slots', threading.Semaphore(1)), \
-                patch.object(application, '_schedule_limits_rotation_backup', side_effect=slow_backup), \
-                patch.object(application, '_schedule_durable_safety_backup'), \
-                patch('limits_parser.parse_xlsx', return_value=self.snapshot), \
-                patch('limits_service.process_version', side_effect=process):
+        with patch('limits_parser.parse_xlsx', side_effect=controlled_parse):
             try:
                 workers.append(application._limit_parse_in_background(self.ids[0]))
-                self.assertTrue(backup_entered.wait(5), 'first upload never reached backup')
+                self.assertTrue(first_entered.wait(5), 'first upload never reached parser')
                 workers.append(application._limit_parse_in_background(self.ids[1]))
-                self.assertTrue(second_parsed.wait(5), 'rotation backup holds the parser slot')
+                self.assertFalse(
+                    second_parsed.wait(0.2),
+                    'second parser started while the first still held the slot')
+                release_first.set()
+                self.assertTrue(second_parsed.wait(5), 'second upload never reached parser')
+                for worker in workers:
+                    worker.join(10)
+                    self.assertFalse(worker.is_alive())
                 with application.app.app_context():
+                    self.assertEqual('accepted', db.session.get(LimitVersion, self.ids[0]).status)
                     self.assertEqual('accepted', db.session.get(LimitVersion, self.ids[1]).status)
-                    from durable_data import _snapshot_rows
-                    import json
-                    rows = _snapshot_rows([LimitVersion])['LimitVersion']
-                    self.assertTrue(all(json.loads(row['progress_json'])['stage'] == 'applying'
-                                        for row in rows))
                     self.assertEqual(self.ids[1], db.session.get(
                         LimitDataset, self.dataset_id).current_version_id)
             finally:
-                release_backup.set()
+                release_first.set()
                 for worker in workers:
                     worker.join(10)
                     self.assertFalse(worker.is_alive())

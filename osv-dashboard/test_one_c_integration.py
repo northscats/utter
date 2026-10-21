@@ -32,7 +32,7 @@ app.config.update(
     ONE_C_PUBLIC_BASE_URL='https://onec.test',
     ONE_C_TRUSTED_PROXY_CIDRS='127.0.0.0/8',
 )
-init_db(perform_durable=False)
+init_db(complete_startup=False)
 
 
 def envelope(rows, description=''):

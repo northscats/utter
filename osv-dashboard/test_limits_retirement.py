@@ -1,9 +1,6 @@
 """Regression checks for removing MAX without deleting financial source data."""
 from datetime import date
-from pathlib import Path
-from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
 
 from flask import Flask
 from sqlalchemy import inspect, text
@@ -11,9 +8,7 @@ from sqlalchemy import inspect, text
 from database import (Company, DailyReconciliationAlert, LimitChange,
                       LimitComparison, LimitComparisonResolution, LimitDataset,
                       LimitObject, LimitRowSnapshot, LimitVersion,
-                      LimitVersionTombstone, Setting, User, db)
-from durable_data import (COUNT_TABLES, LATEST_KEY, _active_models, _manifest_counts,
-                          _restore_json, backup, _LocalStore)
+                      Setting, User, db)
 from limits_schema import RETIRED_TABLES, migrate_limits_schema
 
 
@@ -64,8 +59,6 @@ class RetireMaxSchemaTest(unittest.TestCase):
         db.session.add(LimitChange(
             comparison_id=1, object_id=1, uin='UIN-1',
             category='limit_cost', field_key='amount'))
-        db.session.add(LimitVersionTombstone(
-            version_id=999, dataset_id=1, source_path='deleted.xlsx'))
         db.session.add(DailyReconciliationAlert(
             company_id=1, account='51', side='debit',
             period_start=date(2025, 1, 1),
@@ -73,7 +66,6 @@ class RetireMaxSchemaTest(unittest.TestCase):
             difference_cents=500))
         Setting.set('limits_max_token', 'retired')
         Setting.set('limits_bot_dataset_id', '1')
-        Setting.set('limits_rotation_needs_backup', '1')
         db.session.commit()
 
         # The legacy graph is populated, including a queued delivery and
@@ -148,61 +140,8 @@ class RetireMaxSchemaTest(unittest.TestCase):
         self.assertEqual(LimitComparison.query.one().status, 'ready')
         self.assertEqual(LimitComparisonResolution.query.one().issue_key, 'verified')
         self.assertEqual(LimitChange.query.one().field_key, 'amount')
-        self.assertEqual(LimitVersionTombstone.query.one().version_id, 999)
         self.assertIsNone(db.session.get(Setting, 'limits_max_token'))
         self.assertIsNone(db.session.get(Setting, 'limits_bot_dataset_id'))
-        self.assertEqual(Setting.get('limits_rotation_needs_backup'), '1')
-
-    def test_old_manifest_bot_counts_not_protected(self):
-        class OldRecipient:
-            __tablename__ = 'limit_recipients'
-
-        models = _active_models((LimitDataset, OldRecipient, LimitVersion))
-        self.assertEqual(models, (LimitDataset, LimitVersion, Setting))
-        self.assertNotIn('limit_recipients', COUNT_TABLES)
-        old = {'counts': {'limit_recipients': 42, 'limit_datasets': 1}}
-        self.assertEqual(_manifest_counts(old, models)['limit_datasets'], 0)
-        self.assertNotIn('limit_recipients', {
-            model.__tablename__ for model in models})
-
-        db.session.add(User(id=1, username='operator', password_hash='test'))
-        db.session.commit()
-        restored, _, conflicts = _restore_json(
-            db, {'tables': {
-                'LimitDataset': [{'id': 7, 'name': 'Recovered',
-                                  'scope': '', 'owner_id': 1}],
-                'OldRecipient': [{'id': 88, 'max_user_id': 'old'}],
-                'Setting': [{'key': 'limits_max_token', 'value': 'old-secret'}],
-            }}, (LimitDataset, OldRecipient))
-        self.assertEqual((restored, conflicts), (1, 0))
-        self.assertEqual(db.session.get(LimitDataset, 7).name, 'Recovered')
-        self.assertNotIn('limit_recipients', inspect(db.engine).get_table_names())
-        self.assertIsNone(db.session.get(Setting, 'limits_max_token'))
-
-    def test_new_backup_excludes_bot_and_keeps_financial_alert(self):
-        class OldRecipient:
-            __tablename__ = 'limit_recipients'
-
-        db.session.add(User(id=1, username='operator', password_hash='test'))
-        db.session.flush()
-        db.session.add(Company(id=1, name='Company', created_by=1))
-        db.session.add(DailyReconciliationAlert(
-            company_id=1, account='51', side='debit',
-            period_start=date(2025, 1, 1), period_end=date(2025, 1, 31),
-            difference_cents=500))
-        db.session.commit()
-        with TemporaryDirectory() as directory:
-            store = _LocalStore(directory)
-            with patch('durable_data._store', return_value=store):
-                result = backup(db, Path(directory) / 'uploads',
-                                Path(directory) / 'output',
-                                (User, Company, DailyReconciliationAlert,
-                                 OldRecipient), 'limits_retirement')
-            self.assertTrue(result['promoted'])
-            manifest = store.get_json(store.get_json(LATEST_KEY)['manifest'])
-            self.assertEqual(
-                manifest['table_row_counts']['DailyReconciliationAlert'], 1)
-            self.assertNotIn('OldRecipient', manifest['table_chunks'])
 
 
 if __name__ == '__main__':

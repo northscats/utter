@@ -22,10 +22,9 @@ _TMP = tempfile.mkdtemp(prefix='company_restore_test_')
 _STORAGE = os.path.join(_TMP, 'storage')
 os.makedirs(_STORAGE, exist_ok=True)
 os.environ['DATABASE_URL'] = f"sqlite:///{os.path.join(_TMP, 'test.db')}"
-os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'test-admin-passphrase-2026')
+os.environ.setdefault('INITIAL_ADMIN_PASSWORD', 'bootstrap-secret-phrase-2026')
 os.environ['ENCRYPTION_KEY'] = (
     'MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=')
-os.environ.pop('DURABLE_BACKUP_DIR', None)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, init_db
@@ -39,7 +38,12 @@ from directory_service import company_identity_key
 
 
 app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-init_db(perform_durable=False)
+init_db(complete_startup=False)
+with app.app_context():
+    if not User.query.filter_by(role='admin').first():
+        db.session.add(User(
+            username='restore-admin', password_hash='unused', role='admin'))
+        db.session.commit()
 
 # Do not touch real uploads/output, App Storage, or the IMAP loop.  Keep the
 # real Thread class under an alias because the concurrency check needs it.
@@ -50,7 +54,6 @@ os.makedirs(app_module.UPLOADS, exist_ok=True)
 os.makedirs(app_module.OUTPUT, exist_ok=True)
 os.makedirs(app_module.DOCS_STORAGE, exist_ok=True)
 app_module._ensure_imap_thread = lambda: None
-app_module._durable_backup = lambda *args, **kwargs: None
 
 _RealThread = threading.Thread
 worker_targets = []

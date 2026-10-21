@@ -308,28 +308,28 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                 self.client('kpi_allowed').get(self.url(self.other, data)).status_code, 403)
 
     def test_startup_gate_returns_retryable_json_for_data_route(self):
-        was_ready = self.app.config.get('DURABLE_STARTUP_READY', True)
-        was_failed = self.app.config.get('DURABLE_STARTUP_FAILED', False)
+        was_ready = self.app.config.get('APPLICATION_STARTUP_READY', True)
+        was_failed = self.app.config.get('APPLICATION_STARTUP_FAILED', False)
         self.app.config.update(
-            DURABLE_STARTUP_READY=False, DURABLE_STARTUP_FAILED=False)
+            APPLICATION_STARTUP_READY=False, APPLICATION_STARTUP_FAILED=False)
         try:
             response = self.client('kpi_allowed').get(self.url(data=True))
         finally:
             self.app.config.update(
-                DURABLE_STARTUP_READY=was_ready,
-                DURABLE_STARTUP_FAILED=was_failed)
+                APPLICATION_STARTUP_READY=was_ready,
+                APPLICATION_STARTUP_FAILED=was_failed)
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.mimetype, 'application/json')
         self.assertEqual(response.get_json()['code'], 'startup_in_progress')
         self.assertEqual(response.headers['Retry-After'], '5')
         self.app.config.update(
-            DURABLE_STARTUP_READY=False, DURABLE_STARTUP_FAILED=True)
+            APPLICATION_STARTUP_READY=False, APPLICATION_STARTUP_FAILED=True)
         try:
             failed = self.client('kpi_allowed').get(self.url(data=True))
         finally:
             self.app.config.update(
-                DURABLE_STARTUP_READY=was_ready,
-                DURABLE_STARTUP_FAILED=was_failed)
+                APPLICATION_STARTUP_READY=was_ready,
+                APPLICATION_STARTUP_FAILED=was_failed)
         self.assertEqual(failed.status_code, 503)
         self.assertEqual(failed.get_json()['code'], 'startup_failed')
         self.assertNotIn('Retry-After', failed.headers)
@@ -993,7 +993,7 @@ class KeyIndicatorRouteTests(unittest.TestCase):
                 relative_path='pending/report.xlsx').delete()
             db.session.commit()
 
-    def test_cleanup_does_not_report_success_when_durable_snapshot_fails(self):
+    def test_cleanup_uses_committed_ledger_without_app_snapshot(self):
         from database import OsvSourceCleanup
         relative_path = 'cleanup-backup-failure/osv-51.xlsx'
         with self.app.app_context():
@@ -1013,18 +1013,15 @@ class KeyIndicatorRouteTests(unittest.TestCase):
             db.session.add(upload)
             db.session.commit()
             upload_id = upload.id
-        with patch.object(
-                app_module, '_durable_backup',
-                side_effect=RuntimeError('storage unavailable')), \
-                patch.object(app_module.os, 'remove') as remove:
+        with patch.object(app_module.os, 'remove') as remove:
             response = self.client('kpi_admin').delete(
                 f'/company/{self.company}/coverage-data',
                 json={'mode': 'files', 'accounts': ['51'],
                       'source_ids': ['cleanup-backup-failure']},
             )
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.get_json()['cleanup_pending'], 1)
-        remove.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['cleanup_pending'], 0)
+        remove.assert_called_once()
         with self.app.app_context():
             OsvSourceCleanup.query.filter_by(
                 company_id=self.company, relative_path=relative_path).delete()

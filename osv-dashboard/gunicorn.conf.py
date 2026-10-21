@@ -285,7 +285,7 @@ def _watchdog_loop(server, stop_event=None):
                 if startup_logged_pid != worker_pid:
                     server.log.info(
                         '[worker %s] health probes paused during bounded '
-                        'durable startup (max %ss)',
+                        'application startup (max %ss)',
                         worker_pid, health_watchdog_max_startup_seconds)
                     startup_logged_pid = worker_pid
                 if stop_event.wait(max(health_watchdog_interval, 1)):

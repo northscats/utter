@@ -14,7 +14,6 @@ from database import (
     MaxLimitsApplication, MaxLimitsCursor, MaxLimitsOutbox, MaxLimitsProfile,
     MaxLimitsSubscription, MaxLimitsUin, Setting, User, db, utcnow,
 )
-from durable_data import COUNT_TABLES, RETIRED_LIMIT_TABLES
 import max_limits
 import max_registration
 import max_digest
@@ -723,8 +722,6 @@ class MaxLimitsTests(unittest.TestCase):
         for table in ('telegram_limits_subscriptions', 'telegram_limits_outbox',
                       'telegram_limits_cursors'):
             self.assertNotIn(table, inspect(db.engine).get_table_names())
-            self.assertIn(table, RETIRED_LIMIT_TABLES)
-        self.assertIn('max_limits_outbox', COUNT_TABLES)
 
     def test_transport_uses_api2_and_header_not_query(self):
         class Response:

@@ -45,7 +45,7 @@ class PasswordPolicyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
-        init_db(perform_durable=False)
+        init_db(complete_startup=False)
 
     def setUp(self):
         with app.app_context():
@@ -94,7 +94,7 @@ class PasswordPolicyTest(unittest.TestCase):
             legacy = User.query.filter_by(username='legacy').one()
             self.assertFalse(legacy.password_change_required)
             self.assertEqual(legacy.password_version, 1)
-        init_db(perform_durable=False)
+        init_db(complete_startup=False)
         with app.app_context():
             self.assertEqual(User.query.filter_by(username='legacy').count(), 1)
 
