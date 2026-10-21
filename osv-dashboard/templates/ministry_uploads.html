@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>Загрузки — Кабинет министерства</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='ministry_ui.css') }}">
+  <style>
+    main{max-width:1600px;margin:0 auto;padding:20px clamp(14px,3vw,36px) 38px}
+    .shell{display:grid;grid-template-columns:54px minmax(0,1fr);gap:13px;align-items:start}
+    .cabinet-nav{display:flex;flex-direction:column;align-items:center;gap:6px;width:54px;padding:6px;background:#fff;border:1px solid var(--line);border-radius:7px}
+    .cabinet-nav-item{display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:#5f7692;text-decoration:none}
+    .cabinet-nav-item svg{width:18px;height:18px}
+    .cabinet-nav-item:hover{background:#f0f5fb;color:var(--blue)}
+    .cabinet-nav-item[aria-current=page]{background:var(--blue);border-color:var(--blue);color:#fff}
+    .cabinet-nav-item:disabled{color:#a4b1c1;background:#f7f9fc}
+    .content{min-width:0}
+    .page-heading{margin:2px 0 15px}
+    h1{margin:0;color:#29435f;font-size:23px;line-height:1.2}
+    .page-heading p{margin:5px 0 0;color:var(--muted);font-size:12px}
+    .uploads-panel{overflow:hidden}
+    .panel-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid #e5ebf2}
+    .panel-head h2{margin:0;color:#29435f;font-size:14px}
+    .panel-head p{margin:4px 0 0;color:var(--muted);font-size:11px}
+    .uploads-total{color:#526c8b;font-size:11px;font-weight:650;text-align:right}
+    .uploads-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid #e9eef4;background:#f8fafc}
+    .uploads-search{width:min(420px,100%);height:38px;border:1px solid #cbd6e2;border-radius:6px;padding:0 11px;background:#fff;color:#2d4055;font-size:12px}
+    .uploads-result-count{color:#718195;font-size:10px;white-space:nowrap}
+    .uploads-status{margin:12px 16px;padding:10px 12px;border:1px solid #d7e1ec;border-radius:6px;background:#f7f9fc;color:#52677d;font-size:12px}
+    .uploads-status.error{border-color:#e6c5c0;background:#fff8f7;color:#913d35}
+    .uploads-status[hidden]{display:none}
+    .uploads-action-status{margin:12px 16px 0;padding:10px 12px;border:1px solid #d7e1ec;border-radius:6px;background:#edf3fa;color:#405c79;font-size:11px;line-height:1.45}
+    .uploads-action-status.error{border-color:#e8c7c9;background:#fbefef;color:#8a343c}
+    .uploads-list{display:grid;gap:9px;margin:0;padding:14px 16px;list-style:none}
+    .uploads-item{display:grid;grid-template-columns:150px minmax(0,1fr) minmax(180px,auto);align-items:center;gap:14px;padding:13px;border:1px solid #e1e8f0;border-radius:7px;background:#fff}
+    .uploads-date-label{display:block;margin-bottom:4px;color:#78899c;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+    .uploads-date{color:#40566d;font-size:11px}
+    .uploads-file{display:block;color:#304f72;font-size:12px;font-weight:700;overflow-wrap:anywhere}
+    .uploads-meta{margin-top:5px;color:#718195;font-size:10px;line-height:1.55;overflow-wrap:anywhere}
+    .uploads-badges{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+    .uploads-badge{padding:4px 7px;border-radius:5px;background:#edf3fa;color:#526c8b;font-size:9px;white-space:nowrap}
+    .uploads-delete{border-color:#dfc2c4;color:#913c44;background:#fff}
+    .uploads-delete:hover:not(:disabled){border-color:#bf8589;background:#fbefef;color:#7b2d35}
+    .uploads-empty{padding:34px 16px;color:var(--muted);font-size:12px;text-align:center}
+    .uploads-foot{padding:0 16px 14px;color:#718195;font-size:10px}
+    @media(max-width:900px){.uploads-item{grid-template-columns:120px minmax(0,1fr)}.uploads-badges{grid-column:2;justify-content:flex-start}}
+    @media(max-width:650px){main{padding:14px 11px 25px}.shell{grid-template-columns:1fr;gap:10px}.cabinet-nav{width:100%;flex-direction:row;justify-content:space-between;overflow-x:auto}.page-heading{margin:0 0 12px}h1{font-size:20px}.panel-head{align-items:flex-start;flex-direction:column}.uploads-total{text-align:left}.uploads-toolbar{align-items:stretch;flex-direction:column}.uploads-search{width:100%}.uploads-item{grid-template-columns:1fr;gap:8px}.uploads-badges{grid-column:auto;justify-content:flex-start}}
+  </style>
+</head>
+<body>
+  {% set topbar_variant = 'ministry' %}
+  {% include 'ministry_topbar.html' %}
+  <main>
+    <div class="shell">
+      <nav class="cabinet-nav" aria-label="Разделы кабинета Министерства">
+        <a class="cabinet-nav-item" href="{{ url_for('ministry.dashboard_desktop') }}" aria-label="Рабочий стол" title="Рабочий стол">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"/></svg>
+        </a>
+        <button class="cabinet-nav-item" type="button" disabled aria-label="Организации — скоро" title="Организации — скоро">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 21V6l8-3v18M20 21V10l-8-4M2 21h20"/></svg>
+        </button>
+        <a class="cabinet-nav-item" href="{{ url_for('ministry.uploads_page') }}" aria-label="Загрузки" title="Загрузки" aria-current="page">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2M4.2 5.2v4h4"/></svg>
+        </a>
+        <a class="cabinet-nav-item" href="{{ url_for('ministry.analytics_page') }}" aria-label="Аналитика" title="Аналитика">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 20V4M4 20h17"/><path d="m7 15 4-4 3 2 5-7"/></svg>
+        </a>
+        <button class="cabinet-nav-item" type="button" disabled aria-label="Справочники — скоро" title="Справочники — скоро">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5z"/></svg>
+        </button>
+        <button class="cabinet-nav-item" type="button" disabled aria-label="Отчёты — скоро" title="Отчёты — скоро">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 3.5h8l4 4V20H6zM9 12h6M9 15.5h6"/></svg>
+        </button>
+      </nav>
+      <section class="content" aria-labelledby="page-title">
+        <div class="page-heading">
+          <h1 id="page-title">Загрузки</h1>
+          <p>Кто, когда и какие отчёты передал в кабинет Министерства.</p>
+        </div>
+        <section class="panel uploads-panel" aria-labelledby="uploads-title">
+          <header class="panel-head">
+            <div>
+              <h2 id="uploads-title">Хронология загрузок</h2>
+              <p>Последние 100 принятых файлов — от новых к старым.</p>
+            </div>
+            <div class="uploads-total" id="uploads-total" aria-live="polite">Загружаем…</div>
+          </header>
+          <div class="uploads-toolbar">
+            <input class="uploads-search" id="uploads-search" type="search" placeholder="Поиск по файлу, поставщику, ресурсу или загрузившему" aria-label="Поиск по загрузкам">
+            <span class="uploads-result-count" id="uploads-result-count"></span>
+          </div>
+          <p class="uploads-status" id="uploads-status" role="status" aria-live="polite">Загружаем историю файлов…</p>
+          <p class="uploads-action-status" id="uploads-action-status" role="status" aria-live="polite" hidden></p>
+          <ol class="uploads-list" id="uploads-list" aria-live="polite"></ol>
+          <div class="uploads-foot">Скачивание доступно пользователям кабинета. Удаление доступно администраторам и требует подтверждения.</div>
+        </section>
+      </section>
+    </div>
+  </main>
+  <script src="{{ url_for('static', filename='ministry_topbar.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='ministry_uploads.js') }}" defer></script>
+</body>
+</html>

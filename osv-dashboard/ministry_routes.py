@@ -19,6 +19,7 @@ from flask_login import current_user, login_required
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from database import (
     AuditLog, Company, CompanyDadataSnapshot, UzterReportImport,
@@ -197,7 +198,6 @@ def _import_payload(item, *, is_latest=False):
         'dataRowCount': item.data_row_count,
         'createdAt': item.created_at.isoformat() if item.created_at else '',
         'warningCount': item.warning_count,
-        'warnings': _safe_json_array(item.warnings_json),
         'status': item.status,
         'isLatest': bool(is_latest),
     }
@@ -480,6 +480,12 @@ def dashboard_desktop():
 @_cabinet_required
 def analytics_page():
     return render_template('ministry_analytics.html')
+
+
+@ministry_bp.get('/ministry/uploads')
+@_cabinet_required
+def uploads_page():
+    return render_template('ministry_uploads.html')
 
 
 @ministry_bp.get('/ministry/api/analytics')
@@ -900,18 +906,6 @@ def dashboard_data():
         })
         serialized_rows.append(payload)
 
-    selected_imports = (
-        _history_import_query()
-        .order_by(UzterReportImport.created_at.desc(),
-                  UzterReportImport.id.desc())
-        .limit(100).all()
-    )
-    latest_ids = {
-        item.id for item in _latest_import_query().with_entities(
-            UzterReportImport.id).all()
-    }
-    history = [_import_payload(item, is_latest=item.id in latest_ids)
-               for item in selected_imports]
     observed_territories = _available_territories()
     district_options = [
         {'name': name, 'label': f'{kind.capitalize()} {name}',
@@ -955,9 +949,43 @@ def dashboard_data():
             'page': page, 'perPage': per_page, 'total': total,
             'totalPages': total_pages,
         },
-        'imports': history,
-        'permissions': {'canDeleteImports': bool(current_user.is_admin)},
         'map': _map_payload(),
+    })
+
+
+@ministry_bp.get('/ministry/api/imports')
+@_cabinet_required
+def import_history_data():
+    _retry_pending_ministry_import_file_cleanup()
+    history_query = _history_import_query()
+    total = history_query.count()
+    selected_imports = (
+        history_query
+        .options(
+            joinedload(UzterReportImport.provider),
+            joinedload(UzterReportImport.uploader),
+        )
+        .order_by(UzterReportImport.created_at.desc(),
+                  UzterReportImport.id.desc())
+        .limit(100)
+        .all()
+    )
+    selected_ids = [item.id for item in selected_imports]
+    latest_ids = {
+        item.id for item in _latest_import_query().with_entities(
+            UzterReportImport.id)
+        .filter(UzterReportImport.id.in_(selected_ids))
+        .all()
+    } if selected_ids else set()
+    history = [
+        _import_payload(item, is_latest=item.id in latest_ids)
+        for item in selected_imports
+    ]
+    return jsonify({
+        'imports': history,
+        'total': total,
+        'limit': 100,
+        'permissions': {'canDeleteImports': bool(current_user.is_admin)},
     })
 
 

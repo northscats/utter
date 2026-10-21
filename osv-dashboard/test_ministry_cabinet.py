@@ -311,13 +311,15 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertEqual(dashboard_html.count('class="cabinet-nav-item"'), 6)
         self.assertEqual(
             dashboard_html.count(
-                'class="cabinet-nav-item" type="button" disabled'), 4)
+                'class="cabinet-nav-item" type="button" disabled'), 3)
         self.assertIn('href="/ministry/desktop"', dashboard_html)
+        self.assertIn('href="/ministry/uploads"', dashboard_html)
         self.assertIn('href="/ministry/analytics"', dashboard_html)
         analytics_html = self.client.get(
             '/ministry/analytics').get_data(as_text=True)
         self.assertIn('aria-current="page"', analytics_html)
         self.assertIn('href="/ministry/desktop"', analytics_html)
+        self.assertIn('href="/ministry/uploads"', analytics_html)
         self.assertIn('id="distribution-chart"', analytics_html)
         self.assertIn('id="timeline-chart"', analytics_html)
         self.assertIn('а не подтверждённый областной итог', analytics_html)
@@ -393,9 +395,17 @@ class MinistryCabinetTests(unittest.TestCase):
         self.assertNotIn('data-widget-toggle', dashboard_html)
         self.assertNotIn('id="summary-grid"', dashboard_html)
         self.assertIn('id="data-tools-panel"', dashboard_html)
-        self.assertIn('id="open-import-history"', dashboard_html)
+        self.assertNotIn('id="open-import-history"', dashboard_html)
+        self.assertNotIn('Хронология загрузок', dashboard_html)
         self.assertIn('id="open-column-settings"', dashboard_html)
         self.assertIn('id="data-tools-backdrop"', dashboard_html)
+        uploads_html_response = self.client.get('/ministry/uploads')
+        self.assertEqual(uploads_html_response.status_code, 200)
+        uploads_html = uploads_html_response.get_data(as_text=True)
+        self.assertIn('<h1 id="page-title">Загрузки</h1>', uploads_html)
+        self.assertIn('aria-current="page"', uploads_html)
+        self.assertIn('id="uploads-search"', uploads_html)
+        self.assertIn('id="uploads-list"', uploads_html)
         self.assertIn('Детализация потребителя', dashboard_html)
         self.assertNotIn('class="metric"', dashboard_html)
         self.assertNotIn('id="monthly-chart"', dashboard_html)
@@ -540,16 +550,23 @@ class MinistryCabinetTests(unittest.TestCase):
             encoding="utf-8",
         ) as script_file:
             dashboard_js = script_file.read()
-        self.assertIn('data-delete-import', dashboard_js)
-        self.assertIn('Удалить загрузку', dashboard_js)
-        self.assertIn('window.confirm', dashboard_js)
-        self.assertIn('/ministry/import/${importId}/delete', dashboard_js)
-        self.assertIn('canDeleteImports', dashboard_js)
+        with open(
+            os.path.join(os.path.dirname(__file__), "static", "ministry_uploads.js"),
+            encoding="utf-8",
+        ) as script_file:
+            uploads_js = script_file.read()
+        self.assertNotIn('renderImportHistory', dashboard_js)
+        self.assertNotIn('data-delete-import', dashboard_js)
+        self.assertIn('data-delete-import', uploads_js)
+        self.assertIn('Удалить загрузку', uploads_js)
+        self.assertIn('window.confirm', uploads_js)
+        self.assertIn('/ministry/import/${importId}/delete', uploads_js)
+        self.assertIn('canDeleteImports', uploads_js)
         self.assertIn(
             'if (popover.parentElement !== document.body) document.body.append(popover);',
             dashboard_js,
         )
-        self.assertIn('function renderImportHistory()', dashboard_js)
+        self.assertIn('function renderHistory()', uploads_js)
         self.assertIn('function renderColumnSettings()', dashboard_js)
         self.assertIn('TABLE_COLUMN_STORAGE_KEY', dashboard_js)
         self.assertNotIn('renderSummary(', dashboard_js)
@@ -815,16 +832,17 @@ class MinistryCabinetTests(unittest.TestCase):
 
         _login(self.client, ministry)
         ministry_data = self.client.get(
-            '/ministry/api/data?month=2026-02&resource=all'
+            '/ministry/api/imports'
         ).get_json()
         self.assertFalse(ministry_data['permissions']['canDeleteImports'])
+        self.assertGreaterEqual(ministry_data['total'], len(ministry_data['imports']))
         denied_delete = self.client.post(
             f'/ministry/import/{heat_import_id}/delete')
         self.assertEqual(denied_delete.status_code, 403)
 
         _login(self.client, admin)
         admin_data = self.client.get(
-            '/ministry/api/data?month=2026-02&resource=all'
+            '/ministry/api/imports'
         ).get_json()
         self.assertTrue(admin_data['permissions']['canDeleteImports'])
         delete_response = self.client.post(
@@ -850,10 +868,12 @@ class MinistryCabinetTests(unittest.TestCase):
                 'complete')
             self.assertFalse(os.path.exists(source_path))
         remaining_history = self.client.get(
-            '/ministry/api/data?month=2026-02&resource=all'
-        ).get_json()['imports']
+            '/ministry/api/imports'
+        ).get_json()
+        self.assertEqual(remaining_history['total'], admin_data['total'] - 1)
         self.assertNotIn(
-            heat_import_id, {item['id'] for item in remaining_history})
+            heat_import_id,
+            {item['id'] for item in remaining_history['imports']})
         self.assertEqual(
             self.client.get(
                 f'/ministry/import/{heat_import_id}/file'

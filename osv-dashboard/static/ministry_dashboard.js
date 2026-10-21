@@ -11,8 +11,7 @@
     month: "", selectedDistricts: [], pendingDistricts: [],
     selectedResources: [], pendingResources: [], organizationQuery: "",
     minDebt: "", maxDebt: "",
-    leftMode: "overview", importHistory: [], canDeleteImports: false,
-    visibleColumns: null
+    leftMode: "overview", visibleColumns: null
   };
   const els = {
     month: $("#period-filter"), organizationQuery: $("#organization-filter-query"),
@@ -119,98 +118,14 @@
       renderColumnSettings();
     });
   }
-  function renderImportHistory() {
-    const list = $("#import-history-list");
-    if (!list) return;
-    const search = ($("#import-history-search").value || "").trim().toLocaleLowerCase("ru");
-    const imports = [...state.importHistory].sort((left, right) => {
-      const leftDate = Date.parse(left.createdAt || "") || 0;
-      const rightDate = Date.parse(right.createdAt || "") || 0;
-      return rightDate - leftDate || Number(right.id || 0) - Number(left.id || 0);
-    });
-    const filtered = imports.filter(item => [
-      item.file, item.owner, item.sourceSupplier, item.resource,
-      item.year, item.month, item.version
-    ].join(" ").toLocaleLowerCase("ru").includes(search));
-    const count = $("#import-history-result-count");
-    if (count) count.textContent = `Показано ${fmtNumber(filtered.length)} из ${fmtNumber(imports.length)}`;
-    list.innerHTML = filtered.length
-      ? filtered.map(item => {
-        const period = item.year && item.month
-          ? `${String(item.month).padStart(2, "0")}.${item.year}`
-          : "Период не указан";
-        const warnings = Number(item.warningCount || 0);
-        return `<li class="import-history-item">
-          <time class="import-history-date">${escapeHtml(formatDate(item.createdAt))}</time>
-          <div><span class="import-history-file">${escapeHtml(display(item.file, "Файл без имени"))}</span>
-            <div class="import-history-meta">${escapeHtml(display(item.owner))} · ${escapeHtml(period)} · ${escapeHtml(display(item.resource))}<br>Версия ${escapeHtml(display(item.version))} · строк в источнике: ${escapeHtml(fmtNumber(item.rowCount))} · строк данных: ${escapeHtml(fmtNumber(item.dataRowCount))}${item.uploader ? ` · загрузил: ${escapeHtml(item.uploader)}` : ""}</div>
-          </div>
-          <div class="import-history-badges">${item.isLatest ? '<span class="import-history-badge">Актуальная версия</span>' : ""}${warnings ? `<span class="import-history-badge">Предупреждений: ${escapeHtml(fmtNumber(warnings))}</span>` : ""}<a class="button" href="/ministry/import/${encodeURIComponent(item.id)}/file" download>Скачать</a>${state.canDeleteImports ? `<button class="button import-history-delete" type="button" data-delete-import="${Number(item.id)}" aria-label="Удалить загрузку ${escapeHtml(display(item.file, "без имени"))}" title="Удалить загрузку">Удалить загрузку</button>` : ""}</div>
-        </li>`;
-      }).join("")
-      : '<li class="empty-state">Загрузки по этому запросу не найдены.</li>';
-  }
-  async function deleteImportHistoryItem(importIdValue, button) {
-    const importId = Number(importIdValue);
-    const item = state.importHistory.find(entry => Number(entry.id) === importId);
-    if (!Number.isInteger(importId) || importId <= 0 || !item) return;
-    const currentVersionImpact = item.isLatest
-      ? "Эта версия сейчас актуальна. Если есть предыдущая версия, она станет актуальной; если её нет, данные этого отчёта исчезнут из кабинета."
-      : "Другие версии отчёта останутся без изменений.";
-    const confirmed = window.confirm(
-      `Удалить загрузку «${item.file || "Файл без имени"}»?\n\n`
-      + `Будут безвозвратно удалены ${fmtNumber(item.dataRowCount)} строк отчёта и исходный XLSX-файл.\n`
-      + `${currentVersionImpact}\n\nДействие нельзя отменить.`,
-    );
-    if (!confirmed) return;
-
-    const status = $("#import-history-action-status");
-    button.disabled = true;
-    status.hidden = false;
-    status.className = "import-history-status";
-    status.textContent = "Удаляем загрузку…";
-    try {
-      const result = await requestJson(
-        `/ministry/import/${importId}/delete`,
-        { method: "POST", headers: { "X-CSRFToken": csrfToken } },
-      );
-      state.importHistory = state.importHistory.filter(
-        entry => Number(entry.id) !== importId,
-      );
-      $("#import-history-count").textContent = fmtNumber(state.importHistory.length);
-      renderImportHistory();
-      status.className = `import-history-status${result.fileCleanupPending ? " warning" : " success"}`;
-      status.textContent = result.message || "Загрузка удалена.";
-      await loadDashboard();
-      renderImportHistory();
-    } catch (error) {
-      status.className = "import-history-status error";
-      status.textContent = `Не удалось удалить загрузку: ${error.message}`;
-      button.disabled = false;
-    }
-  }
-  function openDataTools(mode) {
+  function openDataTools() {
     state.lastFocus = document.activeElement;
-    const historyMode = mode === "history";
-    $("#data-tools-title").textContent = historyMode ? "Хронология загрузок" : "Настройка столбцов таблицы";
-    $("#data-tools-subtitle").textContent = historyMode
-      ? "Последние 100 принятых файлов — от новых к старым."
-      : "Выберите дополнительные поля, которые нужно видеть в таблице.";
-    const content = $("#data-tools-content");
-    if (historyMode) {
-      content.innerHTML = `<div class="import-history-toolbar"><input class="import-history-search" id="import-history-search" type="search" placeholder="Поиск по файлу, поставщику или ресурсу" aria-label="Поиск в истории загрузок"><span class="import-history-count" id="import-history-result-count"></span></div><div class="import-history-status" id="import-history-action-status" role="status" hidden></div><ol class="import-history-list" id="import-history-list"></ol>`;
-      renderImportHistory();
-      $("#import-history-search").addEventListener("input", renderImportHistory);
-      $("#import-history-list").addEventListener("click", event => {
-        const button = event.target.closest("[data-delete-import]");
-        if (button) void deleteImportHistoryItem(button.dataset.deleteImport, button);
-      });
-    } else {
-      renderColumnSettings();
-    }
+    $("#data-tools-title").textContent = "Настройка столбцов таблицы";
+    $("#data-tools-subtitle").textContent = "Выберите дополнительные поля, которые нужно видеть в таблице.";
+    renderColumnSettings();
     $("#data-tools-backdrop").hidden = false;
     document.body.style.overflow = "hidden";
-    const firstControl = historyMode ? $("#import-history-search") : $("[data-column-toggle]");
+    const firstControl = $("[data-column-toggle]");
     (firstControl || $(".data-tools-dialog")).focus();
   }
   function closeDataTools() {
@@ -658,10 +573,6 @@
     try {
       const data = await requestJson(`/ministry/api/data?${getParams().toString()}`);
       if (data.filters) applyFilters(data.filters);
-      state.canDeleteImports = Boolean(data.permissions?.canDeleteImports);
-      state.importHistory = Array.isArray(data.imports) ? data.imports : [];
-      $("#import-history-count").textContent = fmtNumber(state.importHistory.length);
-      if ($("#import-history-list")) renderImportHistory();
       const rows = Array.isArray(data.rows) ? data.rows : [];
       renderRows(rows, data.pagination);
       renderMap(data.map);
@@ -979,8 +890,7 @@
     $("#close-detail").addEventListener("click", closeDetail);
     $("#detail-backdrop").addEventListener("click", event => { if (event.target === event.currentTarget) closeDetail(); });
     $("#open-import").addEventListener("click", openImport);
-    $("#open-import-history").addEventListener("click", () => openDataTools("history"));
-    $("#open-column-settings").addEventListener("click", () => openDataTools("columns"));
+    $("#open-column-settings").addEventListener("click", () => openDataTools());
     $("#close-data-tools").addEventListener("click", closeDataTools);
     $("#data-tools-backdrop").addEventListener("click", event => {
       if (event.target === event.currentTarget) closeDataTools();
